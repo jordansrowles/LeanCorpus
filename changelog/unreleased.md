@@ -56,6 +56,7 @@
 - Expose immutable `SegmentDescriptor` metadata from `SegmentReader.Info` and return deep copies from `GetNrtSegments()`, so later commits cannot change an existing NRT searcher's deletion view.
 - Centralise segment file ownership so merge, deletion and recovery cleanup include vector/HNSW and deletion-generation sidecars, while pruning protects active commit and held-snapshot generations.
 - Compile query-string clauses with the analyser configured for their selected schema field.
+- Treat quoted phrases with no analysed tokens as no-clause results instead of reconstructing raw terms, returning `MatchNoDocsQuery` when no query clauses remain.
 - Preserve query-token escape metadata through wildcard, range, and phrase parsing so escaped metacharacters remain literal.
 - Preserve position lengths through legacy filter routing and cached graph replay, with independent cache clones.
 - Return `CharFilterResult` from `ICharFilter` with composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the published Rowles.Text 1.x filter API and advances the package to 2.0.0.

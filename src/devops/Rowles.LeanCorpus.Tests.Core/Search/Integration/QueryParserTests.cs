@@ -96,6 +96,25 @@ public sealed class QueryParserTests
         Assert.Equal(new[] { "quick", "brown", "fox" }, pq.Terms);
     }
 
+    [Theory(DisplayName = "Parse: Phrase with no analysed tokens returns no documents")]
+    [InlineData("\"the and\"")]
+    [InlineData("\"\"")]
+    public void Parse_AnalysedEmptyPhrase_ReturnsMatchNoDocsQuery(string queryText)
+    {
+        Assert.IsType<MatchNoDocsQuery>(_parser.Parse(queryText));
+    }
+
+    [Fact(DisplayName = "Parse: Empty analysed phrase normalises by Boolean occurrence")]
+    public void Parse_AnalysedEmptyPhrase_NormalisesByBooleanOccurrence()
+    {
+        var disjunction = Assert.IsType<BooleanQuery>(_parser.Parse("corpus OR \"the and\""));
+        var disjunctionClause = Assert.Single(disjunction.Clauses);
+        Assert.Equal(Occur.Should, disjunctionClause.Occur);
+        Assert.Equal("corpus", Assert.IsType<TermQuery>(disjunctionClause.Query).Term);
+
+        Assert.IsType<MatchNoDocsQuery>(_parser.Parse("corpus AND \"the and\""));
+    }
+
     /// <summary>
     /// Verifies the Parse: Required Term Returns Must Clause scenario.
     /// </summary>

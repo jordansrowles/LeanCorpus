@@ -215,7 +215,16 @@ public class QueryParser
         }
     }
 
-    internal Query CompileSyntax(QuerySyntax syntax) => Compile(syntax) ?? new BooleanQuery.Builder().Build();
+    internal Query CompileSyntax(QuerySyntax syntax)
+    {
+        Query? query = Compile(syntax);
+        return query switch
+        {
+            NoClauseQuery => new MatchNoDocsQuery(),
+            null => new BooleanQuery.Builder().Build(),
+            _ => query
+        };
+    }
 
     private ParsedSyntaxClause ParseExpression(List<QToken> tokens, ref int pos)
     {
@@ -577,19 +586,15 @@ public class QueryParser
         var tokens = new List<Analysis.Token>();
         var sink = new CapturingSink(tokens, this);
         ResolveFieldContext(field).QueryAnalyser.Analyse(phraseText.AsSpan(), sink);
-        return CreatePhraseExpansionFromTokens(phraseText, tokens, tokensAlreadyCounted: true);
+        return CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: true);
     }
 
     private PhraseQuerySyntaxExpansion CreatePhraseExpansionFromTokens(
-        string sourceText,
         IReadOnlyList<Analysis.Token> tokens,
         bool tokensAlreadyCounted)
     {
         if (tokens.Count == 0)
-        {
-            CountFallbackPhraseTokens(sourceText);
-            return new PhraseQuerySyntaxExpansion(sourceText.Split(' '), null, 0, 0);
-        }
+            return new PhraseQuerySyntaxExpansion(null, null, 0, 0);
 
         if (!tokensAlreadyCounted)
         {
@@ -712,7 +717,7 @@ public class QueryParser
                     "A fuzzy query analyser must not emit multi-position graph edges.", modifierOffset);
             }
 
-            var expansion = CreatePhraseExpansionFromTokens(sourceText, tokens, tokensAlreadyCounted: false);
+            var expansion = CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: false);
             return CreateSyntaxNode(new PhraseQuerySyntax(field, sourceText, 0, expansion));
         }
 
@@ -746,31 +751,6 @@ public class QueryParser
         CreateSyntaxNode(new BooleanQuerySyntax(
             queries.Select(static query => new QuerySyntaxClause(query, Occur.Should)).ToArray()));
 
-    private void CountFallbackPhraseTokens(string phraseText)
-    {
-        QueryCompilationBudget budget = GetQueryCompilationBudget();
-        string? tokenLimit = budget.TryConsumePhraseTokens(1);
-        if (tokenLimit is not null)
-            ThrowPhraseGraphLimitExceeded(tokenLimit);
-
-        int phraseTokenCount = 1;
-        foreach (char character in phraseText)
-        {
-            if (character != ' ')
-                continue;
-
-            tokenLimit = budget.TryConsumePhraseTokens(1);
-            if (tokenLimit is not null)
-                ThrowPhraseGraphLimitExceeded(tokenLimit);
-
-            phraseTokenCount++;
-        }
-
-        string? termLimit = budget.TryCompileTerms(phraseTokenCount);
-        if (termLimit is not null)
-            ThrowPhraseGraphLimitExceeded(termLimit);
-    }
-
     private void ConsumeAnalysedPhraseToken()
     {
         string? tokenLimit = GetQueryCompilationBudget().TryConsumePhraseTokens(1);
@@ -796,6 +776,8 @@ public class QueryParser
 
     private Query CompilePhraseExpansion(string field, int slop, PhraseQuerySyntaxExpansion expansion)
     {
+        if (expansion.IsNoClause)
+            return NoClauseQuery.Instance;
         if (expansion.DirectTerms is not null)
             return new PhraseQuery(field, slop, expansion.DirectTerms);
 
@@ -912,9 +894,7 @@ public class QueryParser
         TermQuerySyntax term => new TermQuery(term.Field, term.Term),
         FuzzyQuerySyntax fuzzy => CompileFuzzy(fuzzy),
         MultiTermQuerySyntax multiTerm => CompileMultiTerm(multiTerm),
-        PhraseQuerySyntax phrase => phrase.Expansion is null
-            ? BuildPhraseQuery(phrase.Field, phrase.Text, phrase.Slop)
-            : CompilePhraseExpansion(phrase.Field, phrase.Slop, phrase.Expansion),
+        PhraseQuerySyntax phrase => CompilePhrase(phrase),
         RegexpQuerySyntax regexp => CompileRegexp(regexp),
         TermRangeQuerySyntax range => CompileRange(range),
         FieldExistsQuerySyntax exists => new FieldExistsQuery(exists.Field),
@@ -923,6 +903,14 @@ public class QueryParser
         DisjunctionMaxQuerySyntax disjunction => CompileDisjunctionMax(disjunction),
         _ => throw new InvalidOperationException($"Unsupported query syntax '{syntax.GetType().Name}'.")
     };
+
+    private Query CompilePhrase(PhraseQuerySyntax phrase)
+    {
+        if (phrase.Expansion is not null)
+            return CompilePhraseExpansion(phrase.Field, phrase.Slop, phrase.Expansion);
+
+        return BuildPhraseQuery(phrase.Field, phrase.Text, phrase.Slop);
+    }
 
     private static FuzzyQuery CompileFuzzy(FuzzyQuerySyntax syntax)
     {
@@ -1000,6 +988,8 @@ public class QueryParser
     private Query? CompileBoost(BoostQuerySyntax syntax)
     {
         Query? inner = Compile(syntax.Inner);
+        if (inner is NoClauseQuery)
+            return inner;
         if (inner is null)
             return null;
         if (syntax.ConstantScore)
@@ -1012,15 +1002,24 @@ public class QueryParser
     {
         var builder = new BooleanQuery.Builder();
         int count = 0;
+        bool hasNoClause = false;
         foreach (QuerySyntaxClause clause in syntax.Clauses)
         {
             Query? query = Compile(clause.Query);
+            if (query is NoClauseQuery)
+            {
+                if (clause.Occur == Occur.Must)
+                    return NoClauseQuery.Instance;
+
+                hasNoClause = true;
+                continue;
+            }
             if (query is null)
                 continue;
             builder.Add(query, clause.Occur);
             count++;
         }
-        return count == 0 ? null : builder.Build();
+        return count > 0 ? builder.Build() : hasNoClause ? NoClauseQuery.Instance : null;
     }
 
     private Query? CompileDisjunctionMax(DisjunctionMaxQuerySyntax syntax)
@@ -1028,9 +1027,15 @@ public class QueryParser
         var disjunction = new DisjunctionMaxQuery.Builder();
         Query? only = null;
         int count = 0;
+        bool hasNoClause = false;
         foreach (QuerySyntax clause in syntax.Clauses)
         {
             Query? query = Compile(clause);
+            if (query is NoClauseQuery)
+            {
+                hasNoClause = true;
+                continue;
+            }
             if (query is null)
                 continue;
             only = query;
@@ -1039,7 +1044,7 @@ public class QueryParser
         }
         return count switch
         {
-            0 => null,
+            0 => hasNoClause ? NoClauseQuery.Instance : null,
             1 => only,
             _ => disjunction.Build()
         };
@@ -1450,6 +1455,17 @@ public class QueryParser
     }
     private readonly record struct ParsedSyntaxClause(QuerySyntax? Query, Occur Occur);
 
+    private sealed class NoClauseQuery : Query
+    {
+        public static NoClauseQuery Instance { get; } = new();
+
+        public override string Field => string.Empty;
+
+        public override bool Equals(object? obj) => obj is NoClauseQuery;
+
+        public override int GetHashCode() => CombineBoost(HashCode.Combine(nameof(NoClauseQuery)));
+    }
+
     private sealed class QueryCompilationBudget(int maximumGraphPaths)
     {
         private int _analysedPhraseTokenCount;
@@ -1547,7 +1563,10 @@ internal sealed record PhraseQuerySyntaxExpansion(
     string[]? DirectTerms,
     PhraseGraphPlan? Graph,
     int PathCount,
-    int CompiledTermCount);
+    int CompiledTermCount)
+{
+    public bool IsNoClause => DirectTerms is null && Graph is null;
+}
 internal sealed record RegexpQuerySyntax(string Field, string Pattern) : QuerySyntax;
 internal sealed record TermRangeQuerySyntax(string Field, string? LowerTerm, string? UpperTerm, bool IncludeLower, bool IncludeUpper) : QuerySyntax;
 internal sealed record FieldExistsQuerySyntax(string Field) : QuerySyntax;
