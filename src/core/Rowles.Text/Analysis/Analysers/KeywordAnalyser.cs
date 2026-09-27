@@ -3,7 +3,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// <summary>
 /// Analyser that treats the complete input as a single token.
 /// </summary>
-public sealed class KeywordAnalyser : IThreadLocalAnalyser
+public sealed class KeywordAnalyser : IThreadLocalAnalyser, ITermNormaliser
 {
     private readonly TokenTextCache _internCache;
     private readonly int _internCacheSize;
@@ -25,6 +25,19 @@ public sealed class KeywordAnalyser : IThreadLocalAnalyser
     {
         if (!input.IsEmpty)
             sink.Add(_internCache.GetOrAdd(input).AsSpan(), 0, input.Length);
+    }
+
+    /// <inheritdoc/>
+    public bool TryNormalise(ReadOnlySpan<char> input, out string normalised)
+    {
+        if (input.IsEmpty)
+        {
+            normalised = string.Empty;
+            return false;
+        }
+
+        normalised = input.ToString();
+        return true;
     }
 
 }

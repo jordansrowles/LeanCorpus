@@ -9,7 +9,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// for performance. Each instance should be used by a single thread, or callers should create
 /// separate instances per thread (as IndexWriter does in AddDocumentsConcurrent).
 /// </summary>
-public sealed class StandardAnalyser : IThreadLocalAnalyser
+public sealed class StandardAnalyser : IThreadLocalAnalyser, ITermNormaliser
 {
     private readonly Tokeniser _tokeniser = new();
     private readonly StopWordFilter _stopWordFilter;
@@ -56,6 +56,26 @@ public sealed class StandardAnalyser : IThreadLocalAnalyser
 
             sink.Add(lowerSpan, start, end);
         }
+    }
+
+    /// <inheritdoc/>
+    public bool TryNormalise(ReadOnlySpan<char> input, out string normalised)
+    {
+        _tokeniser.TokeniseOffsets(input, _offsetBuf);
+        if (_offsetBuf.Count != 1 || _offsetBuf[0].Start != 0 || _offsetBuf[0].End != input.Length)
+        {
+            normalised = string.Empty;
+            return false;
+        }
+
+        var (start, end) = _offsetBuf[0];
+        int length = end - start;
+        if (length > _lowerBuf.Length)
+            _lowerBuf = new char[Math.Max(_lowerBuf.Length * 2, length)];
+
+        AsciiCharInspector.AsciiToLower(input.Slice(start, length), _lowerBuf.AsSpan(0, length));
+        normalised = new string(_lowerBuf, 0, length);
+        return true;
     }
 
 }

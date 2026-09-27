@@ -28,6 +28,47 @@ public class StandardAnalyserTests
         Assert.Equal("live", result[0].Text);
     }
 
+    [Fact(DisplayName = "Normalise: Stop words remain available for one-to-one query normalisation")]
+    public void TryNormalise_StopWord_ReturnsLowercaseTerm()
+    {
+        ITermNormaliser normaliser = _analyser;
+
+        Assert.True(normaliser.TryNormalise("THE".AsSpan(), out string result));
+
+        Assert.Equal("the", result);
+    }
+
+    [Theory(DisplayName = "Normalise: Inputs that do not map to one complete token are rejected")]
+    [InlineData("foo-bar")]
+    [InlineData("foo!")]
+    [InlineData("")]
+    public void TryNormalise_NonSingleTokenInput_ReturnsFalse(string input)
+    {
+        ITermNormaliser normaliser = _analyser;
+
+        Assert.False(normaliser.TryNormalise(input.AsSpan(), out string result));
+
+        Assert.Equal(string.Empty, result);
+    }
+
+    [Fact(DisplayName = "Analyse: Stop-word filtering preserves following UTF-16 token metadata")]
+    public void Analyse_StopWordFilteringPreservesFollowingTokenMetadata()
+    {
+        const string input = "THE ÉCHO";
+        var sink = new MaterialisingTokenSink();
+
+        _analyser.Analyse(input, sink);
+
+        var token = Assert.Single(sink.Tokens);
+        Assert.Equal("écho", token.Text);
+        Assert.Equal(4, token.StartOffset);
+        Assert.Equal(input.Length, token.EndOffset);
+        Assert.Equal(Token.DefaultType, token.Type);
+        Assert.Equal(1, token.PositionIncrement);
+        Assert.Equal(1, token.PositionLength);
+        Assert.Null(token.Payload);
+    }
+
     /// <summary>
     /// Verifies the Analyse: Mixed Case With Stop Words Returns Lowercased Non Stop Words scenario.
     /// </summary>

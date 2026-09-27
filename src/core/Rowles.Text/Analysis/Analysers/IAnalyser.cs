@@ -5,6 +5,10 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// <summary>
 /// Analyses input text and emits span-backed tokens into the supplied sink.
 /// </summary>
+/// <remarks>
+/// Analysis may remove input, emit several tokens, or produce token-graph positions. Callers that need one
+/// value for a wildcard or range literal should use <see cref="ITermNormaliser"/> when the analyser implements it.
+/// </remarks>
 public interface IAnalyser
 {
     /// <summary>
