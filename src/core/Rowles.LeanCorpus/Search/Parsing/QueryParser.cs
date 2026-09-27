@@ -1322,11 +1322,29 @@ public class QueryParser
     internal static Func<string, string> CreateSingleTokenNormaliser(IAnalyser analyser)
     {
         ArgumentNullException.ThrowIfNull(analyser);
-        return literal =>
+        return literal => NormaliseSingleTerm(analyser, literal);
+    }
+
+    internal static string NormaliseSingleTerm(IAnalyser analyser, string literal)
+    {
+        ArgumentNullException.ThrowIfNull(analyser);
+        ArgumentNullException.ThrowIfNull(literal);
+
+        if (analyser is not ITermNormaliser normaliser)
         {
-            string analysed = AnalyseSingleToken(analyser, literal);
-            return analysed.Length == 0 ? literal : analysed;
-        };
+            throw new QueryParseException(
+                "The configured analyser does not support one-to-one term normalisation required by wildcard and range queries.",
+                0);
+        }
+
+        if (!normaliser.TryNormalise(literal.AsSpan(), out string normalised) || string.IsNullOrEmpty(normalised))
+        {
+            throw new QueryParseException(
+                "A wildcard or range literal must normalise to exactly one non-empty term.",
+                0);
+        }
+
+        return normalised;
     }
 
     internal static string NormaliseMultiTermPattern(string pattern, Func<string, string> normaliseLiteral)

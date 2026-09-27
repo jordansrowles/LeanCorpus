@@ -337,7 +337,46 @@ public sealed class QueryParserTests
 
         var exception = Assert.Throws<QueryParseException>(() => parser.Parse("foo-bar*"));
 
-        Assert.Contains("must analyse to at most one unit-length token", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("must normalise to exactly one non-empty term", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("the", Assert.IsType<PrefixQuery>(parser.Parse("THE*")).Prefix);
+    }
+
+    [Fact(DisplayName = "Parse: Analysed wildcard and range literals normalise stop words instead of restoring raw text")]
+    public void Parse_AnalysedWildcardAndRange_NormaliseStopWords()
+    {
+        var parser = new AnalysingQueryParser("body", new StandardAnalyser());
+
+        var prefix = Assert.IsType<PrefixQuery>(parser.Parse("THE*"));
+        var range = Assert.IsType<TermRangeQuery>(parser.Parse("body:[THE TO WOLF]"));
+        var fieldAwarePrefix = Assert.IsType<PrefixQuery>(CreateFieldAwareParser().Parse("THE*"));
+        var fieldAwareRange = Assert.IsType<TermRangeQuery>(CreateFieldAwareParser().Parse("body:[THE TO WOLF]"));
+
+        Assert.Equal("the", prefix.Prefix);
+        Assert.Equal("the", range.LowerTerm);
+        Assert.Equal("wolf", range.UpperTerm);
+        Assert.Equal("the", fieldAwarePrefix.Prefix);
+        Assert.Equal("the", fieldAwareRange.LowerTerm);
+        Assert.Equal("wolf", fieldAwareRange.UpperTerm);
+    }
+
+    [Fact(DisplayName = "Parse: Analysed multi-term queries require a one-to-one normaliser")]
+    public void Parse_AnalysedMultiTermWithoutNormaliser_Throws()
+    {
+        var parser = new AnalysingQueryParser("body", new DelegateAnalyser(static _ => { }));
+
+        var exception = Assert.Throws<QueryParseException>(() => parser.Parse("term*"));
+
+        Assert.Contains("one-to-one term normalisation", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "Parse: Keyword analyser preserves one-to-one multi-term behaviour")]
+    public void Parse_KeywordAnalyserNormalisesMultiTermByIdentity()
+    {
+        var parser = new AnalysingQueryParser("body", new KeywordAnalyser());
+
+        var prefix = Assert.IsType<PrefixQuery>(parser.Parse("Mixed*"));
+
+        Assert.Equal("Mixed", prefix.Prefix);
     }
 
     /// <summary>
