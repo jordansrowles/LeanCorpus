@@ -1,4 +1,6 @@
 ﻿using System.Text.Json;
+using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
 
@@ -9,6 +11,14 @@ namespace Rowles.LeanCorpus.Index.Segment;
 /// </summary>
 public sealed class SegmentInfo
 {
+    internal enum ValidationIssue
+    {
+        InvalidDocCount,
+        InvalidLiveDocCount
+    }
+
+    internal const string ValidationIssueDataKey = "Rowles.LeanCorpus.SegmentInfo.ValidationIssue";
+
     /// <summary>Gets the unique identifier for this segment (e.g. "seg_0").</summary>
     public string SegmentId { get; init; } = string.Empty;
 
@@ -97,9 +107,18 @@ public sealed class SegmentInfo
     /// <exception cref="InvalidDataException">Thrown if the file cannot be deserialised or fails validation.</exception>
     public static SegmentInfo ReadFrom(string filePath)
     {
-        var json = FileOpenRetry.ReadAllText(filePath);
-        var info = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.SegmentInfo)
-            ?? throw new InvalidDataException("Failed to deserialise segment info.");
+        string json = FileOpenRetry.ReadAllText(filePath);
+        SegmentInfo info;
+        try
+        {
+            info = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.SegmentInfo)
+                ?? throw new InvalidDataException("Failed to deserialise segment info.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"Failed to deserialise segment info from '{filePath}'.", ex);
+        }
+
         info.Validate();
         return info;
     }
@@ -141,16 +160,80 @@ public sealed class SegmentInfo
     /// </summary>
     internal void Validate()
     {
+        // ReadFrom and SegmentDescriptor share this invariant boundary so persisted and
+        // in-memory metadata cannot acquire different validation rules.
         if (string.IsNullOrEmpty(SegmentId))
             throw new InvalidDataException("Segment metadata has a null or empty SegmentId.");
+
+        if (DocCount < 0)
+            throw CreateValidationException(
+                $"Segment '{SegmentId}' has invalid DocCount={DocCount}.",
+                ValidationIssue.InvalidDocCount);
+        if (LiveDocCount < 0 || LiveDocCount > DocCount)
+            throw CreateValidationException(
+                $"Segment '{SegmentId}' has LiveDocCount={LiveDocCount}, outside [0,{DocCount}].",
+                ValidationIssue.InvalidLiveDocCount);
+        if (TotalBytes < 0)
+            throw new InvalidDataException($"Segment '{SegmentId}' has negative TotalBytes={TotalBytes}.");
+        if (CommitGeneration < 0)
+            throw new InvalidDataException($"Segment '{SegmentId}' has negative CommitGeneration={CommitGeneration}.");
+        if (DelGeneration is < 0)
+            throw new InvalidDataException($"Segment '{SegmentId}' has negative DelGeneration={DelGeneration}.");
+        if (EarliestSoftDeleteTimestamp is < 0)
+            throw new InvalidDataException($"Segment '{SegmentId}' has a negative earliest soft-delete timestamp.");
+        if (MinSequenceNumber.HasValue != MaxSequenceNumber.HasValue)
+            throw new InvalidDataException($"Segment '{SegmentId}' has an incomplete sequence-number range.");
+        if (MinSequenceNumber is long minSequenceNumber && MaxSequenceNumber is long maxSequenceNumber)
+        {
+            if (minSequenceNumber < 0 || maxSequenceNumber < 0)
+                throw new InvalidDataException($"Segment '{SegmentId}' has a negative sequence-number range [{minSequenceNumber},{maxSequenceNumber}].");
+            if (minSequenceNumber > maxSequenceNumber)
+                throw new InvalidDataException($"Segment '{SegmentId}' has MinSequenceNumber={minSequenceNumber} greater than MaxSequenceNumber={maxSequenceNumber}.");
+        }
+
         if (FieldNames is null)
             throw new InvalidDataException($"Segment '{SegmentId}' has a null FieldNames list.");
         if (VectorFields is null)
             throw new InvalidDataException($"Segment '{SegmentId}' has a null VectorFields list.");
         if (CodecBytes is null)
             throw new InvalidDataException($"Segment '{SegmentId}' has null codec byte metadata.");
+
+        foreach (var (extension, byteCount) in CodecBytes)
+        {
+            if (string.IsNullOrWhiteSpace(extension))
+                throw new InvalidDataException($"Segment '{SegmentId}' has an empty codec byte extension.");
+            if (byteCount < 0)
+                throw new InvalidDataException($"Segment '{SegmentId}' has negative byte count {byteCount} for extension '{extension}'.");
+        }
+
+        var fieldNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string? fieldName in FieldNames)
+        {
+            ValidateFieldName(fieldName, $"Segment '{SegmentId}' field metadata");
+            if (!fieldNames.Add(fieldName!))
+                throw new InvalidDataException($"Segment '{SegmentId}' contains duplicate field metadata for '{fieldName}'.");
+        }
+
+        if (IndexSortFields is { Count: 0 })
+            throw new InvalidDataException($"Segment '{SegmentId}' has an empty IndexSortFields list.");
+        if (IndexSortFields is not null)
+        {
+            for (int i = 0; i < IndexSortFields.Count; i++)
+            {
+                if (!IndexSort.TryParseSerialisedField(IndexSortFields[i], out _))
+                    throw new InvalidDataException($"Segment '{SegmentId}' has invalid index-sort metadata at position {i}.");
+            }
+        }
+
+        var vectorFieldNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var vf in VectorFields)
+        {
+            if (vf is null)
+                throw new InvalidDataException($"Segment '{SegmentId}' contains null vector field metadata.");
             vf.Validate();
+            if (!vectorFieldNames.Add(vf.FieldName))
+                throw new InvalidDataException($"Segment '{SegmentId}' contains duplicate vector metadata for field '{vf.FieldName}'.");
+        }
 
         var spatialFieldNames = new HashSet<string>(StringComparer.Ordinal);
         foreach (var spatialField in SpatialFields)
@@ -161,5 +244,24 @@ public sealed class SegmentInfo
             if (!spatialFieldNames.Add(spatialField.FieldName))
                 throw new InvalidDataException($"Segment '{SegmentId}' contains duplicate spatial metadata for field '{spatialField.FieldName}'.");
         }
+    }
+
+    private static void ValidateFieldName(string? fieldName, string description)
+    {
+        try
+        {
+            FieldNameValidator.Validate(fieldName!, nameof(FieldNames));
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidDataException($"{description} contains an invalid field name.", ex);
+        }
+    }
+
+    private static InvalidDataException CreateValidationException(string message, ValidationIssue issue)
+    {
+        var exception = new InvalidDataException(message);
+        exception.Data[ValidationIssueDataKey] = issue;
+        return exception;
     }
 }

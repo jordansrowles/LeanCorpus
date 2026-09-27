@@ -152,9 +152,17 @@ public static class IndexValidator
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException)
         {
+            string issueCode = ex.Data[SegmentInfo.ValidationIssueDataKey] is SegmentInfo.ValidationIssue validationIssue
+                ? validationIssue switch
+                {
+                    SegmentInfo.ValidationIssue.InvalidDocCount => IndexCheckIssueCodes.InvalidDocCount,
+                    SegmentInfo.ValidationIssue.InvalidLiveDocCount => IndexCheckIssueCodes.InvalidLiveDocCount,
+                    _ => IndexCheckIssueCodes.SegmentMetadataUnreadable
+                }
+                : IndexCheckIssueCodes.SegmentMetadataUnreadable;
             result.AddIssue(
                 IndexCheckSeverity.Error,
-                IndexCheckIssueCodes.SegmentMetadataUnreadable,
+                issueCode,
                 $"Segment '{segmentId}' cannot read .seg metadata: {ex.Message}",
                 Path.GetFileName(segPath),
                 segmentId,
@@ -168,28 +176,6 @@ public static class IndexValidator
                 IndexCheckSeverity.Error,
                 IndexCheckIssueCodes.SegmentIdMismatch,
                 $"Segment metadata ID '{info.SegmentId}' does not match referenced segment ID '{segmentId}'.",
-                Path.GetFileName(segPath),
-                segmentId,
-                false);
-        }
-
-        if (info.DocCount < 0)
-        {
-            result.AddIssue(
-                IndexCheckSeverity.Error,
-                IndexCheckIssueCodes.InvalidDocCount,
-                $"Segment '{segmentId}' has invalid DocCount={info.DocCount}.",
-                Path.GetFileName(segPath),
-                segmentId,
-                false);
-        }
-
-        if (info.LiveDocCount < 0 || info.LiveDocCount > info.DocCount)
-        {
-            result.AddIssue(
-                IndexCheckSeverity.Error,
-                IndexCheckIssueCodes.InvalidLiveDocCount,
-                $"Segment '{segmentId}' has LiveDocCount={info.LiveDocCount}, outside [0,{info.DocCount}].",
                 Path.GetFileName(segPath),
                 segmentId,
                 false);

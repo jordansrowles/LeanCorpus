@@ -163,7 +163,7 @@ public static class IndexFormatInspector
                     segmentStates.Add(SegmentCommitState.FromSegmentInfo(
                         SegmentInfo.ReadFrom(Path.Combine(directoryPath, segmentIds[i] + ".seg"))));
                 }
-                catch (Exception ex) when (ex is IOException or JsonException)
+                catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException)
                 {
                     issues.Add(CreateIssue(
                         IndexCheckSeverity.Error,

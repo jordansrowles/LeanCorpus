@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Document.Fields;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -29,9 +30,18 @@ public sealed class VectorFieldInfo
     /// </summary>
     internal void Validate()
     {
-        if (string.IsNullOrEmpty(FieldName))
-            throw new InvalidDataException("Vector field metadata has a null or empty FieldName.");
+        try
+        {
+            FieldNameValidator.Validate(FieldName, nameof(FieldName));
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidDataException("Vector field metadata has an invalid FieldName.", ex);
+        }
+
         if (Dimension <= 0)
             throw new InvalidDataException($"Vector field '{FieldName}' has a non-positive Dimension ({Dimension}).");
+        if (!Enum.IsDefined(Quantisation))
+            throw new InvalidDataException($"Vector field '{FieldName}' has an undefined quantisation value '{Quantisation}'.");
     }
 }
