@@ -6,6 +6,10 @@ namespace Rowles.LeanCorpus.Search.Parsing;
 public sealed class AnalysingQueryParser : QueryParser
 {
     /// <summary>Initialises an analysing query parser.</summary>
+    /// <param name="defaultField">The field used when no explicit field prefix is present.</param>
+    /// <param name="analyser">The analyser used to normalise literal query text.</param>
+    /// <param name="lenient">Must be <see langword="false"/>; lenient recovery was removed.</param>
+    /// <exception cref="NotSupportedException">Thrown when <paramref name="lenient"/> is <see langword="true"/>.</exception>
     public AnalysingQueryParser(string defaultField, IAnalyser analyser, bool lenient = false)
         : base(defaultField, analyser, lenient)
     {
@@ -14,7 +18,8 @@ public sealed class AnalysingQueryParser : QueryParser
     /// <summary>Initialises an analysing parser with a per-parse analyser factory.</summary>
     /// <param name="defaultField">The field used when no explicit field prefix is present.</param>
     /// <param name="analyserFactory">Creates an analyser for each parse invocation.</param>
-    /// <param name="lenient">Whether syntax errors return the best-effort parsed query.</param>
+    /// <param name="lenient">Must be <see langword="false"/>; lenient recovery was removed.</param>
+    /// <exception cref="NotSupportedException">Thrown when <paramref name="lenient"/> is <see langword="true"/>.</exception>
     public AnalysingQueryParser(string defaultField, Func<IAnalyser> analyserFactory, bool lenient = false)
         : base(defaultField, analyserFactory, lenient)
     {

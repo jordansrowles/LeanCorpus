@@ -252,11 +252,11 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Range syntax `[a TO b]` | ✔   `QueryParser` | ✔ | ✔ | |
 | Grouping `(...)` | ✔   `QueryParser` | ✔ | ✔ | |
 | Boost `^N` | ✔   `QueryParser` | ✔ | ✔ | |
-| Lenient parsing mode | ✔   `QueryParser` | ✔ | ✔ | |
+| Lenient parsing mode | ❌ | ✔ | ✔ | Removed from LeanCorpus until deterministic clause-boundary recovery is defined. |
 | Full grammar error positions | ❌ | ✔ | ✔ | Backlog |
 | Standard query parser (SQP) | ❌ | ✔ | ✔ | Backlog |
 | Analysing query parser | ✔   `AnalysingQueryParser` | ✔ | ✔ | Analyses literal portions of prefix and wildcard terms. |
-| Complex phrase query parser | ✔   `ComplexPhraseQueryParser` | ✔ | ✔ | Converts same-field complex phrase clauses to span queries. |
+| Complex phrase query parser | ✔   `ComplexPhraseQueryParser` | ✔ | ✔ | Supports graph-aware quoted phrases; embedded operators are rejected until a position-preserving grammar is defined. |
 | Surround query parser | ❌ | ✔ | ✔ | `SurroundQueryParser` supports span-oriented query syntax. |
 | XML query parser | ❌ | ✔ | ✔ | `CoreParser` / `XmlQueryParser`. |
 

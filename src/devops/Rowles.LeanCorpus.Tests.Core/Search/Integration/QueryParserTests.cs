@@ -29,6 +29,28 @@ public sealed class QueryParserTests
         Assert.Equal("corpus", tq.Term);
     }
 
+    [Fact(DisplayName = "Parse: Lenient mode cannot discard a malformed prohibited clause")]
+    public void Parse_LenientModeIsRejectedInsteadOfDroppingMalformedProhibitedClause()
+    {
+        var exception = Assert.Throws<NotSupportedException>(
+            () => new QueryParser("body", new StandardAnalyser(), lenient: true).Parse("corpus AND -"));
+
+        Assert.Contains("deterministic clause boundaries", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "Parse: Parser variants reject lenient mode consistently")]
+    public void Parse_ParserVariantsRejectLenientModeConsistently()
+    {
+        var analyser = new StandardAnalyser();
+
+        Assert.Throws<NotSupportedException>(() => new QueryParser("body", analyser, lenient: true));
+        Assert.Throws<NotSupportedException>(() => new QueryParser("body", static () => new StandardAnalyser(), lenient: true));
+        Assert.Throws<NotSupportedException>(() => new AnalysingQueryParser("body", analyser, lenient: true));
+        Assert.Throws<NotSupportedException>(() => new AnalysingQueryParser("body", static () => new StandardAnalyser(), lenient: true));
+        Assert.Throws<NotSupportedException>(() => new ComplexPhraseQueryParser("body", analyser, lenient: true));
+        Assert.Throws<NotSupportedException>(() => new ComplexPhraseQueryParser("body", static () => new StandardAnalyser(), lenient: true));
+    }
+
     /// <summary>
     /// Verifies the Parse: Field Colon Term Returns Term Query With Field scenario.
     /// </summary>

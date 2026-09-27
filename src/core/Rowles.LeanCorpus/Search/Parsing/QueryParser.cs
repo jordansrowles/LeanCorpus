@@ -33,7 +33,6 @@ public class QueryParser
     private readonly Func<IAnalyser>? _analyserFactory;
     private readonly Func<string, QueryFieldCompilationContext>? _fieldContextResolver;
     private Dictionary<string, QueryFieldCompilationContext> _fieldContexts = new(StringComparer.Ordinal);
-    private readonly bool _lenient;
     private readonly int _maxGraphPaths;
     private int _depth;
     private int _maxDepth = 64;
@@ -51,12 +50,9 @@ public class QueryParser
     /// <summary>Initialises a new <see cref="QueryParser"/> with the given default field and analyser.</summary>
     /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present in the query string.</param>
     /// <param name="analyser">The analyser used to tokenise terms and phrases at query time.</param>
-    /// <param name="lenient">
-    /// When <see langword="true"/>, syntax errors are tolerated and the parser returns the best-effort
-    /// result built from valid tokens. When <see langword="false"/> (default), syntax errors throw
-    /// <see cref="QueryParseException"/>.
-    /// </param>
+    /// <param name="lenient">Must be <see langword="false"/>. Lenient recovery was removed because the parser has no deterministic recovery grammar.</param>
     /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted across one parse.</param>
+    /// <exception cref="NotSupportedException">Thrown when <paramref name="lenient"/> is <see langword="true"/>.</exception>
     public QueryParser(string defaultField, IAnalyser analyser, bool lenient = false, int maxGraphPaths = 256)
         : this(defaultField, analyser, fieldContextResolver: null, lenient, maxGraphPaths)
     {
@@ -68,12 +64,13 @@ public class QueryParser
     /// </summary>
     /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present.</param>
     /// <param name="analyserFactory">Creates an analyser for one parse invocation.</param>
-    /// <param name="lenient">Whether syntax errors return the best-effort parsed query.</param>
+    /// <param name="lenient">Must be <see langword="false"/>. Lenient recovery was removed because the parser has no deterministic recovery grammar.</param>
     /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted across one parse.</param>
     /// <remarks>
     /// The factory must be safe for concurrent calls and return a fresh analyser per call,
     /// or an analyser that is independently safe for concurrent use.
     /// </remarks>
+    /// <exception cref="NotSupportedException">Thrown when <paramref name="lenient"/> is <see langword="true"/>.</exception>
     public QueryParser(string defaultField, Func<IAnalyser> analyserFactory, bool lenient = false, int maxGraphPaths = 256)
         : this(defaultField, analyserFactory, fieldContextResolver: null, lenient, maxGraphPaths)
     {
@@ -89,10 +86,10 @@ public class QueryParser
         ArgumentOutOfRangeException.ThrowIfLessThan(maxGraphPaths, 1);
         ArgumentNullException.ThrowIfNull(defaultField);
         ArgumentNullException.ThrowIfNull(analyser);
+        EnsureStrictParsing(lenient);
         _defaultField = defaultField;
         _analyser = analyser;
         _fieldContextResolver = fieldContextResolver;
-        _lenient = lenient;
         _maxGraphPaths = maxGraphPaths;
     }
 
@@ -106,11 +103,20 @@ public class QueryParser
         ArgumentOutOfRangeException.ThrowIfLessThan(maxGraphPaths, 1);
         ArgumentNullException.ThrowIfNull(defaultField);
         ArgumentNullException.ThrowIfNull(analyserFactory);
+        EnsureStrictParsing(lenient);
         _defaultField = defaultField;
         _analyserFactory = analyserFactory;
         _fieldContextResolver = fieldContextResolver;
-        _lenient = lenient;
         _maxGraphPaths = maxGraphPaths;
+    }
+
+    private static void EnsureStrictParsing(bool lenient)
+    {
+        if (lenient)
+        {
+            throw new NotSupportedException(
+                "Lenient parsing has been removed because query recovery has no deterministic clause boundaries. Construct the parser without lenient mode.");
+        }
     }
 
     /// <summary>Parses the query string into a <see cref="Query"/> object tree.</summary>
@@ -119,9 +125,7 @@ public class QueryParser
     /// A <see cref="Query"/> representing the parsed expression, or an empty
     /// <see cref="BooleanQuery"/> when <paramref name="queryString"/> is null or whitespace.
     /// </returns>
-    /// <exception cref="QueryParseException">
-    /// Thrown when the query string contains a syntax error and the parser is not in lenient mode.
-    /// </exception>
+    /// <exception cref="QueryParseException">Thrown when the query string contains a syntax error.</exception>
     public Query Parse(string queryString)
     {
         if (string.IsNullOrWhiteSpace(queryString))
@@ -181,26 +185,17 @@ public class QueryParser
         ResetPhraseGraphBudget();
         _maxDepth = maximumDepth;
         _maxSyntaxNodes = maximumClauses;
-        var tokens = Tokenize(queryString, _lenient, maximumTokens);
+        var tokens = Tokenize(queryString, maximumTokens);
         int pos = 0;
-        QuerySyntax? syntax;
-        if (_lenient)
+        var parsed = ParseExpression(tokens, ref pos);
+        if (pos < tokens.Count)
         {
-            try { syntax = ParseExpression(tokens, ref pos).Query; }
-            catch (QueryParseException) { syntax = null; }
-        }
-        else
-        {
-            syntax = ParseExpression(tokens, ref pos).Query;
-            if (pos < tokens.Count)
-            {
-                var tok = tokens[pos];
-                throw new QueryParseException(
-                    $"Unexpected token '{tok.Value}' at position {pos}.", tok.Offset);
-            }
+            var tok = tokens[pos];
+            throw new QueryParseException(
+                $"Unexpected token '{tok.Value}' at position {pos}.", tok.Offset);
         }
         _syntaxNodeCount = 0;
-        return LowerAnalysedSyntax(syntax ?? new EmptyQuerySyntax());
+        return LowerAnalysedSyntax(parsed.Query ?? new EmptyQuerySyntax());
     }
 
     internal QuerySyntax PrepareSyntax(QuerySyntax syntax, Action<int, int> consumeAdditionalClauses, bool graphPathLimitIsComplexity)
@@ -319,8 +314,6 @@ public class QueryParser
             var next = ParseUnary(tokens, ref pos);
             if (next.Query is null || next.State is QueryClauseState.SyntaxMissing or QueryClauseState.RecoveredError)
             {
-                if (_lenient)
-                    break;
                 throw new QueryParseException(
                     "A boolean operator must be followed by a query clause.", operatorOffset);
             }
@@ -362,29 +355,15 @@ public class QueryParser
 
         if (pos >= tokens.Count || tokens[pos].Type == QTokenType.RParen)
         {
-            if (_lenient)
-                return default;
             throw new QueryParseException(
                 "A required or prohibited operator must be followed by a query clause.",
                 operatorOffset);
         }
 
-        QuerySyntax? query;
-        if (_lenient)
-        {
-            try { query = ParseClause(tokens, ref pos); }
-            catch (QueryParseException)
-            {
-                return new ParsedSyntaxClause(null, occur, QueryClauseState.RecoveredError);
-            }
-        }
-        else
-        {
-            query = ParseClause(tokens, ref pos);
-        }
-        return query is null
-            ? new ParsedSyntaxClause(null, occur, QueryClauseState.RecoveredError)
-            : new ParsedSyntaxClause(query, occur, QueryClauseState.Parsed);
+        QuerySyntax? query = ParseClause(tokens, ref pos);
+        if (query is null)
+            throw new QueryParseException("A query clause is required.", operatorOffset);
+        return new ParsedSyntaxClause(query, occur, QueryClauseState.Parsed);
     }
 
     private static bool CanStartClause(QTokenType type) =>
@@ -407,7 +386,7 @@ public class QueryParser
             var inner = ParseExpression(tokens, ref pos);
             if (pos < tokens.Count && tokens[pos].Type == QTokenType.RParen)
                 pos++; // consume ')'
-            else if (!_lenient)
+            else
                 throw new QueryParseException("Unmatched opening parenthesis.", openOffset);
             return ApplyBoost(new GroupQuerySyntax(inner.Query!), tokens, ref pos);
         }
@@ -459,7 +438,6 @@ public class QueryParser
                         pos++;
                         return ApplyBoost(exists, tokens, ref pos);
                     }
-                    if (_lenient) return null;
                     throw new QueryParseException(
                         "_exists_ must be followed by a field name.", termOffset);
                 }
@@ -497,7 +475,6 @@ public class QueryParser
                     }
                     else
                     {
-                        if (_lenient) return null;
                         throw new QueryParseException(
                             $"Field '{field}' must be followed by a term or phrase.",
                             tokens[pos].Offset);
@@ -505,7 +482,6 @@ public class QueryParser
                 }
                 else
                 {
-                    if (_lenient) return null;
                     throw new QueryParseException(
                         $"Field '{field}' must be followed by a term or phrase.", termOffset);
                 }
@@ -532,8 +508,7 @@ public class QueryParser
                         out int maxEdits) ||
                     maxEdits is < 0 or > 2)
                 {
-                    if (!_lenient)
-                        throw new QueryParseException("Fuzzy edit distance must be an integer between 0 and 2.", modifierOffset);
+                    throw new QueryParseException("Fuzzy edit distance must be an integer between 0 and 2.", modifierOffset);
                 }
                 else
                 {
@@ -548,7 +523,6 @@ public class QueryParser
             return ApplyBoost(unanalysedTerm, tokens, ref pos);
         }
 
-        if (_lenient) return null;
         throw new QueryParseException(
             $"Unexpected token '{tokens[pos].Value}' at position {pos}.", tokens[pos].Offset);
     }
@@ -574,20 +548,13 @@ public class QueryParser
         int? fuzzyMaxEdits = null,
         int modifierOffset = 0)
     {
-        try
-        {
-            QuerySyntax? lowered = LowerAnalysedTokens(
-                field,
-                term,
-                AnalyseTerm(field, term),
-                fuzzyMaxEdits,
-                modifierOffset);
-            return lowered ?? CreateSyntaxNode(new AnalysedEmptyQuerySyntax());
-        }
-        catch (QueryParseException) when (_lenient)
-        {
-            return CreateSyntaxNode(new RecoveredQuerySyntax());
-        }
+        QuerySyntax? lowered = LowerAnalysedTokens(
+            field,
+            term,
+            AnalyseTerm(field, term),
+            fuzzyMaxEdits,
+            modifierOffset);
+        return lowered ?? CreateSyntaxNode(new AnalysedEmptyQuerySyntax());
     }
 
     private QuerySyntax LowerGroupSyntax(GroupQuerySyntax group)
@@ -1009,14 +976,9 @@ public class QueryParser
                 out int slop) ||
             slop is < 0 or > PhraseQuery.MaximumSlop)
         {
-            if (!_lenient)
-            {
-                throw new QueryParseException(
-                    $"Phrase slop must be an integer between 0 and {PhraseQuery.MaximumSlop}.",
-                    modifierOffset);
-            }
-
-            return 0;
+            throw new QueryParseException(
+                $"Phrase slop must be an integer between 0 and {PhraseQuery.MaximumSlop}.",
+                modifierOffset);
         }
 
         pos = suffixPosition + 1;
@@ -1042,9 +1004,7 @@ public class QueryParser
                 out float boost) ||
             !float.IsFinite(boost))
         {
-            if (!_lenient)
-                throw new QueryParseException("Boost modifiers require a finite numeric value.", modifierOffset);
-            return query;
+            throw new QueryParseException("Boost modifiers require a finite numeric value.", modifierOffset);
         }
 
         pos = suffixPosition + 1;
@@ -1412,7 +1372,7 @@ public class QueryParser
         }
     }
 
-    private static List<QToken> Tokenize(string input, bool lenient, int maximumTokens)
+    private static List<QToken> Tokenize(string input, int maximumTokens)
     {
         var tokens = new List<QToken>();
         int i = 0;
@@ -1475,7 +1435,7 @@ public class QueryParser
                     }
                     pattern.Append(input[i++]);
                 }
-                if (!closed && !lenient)
+                if (!closed)
                     throw new QueryParseException("Unmatched regular expression delimiter.", slashOffset);
                 AddToken(new QToken(QTokenType.Regex, pattern.ToString(), slashOffset));
                 continue;
@@ -1499,14 +1459,6 @@ public class QueryParser
                 }
                 if (i >= input.Length)
                 {
-                    if (lenient)
-                    {
-                        // Treat the unterminated phrase content as a plain term token.
-                        string raw = input[start..];
-                        AddToken(new QToken(QTokenType.Term, Unescape(raw), quoteOffset, raw,
-                            HasUnescapedWildcard(raw.AsSpan())));
-                        continue;
-                    }
                     throw new QueryParseException(
                         "Unmatched quote in query string.", quoteOffset);
                 }

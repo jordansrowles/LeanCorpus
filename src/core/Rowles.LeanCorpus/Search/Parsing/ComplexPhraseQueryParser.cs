@@ -10,6 +10,10 @@ public sealed class ComplexPhraseQueryParser : QueryParser
     public bool InOrder { get; set; } = true;
 
     /// <summary>Initialises a complex-phrase query parser.</summary>
+    /// <param name="defaultField">The field used when no explicit field prefix is present.</param>
+    /// <param name="analyser">The analyser used to build quoted phrase queries.</param>
+    /// <param name="lenient">Must be <see langword="false"/>; lenient recovery was removed.</param>
+    /// <exception cref="NotSupportedException">Thrown when <paramref name="lenient"/> is <see langword="true"/>.</exception>
     public ComplexPhraseQueryParser(
         string defaultField,
         IAnalyser analyser,
@@ -21,7 +25,8 @@ public sealed class ComplexPhraseQueryParser : QueryParser
     /// <summary>Initialises a complex-phrase parser with a per-parse analyser factory.</summary>
     /// <param name="defaultField">The field used when no explicit field prefix is present.</param>
     /// <param name="analyserFactory">Creates an analyser for each parse invocation.</param>
-    /// <param name="lenient">Whether syntax errors return the best-effort parsed query.</param>
+    /// <param name="lenient">Must be <see langword="false"/>; lenient recovery was removed.</param>
+    /// <exception cref="NotSupportedException">Thrown when <paramref name="lenient"/> is <see langword="true"/>.</exception>
     public ComplexPhraseQueryParser(
         string defaultField,
         Func<IAnalyser> analyserFactory,

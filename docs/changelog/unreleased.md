@@ -19,6 +19,7 @@
 - Keep DocValues runtime storage columnar with mapped packed values, flat offsets and local ordinals, decoding only requested documents while materialising compatibility getters on demand.
 - Allow concurrent stored-field reads with independent cursors and a bounded decompressed-block cache.
 - Map Core Search test-source changes to the Search area for affected test runs.
+- Map query-comparison documentation changes to Core Search for affected test runs.
 - Map Rowles.Text Tokenisers test-source changes to the Tokenisers area for affected test runs.
 - Map Core TextIntegration test-source changes to the TextIntegration area for affected test runs.
 - Add a paired allocation benchmark for legacy and graph-aware token cache paths, with a focused DevOps benchmark group.
@@ -113,6 +114,7 @@
 
 ### Removed
 
+- Removed lenient query parsing until deterministic clause-boundary recovery is defined; the existing constructor flag remains for compatibility and throws when set to `true`.
 - Removed the disconnected `DocumentBufferState` field-processing and live-DWPT flush paths. All production indexing now detaches owned DWPT batches before segment construction.
 - Removed the legacy per-term posting accumulator and `ByteBlockPool`/`IntBlockPool` production paths.
 
