@@ -83,6 +83,8 @@ internal static class ServerQueryTranslator
                         throw new QueryTranslationException("invalid_query", "Phrase queries require at least one term.");
                     if (phrase.Slop is < 0 or > PhraseQuery.MaximumSlop)
                         throw new QueryTranslationException("invalid_query", $"Phrase slop must be between 0 and {PhraseQuery.MaximumSlop}.");
+                    if (phrase.Slop > options.MaximumPhraseSlop)
+                        throw new QueryTranslationException("query_too_complex", $"Phrase slop must be between 0 and the configured maximum of {options.MaximumPhraseSlop}.");
                     break;
 
                 case PrefixQueryDefinition prefix:
@@ -146,15 +148,31 @@ internal static class ServerQueryTranslator
 
             if (!_textPlans.TryGetValue(definition, out QueryStringPlan? plan))
             {
-                int parserDepth = Math.Min(options.MaximumQueryDepth, 64) + 1;
-                int maximumTokens = GetParserTokenLimit(clauseLimit, Math.Min(options.MaximumQueryDepth, 64));
                 IAnalyser defaultAnalyser = fieldDefinition.Analyser ?? new StandardAnalyser();
+                QueryParserOptions parserOptions = new()
+                {
+                    MaxInputChars = options.MaximumQueryInputChars,
+                    MaxTokens = options.MaximumQueryTokens,
+                    MaxSyntaxDepth = Math.Min(options.MaximumQueryDepth, QueryParserOptions.Default.MaxSyntaxDepth) + 1,
+                    MaxSyntaxNodes = options.MaximumQuerySyntaxNodes,
+                    MaxQueryClauses = clauseLimit,
+                    MaxPhraseTokens = options.MaximumPhraseTokens,
+                    MaxGraphEdges = options.MaximumPhraseGraphEdges,
+                    MaxGraphTraversalSteps = options.MaximumPhraseGraphTraversalSteps,
+                    MaxGraphPaths = Math.Min(options.MaximumPhraseGraphPaths, clauseLimit),
+                    MaxCompiledPhraseTerms = options.MaximumCompiledPhraseTerms,
+                    MaxCompiledPhraseClauses = Math.Min(options.MaximumCompiledPhraseClauses, clauseLimit),
+                    MaxFuzzyEdits = options.MaximumFuzzyEdits,
+                    MaxPhraseSlop = options.MaximumPhraseSlop,
+                    MaxWildcardPatternChars = options.MaximumWildcardExpansions,
+                    MaxRegexpPatternChars = options.MaximumRegexpComplexity
+                };
                 QueryParser parser = new(
                     field,
                     defaultAnalyser,
                     fieldName => ResolveFieldContext(fieldName, field, defaultAnalyser),
-                    maxGraphPaths: Math.Min(256, clauseLimit));
-                QuerySyntax syntax = parser.ParseSyntax(definition.Text, parserDepth, clauseLimit, maximumTokens, limitsAreComplexity: true);
+                    parserOptions);
+                QuerySyntax syntax = parser.ParseSyntax(definition.Text, limitsAreComplexity: true);
                 plan = new QueryStringPlan(parser, syntax);
                 _textPlans.Add(definition, plan);
             }
@@ -385,11 +403,6 @@ internal static class ServerQueryTranslator
                 QueryParser.CreateSingleTokenNormaliser(analyser));
         }
 
-        private static int GetParserTokenLimit(int maximumClauses, int maximumDepth)
-        {
-            long maximum = Math.Max(1L, 8L * maximumClauses + 2L * maximumDepth + 4L);
-            return (int)Math.Min(int.MaxValue, maximum);
-        }
     }
 
     private sealed record QueryStringPlan(QueryParser Parser, QuerySyntax Syntax);

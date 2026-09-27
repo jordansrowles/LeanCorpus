@@ -40,6 +40,40 @@ public sealed class ServerQueryTranslatorTests
     }
 
     [Fact]
+    public void QueryStringHonoursInputTokenAndSyntaxNodeBudgets()
+    {
+        AssertQueryStringRejected("guide", new ServerCoreOptions { MaximumQueryInputChars = 4 });
+        AssertQueryStringRejected("one OR two", new ServerCoreOptions { MaximumQueryTokens = 2 });
+        AssertQueryStringRejected("guide", new ServerCoreOptions { MaximumQuerySyntaxNodes = 1 });
+    }
+
+    [Fact]
+    public void QueryStringHonoursFuzzyPhraseAndPhraseGraphBudgets()
+    {
+        AssertQueryStringRejected("guide~2", new ServerCoreOptions { MaximumFuzzyEdits = 1 });
+        AssertQueryStringRejected("\"guide\"~2", new ServerCoreOptions { MaximumPhraseSlop = 1 });
+        AssertQueryStringRejected("\"guide search\"", new ServerCoreOptions { MaximumPhraseTokens = 1 });
+        AssertQueryStringRejected("\"guide search\"", new ServerCoreOptions { MaximumPhraseGraphEdges = 1 });
+    }
+
+    [Fact]
+    public void StructuredPhraseHonoursConfiguredSlopBudget()
+    {
+        bool translated = ServerQueryTranslator.TryTranslate(
+            new PhraseQueryDefinition("title", ["guide"], 2),
+            CreateSchema(),
+            new ServerCoreOptions { MaximumPhraseSlop = 1 },
+            defaultField: "title",
+            maximumBooleanClauses: null,
+            out var query,
+            out var failure);
+
+        Assert.False(translated);
+        Assert.Null(query);
+        Assert.Equal("query_too_complex", failure?.Code);
+    }
+
+    [Fact]
     public void FieldExistsCanTargetAnIndexedNonTextField()
     {
         bool translated = ServerQueryTranslator.TryTranslate(
@@ -153,6 +187,22 @@ public sealed class ServerQueryTranslatorTests
         Assert.False(translated);
         Assert.Null(query);
         Assert.Equal("invalid_query", failure?.Code);
+    }
+
+    private static void AssertQueryStringRejected(string text, ServerCoreOptions options)
+    {
+        bool translated = ServerQueryTranslator.TryTranslate(
+            new QueryStringDefinition(text),
+            CreateSchema(),
+            options,
+            defaultField: "title",
+            maximumBooleanClauses: null,
+            out var query,
+            out var failure);
+
+        Assert.False(translated);
+        Assert.Null(query);
+        Assert.Equal("query_too_complex", failure?.Code);
     }
 
     private static CompiledIndexSchema CreateSchema() => CompiledIndexSchema.Create(
