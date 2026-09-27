@@ -774,6 +774,10 @@ public sealed partial class IndexSearcher : IDisposable
     /// <summary>
     /// Parses a query string, applies analysis, and searches.
     /// </summary>
+    /// <remarks>
+    /// A parser is created for each call. If the supplied analyser is reused by overlapping
+    /// calls, it must support concurrent use; otherwise pass a separate analyser to each call.
+    /// </remarks>
     public TopDocs Search(string queryString, string defaultField, int topN, IAnalyser? analyser = null)
     {
         analyser ??= new StandardAnalyser();
@@ -862,6 +866,10 @@ public sealed partial class IndexSearcher : IDisposable
     /// <summary>
     /// Parses a query string and searches with cancellation support.
     /// </summary>
+    /// <remarks>
+    /// A parser is created for each call. If the supplied analyser is reused by overlapping
+    /// calls, it must support concurrent use; otherwise pass a separate analyser to each call.
+    /// </remarks>
     public TopDocs Search(string queryString, string defaultField, int topN,
         IAnalyser? analyser, CancellationToken cancellationToken)
     {

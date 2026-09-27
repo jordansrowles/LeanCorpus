@@ -18,6 +18,18 @@ public sealed class ComplexPhraseQueryParser : QueryParser
     {
     }
 
+    /// <summary>Initialises a complex-phrase parser with a per-parse analyser factory.</summary>
+    /// <param name="defaultField">The field used when no explicit field prefix is present.</param>
+    /// <param name="analyserFactory">Creates an analyser for each parse invocation.</param>
+    /// <param name="lenient">Whether syntax errors return the best-effort parsed query.</param>
+    public ComplexPhraseQueryParser(
+        string defaultField,
+        Func<IAnalyser> analyserFactory,
+        bool lenient = false)
+        : base(defaultField, analyserFactory, lenient)
+    {
+    }
+
     /// <inheritdoc/>
     protected override Query BuildPhraseQuery(string field, string phraseText, int slop)
     {

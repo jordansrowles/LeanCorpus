@@ -12,6 +12,13 @@ namespace Rowles.LeanCorpus.Search.Parsing;
 /// positions use the parser's implicit OR operator. Same-position alternatives are
 /// retained as Boolean alternatives, and non-unit graph edges use bounded phrase-path
 /// compilation.
+///
+/// Each <see cref="Parse(string)"/> call uses independent parser state. Instances created
+/// with an <see cref="IAnalyser"/> accept sequential calls and reject overlapping non-empty calls;
+/// use the analyser-factory constructor to share a parser across threads. The factory is
+/// called once per non-empty parse and must return an analyser instance that is safe for that parse.
+/// Custom subclasses must keep per-parse data out of mutable instance fields and should be
+/// configured before concurrent parsing begins.
 /// </remarks>
 public class QueryParser
 {
@@ -21,9 +28,10 @@ public class QueryParser
     private const int MaximumCompiledPhraseClauseCount = 512;
 
     private readonly string _defaultField;
-    private readonly IAnalyser _analyser;
+    private IAnalyser? _analyser;
+    private readonly Func<IAnalyser>? _analyserFactory;
     private readonly Func<string, QueryFieldCompilationContext>? _fieldContextResolver;
-    private readonly Dictionary<string, QueryFieldCompilationContext> _fieldContexts = new(StringComparer.Ordinal);
+    private Dictionary<string, QueryFieldCompilationContext> _fieldContexts = new(StringComparer.Ordinal);
     private readonly bool _lenient;
     private readonly int _maxGraphPaths;
     private int _depth;
@@ -36,9 +44,11 @@ public class QueryParser
     private int _compiledPhraseClauseCount;
     private bool _parseLimitsAreComplexity;
     private bool _graphPathLimitIsComplexity;
+    private int _parseInProgress;
 
     /// <summary>Gets the analyser used to build query terms.</summary>
-    protected IAnalyser Analyser => _analyser;
+    protected IAnalyser Analyser => _analyser
+        ?? throw new InvalidOperationException("An analyser is available only during a parse invocation.");
 
     /// <summary>Initialises a new <see cref="QueryParser"/> with the given default field and analyser.</summary>
     /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present in the query string.</param>
@@ -51,6 +61,23 @@ public class QueryParser
     /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted before parsing fails.</param>
     public QueryParser(string defaultField, IAnalyser analyser, bool lenient = false, int maxGraphPaths = 256)
         : this(defaultField, analyser, fieldContextResolver: null, lenient, maxGraphPaths)
+    {
+    }
+
+    /// <summary>
+    /// Initialises a parser whose analyser factory is invoked once for each non-empty parse.
+    /// This constructor supports concurrent calls on the same parser instance.
+    /// </summary>
+    /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present.</param>
+    /// <param name="analyserFactory">Creates an analyser for one parse invocation.</param>
+    /// <param name="lenient">Whether syntax errors return the best-effort parsed query.</param>
+    /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted before parsing fails.</param>
+    /// <remarks>
+    /// The factory must be safe for concurrent calls and return a fresh analyser per call,
+    /// or an analyser that is independently safe for concurrent use.
+    /// </remarks>
+    public QueryParser(string defaultField, Func<IAnalyser> analyserFactory, bool lenient = false, int maxGraphPaths = 256)
+        : this(defaultField, analyserFactory, fieldContextResolver: null, lenient, maxGraphPaths)
     {
     }
 
@@ -71,6 +98,23 @@ public class QueryParser
         _maxGraphPaths = maxGraphPaths;
     }
 
+    internal QueryParser(
+        string defaultField,
+        Func<IAnalyser> analyserFactory,
+        Func<string, QueryFieldCompilationContext>? fieldContextResolver,
+        bool lenient = false,
+        int maxGraphPaths = 256)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxGraphPaths, 1);
+        ArgumentNullException.ThrowIfNull(defaultField);
+        ArgumentNullException.ThrowIfNull(analyserFactory);
+        _defaultField = defaultField;
+        _analyserFactory = analyserFactory;
+        _fieldContextResolver = fieldContextResolver;
+        _lenient = lenient;
+        _maxGraphPaths = maxGraphPaths;
+    }
+
     /// <summary>Parses the query string into a <see cref="Query"/> object tree.</summary>
     /// <param name="queryString">The query string to parse.</param>
     /// <returns>
@@ -82,7 +126,42 @@ public class QueryParser
     /// </exception>
     public Query Parse(string queryString)
     {
-        return CompileSyntax(ParseSyntax(queryString, maximumDepth: 64, maximumClauses: int.MaxValue, maximumTokens: int.MaxValue));
+        if (string.IsNullOrWhiteSpace(queryString))
+            return new BooleanQuery.Builder().Build();
+
+        bool hasFixedAnalyser = _analyserFactory is null;
+        if (hasFixedAnalyser && System.Threading.Interlocked.CompareExchange(ref _parseInProgress, 1, 0) != 0)
+        {
+            throw new InvalidOperationException(
+                "This QueryParser uses a fixed analyser and cannot parse concurrently. Use an analyser factory to share it across threads.");
+        }
+
+        try
+        {
+            QueryParser invocation = CreateInvocationParser();
+            return invocation.CompileSyntax(invocation.ParseSyntax(
+                queryString,
+                maximumDepth: 64,
+                maximumClauses: int.MaxValue,
+                maximumTokens: int.MaxValue));
+        }
+        finally
+        {
+            if (hasFixedAnalyser)
+                System.Threading.Volatile.Write(ref _parseInProgress, 0);
+        }
+    }
+
+    private QueryParser CreateInvocationParser()
+    {
+        var invocation = (QueryParser)MemberwiseClone();
+        invocation._analyser = _analyserFactory is null
+            ? _analyser
+            : _analyserFactory()
+                ?? throw new InvalidOperationException("The analyser factory returned null.");
+        invocation._fieldContexts = new Dictionary<string, QueryFieldCompilationContext>(StringComparer.Ordinal);
+        invocation._parseInProgress = 0;
+        return invocation;
     }
 
     internal QuerySyntax ParseSyntax(
@@ -1074,7 +1153,7 @@ public class QueryParser
     private QueryFieldCompilationContext ResolveFieldContext(string field)
     {
         if (_fieldContextResolver is null)
-            return new QueryFieldCompilationContext(field, _analyser, MultiTermNormaliser: null);
+            return new QueryFieldCompilationContext(field, Analyser, MultiTermNormaliser: null);
         if (_fieldContexts.TryGetValue(field, out QueryFieldCompilationContext? context))
             return context;
 

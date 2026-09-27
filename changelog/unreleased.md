@@ -10,9 +10,12 @@
 - Added typed Geo and XY distance sort factories, with origin-aware invariant search-session cursor identities.
 - Added DocValues-backed Geo and XY distance sorting with multi-value minima, deterministic ties, missing-value ordering, and SearchAfter/session support.
 - Added best-first Packed BKD Top-N for eligible ascending Geo/XY distance sorts, with conservative cell lower bounds, constant-score filter bitmap reuse, and exact fallback scans for legacy Geo segments.
+- Added per-parse analyser factory constructors for query parsers, enabling concurrent parser reuse with isolated parse state and analyser instances.
 
 ### Changed
 
+- Reject overlapping `QueryParser.Parse` calls when a fixed analyser is supplied; use a per-parse analyser factory for concurrent parser reuse.
+- Document that concurrent `IndexSearcher.Search(string, ...)` calls require a shared analyser to support concurrent use.
 - Keep DocValues runtime storage columnar with mapped packed values, flat offsets and local ordinals, decoding only requested documents while materialising compatibility getters on demand.
 - Allow concurrent stored-field reads with independent cursors and a bounded decompressed-block cache.
 - Map Core Search test-source changes to the Search area for affected test runs.

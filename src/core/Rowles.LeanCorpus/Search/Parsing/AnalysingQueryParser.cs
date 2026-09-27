@@ -11,6 +11,15 @@ public sealed class AnalysingQueryParser : QueryParser
     {
     }
 
+    /// <summary>Initialises an analysing parser with a per-parse analyser factory.</summary>
+    /// <param name="defaultField">The field used when no explicit field prefix is present.</param>
+    /// <param name="analyserFactory">Creates an analyser for each parse invocation.</param>
+    /// <param name="lenient">Whether syntax errors return the best-effort parsed query.</param>
+    public AnalysingQueryParser(string defaultField, Func<IAnalyser> analyserFactory, bool lenient = false)
+        : base(defaultField, analyserFactory, lenient)
+    {
+    }
+
     /// <inheritdoc/>
     protected override string AnalyseMultiTerm(string term) =>
         NormaliseMultiTermPattern(term, literal =>
