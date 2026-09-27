@@ -570,11 +570,31 @@ public sealed partial class SegmentReader : IDisposable
             return;
         _disposed = true;
         _operations.BeginDisposeAndWait();
-        Interlocked.Exchange(ref _residentState, null)?.Dispose();
+
+        List<Exception>? failures = null;
+        var residentState = Interlocked.Exchange(ref _residentState, null);
+        if (residentState is not null)
+        {
+            try { residentState.Dispose(); }
+            catch (Exception exception) { (failures ??= []).Add(exception); }
+        }
+
         if (_ownsCache)
-            _cache.Dispose();
-        _snapshot?.Dispose();
+        {
+            try { _cache.Dispose(); }
+            catch (Exception exception) { (failures ??= []).Add(exception); }
+        }
+
+        var snapshot = _snapshot;
         _snapshot = null;
+        if (snapshot is not null)
+        {
+            try { snapshot.Dispose(); }
+            catch (Exception exception) { (failures ??= []).Add(exception); }
+        }
+
+        if (failures is not null)
+            throw new AggregateException("Segment reader cleanup failed.", failures);
     }
 }
 

@@ -1171,12 +1171,29 @@ public sealed partial class IndexSearcher : IDisposable
     /// <summary>Disposes all underlying segment readers.</summary>
     public void Dispose()
     {
+        List<Exception>? failures = null;
         foreach (var reader in _readers)
-            reader.Dispose();
-        _segmentReaderCache.Dispose();
-        _snapshotLease?.Dispose();
+        {
+            try { reader.Dispose(); }
+            catch (Exception exception) { (failures ??= []).Add(exception); }
+        }
+
+        try { _segmentReaderCache.Dispose(); }
+        catch (Exception exception) { (failures ??= []).Add(exception); }
+
+        var snapshotLease = _snapshotLease;
         _snapshotLease = null;
-        _config.DisposeOwnedDiagnostics();
+        if (snapshotLease is not null)
+        {
+            try { snapshotLease.Dispose(); }
+            catch (Exception exception) { (failures ??= []).Add(exception); }
+        }
+
+        try { _config.DisposeOwnedDiagnostics(); }
+        catch (Exception exception) { (failures ??= []).Add(exception); }
+
+        if (failures is not null)
+            throw new AggregateException("Index searcher cleanup failed.", failures);
     }
 
     private TopDocs ExecuteRrfQuery(RrfQuery rrf, int topN, ISideCollector? sideCollector = null)

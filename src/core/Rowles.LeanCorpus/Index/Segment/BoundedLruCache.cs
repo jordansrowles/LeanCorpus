@@ -13,15 +13,20 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
     private readonly Dictionary<TKey, Entry> _entries;
     private readonly LinkedList<Entry> _lru = [];
     private readonly Lock _lock = new();
+    private readonly Action<AggregateException>? _cleanupFailureReporter;
     private long _loadCount;
     private bool _disposed;
 
-    internal BoundedLruCache(int capacity, IEqualityComparer<TKey>? comparer = null)
+    internal BoundedLruCache(
+        int capacity,
+        IEqualityComparer<TKey>? comparer = null,
+        Action<AggregateException>? cleanupFailureReporter = null)
     {
         if (capacity < 1)
             throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Cache capacity must be at least one.");
         _capacity = capacity;
         _entries = new Dictionary<TKey, Entry>(capacity, comparer);
+        _cleanupFailureReporter = cleanupFailureReporter;
     }
 
     internal int Count { get { lock (_lock) return _entries.Count; } }
@@ -47,19 +52,22 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
             }
         }
 
+        TValue value;
         try
         {
-            var value = entry.GetValue();
+            value = entry.GetValue();
             if (entry.MarkLoaded())
                 Interlocked.Increment(ref _loadCount);
-            Trim();
-            return new Lease(this, entry, value);
         }
         catch
         {
             RemoveFailedEntry(entry);
             throw;
         }
+
+        var lease = new Lease(this, entry, value);
+        Trim();
+        return lease;
     }
 
     private void RemoveFailedEntry(Entry entry)
@@ -86,7 +94,7 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
                 entry.LeaseCount--;
             toDispose = CollectEvictions();
         }
-        DisposeValues(toDispose);
+        ReportDisposalFailure(DisposeValues(toDispose));
     }
 
     void ILifetimeLeaseOwner.ReleaseLease(object token) => Release((Entry)token);
@@ -96,7 +104,7 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
         List<TValue>? toDispose;
         lock (_lock)
             toDispose = CollectEvictions();
-        DisposeValues(toDispose);
+        ReportDisposalFailure(DisposeValues(toDispose));
     }
 
     private List<TValue>? CollectEvictions()
@@ -128,12 +136,50 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
         _lru.AddFirst(entry.Node);
     }
 
-    private static void DisposeValues(List<TValue>? values)
+    private AggregateException? DisposeValues(List<TValue>? values)
     {
         if (values is null)
-            return;
+            return null;
+
+        List<Exception>? failures = null;
         foreach (var value in values)
-            value.Dispose();
+        {
+            try
+            {
+                value.Dispose();
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+        }
+
+        return failures is null
+            ? null
+            : new AggregateException("One or more cached values failed to dispose.", failures);
+    }
+
+    private void ReportDisposalFailure(AggregateException? failure)
+    {
+        if (failure is null)
+            return;
+
+        if (_cleanupFailureReporter is null)
+        {
+            System.Diagnostics.Trace.TraceError("Bounded LRU cache cleanup failed: {0}", failure);
+            return;
+        }
+
+        try
+        {
+            _cleanupFailureReporter(failure);
+        }
+        catch (Exception reporterFailure)
+        {
+            var combined = new AggregateException(
+                "The cache cleanup failure reporter also failed.", failure, reporterFailure);
+            System.Diagnostics.Trace.TraceError("Bounded LRU cache cleanup reporting failed: {0}", combined);
+        }
     }
 
     public void Dispose()
@@ -146,7 +192,9 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
             _disposed = true;
             toDispose = CollectEvictions();
         }
-        DisposeValues(toDispose);
+        var disposalFailure = DisposeValues(toDispose);
+        if (disposalFailure is not null)
+            throw disposalFailure;
     }
 
     internal readonly struct Lease : IDisposable

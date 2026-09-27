@@ -122,6 +122,7 @@ internal static class Program
                 BenchmarkSuite.IncrementalBackup,
                 BenchmarkSuite.ReaderManagerLifecycle,
                 BenchmarkSuite.QualifiedTermCache,
+                BenchmarkSuite.BoundedLruCacheFailure,
                 BenchmarkSuite.MultiReader,
                 BenchmarkSuite.OrdinalMap,
                 BenchmarkSuite.SearchSession,
@@ -380,6 +381,9 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.QualifiedTermCache))
             RunSuite<QualifiedTermCacheBenchmarks>("term-caches", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.BoundedLruCacheFailure))
+            RunSuite<BoundedLruCacheFailureBenchmarks>("bounded-lru-cache", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.MultiReader))
             RunSuite<MultiReaderBenchmarks>("multi-reader", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -743,6 +747,7 @@ internal static class Program
               highlighter         HighlighterBenchmarks -- snippet highlighting
               searcher-mgr        SearcherManagerBenchmarks -- acquire/release hot path
               term-caches         QualifiedTermCacheBenchmarks -- qualified-term interning and collection-frequency cache workload (explicit only)
+              bounded-lru-cache  BoundedLruCacheFailureBenchmarks -- cache acquisition after an unrelated disposal failure (explicit only)
               combined            CombinedFieldsQueryBenchmarks -- BM25F multi-field search
               terminset           TermInSetQueryBenchmarks -- set membership search
               aggregation         AggregationBenchmarks and SpatialAggregationBenchmarks -- numeric and spatial aggregation overhead
@@ -934,6 +939,7 @@ internal static class Program
             "incremental-backup" or "incrementalbackup" => BenchmarkSuite.IncrementalBackup,
             "reader-manager" or "readermanager" => BenchmarkSuite.ReaderManagerLifecycle,
             "term-caches" or "termcaches" => BenchmarkSuite.QualifiedTermCache,
+            "bounded-lru-cache" or "boundedlrucache" => BenchmarkSuite.BoundedLruCacheFailure,
             "multi-reader" or "multireader" => BenchmarkSuite.MultiReader,
             "ordinal-map" or "ordinalmap" => BenchmarkSuite.OrdinalMap,
             "search-session" or "searchsession" => BenchmarkSuite.SearchSession,
@@ -1078,6 +1084,7 @@ internal static class Program
         IncrementalBackup,
         ReaderManagerLifecycle,
         QualifiedTermCache,
+        BoundedLruCacheFailure,
         MultiReader,
         OrdinalMap,
         SearchSession,

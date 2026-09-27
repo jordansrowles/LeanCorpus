@@ -16,6 +16,7 @@
 
 ### Changed
 
+- Add an explicit bounded-LRU disposal-failure benchmark and route it through DevOps affected benchmark selection.
 - Bound qualified-term interning to 4,096 entries and 512-character keys, bound each searcher's collection-frequency cache to 1,024 entries, and expose entry and eviction metrics for both caches.
 - Add a focused qualified-term cache benchmark suite and route it through affected benchmark selection.
 - Change `PhraseQuery.Terms` from `string[]` to `IReadOnlyList<string>`, copy constructor arrays, expose read-only positions, and keep cached qualified terms internal.
@@ -53,6 +54,7 @@
 
 ### Fixed
 
+- Keep bounded segment-reader acquisitions successful when unrelated eviction disposal fails, attempt every selected value, and report aggregate cleanup failures.
 - Reject parent bitsets with mismatched word counts or set bits outside the declared document range, and validate `Set` document IDs.
 - Return defensive copies from public SegmentReader DocValues getters, including nested binary payloads and field lengths, while keeping internal query access read-only and lease-scoped.
 - Validate the stored-field block document-count limit consistently in writer configuration, direct and stream writers, readers, and index inspection.

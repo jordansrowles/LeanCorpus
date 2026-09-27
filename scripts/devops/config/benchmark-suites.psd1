@@ -29,6 +29,7 @@
     highlighter          = 'HighlighterBenchmarks'
     'searcher-mgr'       = 'SearcherManagerBenchmarks'
     'term-caches'        = 'QualifiedTermCacheBenchmarks -- qualified-term interning and collection-frequency cache workload'
+    'bounded-lru-cache'  = 'BoundedLruCacheFailureBenchmarks -- acquisition after unrelated eviction disposal failure'
     'segment-reader-cache' = 'SegmentReaderCacheBenchmarks'
     combined             = 'CombinedFieldsQueryBenchmarks'
     terminset            = 'TermInSetQueryBenchmarks'
