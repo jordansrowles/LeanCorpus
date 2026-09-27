@@ -20,6 +20,7 @@
 - Weight the heavy segment-reader LRU by retained-resource estimates as well as entry count, evicting oversized states after active operation and cursor leases end instead of pinning every warmed state below the entry-count threshold.
 - Register the existing segment-reader-cache benchmark suite in its CLI dispatcher and add a DevOps resource-cache suite for equivalent count-only and byte-budget DocValues workloads.
 - Add a wide sparse merge-payload benchmark suite to DevOps for per-field merge remapping.
+- Expose immutable `SegmentDescriptor` values from `IndexSnapshot.Segments`, preserving nested metadata and preventing consumers from changing a held snapshot.
 - Add an explicit bounded-LRU disposal-failure benchmark and route it through DevOps affected benchmark selection.
 - Bound qualified-term interning to 4,096 entries and 512-character keys, bound each searcher's collection-frequency cache to 1,024 entries, and expose entry and eviction metrics for both caches.
 - Add a focused qualified-term cache benchmark suite and route it through affected benchmark selection.

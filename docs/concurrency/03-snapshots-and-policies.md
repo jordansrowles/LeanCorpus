@@ -28,8 +28,10 @@ The snapshot exposes:
 | Property | Meaning |
 |---|---|
 | `CommitGeneration` | Pinned `segments_N` generation |
-| `Segments` | Defensive copy of the segment metadata |
+| `Segments` | Immutable `SegmentDescriptor` values captured from the committed generation |
 | `TakenAtUtc` | Snapshot creation time |
+
+The segment list and nested metadata collections are read-only. Each descriptor preserves the captured segment metadata, including codec byte counts, sequence-number bounds, soft-delete timestamps and vector-field details.
 
 Always release in `finally`. An unreleased snapshot retains files until the writer is disposed.
 
