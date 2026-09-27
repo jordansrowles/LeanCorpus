@@ -56,6 +56,7 @@
 - Expose immutable `SegmentDescriptor` metadata from `SegmentReader.Info` and return deep copies from `GetNrtSegments()`, so later commits cannot change an existing NRT searcher's deletion view.
 - Centralise segment file ownership so merge, deletion and recovery cleanup include vector/HNSW and deletion-generation sidecars, while pruning protects active commit and held-snapshot generations.
 - Compile query-string clauses with the analyser configured for their selected schema field.
+- Parse `~`, `^` and `^=` modifiers atomically, reject non-finite scores, and cap phrase slop at 256 in Core and structured Server queries.
 - Treat quoted phrases with no analysed tokens as no-clause results instead of reconstructing raw terms, returning `MatchNoDocsQuery` when no query clauses remain.
 - Preserve query-token escape metadata through wildcard, range, and phrase parsing so escaped metacharacters remain literal.
 - Preserve position lengths through legacy filter routing and cached graph replay, with independent cache clones.

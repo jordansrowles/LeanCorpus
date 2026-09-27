@@ -22,6 +22,8 @@ public sealed class ConstantScoreQuery : Query
     public ConstantScoreQuery(Query inner, float score = 1.0f)
     {
         ArgumentNullException.ThrowIfNull(inner);
+        if (!float.IsFinite(score))
+            throw new ArgumentOutOfRangeException(nameof(score), score, "Constant score must be finite.");
         Inner = inner;
         ConstantScore = score;
     }

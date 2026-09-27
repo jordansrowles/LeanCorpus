@@ -15,7 +15,7 @@ public sealed class MultiPhraseQuery : Query
     /// <summary>Gets the explicit positions for each slot.</summary>
     public IReadOnlyList<int> Positions => _positions;
 
-    /// <summary>Gets the allowed phrase slop.</summary>
+    /// <summary>Gets the allowed phrase slop, from 0 through <see cref="PhraseQuery.MaximumSlop"/>.</summary>
     public int Slop { get; }
 
     /// <summary>Initialises a new <see cref="MultiPhraseQuery"/>.</summary>
@@ -24,7 +24,7 @@ public sealed class MultiPhraseQuery : Query
         if (string.IsNullOrWhiteSpace(field))
             throw new ArgumentException("Field must be a non-empty value.", nameof(field));
         ArgumentNullException.ThrowIfNull(termGroups);
-        ArgumentOutOfRangeException.ThrowIfNegative(slop);
+        PhraseQuery.ValidateSlop(slop, nameof(slop));
 
         Field = field;
         var groups = new List<string[]>();

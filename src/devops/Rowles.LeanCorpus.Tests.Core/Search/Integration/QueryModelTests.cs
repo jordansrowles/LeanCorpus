@@ -11,6 +11,18 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class QueryModelTests
 {
+    [Theory(DisplayName = "Query: Boost rejects non-finite values")]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NegativeInfinity)]
+    public void Query_Boost_RejectsNonFiniteValues(float boost)
+    {
+        var query = new TermQuery("body", "hello");
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => query.Boost = boost);
+        Assert.Equal(1.0f, query.Boost);
+    }
+
     // ── DisjunctionMaxQuery ──────────────────────────────────────────────────
 
     /// <summary>
@@ -169,6 +181,16 @@ public sealed class QueryModelTests
     public void ConstantScoreQuery_Constructor_ThrowsOnNullInner()
     {
         Assert.Throws<ArgumentNullException>(() => new ConstantScoreQuery(null!));
+    }
+
+    [Theory(DisplayName = "ConstantScoreQuery: Constructor rejects non-finite scores")]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NegativeInfinity)]
+    public void ConstantScoreQuery_Constructor_RejectsNonFiniteScore(float score)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new ConstantScoreQuery(new TermQuery("body", "hello"), score));
     }
 
     /// <summary>

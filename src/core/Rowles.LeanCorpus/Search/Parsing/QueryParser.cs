@@ -510,17 +510,26 @@ public class QueryParser
             if (pos < tokens.Count && tokens[pos].Type == QTokenType.Tilde)
             {
                 int modifierOffset = tokens[pos].Offset;
-                pos++;
-                int maxEdits = 2;
-                if (pos < tokens.Count && tokens[pos].Type == QTokenType.Term &&
-                    int.TryParse(tokens[pos].Value, out int edits))
+                int suffixPosition = pos + 1;
+                if (suffixPosition >= tokens.Count ||
+                    tokens[suffixPosition].Type != QTokenType.Term ||
+                    !int.TryParse(
+                        tokens[suffixPosition].Value,
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out int maxEdits) ||
+                    maxEdits is < 0 or > 2)
                 {
-                    maxEdits = edits;
-                    pos++;
+                    if (!_lenient)
+                        throw new QueryParseException("Fuzzy edit distance must be an integer between 0 and 2.", modifierOffset);
                 }
-                var analysedTokens = AnalyseTerm(field, term);
-                var fuzzy = LowerAnalysedTokens(field, term, analysedTokens, maxEdits, modifierOffset);
-                return fuzzy is null ? null : ApplyBoost(fuzzy, tokens, ref pos);
+                else
+                {
+                    pos = suffixPosition + 1;
+                    var analysedTokens = AnalyseTerm(field, term);
+                    var fuzzy = LowerAnalysedTokens(field, term, analysedTokens, maxEdits, modifierOffset);
+                    return fuzzy is null ? null : ApplyBoost(fuzzy, tokens, ref pos);
+                }
             }
 
             // Regular term — analyse it
@@ -845,38 +854,63 @@ public class QueryParser
         return phrase with { Expansion = expansion };
     }
 
-    private static int ReadSlop(List<QToken> tokens, ref int pos)
+    private int ReadSlop(List<QToken> tokens, ref int pos)
     {
-        if (pos < tokens.Count && tokens[pos].Type == QTokenType.Tilde)
+        if (pos >= tokens.Count || tokens[pos].Type != QTokenType.Tilde)
+            return 0;
+
+        int modifierOffset = tokens[pos].Offset;
+        int suffixPosition = pos + 1;
+        if (suffixPosition >= tokens.Count ||
+            tokens[suffixPosition].Type != QTokenType.Term ||
+            !int.TryParse(
+                tokens[suffixPosition].Value,
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out int slop) ||
+            slop is < 0 or > PhraseQuery.MaximumSlop)
         {
-            pos++;
-            if (pos < tokens.Count && tokens[pos].Type == QTokenType.Term &&
-                int.TryParse(tokens[pos].Value, out int slop))
+            if (!_lenient)
             {
-                pos++;
-                return slop;
+                throw new QueryParseException(
+                    $"Phrase slop must be an integer between 0 and {PhraseQuery.MaximumSlop}.",
+                    modifierOffset);
             }
+
+            return 0;
         }
-        return 0;
+
+        pos = suffixPosition + 1;
+        return slop;
     }
 
     private QuerySyntax ApplyBoost(QuerySyntax query, List<QToken> tokens, ref int pos)
     {
-        if (pos < tokens.Count && tokens[pos].Type == QTokenType.Caret)
+        if (pos >= tokens.Count || tokens[pos].Type != QTokenType.Caret)
+            return query;
+
+        int modifierOffset = tokens[pos].Offset;
+        int suffixPosition = pos + 1;
+        bool constantScore = suffixPosition < tokens.Count && tokens[suffixPosition].Type == QTokenType.Equal;
+        if (constantScore)
+            suffixPosition++;
+
+        if (suffixPosition >= tokens.Count ||
+            tokens[suffixPosition].Type != QTokenType.Term ||
+            !float.TryParse(
+                tokens[suffixPosition].Value,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out float boost) ||
+            !float.IsFinite(boost))
         {
-            pos++;
-            bool constantScore = pos < tokens.Count && tokens[pos].Type == QTokenType.Equal;
-            if (constantScore)
-                pos++;
-            if (pos < tokens.Count && tokens[pos].Type == QTokenType.Term &&
-                float.TryParse(tokens[pos].Value, System.Globalization.CultureInfo.InvariantCulture, out float boost))
-            {
-                pos++;
-                BoostQuerySyntax syntax = new(query, boost, constantScore);
-                return constantScore ? CreateSyntaxNode(syntax) : syntax;
-            }
+            if (!_lenient)
+                throw new QueryParseException("Boost modifiers require a finite numeric value.", modifierOffset);
+            return query;
         }
-        return query;
+
+        pos = suffixPosition + 1;
+        BoostQuerySyntax syntax = new(query, boost, constantScore);
+        return constantScore ? CreateSyntaxNode(syntax) : syntax;
     }
 
     private T CreateSyntaxNode<T>(T syntax) where T : QuerySyntax

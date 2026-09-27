@@ -46,6 +46,34 @@ public sealed class PhraseVectorQueryTests
         Assert.Equal(["lazy", "dog"], q.Terms);
     }
 
+    [Theory(DisplayName = "PhraseQuery: Slop is bounded by the configured maximum")]
+    [InlineData(-1)]
+    [InlineData(257)]
+    public void PhraseQuery_Slop_RejectsValuesOutsideConfiguredRange(int slop)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PhraseQuery("body", slop, "term"));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PhraseQuery("body", ["term"], [0], slop));
+
+        var query = new PhraseQuery("body", "term");
+        Assert.Throws<ArgumentOutOfRangeException>(() => query.Slop = slop);
+        Assert.Equal(0, query.Slop);
+    }
+
+    [Fact(DisplayName = "PhraseQuery: Slop accepts the configured maximum")]
+    public void PhraseQuery_Slop_AcceptsConfiguredMaximum()
+    {
+        var query = new PhraseQuery("body", PhraseQuery.MaximumSlop, "term");
+
+        Assert.Equal(PhraseQuery.MaximumSlop, query.Slop);
+    }
+
+    [Fact(DisplayName = "MultiPhraseQuery: Slop rejects values above the configured maximum")]
+    public void MultiPhraseQuery_Slop_RejectsValuesAboveConfiguredMaximum()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new MultiPhraseQuery("body", [["term"]], slop: PhraseQuery.MaximumSlop + 1));
+    }
+
     [Fact(DisplayName = "PhraseQuery: QualifiedTerms Format Is Field-NulTerm")]
     public void PhraseQuery_QualifiedTerms_FormatsCorrectly()
     {

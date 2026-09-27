@@ -358,6 +358,17 @@ public sealed class QueryParserTests
         Assert.Equal(expectedOffset, exception.Offset);
     }
 
+    [Theory(DisplayName = "Parse: Malformed fuzzy modifier throws at its marker")]
+    [InlineData("corpus~", 6)]
+    [InlineData("corpus~abc", 6)]
+    [InlineData("corpus~999999999999999999999", 6)]
+    public void Parse_MalformedFuzzyModifier_ThrowsAtModifierOffset(string queryText, int expectedOffset)
+    {
+        var exception = Assert.Throws<QueryParseException>(() => _parser.Parse(queryText));
+
+        Assert.Equal(expectedOffset, exception.Offset);
+    }
+
     /// <summary>
     /// Verifies the Parse: Phrase With Slop Returns Phrase Query With Slop scenario.
     /// </summary>
@@ -369,6 +380,27 @@ public sealed class QueryParserTests
         Assert.Equal(2, pq.Slop);
     }
 
+    [Fact(DisplayName = "Parse: Phrase accepts the configured maximum slop")]
+    public void Parse_PhraseWithMaximumSlop_ReturnsPhraseQuery()
+    {
+        var query = Assert.IsType<PhraseQuery>(
+            _parser.Parse($"\"quick fox\"~{PhraseQuery.MaximumSlop}"));
+
+        Assert.Equal(PhraseQuery.MaximumSlop, query.Slop);
+    }
+
+    [Theory(DisplayName = "Parse: Invalid phrase slop throws at its marker")]
+    [InlineData("\"quick fox\"~", 11)]
+    [InlineData("\"quick fox\"~abc", 11)]
+    [InlineData("\"quick fox\"~-1", 11)]
+    [InlineData("\"quick fox\"~257", 11)]
+    public void Parse_InvalidPhraseSlop_ThrowsAtModifierOffset(string queryText, int expectedOffset)
+    {
+        var exception = Assert.Throws<QueryParseException>(() => _parser.Parse(queryText));
+
+        Assert.Equal(expectedOffset, exception.Offset);
+    }
+
     /// <summary>
     /// Verifies the Parse: Boost Suffix Sets Boost On Query scenario.
     /// </summary>
@@ -377,6 +409,31 @@ public sealed class QueryParserTests
     {
         var query = _parser.Parse("important^3.5");
         Assert.Equal(3.5f, query.Boost, 0.01f);
+    }
+
+    [Theory(DisplayName = "Parse: Malformed or non-finite boost throws at its marker")]
+    [InlineData("corpus^", 6)]
+    [InlineData("corpus^=", 6)]
+    [InlineData("corpus^abc", 6)]
+    [InlineData("corpus^NaN", 6)]
+    [InlineData("corpus^Infinity", 6)]
+    [InlineData("corpus^=abc", 6)]
+    [InlineData("corpus^=Infinity", 6)]
+    [InlineData("corpus^1e100", 6)]
+    public void Parse_InvalidBoostModifier_ThrowsAtModifierOffset(string queryText, int expectedOffset)
+    {
+        var exception = Assert.Throws<QueryParseException>(() => _parser.Parse(queryText));
+
+        Assert.Equal(expectedOffset, exception.Offset);
+    }
+
+    [Fact(DisplayName = "Parse: Failed modifier does not poison parser reuse")]
+    public void Parse_FailedModifier_DoesNotPoisonParserReuse()
+    {
+        Assert.Throws<QueryParseException>(() => _parser.Parse("corpus^NaN"));
+
+        var query = Assert.IsType<TermQuery>(_parser.Parse("corpus"));
+        Assert.Equal("corpus", query.Term);
     }
 
     /// <summary>

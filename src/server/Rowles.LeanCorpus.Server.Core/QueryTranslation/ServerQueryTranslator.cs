@@ -81,8 +81,8 @@ internal static class ServerQueryTranslator
                     ValidateTextField(phrase.Field, schema);
                     if (phrase.Terms is null || phrase.Terms.Count == 0)
                         throw new QueryTranslationException("invalid_query", "Phrase queries require at least one term.");
-                    if (phrase.Slop < 0)
-                        throw new QueryTranslationException("invalid_query", "Phrase slop cannot be negative.");
+                    if (phrase.Slop is < 0 or > PhraseQuery.MaximumSlop)
+                        throw new QueryTranslationException("invalid_query", $"Phrase slop must be between 0 and {PhraseQuery.MaximumSlop}.");
                     break;
 
                 case PrefixQueryDefinition prefix:

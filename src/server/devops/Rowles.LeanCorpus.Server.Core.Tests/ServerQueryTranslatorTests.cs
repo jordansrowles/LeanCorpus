@@ -120,6 +120,25 @@ public sealed class ServerQueryTranslatorTests
         Assert.Equal("query_too_complex", failure?.Code);
     }
 
+    [Fact]
+    public void StructuredPhraseRejectsSlopAboveCoreMaximumDuringValidation()
+    {
+        PhraseQueryDefinition definition = new("title", ["guide"], 257);
+
+        bool translated = ServerQueryTranslator.TryTranslate(
+            definition,
+            CreateSchema(),
+            new ServerCoreOptions(),
+            defaultField: "title",
+            maximumBooleanClauses: null,
+            out var query,
+            out var failure);
+
+        Assert.False(translated);
+        Assert.Null(query);
+        Assert.Equal("invalid_query", failure?.Code);
+    }
+
     private static CompiledIndexSchema CreateSchema() => CompiledIndexSchema.Create(
         new IndexSchema(
             [

@@ -5,11 +5,22 @@
 /// </summary>
 public abstract class Query : IEquatable<Query>
 {
+    private float _boost = 1.0f;
+
     /// <summary>Gets the single field this query targets, or an empty value for fieldless and multi-field queries.</summary>
     public abstract string Field { get; }
 
     /// <summary>Boost factor applied to this query's score. Default 1.0.</summary>
-    public float Boost { get; set; } = 1.0f;
+    public float Boost
+    {
+        get => _boost;
+        set
+        {
+            if (!float.IsFinite(value))
+                throw new ArgumentOutOfRangeException(nameof(value), value, "Boost must be finite.");
+            _boost = value;
+        }
+    }
 
     /// <inheritdoc/>
     public abstract override bool Equals(object? obj);

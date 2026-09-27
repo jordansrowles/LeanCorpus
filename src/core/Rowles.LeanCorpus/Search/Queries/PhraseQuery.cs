@@ -5,7 +5,11 @@ namespace Rowles.LeanCorpus.Search.Queries;
 /// </summary>
 public sealed class PhraseQuery : Query
 {
+    /// <summary>Maximum allowed positional deviation for phrase queries.</summary>
+    public const int MaximumSlop = 256;
+
     private readonly int[] _positions;
+    private int _slop;
 
     /// <inheritdoc/>
     public override string Field { get; }
@@ -16,8 +20,16 @@ public sealed class PhraseQuery : Query
     /// <summary>Gets the explicit position for each term.</summary>
     public IReadOnlyList<int> Positions => _positions;
 
-    /// <summary>Maximum number of positional gaps allowed between terms. 0 = exact phrase.</summary>
-    public int Slop { get; set; }
+    /// <summary>Maximum number of positional gaps allowed between terms, from 0 through <see cref="MaximumSlop"/>. 0 = exact phrase.</summary>
+    public int Slop
+    {
+        get => _slop;
+        set
+        {
+            ValidateSlop(value, nameof(value));
+            _slop = value;
+        }
+    }
 
     /// <summary>Cached qualified term strings ("field\0term") to avoid per-search allocation.</summary>
     private volatile string[]? _cachedQualifiedTerms;
@@ -72,7 +84,7 @@ public sealed class PhraseQuery : Query
         ArgumentNullException.ThrowIfNull(positions);
         if (terms.Length != positions.Length)
             throw new ArgumentException("Positions must match the number of terms.", nameof(positions));
-        ArgumentOutOfRangeException.ThrowIfNegative(slop);
+        ValidateSlop(slop, nameof(slop));
         for (int i = 1; i < positions.Length; i++)
         {
             if (positions[i] < positions[i - 1])
@@ -122,5 +134,16 @@ public sealed class PhraseQuery : Query
         for (int i = 0; i < count; i++)
             positions[i] = i;
         return positions;
+    }
+
+    internal static void ValidateSlop(int slop, string parameterName)
+    {
+        if (slop is < 0 or > MaximumSlop)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                slop,
+                $"Phrase slop must be between 0 and {MaximumSlop}.");
+        }
     }
 }
