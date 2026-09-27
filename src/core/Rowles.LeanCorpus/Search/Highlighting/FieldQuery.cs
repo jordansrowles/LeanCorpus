@@ -120,8 +120,8 @@ public sealed class FieldQuery
 
     private void CollectPhrase(PhraseQuery query, float weight)
     {
-        for (int i = 0; i < query.Terms.Length; i++)
-            AddTerm(query.Field, query.Terms[i], new HashSet<int> { query.Positions[i] }, weight);
+        for (int i = 0; i < query.TermSpan.Length; i++)
+            AddTerm(query.Field, query.TermSpan[i], new HashSet<int> { query.PositionSpan[i] }, weight);
     }
 
     private void CollectMultiPhrase(MultiPhraseQuery query, float weight)

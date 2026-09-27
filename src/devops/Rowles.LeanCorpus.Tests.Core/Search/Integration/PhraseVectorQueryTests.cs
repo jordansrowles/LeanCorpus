@@ -20,6 +20,76 @@ public sealed class PhraseVectorQueryTests
         Assert.Equal(0, q.Slop);
     }
 
+    [Fact(DisplayName = "PhraseQuery: Constructors copy caller-owned term arrays")]
+    public void PhraseQuery_ConstructorsCopyCallerOwnedTermArrays()
+    {
+        string[] defaultTerms = ["quick", "brown"];
+        var defaultQuery = new PhraseQuery("body", defaultTerms);
+        defaultTerms[0] = "slow";
+        Assert.Equal("quick", defaultQuery.Terms[0]);
+
+        string[] slopTerms = ["quick", "brown"];
+        var slopQuery = new PhraseQuery("body", 1, slopTerms);
+        slopTerms[0] = "slow";
+        Assert.Equal("quick", slopQuery.Terms[0]);
+
+        string[] positionedTerms = ["quick", "brown"];
+        int[] positions = [0, 2];
+        var positionedQuery = new PhraseQuery("body", positionedTerms, positions);
+        positionedTerms[0] = "slow";
+        positions[1] = 3;
+        Assert.Equal("quick", positionedQuery.Terms[0]);
+        Assert.Equal([0, 2], positionedQuery.Positions);
+    }
+
+    [Fact(DisplayName = "PhraseQuery: Cached terms stay consistent with the owned term state")]
+    public void PhraseQuery_CachedQualifiedTermsStayConsistentAfterCallerMutation()
+    {
+        string[] terms = ["quick", "brown"];
+        int[] positions = [0, 2];
+        var query = new PhraseQuery("body", terms, positions);
+        _ = query.QualifiedTerms[0];
+
+        terms[0] = "slow";
+        positions[1] = 3;
+
+        var expected = new PhraseQuery("body", ["quick", "brown"], [0, 2]);
+        Assert.Equal("quick", query.Terms[0]);
+        Assert.Equal(expected, query);
+        Assert.Equal(expected.GetHashCode(), query.GetHashCode());
+        Assert.Equal("body\0quick", query.QualifiedTerms[0]);
+        Assert.Equal("body\0brown", query.QualifiedTerms[1]);
+    }
+
+    [Fact(DisplayName = "PhraseQuery: Terms and positions expose read-only views")]
+    public void PhraseQuery_TermsAndPositionsAreReadOnlyViews()
+    {
+        var query = new PhraseQuery("body", ["quick", "brown"], [0, 2]);
+        var terms = Assert.IsAssignableFrom<IList<string>>(query.Terms);
+        var positions = Assert.IsAssignableFrom<IList<int>>(query.Positions);
+
+        Assert.True(terms.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() => terms[0] = "slow");
+        Assert.True(positions.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() => positions[1] = 3);
+        Assert.Equal("quick", query.Terms[0]);
+        Assert.Equal(2, query.Positions[1]);
+    }
+
+    [Fact(DisplayName = "PhraseQuery: Qualified terms are an internal read-only view")]
+    public void PhraseQuery_QualifiedTermsAreInternalReadOnlyView()
+    {
+        var property = typeof(PhraseQuery).GetProperty(
+            nameof(PhraseQuery.QualifiedTerms),
+            System.Reflection.BindingFlags.Instance |
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.NonPublic);
+
+        Assert.NotNull(property);
+        Assert.False(property!.GetMethod!.IsPublic);
+        Assert.Equal(typeof(ReadOnlySpan<string>), property.PropertyType);
+    }
+
     [Fact(DisplayName = "PhraseQuery: Explicit Positions Participate In Equality")]
     public void PhraseQuery_ExplicitPositions_ParticipateInEquality()
     {
@@ -89,11 +159,14 @@ public sealed class PhraseVectorQueryTests
         Assert.Equal("beta", parts1[1]);
     }
 
-    [Fact(DisplayName = "PhraseQuery: QualifiedTerms Is Cached")]
-    public void PhraseQuery_QualifiedTerms_IsCached()
+    [Fact(DisplayName = "PhraseQuery: QualifiedTerms Are Stable Across Reads")]
+    public void PhraseQuery_QualifiedTerms_AreStableAcrossReads()
     {
         var q = new PhraseQuery("f", "a");
-        Assert.Same(q.QualifiedTerms, q.QualifiedTerms);
+        var first = q.QualifiedTerms;
+        var second = q.QualifiedTerms;
+        Assert.Equal(1, first.Length);
+        Assert.Equal(first[0], second[0]);
     }
 
     [Fact(DisplayName = "PhraseQuery: Equal When Same Field Slop And Terms")]

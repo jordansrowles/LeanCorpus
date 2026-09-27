@@ -187,10 +187,10 @@ public sealed class QueryCache
                 case PhraseQuery pq:
                     AppendPart(builder, pq.Field);
                     builder.Append("|slop=").Append(pq.Slop);
-                    for (int i = 0; i < pq.Terms.Length; i++)
+                    for (int i = 0; i < pq.TermSpan.Length; i++)
                     {
-                        builder.Append("|pos=").Append(pq.Positions[i]);
-                        AppendPart(builder, pq.Terms[i]);
+                        builder.Append("|pos=").Append(pq.PositionSpan[i]);
+                        AppendPart(builder, pq.TermSpan[i]);
                     }
                     break;
                 case MultiPhraseQuery mpq:

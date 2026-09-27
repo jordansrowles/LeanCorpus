@@ -22,6 +22,10 @@ var loose = new PhraseQuery(
 
 Slop `0` requires adjacent positions. A positive slop allows intervening positions, but `PhraseQuery` still uses the supplied term order. Use an unordered `SpanNearQuery` or `IntervalsUnorderedSource` when order must not matter.
 
+`PhraseQuery` copies term and position arrays passed to its constructors. Its
+`Terms` and `Positions` properties expose read-only views, so later changes to
+the caller's arrays cannot change the query.
+
 The scorer first intersects documents containing every term, choosing a rare term as the lead, then verifies positions. Matching terms contribute their scoring factors. Slop is a match condition, not an extra proximity bonus, so a tighter occurrence does not automatically outrank a looser occurrence solely because of distance.
 
 ## `MultiPhraseQuery`

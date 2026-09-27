@@ -16,6 +16,7 @@
 
 ### Changed
 
+- Change `PhraseQuery.Terms` from `string[]` to `IReadOnlyList<string>`, copy constructor arrays, expose read-only positions, and keep cached qualified terms internal.
 - Reject overlapping `QueryParser.Parse` calls when a fixed analyser is supplied; use a per-parse analyser factory for concurrent parser reuse.
 - Document that concurrent `IndexSearcher.Search(string, ...)` calls require a shared analyser to support concurrent use.
 - Keep DocValues runtime storage columnar with mapped packed values, flat offsets and local ordinals, decoding only requested documents while materialising compatibility getters on demand.
@@ -25,6 +26,7 @@
 - Map query-comparison documentation changes to Core Search for affected test runs.
 - Map Rowles.Text Tokenisers test-source changes to the Tokenisers area for affected test runs.
 - Map Core TextIntegration test-source changes to the TextIntegration area for affected test runs.
+- Map phrase documentation and phrase benchmark changes to Core Search for affected test and benchmark runs.
 - Add a paired allocation benchmark for legacy and graph-aware token cache paths, with a focused DevOps benchmark group.
 - Apply queued deletes through logical segment members so compound segments can be deleted and updated without unpacking their `.dic` and `.pos` files.
 - Set Core package, assembly and file versions to `3.2.0`.

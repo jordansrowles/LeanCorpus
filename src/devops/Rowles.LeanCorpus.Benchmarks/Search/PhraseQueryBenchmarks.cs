@@ -28,6 +28,11 @@ public class PhraseQueryBenchmarks
 
     private LeanIndexSearcher? _leanSearcher;
 
+    private static readonly string[] TwoWordTerms = ["new", "york"];
+    private static readonly int[] TwoWordPositions = [0, 1];
+    private static readonly string[] ThreeWordTerms = ["new", "york", "stock"];
+    private static readonly int[] ThreeWordPositions = [0, 1, 2];
+
     [GlobalSetup]
     public void Setup()
     {
@@ -55,6 +60,17 @@ public class PhraseQueryBenchmarks
                 new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", slop: 2, "said", "government"), TopN).TotalHits,
             _ => 0
         };
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_PhraseQueryConstruction()
+    {
+        string[] terms = PhraseType == "ExactThreeWord" ? ThreeWordTerms : TwoWordTerms;
+        int[] positions = PhraseType == "ExactThreeWord" ? ThreeWordPositions : TwoWordPositions;
+        int slop = PhraseType == "SlopTwoWord" ? 2 : 0;
+        var query = new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", terms, positions, slop);
+        return query.GetHashCode();
     }
 
     [Benchmark]
