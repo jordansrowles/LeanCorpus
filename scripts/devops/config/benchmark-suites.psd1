@@ -28,6 +28,7 @@
     mlt                  = 'MoreLikeThisBenchmarks + MoreLikeThisSingleSegmentBenchmarks'
     highlighter          = 'HighlighterBenchmarks'
     'searcher-mgr'       = 'SearcherManagerBenchmarks'
+    'term-caches'        = 'QualifiedTermCacheBenchmarks -- qualified-term interning and collection-frequency cache workload'
     'segment-reader-cache' = 'SegmentReaderCacheBenchmarks'
     combined             = 'CombinedFieldsQueryBenchmarks'
     terminset            = 'TermInSetQueryBenchmarks'

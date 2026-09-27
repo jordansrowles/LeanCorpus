@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.Fst;
+using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Store;
 using System.Text.RegularExpressions;
 
@@ -36,6 +37,9 @@ public sealed partial class SegmentReader : IDisposable
 
     /// <summary>Gets the segment metadata for this reader.</summary>
     public SegmentDescriptor Info => _info;
+
+    /// <summary>Gets process-wide entry and eviction metrics for qualified-term interning.</summary>
+    public static CacheMetricsSnapshot QualifiedTermCacheMetrics => SegmentReaderState.QualifiedTermCacheMetrics;
 
     /// <summary>Gets the directory this reader was opened from.</summary>
     internal MMapDirectory Directory => _directory;

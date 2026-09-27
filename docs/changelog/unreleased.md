@@ -16,6 +16,8 @@
 
 ### Changed
 
+- Bound qualified-term interning to 4,096 entries and 512-character keys, bound each searcher's collection-frequency cache to 1,024 entries, and expose entry and eviction metrics for both caches.
+- Add a focused qualified-term cache benchmark suite and route it through affected benchmark selection.
 - Change `PhraseQuery.Terms` from `string[]` to `IReadOnlyList<string>`, copy constructor arrays, expose read-only positions, and keep cached qualified terms internal.
 - Reject overlapping `QueryParser.Parse` calls when a fixed analyser is supplied; use a per-parse analyser factory for concurrent parser reuse.
 - Document that concurrent `IndexSearcher.Search(string, ...)` calls require a shared analyser to support concurrent use.

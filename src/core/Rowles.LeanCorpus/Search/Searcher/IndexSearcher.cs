@@ -36,7 +36,9 @@ public sealed partial class IndexSearcher : IDisposable
     private const string CombinedFieldsDocFreqKey = "\u0001combined-fields";
     private readonly QueryCache? _queryCache;
     private int _commitGeneration;
-    private readonly ConcurrentDictionary<string, long> _collectionFrequencyCache = new(StringComparer.Ordinal);
+    private const int CollectionFrequencyCacheMaximumEntries = 1024;
+    private const int CollectionFrequencyCacheMaximumTermLength = 512;
+    private readonly BoundedGenerationCache<string, long> _collectionFrequencyCache = new(CollectionFrequencyCacheMaximumEntries);
     private ConcurrentDictionary<MltCacheKey, (string Field, string Term, float Score)[]>? _mltCache;
     private int _mltCacheCount;
     private const int MltCacheSoftCap = 64;
@@ -73,6 +75,9 @@ public sealed partial class IndexSearcher : IDisposable
 
     /// <summary>The query result cache, or null if caching is disabled.</summary>
     public QueryCache? Cache => _queryCache;
+
+    /// <summary>Gets entry and eviction metrics for this searcher's collection-frequency cache.</summary>
+    public Diagnostics.CacheMetricsSnapshot CollectionFrequencyCacheMetrics => _collectionFrequencyCache.Metrics;
 
     /// <summary>The committed generation represented by this immutable searcher snapshot.</summary>
     public int CommitGeneration => _commitGeneration;
@@ -155,8 +160,10 @@ public sealed partial class IndexSearcher : IDisposable
 
     /// <summary>Computes the collection frequency for a term across all segments.</summary>
     private long GetGlobalCollectionFreq(string qualifiedTerm)
-        => _collectionFrequencyCache.GetOrAdd(qualifiedTerm, static (term, searcher) =>
-            searcher.ComputeGlobalCollectionFrequency(term), this);
+        => qualifiedTerm.Length > CollectionFrequencyCacheMaximumTermLength
+            ? ComputeGlobalCollectionFrequency(qualifiedTerm)
+            : _collectionFrequencyCache.GetOrAdd(qualifiedTerm, this, static (term, searcher) =>
+                searcher.ComputeGlobalCollectionFrequency(term));
 
     private long ComputeGlobalCollectionFrequency(string qualifiedTerm)
     {

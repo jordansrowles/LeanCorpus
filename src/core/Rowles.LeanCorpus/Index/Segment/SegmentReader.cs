@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.StoredFields;
@@ -38,6 +39,8 @@ internal sealed partial class SegmentReaderState : IDisposable
     private readonly TermOffsetCache _termOffsetCache = new(MaxTermOffsetCacheSize);
 
     private static readonly QualifiedTermCache s_qualifiedTermCache = new();
+
+    internal static CacheMetricsSnapshot QualifiedTermCacheMetrics => s_qualifiedTermCache.Metrics;
 
     // Lazy-loaded Stage 2 features (thread-safe via LazyInitializer)
     private Dictionary<string, Dictionary<int, double>>? _numericIndex;

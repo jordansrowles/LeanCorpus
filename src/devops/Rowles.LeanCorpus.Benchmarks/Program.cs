@@ -121,6 +121,7 @@ internal static class Program
                 BenchmarkSuite.WindowsStoragePath,
                 BenchmarkSuite.IncrementalBackup,
                 BenchmarkSuite.ReaderManagerLifecycle,
+                BenchmarkSuite.QualifiedTermCache,
                 BenchmarkSuite.MultiReader,
                 BenchmarkSuite.OrdinalMap,
                 BenchmarkSuite.SearchSession,
@@ -376,6 +377,9 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.ReaderManagerLifecycle))
             RunSuite<ReaderManagerLifecycleBenchmarks>("reader-manager", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.QualifiedTermCache))
+            RunSuite<QualifiedTermCacheBenchmarks>("term-caches", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.MultiReader))
             RunSuite<MultiReaderBenchmarks>("multi-reader", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -738,6 +742,7 @@ internal static class Program
               mlt                 MoreLikeThisBenchmarks and MoreLikeThisSingleSegmentBenchmarks -- MoreLikeThis query
               highlighter         HighlighterBenchmarks -- snippet highlighting
               searcher-mgr        SearcherManagerBenchmarks -- acquire/release hot path
+              term-caches         QualifiedTermCacheBenchmarks -- qualified-term interning and collection-frequency cache workload (explicit only)
               combined            CombinedFieldsQueryBenchmarks -- BM25F multi-field search
               terminset           TermInSetQueryBenchmarks -- set membership search
               aggregation         AggregationBenchmarks and SpatialAggregationBenchmarks -- numeric and spatial aggregation overhead
@@ -928,6 +933,7 @@ internal static class Program
             "windows-storage" or "windowsstorage" => BenchmarkSuite.WindowsStoragePath,
             "incremental-backup" or "incrementalbackup" => BenchmarkSuite.IncrementalBackup,
             "reader-manager" or "readermanager" => BenchmarkSuite.ReaderManagerLifecycle,
+            "term-caches" or "termcaches" => BenchmarkSuite.QualifiedTermCache,
             "multi-reader" or "multireader" => BenchmarkSuite.MultiReader,
             "ordinal-map" or "ordinalmap" => BenchmarkSuite.OrdinalMap,
             "search-session" or "searchsession" => BenchmarkSuite.SearchSession,
@@ -1071,6 +1077,7 @@ internal static class Program
         WindowsStoragePath,
         IncrementalBackup,
         ReaderManagerLifecycle,
+        QualifiedTermCache,
         MultiReader,
         OrdinalMap,
         SearchSession,
