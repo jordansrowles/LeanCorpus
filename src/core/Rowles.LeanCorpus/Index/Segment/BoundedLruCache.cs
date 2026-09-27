@@ -10,26 +10,48 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
     where TValue : class, IDisposable
 {
     private readonly int _capacity;
+    private readonly long _maxRetainedBytes;
+    private readonly Func<TValue, SegmentReaderCacheResourceUsage>? _resourceUsageSelector;
     private readonly Dictionary<TKey, Entry> _entries;
     private readonly LinkedList<Entry> _lru = [];
     private readonly Lock _lock = new();
     private readonly Action<AggregateException>? _cleanupFailureReporter;
+    private SegmentReaderCacheResourceUsage _retainedResources;
     private long _loadCount;
+    private long _evictionCount;
     private bool _disposed;
 
     internal BoundedLruCache(
         int capacity,
         IEqualityComparer<TKey>? comparer = null,
-        Action<AggregateException>? cleanupFailureReporter = null)
+        Action<AggregateException>? cleanupFailureReporter = null,
+        long maxRetainedBytes = long.MaxValue,
+        Func<TValue, SegmentReaderCacheResourceUsage>? resourceUsageSelector = null)
     {
         if (capacity < 1)
             throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Cache capacity must be at least one.");
+        if (maxRetainedBytes < 1)
+            throw new ArgumentOutOfRangeException(nameof(maxRetainedBytes), maxRetainedBytes,
+                "Cache retained-byte capacity must be at least one.");
         _capacity = capacity;
+        _maxRetainedBytes = maxRetainedBytes;
+        _resourceUsageSelector = resourceUsageSelector;
         _entries = new Dictionary<TKey, Entry>(capacity, comparer);
         _cleanupFailureReporter = cleanupFailureReporter;
     }
 
     internal int Count { get { lock (_lock) return _entries.Count; } }
+
+    internal SegmentReaderCacheResourceMetrics Metrics
+    {
+        get
+        {
+            lock (_lock)
+                return new SegmentReaderCacheResourceMetrics(
+                    _entries.Count, _evictionCount, _retainedResources.TotalBytes,
+                    _maxRetainedBytes, _retainedResources);
+        }
+    }
 
     internal long LoadCount => Volatile.Read(ref _loadCount);
 
@@ -58,6 +80,7 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
             value = entry.GetValue();
             if (entry.MarkLoaded())
                 Interlocked.Increment(ref _loadCount);
+            RefreshResourceUsage(entry, value);
         }
         catch
         {
@@ -87,6 +110,9 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
 
     private void Release(Entry entry)
     {
+        if (_resourceUsageSelector is not null && entry.TryGetCreated(out var value))
+            RefreshResourceUsage(entry, value);
+
         List<TValue>? toDispose;
         lock (_lock)
         {
@@ -99,6 +125,23 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
 
     void ILifetimeLeaseOwner.ReleaseLease(object token) => Release((Entry)token);
 
+    private void RefreshResourceUsage(Entry entry, TValue value)
+    {
+        if (_resourceUsageSelector is null)
+            return;
+
+        SegmentReaderCacheResourceUsage resources = _resourceUsageSelector(value);
+        lock (_lock)
+        {
+            if (!_entries.TryGetValue(entry.Key, out var current) || !ReferenceEquals(current, entry))
+                return;
+
+            _retainedResources -= entry.Resources;
+            entry.Resources = resources;
+            _retainedResources += resources;
+        }
+    }
+
     private void Trim()
     {
         List<TValue>? toDispose;
@@ -110,7 +153,8 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
     private List<TValue>? CollectEvictions()
     {
         List<TValue>? values = null;
-        while (_entries.Count > (_disposed ? 0 : _capacity))
+        while (_entries.Count > (_disposed ? 0 : _capacity)
+            || (!_disposed && _retainedResources.TotalBytes > _maxRetainedBytes))
         {
             var node = _lru.Last;
             while (node is not null && node.Value.LeaseCount != 0)
@@ -122,6 +166,8 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
             _lru.Remove(node);
             _entries.Remove(entry.Key);
             entry.Node = null;
+            _retainedResources -= entry.Resources;
+            _evictionCount++;
             if (entry.TryGetCreated(out var value))
                 (values ??= []).Add(value);
         }
@@ -261,6 +307,7 @@ internal sealed class BoundedLruCache<TKey, TValue> : IDisposable, ILifetimeLeas
         internal TKey Key { get; }
         internal int LeaseCount { get; set; }
         internal LinkedListNode<Entry>? Node { get; set; }
+        internal SegmentReaderCacheResourceUsage Resources { get; set; }
 
         internal bool MarkLoaded() => Interlocked.Exchange(ref _loaded, 1) == 0;
 

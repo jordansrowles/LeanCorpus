@@ -103,6 +103,7 @@ internal sealed record IndexSearcherDefaultsSnapshot
     internal DefaultOverride<int> MaxConcurrency { get; init; } = DefaultOverride<int>.Unset;
     internal DefaultOverride<bool> EnableBlockMaxWand { get; init; } = DefaultOverride<bool>.Unset;
     internal DefaultOverride<int> MaxCachedSegmentReaders { get; init; } = DefaultOverride<int>.Unset;
+    internal DefaultOverride<long> MaxCachedSegmentReaderBytes { get; init; } = DefaultOverride<long>.Unset;
     internal QueryCacheDefaultsSnapshot QueryCache { get; init; } = QueryCacheDefaultsSnapshot.BuiltIn;
 
     internal static IndexSearcherDefaultsSnapshot BuiltIn { get; } = new();

@@ -49,16 +49,82 @@ public sealed class LazySegmentReaderTests : IDisposable
     }
 
     [Fact(DisplayName = "Index Searcher: Rejects Segment Reader Cache Capacity Below One")]
-    public void Constructor_InvalidCacheCapacity_Throws()
+    public void Constructor_InvalidReaderCountOrByteCapacity_Throws()
     {
         Directory.CreateDirectory(_path);
         using var directory = new MMapDirectory(_path);
         var config = new IndexSearcherConfig { MaxCachedSegmentReaders = 0 };
         Assert.Throws<ArgumentOutOfRangeException>(() => new IndexSearcher(directory, config));
+        config = new IndexSearcherConfig { MaxCachedSegmentReaderBytes = 0 };
+        Assert.Throws<ArgumentOutOfRangeException>(() => new IndexSearcher(directory, config));
+    }
+
+    [Fact(DisplayName = "Index Searcher: Oversized DocValues State Is Evicted After Its Last Lease")]
+    public void ResourceBudget_OversizedDocValuesStateIsEvictedAfterLastLease()
+    {
+        Directory.CreateDirectory(_path);
+        using var directory = new MMapDirectory(_path);
+        byte[] payload = new byte[512 * 1024];
+        new Random(41).NextBytes(payload);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            DefaultAnalyser = new WhitespaceAnalyser(),
+            MaxBufferedDocs = 1,
+            MergePolicy = NoMergePolicy.Instance,
+            DurableCommits = false,
+        }))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "resource", stored: false));
+            document.Add(new BinaryField("payload", payload));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        Rowles.LeanCorpus.Diagnostics.SegmentReaderCacheMetricsSnapshot countOnlyMetrics;
+        using (var countOnlySearcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            MaxCachedSegmentReaders = 8,
+            MaxCachedSegmentReaderBytes = long.MaxValue,
+            ParallelSearch = false,
+        }))
+        {
+            var countOnlyReader = Assert.Single(countOnlySearcher.GetSegmentReaders());
+            _ = countOnlyReader.GetBinaryDocValues("payload");
+            countOnlyMetrics = countOnlySearcher.SegmentReaderCacheMetrics;
+        }
+
+        Assert.Equal(1, countOnlyMetrics.EntryCount);
+        Assert.True(countOnlyMetrics.DocValuesBytes >= payload.Length);
+        Assert.True(countOnlyMetrics.RetainedBytes > 64 * 1024);
+
+        using var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            MaxCachedSegmentReaders = 8,
+            MaxCachedSegmentReaderBytes = 64 * 1024,
+            ParallelSearch = false,
+        });
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        using var activeLease = reader.AcquireReadLease();
+
+        byte[][][] values = Assert.IsType<byte[][][]>(reader.GetBinaryDocValues("payload"));
+        Assert.Equal(payload, Assert.Single(Assert.Single(values)));
+
+        var activeMetrics = searcher.SegmentReaderCacheMetrics;
+        Assert.Equal(1, activeMetrics.EntryCount);
+        Assert.True(activeMetrics.DocValuesBytes >= payload.Length);
+        Assert.True(activeMetrics.RetainedBytes > activeMetrics.MaximumRetainedBytes);
+
+        activeLease.Dispose();
+
+        var releasedMetrics = searcher.SegmentReaderCacheMetrics;
+        Assert.Equal(0, releasedMetrics.EntryCount);
+        Assert.Equal(0, releasedMetrics.RetainedBytes);
+        Assert.True(releasedMetrics.EvictionCount > 0);
     }
 
     [Fact(DisplayName = "Index Searcher: Resident State Dispose Waits For Active Reader Lease")]
-    public async Task Dispose_PermanentlyResidentState_WaitsForActiveReaderLease()
+    public async Task Dispose_CachedState_WaitsForActiveReaderLease()
     {
         Directory.CreateDirectory(_path);
         using var directory = new MMapDirectory(_path);

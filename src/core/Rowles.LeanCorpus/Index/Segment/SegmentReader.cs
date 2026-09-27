@@ -32,6 +32,8 @@ internal sealed partial class SegmentReaderState : IDisposable
     private readonly Dictionary<string, HnswGraph?> _hnswGraphs = new(StringComparer.Ordinal);
     private readonly object _hnswLoadLock = new();
     private readonly List<IndexInput> _docValuesInputs = [];
+    private readonly Dictionary<string, long> _fileLengthCache = new(StringComparer.Ordinal);
+    private readonly Lock _fileLengthCacheLock = new();
     private LiveDocs? _liveDocuments;
     private bool _liveDocumentsLoaded;
 
@@ -495,6 +497,184 @@ internal sealed partial class SegmentReaderState : IDisposable
 
     internal long TermOffsetCacheHits => _termOffsetCache.Hits;
 
+    internal SegmentReaderCacheResourceUsage GetRetainedResourceUsage()
+    {
+        long postingsAndTermsBytes = 0;
+        long normsAndLengthsBytes = 0;
+        long storedFieldsBytes = 0;
+        long termVectorsBytes = 0;
+        long docValuesBytes = 0;
+        long numericIndexesBytes = 0;
+        long spatialIndexesBytes = 0;
+        long vectorsBytes = 0;
+        long liveDocsAndParentsBytes = 0;
+        const long readerShellEstimateBytes = 2_048;
+
+        object lockObj = LazyInitializer.EnsureInitialized(ref _lazyInitLock)!;
+        lock (lockObj)
+        {
+            if (_dictionaryReader is not null)
+                postingsAndTermsBytes += FileBytes(".dic") * 2;
+            if (_postingsInput is not null)
+                postingsAndTermsBytes += FileBytes(".pos");
+            postingsAndTermsBytes += _termOffsetCache.Count * 192L;
+
+            if (_normState is { } norms)
+            {
+                normsAndLengthsBytes += FileBytes(".nrm") + FileBytes(".fln");
+                foreach (byte[] values in norms.Norms.Values)
+                    normsAndLengthsBytes += ArrayBytes(values.LongLength, sizeof(byte));
+                foreach (float[] values in norms.Boosts.Values)
+                    normsAndLengthsBytes += ArrayBytes(values.LongLength, sizeof(float));
+                foreach (int[] values in norms.FieldLengths.Values)
+                    normsAndLengthsBytes += ArrayBytes(values.LongLength, sizeof(int));
+            }
+
+            if (_storedReader is not null)
+                storedFieldsBytes = FileBytes(".fdt") + FileBytes(".fdx");
+            if (_termVectorsReader is not null)
+                termVectorsBytes = FileBytes(".tvd") + FileBytes(".tvx");
+
+            foreach (IndexInput input in _docValuesInputs)
+                docValuesBytes += Math.Max(0, input.Length);
+            docValuesBytes += EstimateMaterialisedDocValues();
+
+            if (_numericIndex is not null)
+                numericIndexesBytes += FileBytes(".num") + EstimateNumericIndex(_numericIndex);
+            if (_int64Index is not null)
+                numericIndexesBytes += FileBytes(".numl") + EstimateNumericIndex(_int64Index);
+
+            if (_bkdReader is not null)
+                spatialIndexesBytes += FileBytes(".bkd") * 2;
+            if (_int64BkdReader is not null)
+                spatialIndexesBytes += FileBytes(".bkdl") * 2;
+            if (_packedBkdReader is not null)
+                spatialIndexesBytes += FileBytes(".pbkd") * 2;
+            if (_shapeDocValuesReader is not null)
+                spatialIndexesBytes += FileBytes(".dvg") * 2;
+
+            if (_liveDocuments is not null)
+                liveDocsAndParentsBytes += FileBytes(".del") * 2;
+            if (_parentBitSet is not null)
+                liveDocsAndParentsBytes += FileBytes(".pbs") * 2;
+        }
+
+        lock (_hnswLoadLock)
+        {
+            foreach (string path in _vectorReaders.Keys)
+                vectorsBytes += FileBytes(path);
+            foreach (string path in _quantisedVectorReaders.Keys)
+                vectorsBytes += FileBytes(path);
+            foreach ((string fieldName, HnswGraph? graph) in _hnswGraphs)
+            {
+                if (graph is null)
+                    continue;
+                string path = VectorFilePaths.HnswFile(_basePath, fieldName);
+                string extension = Path.GetFileName(path)[_info.SegmentId.Length..];
+                vectorsBytes += FileBytes(extension) * 2;
+            }
+        }
+
+        return new SegmentReaderCacheResourceUsage(
+            postingsAndTermsBytes,
+            normsAndLengthsBytes,
+            storedFieldsBytes,
+            termVectorsBytes,
+            docValuesBytes,
+            numericIndexesBytes,
+            spatialIndexesBytes,
+            vectorsBytes,
+            liveDocsAndParentsBytes,
+            readerShellEstimateBytes);
+    }
+
+    private long FileBytes(string extension)
+    {
+        lock (_fileLengthCacheLock)
+        {
+            if (_fileLengthCache.TryGetValue(extension, out long cachedLength))
+                return cachedLength;
+
+            long length = _files.Exists(extension)
+                ? Math.Max(0, _files.GetFileLength(extension))
+                : 0;
+            _fileLengthCache.Add(extension, length);
+            return length;
+        }
+    }
+
+    private long EstimateMaterialisedDocValues()
+    {
+        long bytes = 0;
+        if (_numericDocValues is not null)
+            foreach (double[] values in _numericDocValues.Values)
+                bytes += ArrayBytes(values.LongLength, sizeof(double));
+        if (_int64DocValues is not null)
+            foreach (long[] values in _int64DocValues.Values)
+                bytes += ArrayBytes(values.LongLength, sizeof(long));
+        if (_sortedDocValues is not null)
+            foreach (string[] values in _sortedDocValues.Values)
+                bytes += EstimateStringArray(values);
+        if (_sortedDocValueTerms is not null)
+            foreach (string[] values in _sortedDocValueTerms.Values)
+                bytes += EstimateStringArray(values);
+        if (_sortedSetDocValues is not null)
+            foreach (string[][] values in _sortedSetDocValues.Values)
+            {
+                bytes += ArrayBytes(values.LongLength, IntPtr.Size);
+                foreach (string[] documentValues in values)
+                    bytes += EstimateStringArray(documentValues);
+            }
+        if (_sortedSetDocValueTerms is not null)
+            foreach (string[] values in _sortedSetDocValueTerms.Values)
+                bytes += EstimateStringArray(values);
+        if (_sortedNumericDocValues is not null)
+            foreach (double[][] values in _sortedNumericDocValues.Values)
+            {
+                bytes += ArrayBytes(values.LongLength, IntPtr.Size);
+                foreach (double[] documentValues in values)
+                    bytes += ArrayBytes(documentValues.LongLength, sizeof(double));
+            }
+        if (_int64SortedDocValues is not null)
+            foreach (long[][] values in _int64SortedDocValues.Values)
+            {
+                bytes += ArrayBytes(values.LongLength, IntPtr.Size);
+                foreach (long[] documentValues in values)
+                    bytes += ArrayBytes(documentValues.LongLength, sizeof(long));
+            }
+        if (_binaryDocValues is not null)
+            foreach (byte[][][] values in _binaryDocValues.Values)
+            {
+                bytes += ArrayBytes(values.LongLength, IntPtr.Size);
+                foreach (byte[][] documentValues in values)
+                {
+                    bytes += ArrayBytes(documentValues.LongLength, IntPtr.Size);
+                    foreach (byte[] value in documentValues)
+                        bytes += ArrayBytes(value.LongLength, sizeof(byte));
+                }
+            }
+        return bytes;
+    }
+
+    private static long EstimateStringArray(string[] values)
+    {
+        long bytes = ArrayBytes(values.LongLength, IntPtr.Size);
+        foreach (string value in values)
+            bytes += 24 + value.Length * sizeof(char);
+        return bytes;
+    }
+
+    private static long EstimateNumericIndex<TValue>(Dictionary<string, Dictionary<int, TValue>> values)
+    {
+        long bytes = values.Count * 64L;
+        foreach ((string field, Dictionary<int, TValue> fieldValues) in values)
+            bytes += 48 + field.Length * sizeof(char) + fieldValues.Count * 64L;
+        return bytes;
+    }
+
+    private static long ArrayBytes(long length, int elementSize)
+        => length == 0 ? 0 : 24 + length * elementSize;
+
     /// <inheritdoc/>
     public void Dispose()
     {
@@ -504,6 +684,8 @@ internal sealed partial class SegmentReaderState : IDisposable
         for (int inputIndex = _docValuesInputs.Count - 1; inputIndex >= 0; inputIndex--)
             _docValuesInputs[inputIndex].Dispose();
         _docValuesInputs.Clear();
+        lock (_fileLengthCacheLock)
+            _fileLengthCache.Clear();
         foreach (var graph in _hnswGraphs.Values)
             graph?.Dispose();
         foreach (var r in _vectorReaders.Values) r.Dispose();

@@ -31,6 +31,7 @@ public sealed class IndexSearcherConfig
         MaxConcurrency = Effective(defaults.MaxConcurrency, MaxConcurrency);
         EnableBlockMaxWand = Effective(defaults.EnableBlockMaxWand, EnableBlockMaxWand);
         MaxCachedSegmentReaders = Effective(defaults.MaxCachedSegmentReaders, MaxCachedSegmentReaders);
+        MaxCachedSegmentReaderBytes = Effective(defaults.MaxCachedSegmentReaderBytes, MaxCachedSegmentReaderBytes);
         EnableQueryCache = Effective(defaults.QueryCache.Enabled, EnableQueryCache);
         QueryCacheMaxEntries = Effective(defaults.QueryCache.MaxEntries, QueryCacheMaxEntries);
 
@@ -66,6 +67,9 @@ public sealed class IndexSearcherConfig
         if (MaxCachedSegmentReaders < 1)
             throw new ArgumentOutOfRangeException(nameof(MaxCachedSegmentReaders), MaxCachedSegmentReaders,
                 "MaxCachedSegmentReaders must be at least one.");
+        if (MaxCachedSegmentReaderBytes < 1)
+            throw new ArgumentOutOfRangeException(nameof(MaxCachedSegmentReaderBytes), MaxCachedSegmentReaderBytes,
+                "MaxCachedSegmentReaderBytes must be at least one.");
         if (EnableQueryCache && QueryCacheMaxEntries < 1)
             throw new ArgumentOutOfRangeException(nameof(QueryCacheMaxEntries), QueryCacheMaxEntries,
                 "QueryCacheMaxEntries must be at least one when query caching is enabled.");
@@ -142,6 +146,14 @@ public sealed class IndexSearcherConfig
     /// Active states are protected from eviction. Default: 256.
     /// </summary>
     public int MaxCachedSegmentReaders { get; set; } = 256;
+
+    /// <summary>
+    /// Maximum estimated bytes retained by this searcher's heavy segment-reader states.
+    /// Active states are protected from eviction until their operation or cursor leases end.
+    /// The estimate includes logical mapped-file lengths and materialised arrays where available.
+    /// Default: 268,435,456 (256 MiB).
+    /// </summary>
+    public long MaxCachedSegmentReaderBytes { get; set; } = 256L * 1024 * 1024;
 
     /// <summary>Maximum distinct buckets permitted for an exact facet request. Default: 100,000.</summary>
     public int MaxExactFacetBuckets { get; set; } = 100_000;

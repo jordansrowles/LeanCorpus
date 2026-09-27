@@ -1,5 +1,6 @@
 ### Added
 
+- Added a 256 MiB default retained-resource budget for heavy segment-reader states, an override through process-wide searcher defaults, and public per-component cache metrics.
 - Added optional Shape DocValues `.dvg` v1 for indexed Geo and XY shapes, preserving the exact Packed BKD primitive stream for metadata aggregations.
 - Added one-pass heterogeneous numeric and Geo distance, centroid and bounds aggregation requests, including legacy point fallback and complete shape DocValues coverage checks.
 - Added bounded invariant 2D Geo and XY WKT parsing and canonical writing, plus explicit deterministic Geo and XY line, polygon and collection simplification.
@@ -16,6 +17,8 @@
 
 ### Changed
 
+- Weight the heavy segment-reader LRU by retained-resource estimates as well as entry count, evicting oversized states after active operation and cursor leases end instead of pinning every warmed state below the entry-count threshold.
+- Register the existing segment-reader-cache benchmark suite in its CLI dispatcher and add a DevOps resource-cache suite for equivalent count-only and byte-budget DocValues workloads.
 - Add an explicit bounded-LRU disposal-failure benchmark and route it through DevOps affected benchmark selection.
 - Bound qualified-term interning to 4,096 entries and 512-character keys, bound each searcher's collection-frequency cache to 1,024 entries, and expose entry and eviction metrics for both caches.
 - Add a focused qualified-term cache benchmark suite and route it through affected benchmark selection.

@@ -25,9 +25,7 @@ public sealed partial class SegmentReader : IDisposable
     private readonly BoundedLruCache<string, SegmentReaderState> _cache;
     private readonly Func<SegmentReaderState> _stateFactory;
     private readonly bool _ownsCache;
-    private readonly bool _permanentlyResident;
     private readonly OperationDrain _operations = new();
-    private ResidentStateHandle? _residentState;
     private FileSnapshotLease? _snapshot;
     private bool _disposed;
     private int _disposeStarted;
@@ -71,16 +69,14 @@ public sealed partial class SegmentReader : IDisposable
         _cache = new BoundedLruCache<string, SegmentReaderState>(1, StringComparer.Ordinal);
         _stateFactory = () => new SegmentReaderState(directory, descriptor);
         _ownsCache = true;
-        _permanentlyResident = true;
     }
 
     internal SegmentReader(
         MMapDirectory directory,
         SegmentInfo info,
         BoundedLruCache<string, SegmentReaderState> cache,
-        IReadOnlyCollection<string> inventory,
-        bool permanentlyResident)
-        : this(directory, new SegmentDescriptor(info), cache, inventory, permanentlyResident)
+        IReadOnlyCollection<string> inventory)
+        : this(directory, new SegmentDescriptor(info), cache, inventory)
     {
     }
 
@@ -88,8 +84,7 @@ public sealed partial class SegmentReader : IDisposable
         MMapDirectory directory,
         SegmentDescriptor info,
         BoundedLruCache<string, SegmentReaderState> cache,
-        IReadOnlyCollection<string> inventory,
-        bool permanentlyResident)
+        IReadOnlyCollection<string> inventory)
     {
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(info);
@@ -98,7 +93,6 @@ public sealed partial class SegmentReader : IDisposable
         _info = info;
         _cache = cache;
         _stateFactory = () => new SegmentReaderState(directory, info);
-        _permanentlyResident = permanentlyResident;
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
@@ -113,18 +107,6 @@ public sealed partial class SegmentReader : IDisposable
         try
         {
             directoryLease = _directory.AcquireOperationLease();
-            if (Volatile.Read(ref _residentState) is not null)
-                return new SegmentReaderLease(
-                    _cache.Acquire(_info.SegmentId, _stateFactory), operationLease, directoryLease);
-
-            var cacheLease = _cache.Acquire(_info.SegmentId, _stateFactory);
-            if (!_permanentlyResident)
-                return new SegmentReaderLease(cacheLease, operationLease, directoryLease);
-
-            var candidate = new ResidentStateHandle(cacheLease.Value, cacheLease.Detach());
-            var published = Interlocked.CompareExchange(ref _residentState, candidate, null);
-            if (published is not null)
-                candidate.Dispose();
             return new SegmentReaderLease(
                 _cache.Acquire(_info.SegmentId, _stateFactory), operationLease, directoryLease);
         }
@@ -163,35 +145,14 @@ public sealed partial class SegmentReader : IDisposable
         try
         {
             directoryLease = _directory.AcquireOperationLease();
-            if (Volatile.Read(ref _residentState) is { } resident)
-            {
-                t_pinnedReader = this;
-                t_pinnedState = resident.State;
-                t_pinDepth = 1;
-                return new SegmentQueryLease(
-                    this, default, operationLease, directoryLease, ownsCacheLease: false);
-            }
-
             var cacheLease = _cache.Acquire(_info.SegmentId, _stateFactory);
             SegmentReaderState state = cacheLease.Value;
-            bool ownsCacheLease = true;
-            if (_permanentlyResident)
-            {
-                var candidate = new ResidentStateHandle(state, cacheLease.Detach());
-                var published = Interlocked.CompareExchange(ref _residentState, candidate, null);
-                if (published is not null)
-                {
-                    candidate.Dispose();
-                    state = published.State;
-                }
-                ownsCacheLease = false;
-            }
 
             t_pinnedReader = this;
             t_pinnedState = state;
             t_pinDepth = 1;
             return new SegmentQueryLease(
-                this, cacheLease, operationLease, directoryLease, ownsCacheLease);
+                this, cacheLease, operationLease, directoryLease, ownsCacheLease: true);
         }
         catch
         {
@@ -572,13 +533,6 @@ public sealed partial class SegmentReader : IDisposable
         _operations.BeginDisposeAndWait();
 
         List<Exception>? failures = null;
-        var residentState = Interlocked.Exchange(ref _residentState, null);
-        if (residentState is not null)
-        {
-            try { residentState.Dispose(); }
-            catch (Exception exception) { (failures ??= []).Add(exception); }
-        }
-
         if (_ownsCache)
         {
             try { _cache.Dispose(); }
@@ -596,21 +550,6 @@ public sealed partial class SegmentReader : IDisposable
         if (failures is not null)
             throw new AggregateException("Segment reader cleanup failed.", failures);
     }
-}
-
-internal sealed class ResidentStateHandle : IDisposable
-{
-    private LifetimeLease _cacheLease;
-
-    internal ResidentStateHandle(SegmentReaderState state, LifetimeLease cacheLease)
-    {
-        State = state;
-        _cacheLease = cacheLease;
-    }
-
-    internal SegmentReaderState State { get; }
-
-    public void Dispose() => _cacheLease.Dispose();
 }
 
 internal struct SegmentReaderLease : IDisposable

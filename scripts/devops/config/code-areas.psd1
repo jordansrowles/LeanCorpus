@@ -20,6 +20,7 @@
     'serialization'  = @{ Globs = @('src/core/Rowles.LeanCorpus/Serialization/**');                  Targets = @('core:Serialization') }
     'util'           = @{ Globs = @('src/core/Rowles.LeanCorpus/Util/**');                           Targets = @('core:Util') }
     'core-root'      = @{ Globs = @('src/core/Rowles.LeanCorpus/*.cs', 'src/core/Rowles.LeanCorpus/*.csproj'); Targets = @('core:Foundation') }
+    'core-configuration' = @{ Globs = @('src/core/Rowles.LeanCorpus/Configuration/**');             Targets = @('core:Foundation', 'core:Search') }
 
     'analysers'      = @{ Globs = @('src/core/Rowles.Text/Analysis/Analysers/**');                   Targets = @('text:Analysers', 'core:TextIntegration') }
     'filters'        = @{ Globs = @('src/core/Rowles.Text/Analysis/Filters/**');                     Targets = @('text:Filters', 'core:TextIntegration') }
@@ -28,12 +29,15 @@
     'text-root'      = @{ Globs = @('src/core/Rowles.Text/Analysis/*.cs', 'src/core/Rowles.Text/*.csproj'); Targets = @('text:Analysers', 'core:TextIntegration') }
 
     # Test and benchmark changes carry area intent for the production code they exercise.
+    'core-foundation-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Foundation/**'); Targets = @('core:Foundation') }
     'core-index-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Index/**'); Targets = @('core:Index') }
     'core-codeckit-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/CodecKit/**'); Targets = @('core:CodecKit') }
     'core-search-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Search/**'); Targets = @('core:Search') }
     'core-search-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/QueryParserBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/PhraseQueryBenchmarks.cs'); Targets = @('core:Search') }
+    'core-reader-cache-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/SegmentReaderCacheBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/SegmentReaderResourceCacheBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Program.cs'); Targets = @('core:Search') }
     'core-term-cache-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/QualifiedTermCacheBenchmarks.cs'); Targets = @('core:Index', 'core:Search') }
-    'core-search-docs' = @{ Globs = @('docs/articles/vs-lucene.md', 'docs/articles/ADRs/ADR038-bounded-query-string-compilation.md', 'docs/searching/03-phrase-and-proximity.md', 'docs/searching/04-query-parser.md'); Targets = @('core:Search') }
+    'core-search-docs' = @{ Globs = @('docs/articles/vs-lucene.md', 'docs/articles/ADRs/ADR011-lazy-segment-reader-lifetimes.md', 'docs/articles/ADRs/ADR038-bounded-query-string-compilation.md', 'docs/searching/03-phrase-and-proximity.md', 'docs/searching/04-query-parser.md'); Targets = @('core:Search') }
+    'core-configuration-docs' = @{ Globs = @('docs/getting-started/05-configuration-reference.md'); Targets = @('core:Foundation', 'core:Search') }
     'text-analysis-docs' = @{ Globs = @('docs/analysis/**'); Targets = @('text:Analysers') }
     'aot-search-smoke-test' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/IndexSmokeTests.cs'); Targets = @('aot:Search') }
     'text-analyser-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Analysers/**'); Targets = @('text:Analysers') }

@@ -32,13 +32,22 @@ not share deletion state.
 `SegmentReader` is a metadata facade. Direct instances create their heavy state
 on first use and retain it privately. An `IndexSearcher` gives all of its facades
 one thread-safe LRU cache, bounded by
-`IndexSearcherConfig.MaxCachedSegmentReaders`, which defaults to 256.
+`IndexSearcherConfig.MaxCachedSegmentReaders`, which defaults to 256, and
+`IndexSearcherConfig.MaxCachedSegmentReaderBytes`, which defaults to 256 MiB.
+The byte limit weights each cached state by logical mapped-file lengths and
+estimated materialised arrays, grouped by reader component and exposed through
+`IndexSearcher.SegmentReaderCacheMetrics`. These figures estimate retained
+reader resources; they do not represent process working set or RSS.
 
 Cache hits return value-type leases. An entry with an active lease cannot be
-evicted. Concurrent operations may temporarily take the cache over capacity,
-but releasing a lease trims inactive entries back to the configured bound.
-Loading occurs outside the cache lock, and concurrent first access runs one
-factory. Evicted values are disposed after leaving the cache lock.
+evicted. Concurrent operations and cursors may temporarily take the cache over
+either bound. Releasing the last lease refreshes the resource estimate and
+trims inactive entries by both count and estimated bytes. There is no
+segment-count rule that makes warmed heavy states permanently resident. The
+metadata facade remains available while its heavy state is evicted and can be
+loaded again. Loading occurs outside the cache lock, and concurrent first
+access runs one factory. Evicted values are disposed after leaving the cache
+lock.
 
 Every top-level segment query holds a lease for the complete operation. A
 returned `PostingsEnum` transfers its lease to the cursor's existing shared
@@ -66,10 +75,17 @@ workaround that was introduced to avoid a merge deletion race.
 
 - Searcher construction scales with compact segment metadata rather than FSTs,
   postings mappings, norms, stored fields, and DocValues.
-- Indexes with more active segments than the cache capacity trade bounded memory
-  for reload work. Broad queries may reload readers with the default capacity.
-- A cache sized to at least the segment count retains all warmed readers and is
-  intended for workloads that prioritise repeat-query latency over memory.
+- `MaxCachedSegmentReaders` remains a secondary entry-count limit. The byte
+  budget evicts heavier states first by LRU order, while the public metrics show
+  retained estimates by component. A component remains owned by its state and
+  is disposed with that state after active leases end.
+- Resource estimates use logical compound-member lengths, so accounting does
+  not charge every reader for the whole `.cfs` file. Array estimates include
+  loaded materialisations; they are conservative guidance for retained cache
+  resources, not an exact managed-heap or mapped-page measurement.
+- Smaller budgets can increase reader reload and DocValues materialisation
+  work. A configured entry count no longer pins all warmed readers when it is
+  greater than the active segment count.
 - Old searchers remain valid while another directory instance merges and cleans
   up their segments. Obsolete files are removed after all snapshots and mappings
   close.

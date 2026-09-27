@@ -49,6 +49,9 @@ internal sealed class SegmentFileAccess : IDisposable
         return _fileSource.FileExists(name);
     }
 
+    internal long GetFileLength(string extension)
+        => _fileSource.GetFileLength(Name(extension));
+
     internal IndexInput OpenInput(string extension)
     {
         string name = Name(extension);

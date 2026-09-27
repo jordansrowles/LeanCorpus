@@ -164,6 +164,7 @@ by the caller retain caller ownership.
 | `EnableQueryCache` | `false` | Caches complete `TopDocs` results by query fingerprint and result count. |
 | `QueryCacheMaxEntries` | `1,024` | Soft entry cap. The current cache generation is replaced when the cap is exceeded. |
 | `MaxCachedSegmentReaders` | `256` | Bound for lazily opened segment readers. |
+| `MaxCachedSegmentReaderBytes` | `268435456` (256 MiB) | Estimated retained-resource budget for heavy segment-reader states. Active operations and cursors may temporarily exceed it until their leases end. |
 | `EnableBlockMaxWand` | `false` | Enables score-bound skipping for supported top-N queries. |
 | `Metrics` | null collector | Search metrics destination. |
 | `SlowQueryLog` | `null` | Optional structured slow-query logger. |

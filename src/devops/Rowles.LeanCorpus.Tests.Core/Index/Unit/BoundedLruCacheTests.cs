@@ -95,6 +95,32 @@ public sealed class BoundedLruCacheTests
         Assert.Equal(1, cache.Count);
     }
 
+    [Fact(DisplayName = "Segment Reader Cache: Weighted Entry Stays Leased Then Evicts Over Budget")]
+    public void Acquire_WeightedEntry_OverBudgetStateWaitsForLastLeaseThenEvicts()
+    {
+        using var cache = new BoundedLruCache<string, TestState>(
+            4,
+            StringComparer.Ordinal,
+            maxRetainedBytes: 100,
+            resourceUsageSelector: static state => new SegmentReaderCacheResourceUsage(
+                0, 0, 0, 0, 0, 0, 0, 0, 0, state.RetainedBytes));
+        var state = new TestState(retainedBytes: 120);
+
+        var lease = cache.Acquire("large", () => state);
+        var whileLeased = cache.Metrics;
+        Assert.Equal(1, whileLeased.EntryCount);
+        Assert.Equal(120, whileLeased.RetainedBytes);
+        Assert.False(state.Disposed);
+
+        lease.Dispose();
+
+        var afterRelease = cache.Metrics;
+        Assert.Equal(0, afterRelease.EntryCount);
+        Assert.Equal(0, afterRelease.RetainedBytes);
+        Assert.Equal(1, afterRelease.EvictionCount);
+        Assert.True(state.Disposed);
+    }
+
     [Fact(DisplayName = "Segment Reader Cache: Concurrent First Load Runs Factory Once")]
     public async Task Acquire_ConcurrentFirstLoad_RunsFactoryOnce()
     {
@@ -199,13 +225,15 @@ public sealed class BoundedLruCacheTests
         private readonly bool _throwOnDispose;
         private readonly string _name;
 
-        internal TestState(bool throwOnDispose = false, string name = "test state")
+        internal TestState(bool throwOnDispose = false, string name = "test state", long retainedBytes = 0)
         {
             _throwOnDispose = throwOnDispose;
             _name = name;
+            RetainedBytes = retainedBytes;
         }
 
         internal bool Disposed { get; private set; }
+        internal long RetainedBytes { get; set; }
 
         public void Dispose()
         {

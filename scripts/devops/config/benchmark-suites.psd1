@@ -31,6 +31,7 @@
     'term-caches'        = 'QualifiedTermCacheBenchmarks -- qualified-term interning and collection-frequency cache workload'
     'bounded-lru-cache'  = 'BoundedLruCacheFailureBenchmarks -- acquisition after unrelated eviction disposal failure'
     'segment-reader-cache' = 'SegmentReaderCacheBenchmarks'
+    'segment-reader-resource-cache' = 'SegmentReaderResourceCacheBenchmarks -- retained-byte budget under large DocValues reads'
     combined             = 'CombinedFieldsQueryBenchmarks'
     terminset            = 'TermInSetQueryBenchmarks'
     aggregation          = 'AggregationBenchmarks and spatial aggregation benchmarks'

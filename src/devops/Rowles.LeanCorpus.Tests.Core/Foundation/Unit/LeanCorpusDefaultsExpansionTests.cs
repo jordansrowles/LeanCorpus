@@ -76,6 +76,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
             Assert.False(searcher.EnableQueryCache);
             Assert.Equal(1_024, searcher.QueryCacheMaxEntries);
             Assert.Equal(256, searcher.MaxCachedSegmentReaders);
+            Assert.Equal(256L * 1024 * 1024, searcher.MaxCachedSegmentReaderBytes);
             Assert.False(searcher.EnableBlockMaxWand);
             Assert.Null(searcher.SlowQueryLog);
             Assert.Null(searcher.SearchAnalytics);
@@ -183,6 +184,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
                 options.IndexSearcher.MaxConcurrency = 3;
                 options.IndexSearcher.EnableBlockMaxWand = true;
                 options.IndexSearcher.MaxCachedSegmentReaders = 12;
+                options.IndexSearcher.MaxCachedSegmentReaderBytes = 12L * 1024 * 1024;
                 options.IndexSearcher.QueryCache.Enabled = true;
                 options.IndexSearcher.QueryCache.MaxEntries = 99;
                 options.SearcherManager.RefreshInterval = TimeSpan.FromMilliseconds(250);
@@ -195,6 +197,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
             Assert.Equal(3, config.SearcherConfig.MaxConcurrency);
             Assert.True(config.SearcherConfig.EnableBlockMaxWand);
             Assert.Equal(12, config.SearcherConfig.MaxCachedSegmentReaders);
+            Assert.Equal(12L * 1024 * 1024, config.SearcherConfig.MaxCachedSegmentReaderBytes);
             Assert.True(config.SearcherConfig.EnableQueryCache);
             Assert.Equal(99, config.SearcherConfig.QueryCacheMaxEntries);
             Assert.Equal(TimeSpan.FromMilliseconds(250), config.RefreshInterval);

@@ -79,6 +79,33 @@ public sealed partial class IndexSearcher : IDisposable
     /// <summary>Gets entry and eviction metrics for this searcher's collection-frequency cache.</summary>
     public Diagnostics.CacheMetricsSnapshot CollectionFrequencyCacheMetrics => _collectionFrequencyCache.Metrics;
 
+    /// <summary>Gets retained-resource estimates for this searcher's heavy segment-reader cache.</summary>
+    public Diagnostics.SegmentReaderCacheMetricsSnapshot SegmentReaderCacheMetrics
+    {
+        get
+        {
+            SegmentReaderCacheResourceMetrics metrics = _segmentReaderCache.Metrics;
+            SegmentReaderCacheResourceUsage resources = metrics.Resources;
+            return new Diagnostics.SegmentReaderCacheMetricsSnapshot
+            {
+                EntryCount = metrics.EntryCount,
+                EvictionCount = metrics.EvictionCount,
+                RetainedBytes = metrics.RetainedBytes,
+                MaximumRetainedBytes = metrics.MaximumRetainedBytes,
+                PostingsAndTermsBytes = resources.PostingsAndTermsBytes,
+                NormsAndLengthsBytes = resources.NormsAndLengthsBytes,
+                StoredFieldsBytes = resources.StoredFieldsBytes,
+                TermVectorsBytes = resources.TermVectorsBytes,
+                DocValuesBytes = resources.DocValuesBytes,
+                NumericIndexesBytes = resources.NumericIndexesBytes,
+                SpatialIndexesBytes = resources.SpatialIndexesBytes,
+                VectorsBytes = resources.VectorsBytes,
+                LiveDocsAndParentsBytes = resources.LiveDocsAndParentsBytes,
+                OtherBytes = resources.OtherBytes,
+            };
+        }
+    }
+
     /// <summary>The committed generation represented by this immutable searcher snapshot.</summary>
     public int CommitGeneration => _commitGeneration;
 
@@ -231,7 +258,10 @@ public sealed partial class IndexSearcher : IDisposable
         _directory = directory;
         _config = config;
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
-            config.MaxCachedSegmentReaders, StringComparer.Ordinal);
+            config.MaxCachedSegmentReaders,
+            StringComparer.Ordinal,
+            maxRetainedBytes: config.MaxCachedSegmentReaderBytes,
+            resourceUsageSelector: static state => state.GetRetainedResourceUsage());
         _similarity = config.Similarity;
         _useLmScoring = _similarity.RequiresCollectionStatistics;
         _useBm25Scoring = _similarity is Bm25Similarity;
@@ -259,12 +289,8 @@ public sealed partial class IndexSearcher : IDisposable
                 attemptSnapshot = directory.AcquireSnapshot(
                     name => IsSnapshotFile(idSet, name), out var inventory);
                 var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
-                bool permanentlyResident = config.MaxCachedSegmentReaders >= segmentIds.Count;
                 foreach (var info in segmentInfos)
-                {
-                    _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet,
-                        permanentlyResident));
-                }
+                    _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet));
                 _snapshotLease = attemptSnapshot;
                 attemptSnapshot = null;
                 break;
@@ -365,7 +391,10 @@ public sealed partial class IndexSearcher : IDisposable
         _directory = directory;
         _config = config;
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
-            config.MaxCachedSegmentReaders, StringComparer.Ordinal);
+            config.MaxCachedSegmentReaders,
+            StringComparer.Ordinal,
+            maxRetainedBytes: config.MaxCachedSegmentReaderBytes,
+            resourceUsageSelector: static state => state.GetRetainedResourceUsage());
         _similarity = config.Similarity;
         _useLmScoring = _similarity.RequiresCollectionStatistics;
         _useBm25Scoring = _similarity is Bm25Similarity;
@@ -384,10 +413,8 @@ public sealed partial class IndexSearcher : IDisposable
             _snapshotLease = directory.AcquireSnapshot(
                 name => IsSnapshotFile(idSet, name), out var inventory);
             var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
-            bool permanentlyResident = config.MaxCachedSegmentReaders >= segments.Length;
             foreach (var descriptor in segments)
-                _readers.Add(new SegmentReader(directory, descriptor, _segmentReaderCache, inventorySet,
-                    permanentlyResident));
+                _readers.Add(new SegmentReader(directory, descriptor, _segmentReaderCache, inventorySet));
 
             _docBases = AssignDocBases();
             _totalDocCount = _docBases.Length > 0
