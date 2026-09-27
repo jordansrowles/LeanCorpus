@@ -40,6 +40,64 @@ public sealed class ServerQueryTranslatorTests
     }
 
     [Fact]
+    public void QueryStringRejectsExplicitFieldsThatAreNotTextFields()
+    {
+        bool translated = ServerQueryTranslator.TryTranslate(
+            new QueryStringDefinition("year:2025"),
+            CreateSchema(),
+            new ServerCoreOptions(),
+            defaultField: "title",
+            maximumBooleanClauses: null,
+            out var query,
+            out var failure);
+
+        Assert.False(translated);
+        Assert.Null(query);
+        Assert.Equal("invalid_query_field", failure?.Code);
+    }
+
+    [Theory]
+    [InlineData(2, false)]
+    [InlineData(3, true)]
+    public void StructuredAndTextBooleanQueriesShareClauseBudget(int maximumBooleanClauses, bool expectedSuccess)
+    {
+        ServerCoreOptions options = new() { MaximumBooleanClauses = maximumBooleanClauses };
+        QueryDefinition[] definitions =
+        [
+            new BooleanQueryDefinition(Should:
+            [
+                new TermQueryDefinition("title", "guide"),
+                new TermQueryDefinition("title", "search")
+            ]),
+            new QueryStringDefinition("guide OR search")
+        ];
+
+        foreach (QueryDefinition definition in definitions)
+        {
+            bool translated = ServerQueryTranslator.TryTranslate(
+                definition,
+                CreateSchema(),
+                options,
+                defaultField: "title",
+                maximumBooleanClauses: null,
+                out var query,
+                out var failure);
+
+            Assert.Equal(expectedSuccess, translated);
+            if (expectedSuccess)
+            {
+                Assert.NotNull(query);
+                Assert.Null(failure);
+            }
+            else
+            {
+                Assert.Null(query);
+                Assert.Equal("query_too_complex", failure?.Code);
+            }
+        }
+    }
+
+    [Fact]
     public void QueryStringHonoursInputTokenAndSyntaxNodeBudgets()
     {
         AssertQueryStringRejected("guide", new ServerCoreOptions { MaximumQueryInputChars = 4 });
