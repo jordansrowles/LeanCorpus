@@ -4,6 +4,9 @@ namespace Rowles.LeanCorpus.Search.Scoring;
 
 internal sealed class IndexStatsDto
 {
+    [JsonPropertyName("statisticsVersion")]
+    public int StatisticsVersion { get; set; }
+
     [JsonPropertyName("totalDocCount")]
     public int TotalDocCount { get; set; }
 

@@ -9,8 +9,10 @@ using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
 using Rowles.LeanCorpus.Search;
+using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Store;
 namespace Rowles.LeanCorpus.Index.Indexer;
 
@@ -158,8 +160,6 @@ internal static class SegmentFlusher
         foreach (var arr in normsReturnList) ArrayPool<float>.Shared.Return(arr, clearArray: false);
 
         FieldLengthWriter.Write(basePath + ".fln", fieldLengths, docCount);
-        SegmentStats.FromFieldLengths(docCount, docCount, fieldNames, fieldLengths)
-            .WriteTo(SegmentStats.GetStatsPath(directoryPath, segId));
         foreach (var arr in lengthsReturnList) ArrayPool<int>.Shared.Return(arr, clearArray: false);
 
         // Stored fields
@@ -499,6 +499,12 @@ internal static class SegmentFlusher
         }
 
         CompleteSegment(segInfo, config, directoryPath);
+
+        SegmentStats segmentStats;
+        using (var statisticsDirectory = new MMapDirectory(directoryPath))
+        using (var statisticsReader = new SegmentReader(statisticsDirectory, segInfo))
+            segmentStats = SegmentStats.FromSegmentReader(statisticsReader);
+        segmentStats.WriteTo(SegmentStats.GetStatsPath(directoryPath, segId));
 
         return segInfo;
     }

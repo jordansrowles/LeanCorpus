@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
-using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
@@ -66,14 +65,13 @@ internal static class DeletionApplier
                 ?? new LiveDocs(seg.DocCount);
 
             bool changed = false;
-            var newlyDeleted = new HashSet<int>();
             using var posInput = segmentReader.OpenInput(".pos");
             byte postingsVersion = PostingsEnum.ValidateFileHeader(posInput);
 
             ApplyDeletesByOrdinal(dicReader, posInput, postingsVersion, liveDocs,
-                hardTermsByOrdinal, newlyDeleted, softDelete: false, 0, ref changed);
+                hardTermsByOrdinal, softDelete: false, 0, ref changed);
             ApplyDeletesByOrdinal(dicReader, posInput, postingsVersion, liveDocs,
-                softTermsByOrdinal, newlyDeleted, softDelete: true, softDeleteTimestamp, ref changed);
+                softTermsByOrdinal, softDelete: true, softDeleteTimestamp, ref changed);
 
             if (changed)
             {
@@ -83,7 +81,7 @@ internal static class DeletionApplier
                 seg.DelGeneration = pendingGen;
                 seg.LiveDocCount = liveDocs.LiveCount;
                 seg.EarliestSoftDeleteTimestamp = liveDocs.EarliestSoftDeleteTimestamp;
-                UpdateSegmentStatistics(basePath, seg, newlyDeleted);
+                UpdateSegmentStatistics(basePath, seg, segmentReader, liveDocs);
             }
         }
 
@@ -94,7 +92,7 @@ internal static class DeletionApplier
 
     private static void ReadPostingsAtOffsetInto(
         IndexInput input, long offset, byte postingsVersion, LiveDocs liveDocs,
-        HashSet<int> newlyDeleted, ref bool changed, bool softDelete = false,
+        ref bool changed, bool softDelete = false,
         long softDeleteTimestamp = 0)
     {
         using var pe = PostingsEnum.Create(input, offset);
@@ -107,7 +105,6 @@ internal static class DeletionApplier
                     liveDocs.SoftDelete(docId, softDeleteTimestamp);
                 else
                     liveDocs.Delete(docId);
-                newlyDeleted.Add(docId);
                 changed = true;
             }
         }
@@ -116,7 +113,7 @@ internal static class DeletionApplier
     private static void ApplyDeletesByOrdinal(
         TermDictionaryReader dicReader, IndexInput posInput, byte postingsVersion,
         LiveDocs liveDocs, Dictionary<int, List<DeleteTerm>> termsByOrdinal,
-        HashSet<int> newlyDeleted, bool softDelete, long softDeleteTimestamp, ref bool changed)
+        bool softDelete, long softDeleteTimestamp, ref bool changed)
     {
         foreach (var (_, deleteTerms) in termsByOrdinal)
         {
@@ -127,37 +124,18 @@ internal static class DeletionApplier
                     continue;
 
                 ReadPostingsAtOffsetInto(posInput, offset, postingsVersion,
-                    liveDocs, newlyDeleted, ref changed, softDelete, softDeleteTimestamp);
+                    liveDocs, ref changed, softDelete, softDeleteTimestamp);
             }
         }
     }
 
-    private static void UpdateSegmentStatistics(string basePath, SegmentInfo segment, HashSet<int> deletedDocIds)
+    private static void UpdateSegmentStatistics(
+        string basePath,
+        SegmentInfo segment,
+        SegmentReader reader,
+        LiveDocs liveDocs)
     {
         var statsPath = SegmentStats.GetStatsPath(Path.GetDirectoryName(basePath)!, segment.SegmentId);
-        var existing = SegmentStats.TryLoadFrom(statsPath);
-        if (existing is null)
-            return;
-
-        var sums = new Dictionary<string, long>(existing.FieldLengthSums, StringComparer.Ordinal);
-        var counts = new Dictionary<string, int>(existing.FieldDocCounts, StringComparer.Ordinal);
-        var lengths = FieldLengthReader.TryRead(basePath + ".fln");
-
-        foreach (int docId in deletedDocIds)
-        {
-            foreach (string field in counts.Keys.ToArray())
-            {
-                long contribution = 1;
-                if (lengths is not null && lengths.TryGetValue(field, out var fieldLengths) &&
-                    (uint)docId < (uint)fieldLengths.Length)
-                {
-                    contribution = fieldLengths[docId];
-                }
-                sums[field] = Math.Max(0, sums.GetValueOrDefault(field) - contribution);
-                counts[field] = Math.Max(0, counts[field] - 1);
-            }
-        }
-
-        new SegmentStats(segment.DocCount, segment.LiveDocCount, sums, counts).WriteTo(statsPath);
+        SegmentStats.FromSegmentReader(reader, liveDocs.IsLive).WriteTo(statsPath);
     }
 }

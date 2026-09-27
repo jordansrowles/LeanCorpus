@@ -12,6 +12,8 @@ namespace Rowles.LeanCorpus.Search.Scoring;
 /// </summary>
 public sealed class IndexStats
 {
+    internal const int CurrentStatisticsVersion = 2;
+
     /// <summary>Total number of documents across all segments (including deleted).</summary>
     public int TotalDocCount { get; }
 
@@ -21,7 +23,7 @@ public sealed class IndexStats
     /// <summary>Per-field average document length (in token count).</summary>
     private readonly Dictionary<string, float> _avgFieldLengths;
 
-    /// <summary>Per-field total document frequency (number of docs containing the field).</summary>
+    /// <summary>Per-field number of live documents with indexed terms for the field.</summary>
     private readonly Dictionary<string, int> _fieldDocCounts;
 
     /// <summary>Per-field sum of all token counts across all documents (total terms in collection).</summary>
@@ -31,7 +33,7 @@ public sealed class IndexStats
     /// <param name="totalDocCount">Total number of documents across all segments, including deleted.</param>
     /// <param name="liveDocCount">Total number of live (non-deleted) documents across all segments.</param>
     /// <param name="avgFieldLengths">Per-field average document length in token count.</param>
-    /// <param name="fieldDocCounts">Per-field document frequency.</param>
+    /// <param name="fieldDocCounts">Per-field number of live documents with indexed terms.</param>
     /// <param name="fieldLengthSums">Per-field sum of all token counts across all documents.</param>
     public IndexStats(
         int totalDocCount,
@@ -51,7 +53,7 @@ public sealed class IndexStats
     public float GetAvgFieldLength(string field)
         => _avgFieldLengths.GetValueOrDefault(field, 1.0f);
 
-    /// <summary>Returns the number of documents containing the given field.</summary>
+    /// <summary>Returns the number of live documents with indexed terms for the given field.</summary>
     public int GetFieldDocCount(string field)
         => _fieldDocCounts.GetValueOrDefault(field, 0);
 
@@ -74,6 +76,35 @@ public sealed class IndexStats
     /// <summary>An empty stats instance used for new or unreadable indexes.</summary>
     public static IndexStats Empty => new(0, 0, [], [], []);
 
+    internal static IndexStats FromSegmentStats(IEnumerable<SegmentStats> segmentStats)
+    {
+        ArgumentNullException.ThrowIfNull(segmentStats);
+
+        int totalDocCount = 0;
+        int liveDocCount = 0;
+        var fieldLengthSums = new Dictionary<string, long>(StringComparer.Ordinal);
+        var fieldDocCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var segment in segmentStats)
+        {
+            totalDocCount += segment.TotalDocCount;
+            liveDocCount += segment.LiveDocCount;
+            foreach (var (field, sum) in segment.FieldLengthSums)
+                fieldLengthSums[field] = fieldLengthSums.GetValueOrDefault(field) + sum;
+            foreach (var (field, count) in segment.FieldDocCounts)
+                fieldDocCounts[field] = fieldDocCounts.GetValueOrDefault(field) + count;
+        }
+
+        var avgFieldLengths = new Dictionary<string, float>(StringComparer.Ordinal);
+        foreach (var (field, sum) in fieldLengthSums)
+        {
+            int count = fieldDocCounts.GetValueOrDefault(field);
+            avgFieldLengths[field] = count > 0 ? (float)sum / count : 1.0f;
+        }
+
+        return new IndexStats(totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts, fieldLengthSums);
+    }
+
     // --- Persistence ---
 
     /// <summary>
@@ -84,6 +115,7 @@ public sealed class IndexStats
     {
         var dto = new IndexStatsDto
         {
+            StatisticsVersion = CurrentStatisticsVersion,
             TotalDocCount = TotalDocCount,
             LiveDocCount = LiveDocCount,
             AvgFieldLengths = _avgFieldLengths,
@@ -151,15 +183,29 @@ public sealed class IndexStats
         {
             var json = FileOpenRetry.ReadAllText(path);
             var dto = JsonSerializer.Deserialize(json, LeanCorpusJsonContext.Default.IndexStatsDto);
-            if (dto is null) return null;
+            if (dto is null || dto.StatisticsVersion != CurrentStatisticsVersion ||
+                dto.TotalDocCount < 0 || dto.LiveDocCount < 0 || dto.LiveDocCount > dto.TotalDocCount ||
+                dto.AvgFieldLengths is null || dto.FieldDocCounts is null || dto.FieldLengthSums is null ||
+                dto.AvgFieldLengths.Count != dto.FieldDocCounts.Count ||
+                dto.FieldLengthSums.Count != dto.FieldDocCounts.Count ||
+                dto.FieldDocCounts.Keys.Any(field => !dto.AvgFieldLengths.ContainsKey(field) ||
+                    !dto.FieldLengthSums.ContainsKey(field)) ||
+                dto.AvgFieldLengths.Any(static pair => !float.IsFinite(pair.Value) || pair.Value < 0f) ||
+                dto.FieldDocCounts.Any(pair => pair.Value < 0 || pair.Value > dto.LiveDocCount) ||
+                dto.FieldLengthSums.Any(static pair => pair.Value < 0))
+                return null;
             return new IndexStats(
                 dto.TotalDocCount,
                 dto.LiveDocCount,
-                dto.AvgFieldLengths ?? new(StringComparer.Ordinal),
-                dto.FieldDocCounts ?? new(StringComparer.Ordinal),
-                dto.FieldLengthSums ?? new(StringComparer.Ordinal));
+                dto.AvgFieldLengths,
+                dto.FieldDocCounts,
+                dto.FieldLengthSums);
         }
         catch (Exception ex) when (ex is IOException or JsonException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
         {
             return null;
         }

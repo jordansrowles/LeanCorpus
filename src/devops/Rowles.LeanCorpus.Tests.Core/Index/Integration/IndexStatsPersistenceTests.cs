@@ -1,8 +1,10 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
@@ -97,6 +99,164 @@ public sealed class IndexStatsPersistenceTests : IDisposable
         Assert.NotNull(stats);
         Assert.Equal(3, stats.TotalDocCount);
         Assert.Equal(2, stats.LiveDocCount);
+    }
+
+    /// <summary>
+    /// Verifies sparse field statistics use the exact live document set for persisted and recomputed stats.
+    /// </summary>
+    [Fact(DisplayName = "Persisted Stats: Sparse Fields Respect Arbitrary Live Documents")]
+    public void PersistedStats_SparseFieldsRespectArbitraryLiveDocuments()
+    {
+        var dir = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 100,
+            MergeThreshold = 100,
+        }))
+        {
+            writer.AddDocument(CreateSparseDoc(bodyText: "alpha beta"));
+            writer.AddDocument(CreateSparseDoc(titleText: "middle"));
+            writer.AddDocument(CreateSparseDoc(bodyText: "gamma"));
+            writer.AddDocument(CreateSparseDoc(titleText: "omega psi"));
+            writer.Commit();
+
+            writer.DeleteDocuments(new TermQuery("body", "alpha"));
+            writer.DeleteDocuments(new TermQuery("title", "omega"));
+            writer.Commit();
+        }
+
+        var statsPath = IndexStats.GetStatsPath(_dir, 2);
+        var persisted = IndexStats.TryLoadFrom(statsPath);
+        Assert.NotNull(persisted);
+        AssertSparseLiveStats(persisted);
+
+        File.Delete(statsPath);
+        using var searcher = new IndexSearcher(dir);
+        AssertSparseLiveStats(searcher.Stats);
+    }
+
+    /// <summary>
+    /// Verifies a corrupt field-length frame fails structurally and a repaired frame can be read by the same reader.
+    /// </summary>
+    [Fact(DisplayName = "Segment Reader: Corrupt Field Lengths Can Be Retried")]
+    public void SegmentReader_CorruptFieldLengthsCanBeRetried()
+    {
+        var dir = new MMapDirectory(_dir);
+        SegmentInfo segmentInfo;
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+        {
+            writer.AddDocument(CreateDoc("alpha beta"));
+            writer.Commit();
+            segmentInfo = writer.GetNrtSegments()[0];
+        }
+
+        string path = Path.Combine(_dir, segmentInfo.SegmentId + ".fln");
+        byte[] validBytes = File.ReadAllBytes(path);
+        byte[] corruptBytes = (byte[])validBytes.Clone();
+        corruptBytes[^1] ^= 0x01;
+        File.WriteAllBytes(path, corruptBytes);
+
+        using var reader = new SegmentReader(dir, segmentInfo);
+        var exception = Assert.Throws<CodecFileException>(
+            () => reader.TryGetFieldLengths("body", out _));
+        Assert.Equal(CodecFileErrorCode.ChecksumMismatch, exception.ErrorCode);
+
+        File.WriteAllBytes(path, validBytes);
+        Assert.True(reader.TryGetFieldLengths("body", out var lengths));
+        Assert.Equal([2], lengths);
+    }
+
+    [Fact(DisplayName = "Statistics: Unversioned Sidecars Are Recomputed")]
+    public void Statistics_UnversionedSidecarsAreRejected()
+    {
+        string indexStatsPath = IndexStats.GetStatsPath(_dir, 1);
+        File.WriteAllText(indexStatsPath,
+            "{\"totalDocCount\":1,\"liveDocCount\":1,\"avgFieldLengths\":{\"body\":1},\"fieldDocCounts\":{\"body\":1},\"fieldLengthSums\":{\"body\":1}}");
+        Assert.Null(IndexStats.TryLoadFrom(indexStatsPath));
+
+        string segmentStatsPath = SegmentStats.GetStatsPath(_dir, "seg_0");
+        File.WriteAllText(segmentStatsPath,
+            "{\"totalDocCount\":1,\"liveDocCount\":1,\"fieldLengthSums\":{\"body\":1},\"fieldDocCounts\":{\"body\":1}}");
+        Assert.Null(SegmentStats.TryLoadFrom(segmentStatsPath));
+    }
+
+    [Fact(DisplayName = "Statistics: Legacy Segments Derive Field Presence From Postings")]
+    public void Statistics_LegacySegmentsDeriveFieldPresenceFromPostings()
+    {
+        var dir = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            MergePolicy = NoMergePolicy.Instance,
+            UseCompoundFile = false,
+        }))
+        {
+            writer.AddDocument(CreateSparseDoc(bodyText: "alpha beta"));
+            writer.AddDocument(CreateSparseDoc(titleText: "middle"));
+            writer.Commit();
+        }
+
+        File.Delete(Path.Combine(_dir, "seg_0.fln"));
+        File.Delete(IndexStats.GetStatsPath(_dir, 1));
+
+        SegmentInfo legacySegment = SegmentInfo.ReadFrom(Path.Combine(_dir, "seg_0.seg"));
+        using var legacyReader = new SegmentReader(dir, legacySegment);
+        int expectedBodyLength = legacyReader.GetFieldLength(0, "body");
+        int expectedTitleLength = legacyReader.GetFieldLength(1, "title");
+
+        using var searcher = new IndexSearcher(dir);
+        Assert.Equal(2, searcher.Stats.LiveDocCount);
+        Assert.Equal(1, searcher.Stats.GetFieldDocCount("body"));
+        Assert.Equal(expectedBodyLength, searcher.Stats.GetFieldLengthSum("body"));
+        Assert.Equal(1, searcher.Stats.GetFieldDocCount("title"));
+        Assert.Equal(expectedTitleLength, searcher.Stats.GetFieldLengthSum("title"));
+    }
+
+    [Fact(DisplayName = "Merge Stats: Retained Soft Deletes Keep Exact Field Presence")]
+    public void MergeStats_RetainedSoftDeletesKeepExactFieldPresence()
+    {
+        var dir = new MMapDirectory(_dir);
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 2,
+            MergeThreshold = 100,
+            MergePolicy = NoMergePolicy.Instance,
+            SoftDeletesEnabled = true,
+            SoftDeleteRetentionSeconds = 3600,
+        }))
+        {
+            writer.AddDocument(CreateSparseDoc(bodyText: "alpha beta"));
+            writer.AddDocument(CreateSparseDoc(titleText: "middle"));
+            writer.Commit();
+
+            writer.AddDocument(CreateSparseDoc(bodyText: "gamma"));
+            writer.AddDocument(CreateSparseDoc(titleText: "omega psi"));
+            writer.Commit();
+
+            Assert.Equal(2, writer.GetNrtSegments().Count);
+            writer.SoftDeleteDocuments(new TermQuery("body", "alpha"));
+            writer.SoftDeleteDocuments(new TermQuery("title", "omega"));
+            writer.Commit();
+
+            Assert.Equal(2, writer.ForceMerge(1));
+            writer.Commit();
+        }
+
+        SegmentInfo mergedSegment = Assert.Single(Directory.GetFiles(_dir, "seg_*.seg")
+            .Select(SegmentInfo.ReadFrom));
+        Assert.Equal(4, mergedSegment.DocCount);
+        Assert.Equal(2, mergedSegment.LiveDocCount);
+
+        SegmentStats mergedStats = Assert.IsType<SegmentStats>(
+            SegmentStats.TryLoadFrom(SegmentStats.GetStatsPath(_dir, mergedSegment.SegmentId)));
+        Assert.Equal(1, mergedStats.FieldDocCounts["body"]);
+        Assert.Equal(1, mergedStats.FieldLengthSums["body"]);
+        Assert.Equal(1, mergedStats.FieldDocCounts["title"]);
+        Assert.Equal(1, mergedStats.FieldLengthSums["title"]);
+
+        using var searcher = new IndexSearcher(dir);
+        IndexStats commitStats = Assert.IsType<IndexStats>(
+            IndexStats.TryLoadFrom(IndexStats.GetStatsPath(_dir, searcher.CommitGeneration)));
+        AssertSparseLiveStats(commitStats);
     }
 
     /// <summary>
@@ -245,5 +405,27 @@ public sealed class IndexStatsPersistenceTests : IDisposable
         var doc = new LeanDocument();
         doc.Add(new TextField("body", bodyText));
         return doc;
+    }
+
+    private static LeanDocument CreateSparseDoc(string? bodyText = null, string? titleText = null)
+    {
+        var doc = new LeanDocument();
+        if (bodyText is not null)
+            doc.Add(new TextField("body", bodyText));
+        if (titleText is not null)
+            doc.Add(new TextField("title", titleText));
+        return doc;
+    }
+
+    private static void AssertSparseLiveStats(IndexStats stats)
+    {
+        Assert.Equal(4, stats.TotalDocCount);
+        Assert.Equal(2, stats.LiveDocCount);
+        Assert.Equal(1, stats.GetFieldDocCount("body"));
+        Assert.Equal(1, stats.GetFieldLengthSum("body"));
+        Assert.Equal(1.0f, stats.GetAvgFieldLength("body"));
+        Assert.Equal(1, stats.GetFieldDocCount("title"));
+        Assert.Equal(1, stats.GetFieldLengthSum("title"));
+        Assert.Equal(1.0f, stats.GetAvgFieldLength("title"));
     }
 }

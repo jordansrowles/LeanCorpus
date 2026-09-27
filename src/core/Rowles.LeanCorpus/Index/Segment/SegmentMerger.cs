@@ -285,7 +285,7 @@ public sealed class SegmentMerger
         var mergedVectorFields = MergeVectors(
             ctx, documentOrder, basePath, vectorContracts, destinationVectorQuantisation);
         WriteNumericFiles(ctx, basePath);
-        WriteFieldLengthsAndStats(ctx, fieldNames, basePath, newSegId, totalDocs);
+        WriteFieldLengths(ctx, basePath, totalDocs);
         WriteDocValueColumns(ctx, basePath);
         WriteBkdTree(ctx, basePath);
         WritePackedBkdTree(ctx, basePath);
@@ -320,6 +320,12 @@ public sealed class SegmentMerger
         if (_useCompoundFile && CompoundFileWriter.Pack(_directory.DirectoryPath, newSegId, FileCatalog))
             mergedInfo.IsCompoundFile = true;
         SegmentFlusher.RefreshSegmentSize(mergedInfo, _directory.DirectoryPath, FileCatalog);
+
+        SegmentStats mergedStats;
+        using (var statisticsReader = new SegmentReader(_directory, mergedInfo))
+            mergedStats = SegmentStats.FromSegmentReader(statisticsReader);
+        mergedStats.WriteTo(SegmentStats.GetStatsPath(_directory.DirectoryPath, newSegId));
+
         return mergedInfo;
     }
 
@@ -1435,19 +1441,10 @@ public sealed class SegmentMerger
             WriteInt64Index(basePath + ".numl", ctx.Int64Fields);
     }
 
-    private static void WriteFieldLengthsAndStats(
-        MergeContext ctx,
-        IReadOnlyCollection<string> fieldNames,
-        string basePath,
-        string newSegId,
-        int totalDocs)
+    private static void WriteFieldLengths(MergeContext ctx, string basePath, int totalDocs)
     {
         if (ctx.FieldLengths.Count > 0)
             FieldLengthWriter.Write(basePath + ".fln", ctx.FieldLengths, totalDocs);
-
-        var dirPath = Path.GetDirectoryName(basePath)!;
-        SegmentStats.FromFieldLengths(totalDocs, totalDocs, fieldNames, ctx.FieldLengths)
-            .WriteTo(SegmentStats.GetStatsPath(dirPath, newSegId));
     }
 
     private static void WriteDocValueColumns(MergeContext ctx, string basePath)

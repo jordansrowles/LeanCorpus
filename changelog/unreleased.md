@@ -54,6 +54,7 @@
 
 ### Fixed
 
+- Compute segment statistics from exact live-document sets and field presence, invalidate stale statistics sidecars, and recover legacy field presence from postings.
 - Keep bounded segment-reader acquisitions successful when unrelated eviction disposal fails, attempt every selected value, and report aggregate cleanup failures.
 - Reject parent bitsets with mismatched word counts or set bits outside the declared document range, and validate `Set` document IDs.
 - Return defensive copies from public SegmentReader DocValues getters, including nested binary payloads and field lengths, while keeping internal query access read-only and lease-scoped.

@@ -212,10 +212,7 @@ internal static class CommitManager
     public static void WriteCommitStats(IndexWriter writer)
     {
         var dirPath = writer.Directory.DirectoryPath;
-        int totalDocCount = 0;
-        int liveDocCount = 0;
-        var fieldLengthSums = new Dictionary<string, long>(StringComparer.Ordinal);
-        var fieldDocCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var segmentStatsForCommit = new List<SegmentStats>(writer.CommittedSegments.Count);
 
         foreach (var seg in writer.CommittedSegments)
         {
@@ -224,46 +221,20 @@ internal static class CommitManager
                 segmentStats.TotalDocCount == seg.DocCount &&
                 segmentStats.LiveDocCount == seg.LiveDocCount)
             {
-                AccumulateSegmentStats(segmentStats, fieldLengthSums, fieldDocCounts);
-                totalDocCount += segmentStats.TotalDocCount;
-                liveDocCount += segmentStats.LiveDocCount;
-                continue;
+                segmentStatsForCommit.Add(segmentStats);
             }
-
-            AccumulateSegmentStatsByScan(seg, writer.Directory, fieldLengthSums, fieldDocCounts,
-                ref totalDocCount, ref liveDocCount);
+            else if (AccumulateSegmentStatsByScan(seg, writer.Directory) is { } scannedStats)
+            {
+                scannedStats.WriteTo(SegmentStats.GetStatsPath(dirPath, seg.SegmentId));
+                segmentStatsForCommit.Add(scannedStats);
+            }
         }
 
-        var avgFieldLengths = new Dictionary<string, float>(StringComparer.Ordinal);
-        foreach (var (field, sum) in fieldLengthSums)
-        {
-            int count = fieldDocCounts.GetValueOrDefault(field, 1);
-            avgFieldLengths[field] = count > 0 ? (float)sum / count : 1.0f;
-        }
-
-        var stats = new IndexStats(totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts, fieldLengthSums);
+        var stats = IndexStats.FromSegmentStats(segmentStatsForCommit);
         stats.WriteTo(IndexStats.GetStatsPath(dirPath, writer.CommitGeneration));
     }
 
-    private static void AccumulateSegmentStats(
-        SegmentStats segmentStats,
-        Dictionary<string, long> fieldLengthSums,
-        Dictionary<string, int> fieldDocCounts)
-    {
-        foreach (var (field, sum) in segmentStats.FieldLengthSums)
-            fieldLengthSums[field] = fieldLengthSums.GetValueOrDefault(field) + sum;
-
-        foreach (var (field, count) in segmentStats.FieldDocCounts)
-            fieldDocCounts[field] = fieldDocCounts.GetValueOrDefault(field) + count;
-    }
-
-    private static void AccumulateSegmentStatsByScan(
-        SegmentInfo segment,
-        MMapDirectory directory,
-        Dictionary<string, long> fieldLengthSums,
-        Dictionary<string, int> fieldDocCounts,
-        ref int totalDocCount,
-        ref int liveDocCount)
+    private static SegmentStats? AccumulateSegmentStatsByScan(SegmentInfo segment, MMapDirectory directory)
     {
         SegmentReader? reader = null;
         try
@@ -274,26 +245,11 @@ internal static class CommitManager
         {
             // A background merge may have deleted this segment's files.
             // Skip the segment rather than failing the commit.
-            return;
+            return null;
         }
 
         using (reader)
-        {
-            totalDocCount += reader.MaxDoc;
-            for (int docId = 0; docId < reader.MaxDoc; docId++)
-            {
-                if (!reader.IsLive(docId))
-                    continue;
-
-                liveDocCount++;
-                foreach (var field in segment.FieldNames)
-                {
-                    int length = reader.GetFieldLength(docId, field);
-                    fieldLengthSums[field] = fieldLengthSums.GetValueOrDefault(field) + length;
-                    fieldDocCounts[field] = fieldDocCounts.GetValueOrDefault(field) + 1;
-                }
-            }
-        }
+            return SegmentStats.FromSegmentReader(reader);
     }
 
     public static void LoadLatestCommit(IndexWriter writer)

@@ -1107,35 +1107,11 @@ public sealed partial class IndexSearcher : IDisposable
         if (_readers.Count == 0)
             return IndexStats.Empty;
 
-        int liveDocCount = 0;
-        var fieldLengthSums = new Dictionary<string, long>(StringComparer.Ordinal);
-        var fieldDocCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-
+        var segmentStats = new List<SegmentStats>(_readers.Count);
         foreach (var reader in _readers)
-        {
-            for (int docId = 0; docId < reader.MaxDoc; docId++)
-            {
-                if (!reader.IsLive(docId)) continue;
-                liveDocCount++;
+            segmentStats.Add(SegmentStats.FromSegmentReader(reader));
 
-                // Accumulate per-field lengths
-                foreach (var field in reader.Info.FieldNames)
-                {
-                    int fieldLen = reader.GetFieldLength(docId, field);
-                    fieldLengthSums[field] = fieldLengthSums.GetValueOrDefault(field) + fieldLen;
-                    fieldDocCounts[field] = fieldDocCounts.GetValueOrDefault(field) + 1;
-                }
-            }
-        }
-
-        var avgFieldLengths = new Dictionary<string, float>(StringComparer.Ordinal);
-        foreach (var (field, sum) in fieldLengthSums)
-        {
-            int count = fieldDocCounts.GetValueOrDefault(field, 1);
-            avgFieldLengths[field] = count > 0 ? (float)sum / count : 1.0f;
-        }
-
-        return new IndexStats(_totalDocCount, liveDocCount, avgFieldLengths, fieldDocCounts, fieldLengthSums);
+        return IndexStats.FromSegmentStats(segmentStats);
     }
 
     private static bool ShouldSkipGlobalDocFreqs(Query query) =>
