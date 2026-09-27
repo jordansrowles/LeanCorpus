@@ -53,6 +53,7 @@
     'index-writer'       = 'IndexWriterContentionBenchmarks'
     'concurrent-write'   = 'ConcurrentVsSequentialBenchmarks'
     merge                = 'MergeBenchmarks'
+    'merge-payload'      = 'MergePayloadBenchmarks -- wide sparse per-field payload remapping'
     flush                = 'FlushBenchmarks'
     'postings-arena'     = 'PostingsArenaBenchmarks'
     'packed-bkd'         = 'PackedBkdBenchmarks'

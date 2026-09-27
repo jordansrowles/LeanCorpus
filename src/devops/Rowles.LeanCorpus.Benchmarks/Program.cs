@@ -318,6 +318,9 @@ internal static class Program
             RunSuite<VectorMergeMemoryBenchmarks>("merge-vector-memory", runDir, benchmarkArgs, suiteSummaries, gcDump);
         }
 
+        if (suites.Contains(BenchmarkSuite.MergePayload))
+            RunSuite<MergePayloadBenchmarks>("merge-payload", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
         if (suites.Contains(BenchmarkSuite.Flush))
             RunSuite<FlushBenchmarks>("flush", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
@@ -779,6 +782,7 @@ internal static class Program
               concurrent-write    ConcurrentVsSequentialBenchmarks -- DWPT parallel vs sequential indexing (explicit only)
 
               merge               MergeBenchmarks and VectorMergeMemoryBenchmarks -- segment merge throughput and high-dimensional vector allocation (explicit only)
+              merge-payload       MergePayloadBenchmarks -- wide sparse per-field payload remapping (explicit only)
               flush               FlushBenchmarks -- segment flush latency per doc count (explicit only)
               postings-arena       PostingsArenaBenchmarks -- DWPT postings arena workload matrix (explicit only)
               packed-bkd           PackedBkdBenchmarks -- full Packed BKD build, spill and traversal matrix (explicit only)
@@ -928,6 +932,7 @@ internal static class Program
             "indexwriter" or "index-writer" => BenchmarkSuite.IndexWriterContention,
             "concurrentwrite" or "concurrent-write" => BenchmarkSuite.ConcurrentWrite,
             "merge" => BenchmarkSuite.Merge,
+            "merge-payload" or "mergepayload" => BenchmarkSuite.MergePayload,
             "flush" => BenchmarkSuite.Flush,
             "postings-arena" or "postingsarena" => BenchmarkSuite.PostingsArena,
             "packed-bkd" or "packedbkd" => BenchmarkSuite.PackedBkd,
@@ -1098,6 +1103,7 @@ internal static class Program
         MultiReader,
         OrdinalMap,
         SearchSession,
+        MergePayload,
         RankingEvaluation,
         RankingPipeline,
     }

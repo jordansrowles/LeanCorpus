@@ -19,6 +19,7 @@
 
 - Weight the heavy segment-reader LRU by retained-resource estimates as well as entry count, evicting oversized states after active operation and cursor leases end instead of pinning every warmed state below the entry-count threshold.
 - Register the existing segment-reader-cache benchmark suite in its CLI dispatcher and add a DevOps resource-cache suite for equivalent count-only and byte-budget DocValues workloads.
+- Add a wide sparse merge-payload benchmark suite to DevOps for per-field merge remapping.
 - Add an explicit bounded-LRU disposal-failure benchmark and route it through DevOps affected benchmark selection.
 - Bound qualified-term interning to 4,096 entries and 512-character keys, bound each searcher's collection-frequency cache to 1,024 entries, and expose entry and eviction metrics for both caches.
 - Add a focused qualified-term cache benchmark suite and route it through affected benchmark selection.
@@ -91,6 +92,7 @@
 - Preserve exact field lengths above 65,535 and reject negative token counts instead of clamping values.
 - Enforce schema, nesting, Boolean clause, wildcard and regexp limits for Server query-string requests before query execution.
 - Merges now preserve compatible index sort order while remapping document data, keeping sorted top-N results correct.
+- Remap sparse merge payload columns directly and index vector remaps by source segment, preserving DocValues and index-sort output while avoiding document-by-field lookup loops.
 - Preserve numeric and Int64 DocValues presence independently of sparse point indexes during segment merges.
 - Isolated analyser filter and sink state for concurrent calls and cleaned up execution state after failed analyses.
 - Persist only the logical document range in field-length files, excluding unused pooled-array values.
