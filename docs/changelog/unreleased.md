@@ -11,6 +11,7 @@
 - Added DocValues-backed Geo and XY distance sorting with multi-value minima, deterministic ties, missing-value ordering, and SearchAfter/session support.
 - Added best-first Packed BKD Top-N for eligible ascending Geo/XY distance sorts, with conservative cell lower bounds, constant-score filter bitmap reuse, and exact fallback scans for legacy Geo segments.
 - Added public `QueryParserOptions` for bounded query-string parsing and mapped Server Core request limits to the same input, syntax, modifier, pattern and phrase-graph budgets.
+- Added the `ITermNormaliser` contract for one-to-one wildcard and range literal normalisation, implemented by the Standard and Keyword analysers.
 - Added per-parse analyser factory constructors for query parsers, enabling concurrent parser reuse with isolated parse state and analyser instances.
 
 ### Changed
@@ -20,6 +21,7 @@
 - Keep DocValues runtime storage columnar with mapped packed values, flat offsets and local ordinals, decoding only requested documents while materialising compatibility getters on demand.
 - Allow concurrent stored-field reads with independent cursors and a bounded decompressed-block cache.
 - Map Core Search test-source changes to the Search area for affected test runs.
+- Map analysis documentation changes to the Text analyser suite for affected test runs.
 - Map query-comparison documentation changes to Core Search for affected test runs.
 - Map Rowles.Text Tokenisers test-source changes to the Tokenisers area for affected test runs.
 - Map Core TextIntegration test-source changes to the TextIntegration area for affected test runs.
@@ -58,6 +60,7 @@
 - Expose immutable `SegmentDescriptor` metadata from `SegmentReader.Info` and return deep copies from `GetNrtSegments()`, so later commits cannot change an existing NRT searcher's deletion view.
 - Centralise segment file ownership so merge, deletion and recovery cleanup include vector/HNSW and deletion-generation sidecars, while pruning protects active commit and held-snapshot generations.
 - Compile query-string clauses with the analyser configured for their selected schema field.
+- Normalise wildcard and range literals through `ITermNormaliser`, preserving lowercasing for stop words and rejecting inputs that cannot map to one term.
 - Parse `~`, `^` and `^=` modifiers atomically, reject non-finite scores, and cap phrase slop at 256 in Core and structured Server queries.
 - Treat quoted phrases with no analysed tokens as no-clause results instead of reconstructing raw terms, returning `MatchNoDocsQuery` when no query clauses remain.
 - Recognise query syntax before analyser lowering and normalise stopword-empty Boolean clauses after analysis.

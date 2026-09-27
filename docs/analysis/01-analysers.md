@@ -28,6 +28,12 @@ The exact order is configured by the analyser. Changing it changes indexed terms
 | `SimpleAnalyser` | Letter-only tokenise, lowercase | Ignore digits and punctuation |
 | `Analyser` | Your tokeniser and filters | Custom pipeline |
 
+An analyser may also implement `ITermNormaliser` for wildcard and range query
+literals. This separate contract returns one term without stop-word removal or
+token-graph expansion. `StandardAnalyser` lowercases one token even when that
+token is a stop word; its regular `Analyse` pipeline continues to remove stop
+words.
+
 ## Three starting points
 
 ```csharp

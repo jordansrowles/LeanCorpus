@@ -81,6 +81,14 @@ var parser = new AnalysingQueryParser("body", new StandardAnalyser());
 Query query = parser.Parse("QUICK*");
 ```
 
+Wildcard and range literals use the analyser's `ITermNormaliser` contract,
+which must map each literal to one non-empty term. `StandardAnalyser` applies
+lowercasing without stop-word removal, so `THE*` normalises to `the*`. A
+literal that produces no term or multiple tokens is rejected. Custom analysers
+that need analysed wildcard or range queries should implement
+`ITermNormaliser`; full `IAnalyser.Analyse` remains responsible for ordinary
+terms and phrases.
+
 ## Complex phrases
 
 `ComplexPhraseQueryParser` uses the configured analyser for quoted phrases and

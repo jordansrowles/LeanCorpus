@@ -33,6 +33,7 @@
     'core-search-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Search/**'); Targets = @('core:Search') }
     'core-search-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/QueryParserBenchmarks.cs'); Targets = @('core:Search') }
     'core-search-docs' = @{ Globs = @('docs/articles/vs-lucene.md', 'docs/articles/ADRs/ADR038-bounded-query-string-compilation.md', 'docs/searching/04-query-parser.md'); Targets = @('core:Search') }
+    'text-analysis-docs' = @{ Globs = @('docs/analysis/**'); Targets = @('text:Analysers') }
     'aot-search-smoke-test' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/IndexSmokeTests.cs'); Targets = @('aot:Search') }
     'text-analyser-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Analysers/**'); Targets = @('text:Analysers') }
     'text-filter-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Filters/**'); Targets = @('text:Filters') }
