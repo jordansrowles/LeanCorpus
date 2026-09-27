@@ -49,7 +49,7 @@ public sealed partial class SegmentReader : IDisposable
 
     /// <summary>Creates a lazy reader that privately retains its heavy state.</summary>
     public SegmentReader(MMapDirectory directory, SegmentInfo info)
-        : this(directory, info, CodecCatalog.Default)
+        : this(directory, info, CaptureDefaultCodecCatalog(directory, info))
     {
     }
 
@@ -59,6 +59,7 @@ public sealed partial class SegmentReader : IDisposable
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(info);
         ArgumentNullException.ThrowIfNull(codecCatalog);
+        CompressionCodecRegistry.MarkIndexOpened();
         var descriptor = new SegmentDescriptor(info);
         var segmentId = descriptor.SegmentId;
         var snapshot = directory.AcquireSnapshot(
@@ -100,13 +101,24 @@ public sealed partial class SegmentReader : IDisposable
     {
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(info);
-        codecCatalog ??= CodecCatalog.Default;
+        if (codecCatalog is null)
+            codecCatalog = CaptureDefaultCodecCatalog(directory, info);
+        else
+            CompressionCodecRegistry.MarkIndexOpened();
         ValidateRequiredFiles(info, inventory);
         _directory = directory;
         _info = info;
         _codecCatalog = codecCatalog;
         _cache = cache;
         _stateFactory = () => new SegmentReaderState(directory, info, _codecCatalog);
+    }
+
+    private static CodecCatalog CaptureDefaultCodecCatalog(MMapDirectory directory, object segmentInfo)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
+        ArgumentNullException.ThrowIfNull(segmentInfo);
+        CompressionCodecRegistry.MarkIndexOpened();
+        return CodecCatalog.Default;
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
