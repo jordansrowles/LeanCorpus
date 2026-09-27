@@ -147,6 +147,44 @@ public sealed class TokenGraphQueryParserTests
         Assert.Contains("configured maximum of 256 paths", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact(DisplayName = "QueryParser: phrase path budget is shared across one query")]
+    public void Parse_MultiplePhraseGraphsExceedSharedPathBudget_ThrowsQueryParseException()
+    {
+        var parser = new QueryParser("body", new BranchingPhraseAnalyser(branchCount: 2, tailLength: 1), maxGraphPaths: 3);
+
+        var exception = Assert.Throws<QueryParseException>(() => parser.Parse("\"first\" OR \"second\""));
+
+        Assert.Contains("configured maximum of 3 paths", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "QueryParser: phrase graph bounds total compiled path terms")]
+    public void Parse_PhraseGraphExceedingCompiledTermBudget_RejectsWithBoundedAllocation()
+    {
+        const string queryText = "\"graph\"";
+        var warmParser = new QueryParser("body", new SharedPrefixBranchingPhraseAnalyser(prefixLength: 4, branchCount: 2));
+        warmParser.Parse(queryText);
+        warmParser.Parse(queryText);
+
+        var parser = new QueryParser("body", new SharedPrefixBranchingPhraseAnalyser(prefixLength: 1_100, branchCount: 64));
+        long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+        object? result = null;
+        Exception? failure = null;
+        try
+        {
+            result = parser.Parse(queryText);
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+        long allocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+
+        _output.WriteLine($"Shared-prefix phrase graph (64 paths, 1,102 terms each) allocated {allocatedBytes:N0} bytes and returned {failure?.GetType().Name ?? result?.GetType().Name ?? "no result"}.");
+        var parseException = Assert.IsType<QueryParseException>(failure);
+        Assert.Contains("compiled phrase term count exceeds the maximum of 65536", parseException.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(allocatedBytes < 2_500_000, $"Budget rejection allocated {allocatedBytes:N0} bytes.");
+    }
+
     [Fact(DisplayName = "QueryParser: phrase graph rejects excessive compiled clause count")]
     public void Parse_PhraseGraphExceedingCompiledClauseBudget_ThrowsQueryParseException()
     {
@@ -203,6 +241,23 @@ public sealed class TokenGraphQueryParserTests
                 positionIncrement: 0, positionLength: 2, payload: null);
             sink.Add("york".AsSpan(), 4, 8, Token.DefaultType,
                 positionIncrement: 3, positionLength: 1, payload: null);
+        }
+    }
+
+    private sealed class SharedPrefixBranchingPhraseAnalyser(int prefixLength, int branchCount) : IAnalyser
+    {
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        {
+            for (int index = 0; index < prefixLength; index++)
+                sink.Add("prefix".AsSpan(), 0, 6, Token.DefaultType,
+                    positionIncrement: 1, positionLength: 1, payload: null);
+
+            for (int branch = 0; branch < branchCount; branch++)
+                sink.Add("branch".AsSpan(), 0, 6, Token.DefaultType,
+                    positionIncrement: branch == 0 ? 1 : 0, positionLength: 1, payload: null);
+
+            sink.Add("tail".AsSpan(), 0, 4, Token.DefaultType,
+                positionIncrement: 1, positionLength: 1, payload: null);
         }
     }
 }

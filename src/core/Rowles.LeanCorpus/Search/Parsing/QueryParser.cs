@@ -25,6 +25,7 @@ public class QueryParser
     private const int MaximumAnalysedPhraseTokenCount = 16_384;
     private const int MaximumPhraseGraphEdgeCount = 8_192;
     private const int MaximumPhraseGraphTraversalSteps = 65_536;
+    private const int MaximumCompiledPhraseTermCount = 65_536;
     private const int MaximumCompiledPhraseClauseCount = 512;
 
     private readonly string _defaultField;
@@ -38,10 +39,7 @@ public class QueryParser
     private int _maxDepth = 64;
     private int _maxSyntaxNodes = int.MaxValue;
     private int _syntaxNodeCount;
-    private int _analysedPhraseTokenCount;
-    private int _phraseGraphEdgeCount;
-    private int _phraseGraphTraversalSteps;
-    private int _compiledPhraseClauseCount;
+    private QueryCompilationBudget? _queryCompilationBudget;
     private bool _parseLimitsAreComplexity;
     private bool _graphPathLimitIsComplexity;
     private int _parseInProgress;
@@ -58,7 +56,7 @@ public class QueryParser
     /// result built from valid tokens. When <see langword="false"/> (default), syntax errors throw
     /// <see cref="QueryParseException"/>.
     /// </param>
-    /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted before parsing fails.</param>
+    /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted across one parse.</param>
     public QueryParser(string defaultField, IAnalyser analyser, bool lenient = false, int maxGraphPaths = 256)
         : this(defaultField, analyser, fieldContextResolver: null, lenient, maxGraphPaths)
     {
@@ -71,7 +69,7 @@ public class QueryParser
     /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present.</param>
     /// <param name="analyserFactory">Creates an analyser for one parse invocation.</param>
     /// <param name="lenient">Whether syntax errors return the best-effort parsed query.</param>
-    /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted before parsing fails.</param>
+    /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted across one parse.</param>
     /// <remarks>
     /// The factory must be safe for concurrent calls and return a fresh analyser per call,
     /// or an analyser that is independently safe for concurrent use.
@@ -590,7 +588,7 @@ public class QueryParser
         if (tokens.Count == 0)
         {
             CountFallbackPhraseTokens(sourceText);
-            return new PhraseQuerySyntaxExpansion(sourceText.Split(' '), []);
+            return new PhraseQuerySyntaxExpansion(sourceText.Split(' '), null, 0, 0);
         }
 
         if (!tokensAlreadyCounted)
@@ -599,14 +597,14 @@ public class QueryParser
                 ConsumeAnalysedPhraseToken();
         }
 
+        QueryCompilationBudget budget = GetQueryCompilationBudget();
         var graph = new Analysis.TokenGraph();
         foreach (var token in tokens)
         {
-            if (_phraseGraphEdgeCount >= MaximumPhraseGraphEdgeCount)
-                ThrowPhraseGraphLimitExceeded(
-                    $"Analysed phrase graph edge count exceeds the maximum of {MaximumPhraseGraphEdgeCount}.");
+            string? edgeLimit = budget.TryReadGraphEdge();
+            if (edgeLimit is not null)
+                ThrowPhraseGraphLimitExceeded(edgeLimit);
             graph.Add(token);
-            _phraseGraphEdgeCount++;
         }
         graph.ValidateOrdered();
 
@@ -615,11 +613,40 @@ public class QueryParser
         var byStart = graph.Edges.GroupBy(static edge => edge.StartPosition)
             .ToDictionary(static group => group.Key, static group => group.ToArray());
         int[] startPositions = byStart.Keys.Order().ToArray();
-        var paths = new List<PhraseQuerySyntaxPath[]>();
-        var path = new List<Analysis.TokenGraph.TokenEdge>();
-        var traversal = new List<PhraseGraphTraversalFrame> { new(start, pathLength: 0) };
-        int compiledPhraseClauseCount = 0;
+        var graphPlan = new PhraseGraphPlan(start, end, startPositions, byStart);
+        int pathCount = 0;
+        int compiledTermCount = 0;
+        EnumeratePhraseGraphPaths(graphPlan, path =>
+        {
+            string? pathLimit = budget.TryEmitPath(path.Count);
+            if (pathLimit is not null)
+                ThrowPhraseGraphLimitExceeded(pathLimit);
 
+            pathCount++;
+            compiledTermCount += path.Count;
+
+            int newBooleanClauses = pathCount == 2 ? 2 : pathCount > 2 ? 1 : 0;
+            if (newBooleanClauses > 0)
+            {
+                string? clauseLimit = budget.TryGenerateBooleanClauses(newBooleanClauses);
+                if (clauseLimit is not null)
+                    ThrowPhraseGraphLimitExceeded(clauseLimit);
+            }
+        }, countTraversalSteps: true);
+
+        if (pathCount == 0)
+            throw new QueryParseException("Analysed phrase token graph has no complete path.", 0);
+
+        return new PhraseQuerySyntaxExpansion(null, graphPlan, pathCount, compiledTermCount);
+    }
+
+    private void EnumeratePhraseGraphPaths(
+        PhraseGraphPlan graph,
+        Action<IReadOnlyList<Analysis.TokenGraph.TokenEdge>> onCompletePath,
+        bool countTraversalSteps)
+    {
+        var path = new List<Analysis.TokenGraph.TokenEdge>();
+        var traversal = new List<PhraseGraphTraversalFrame> { new(graph.StartPosition, pathLength: 0) };
         while (traversal.Count > 0)
         {
             int frameIndex = traversal.Count - 1;
@@ -627,30 +654,17 @@ public class QueryParser
             if (path.Count > frame.PathLength)
                 path.RemoveRange(frame.PathLength, path.Count - frame.PathLength);
 
-            if (frame.Position == end)
+            if (frame.Position == graph.EndPosition)
             {
-                if (paths.Count >= _maxGraphPaths)
-                {
-                    string message = $"Analysed phrase graph exceeds the configured maximum of {_maxGraphPaths} paths.";
-                    ThrowPhraseGraphLimitExceeded(message);
-                }
-
-                if (_compiledPhraseClauseCount + compiledPhraseClauseCount >= MaximumCompiledPhraseClauseCount)
-                {
-                    ThrowPhraseGraphLimitExceeded(
-                        $"Compiled phrase query clause count exceeds the maximum of {MaximumCompiledPhraseClauseCount}.");
-                }
-
-                compiledPhraseClauseCount++;
-                paths.Add(path.Select(edge => new PhraseQuerySyntaxPath(edge.Token.Text, edge.StartPosition - start)).ToArray());
+                onCompletePath(path);
                 traversal.RemoveAt(frameIndex);
                 continue;
             }
 
-            int nextPositionIndex = Array.BinarySearch(startPositions, frame.Position);
+            int nextPositionIndex = Array.BinarySearch(graph.StartPositions, frame.Position);
             if (nextPositionIndex < 0)
                 nextPositionIndex = ~nextPositionIndex;
-            if (nextPositionIndex == startPositions.Length)
+            if (nextPositionIndex == graph.StartPositions.Length)
             {
                 traversal.RemoveAt(frameIndex);
                 continue;
@@ -658,32 +672,26 @@ public class QueryParser
 
             // Position increments can leave holes. Continue at the next emitted
             // coordinate, but do not skip a token position that is present.
-            Analysis.TokenGraph.TokenEdge[] nextEdges = byStart[startPositions[nextPositionIndex]];
+            Analysis.TokenGraph.TokenEdge[] nextEdges = graph.EdgesByStart[graph.StartPositions[nextPositionIndex]];
             if (frame.NextEdgeIndex >= nextEdges.Length)
             {
                 traversal.RemoveAt(frameIndex);
                 continue;
             }
 
-            if (_phraseGraphTraversalSteps >= MaximumPhraseGraphTraversalSteps)
+            if (countTraversalSteps)
             {
-                ThrowPhraseGraphLimitExceeded(
-                    $"Analysed phrase graph traversal steps exceed the maximum of {MaximumPhraseGraphTraversalSteps}.");
+                string? traversalLimit = GetQueryCompilationBudget().TryTakeTraversalStep();
+                if (traversalLimit is not null)
+                    ThrowPhraseGraphLimitExceeded(traversalLimit);
             }
 
             Analysis.TokenGraph.TokenEdge edge = nextEdges[frame.NextEdgeIndex];
             frame.NextEdgeIndex++;
             traversal[frameIndex] = frame;
-            _phraseGraphTraversalSteps++;
             path.Add(edge);
             traversal.Add(new PhraseGraphTraversalFrame(edge.EndPosition, path.Count));
         }
-
-        if (paths.Count == 0)
-            throw new QueryParseException("Analysed phrase token graph has no complete path.", 0);
-
-        _compiledPhraseClauseCount += compiledPhraseClauseCount;
-        return new PhraseQuerySyntaxExpansion(null, paths);
     }
 
     private QuerySyntax? LowerAnalysedTokens(
@@ -740,39 +748,34 @@ public class QueryParser
 
     private void CountFallbackPhraseTokens(string phraseText)
     {
+        QueryCompilationBudget budget = GetQueryCompilationBudget();
+        string? tokenLimit = budget.TryConsumePhraseTokens(1);
+        if (tokenLimit is not null)
+            ThrowPhraseGraphLimitExceeded(tokenLimit);
+
         int phraseTokenCount = 1;
         foreach (char character in phraseText)
         {
             if (character != ' ')
                 continue;
 
-            if (_analysedPhraseTokenCount + phraseTokenCount >= MaximumAnalysedPhraseTokenCount)
-            {
-                ThrowPhraseGraphLimitExceeded(
-                    $"Analysed phrase token count exceeds the maximum of {MaximumAnalysedPhraseTokenCount}.");
-            }
+            tokenLimit = budget.TryConsumePhraseTokens(1);
+            if (tokenLimit is not null)
+                ThrowPhraseGraphLimitExceeded(tokenLimit);
 
             phraseTokenCount++;
         }
 
-        if (_analysedPhraseTokenCount > MaximumAnalysedPhraseTokenCount - phraseTokenCount)
-        {
-            ThrowPhraseGraphLimitExceeded(
-                $"Analysed phrase token count exceeds the maximum of {MaximumAnalysedPhraseTokenCount}.");
-        }
-
-        _analysedPhraseTokenCount += phraseTokenCount;
+        string? termLimit = budget.TryCompileTerms(phraseTokenCount);
+        if (termLimit is not null)
+            ThrowPhraseGraphLimitExceeded(termLimit);
     }
 
     private void ConsumeAnalysedPhraseToken()
     {
-        if (_analysedPhraseTokenCount >= MaximumAnalysedPhraseTokenCount)
-        {
-            ThrowPhraseGraphLimitExceeded(
-                $"Analysed phrase token count exceeds the maximum of {MaximumAnalysedPhraseTokenCount}.");
-        }
-
-        _analysedPhraseTokenCount++;
+        string? tokenLimit = GetQueryCompilationBudget().TryConsumePhraseTokens(1);
+        if (tokenLimit is not null)
+            ThrowPhraseGraphLimitExceeded(tokenLimit);
     }
 
     private void ThrowPhraseGraphLimitExceeded(string message)
@@ -785,32 +788,54 @@ public class QueryParser
 
     private void ResetPhraseGraphBudget()
     {
-        _analysedPhraseTokenCount = 0;
-        _phraseGraphEdgeCount = 0;
-        _phraseGraphTraversalSteps = 0;
-        _compiledPhraseClauseCount = 0;
+        _queryCompilationBudget = new QueryCompilationBudget(_maxGraphPaths);
     }
 
-    private static Query CompilePhraseExpansion(string field, int slop, PhraseQuerySyntaxExpansion expansion)
+    private QueryCompilationBudget GetQueryCompilationBudget() =>
+        _queryCompilationBudget ??= new QueryCompilationBudget(_maxGraphPaths);
+
+    private Query CompilePhraseExpansion(string field, int slop, PhraseQuerySyntaxExpansion expansion)
     {
         if (expansion.DirectTerms is not null)
             return new PhraseQuery(field, slop, expansion.DirectTerms);
-        if (expansion.Paths.Count == 1)
-        {
-            PhraseQuerySyntaxPath[] path = expansion.Paths[0];
-            return new PhraseQuery(field, path.Select(static item => item.Term).ToArray(), path.Select(static item => item.Position).ToArray(), slop);
-        }
 
-        var builder = new BooleanQuery.Builder();
-        foreach (PhraseQuerySyntaxPath[] path in expansion.Paths)
+        PhraseGraphPlan graph = expansion.Graph
+            ?? throw new InvalidOperationException("A phrase graph expansion must contain its validated graph.");
+        BooleanQuery.Builder? builder = expansion.PathCount > 1 ? new BooleanQuery.Builder() : null;
+        PhraseQuery? singlePhrase = null;
+        int compiledPathCount = 0;
+        int compiledTermCount = 0;
+        // The immutable graph was already validated against the per-parse budget.
+        // Compile one output path at a time rather than retaining every path array.
+        EnumeratePhraseGraphPaths(graph, path =>
         {
-            builder.Add(new PhraseQuery(
-                field,
-                path.Select(static item => item.Term).ToArray(),
-                path.Select(static item => item.Position).ToArray(),
-                slop), Occur.Should);
-        }
-        return builder.Build();
+            var terms = new string[path.Count];
+            var positions = new int[path.Count];
+            for (int index = 0; index < path.Count; index++)
+            {
+                Analysis.TokenGraph.TokenEdge edge = path[index];
+                terms[index] = edge.Token.Text;
+                positions[index] = edge.StartPosition - graph.StartPosition;
+            }
+
+            var phrase = new PhraseQuery(field, terms, positions, slop);
+            if (builder is null)
+                singlePhrase = phrase;
+            else
+                builder.Add(phrase, Occur.Should);
+
+            compiledPathCount++;
+            compiledTermCount += path.Count;
+        }, countTraversalSteps: false);
+
+        if (compiledPathCount != expansion.PathCount || compiledTermCount != expansion.CompiledTermCount)
+            throw new InvalidOperationException("The validated phrase graph changed while compiling its query paths.");
+
+        if (builder is not null)
+            return builder.Build();
+
+        return singlePhrase
+            ?? throw new InvalidOperationException("A validated phrase graph must contain at least one path.");
     }
 
     private QuerySyntax Prepare(QuerySyntax syntax, Action<int, int> consumeAdditionalClauses, int depth) => syntax switch
@@ -833,8 +858,8 @@ public class QueryParser
     private PhraseQuerySyntax PreparePhrase(PhraseQuerySyntax phrase, Action<int, int> consumeAdditionalClauses, int depth)
     {
         PhraseQuerySyntaxExpansion expansion = phrase.Expansion ?? CreatePhraseExpansion(phrase.Field, phrase.Text);
-        if (expansion.Paths.Count > 1)
-            consumeAdditionalClauses(expansion.Paths.Count, depth + 1);
+        if (expansion.PathCount > 1)
+            consumeAdditionalClauses(expansion.PathCount, depth + 1);
         return phrase with { Expansion = expansion };
     }
 
@@ -1425,6 +1450,73 @@ public class QueryParser
     }
     private readonly record struct ParsedSyntaxClause(QuerySyntax? Query, Occur Occur);
 
+    private sealed class QueryCompilationBudget(int maximumGraphPaths)
+    {
+        private int _analysedPhraseTokenCount;
+        private int _graphEdgesRead;
+        private int _traversalSteps;
+        private int _pathsEmitted;
+        private int _compiledTerms;
+        private int _generatedBooleanClauses;
+
+        public string? TryConsumePhraseTokens(int count)
+        {
+            if (count > MaximumAnalysedPhraseTokenCount - _analysedPhraseTokenCount)
+                return $"Analysed phrase token count exceeds the maximum of {MaximumAnalysedPhraseTokenCount}.";
+
+            _analysedPhraseTokenCount += count;
+            return null;
+        }
+
+        public string? TryReadGraphEdge()
+        {
+            if (_graphEdgesRead >= MaximumPhraseGraphEdgeCount)
+                return $"Analysed phrase graph edge count exceeds the maximum of {MaximumPhraseGraphEdgeCount}.";
+
+            _graphEdgesRead++;
+            return null;
+        }
+
+        public string? TryTakeTraversalStep()
+        {
+            if (_traversalSteps >= MaximumPhraseGraphTraversalSteps)
+                return $"Analysed phrase graph traversal steps exceed the maximum of {MaximumPhraseGraphTraversalSteps}.";
+
+            _traversalSteps++;
+            return null;
+        }
+
+        public string? TryEmitPath(int termCount)
+        {
+            if (_pathsEmitted >= maximumGraphPaths)
+                return $"Analysed phrase graph exceeds the configured maximum of {maximumGraphPaths} paths.";
+            string? termLimit = TryCompileTerms(termCount);
+            if (termLimit is not null)
+                return termLimit;
+
+            _pathsEmitted++;
+            return null;
+        }
+
+        public string? TryCompileTerms(int count)
+        {
+            if (count > MaximumCompiledPhraseTermCount - _compiledTerms)
+                return $"Compiled phrase term count exceeds the maximum of {MaximumCompiledPhraseTermCount}.";
+
+            _compiledTerms += count;
+            return null;
+        }
+
+        public string? TryGenerateBooleanClauses(int count)
+        {
+            if (count > MaximumCompiledPhraseClauseCount - _generatedBooleanClauses)
+                return $"Compiled phrase query clause count exceeds the maximum of {MaximumCompiledPhraseClauseCount}.";
+
+            _generatedBooleanClauses += count;
+            return null;
+        }
+    }
+
     private struct PhraseGraphTraversalFrame
     {
         public PhraseGraphTraversalFrame(int position, int pathLength)
@@ -1446,8 +1538,16 @@ internal sealed record TermQuerySyntax(string Field, string Term) : QuerySyntax;
 internal sealed record FuzzyQuerySyntax(string Field, string Term, int MaxEdits, int ModifierOffset) : QuerySyntax;
 internal sealed record MultiTermQuerySyntax(string Field, string Pattern, string Term) : QuerySyntax;
 internal sealed record PhraseQuerySyntax(string Field, string Text, int Slop, PhraseQuerySyntaxExpansion? Expansion = null) : QuerySyntax;
-internal sealed record PhraseQuerySyntaxExpansion(string[]? DirectTerms, IReadOnlyList<PhraseQuerySyntaxPath[]> Paths);
-internal readonly record struct PhraseQuerySyntaxPath(string Term, int Position);
+internal sealed record PhraseGraphPlan(
+    int StartPosition,
+    int EndPosition,
+    int[] StartPositions,
+    IReadOnlyDictionary<int, Analysis.TokenGraph.TokenEdge[]> EdgesByStart);
+internal sealed record PhraseQuerySyntaxExpansion(
+    string[]? DirectTerms,
+    PhraseGraphPlan? Graph,
+    int PathCount,
+    int CompiledTermCount);
 internal sealed record RegexpQuerySyntax(string Field, string Pattern) : QuerySyntax;
 internal sealed record TermRangeQuerySyntax(string Field, string? LowerTerm, string? UpperTerm, bool IncludeLower, bool IncludeUpper) : QuerySyntax;
 internal sealed record FieldExistsQuerySyntax(string Field) : QuerySyntax;

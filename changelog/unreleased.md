@@ -60,6 +60,7 @@
 - Preserve position lengths through legacy filter routing and cached graph replay, with independent cache clones.
 - Return `CharFilterResult` from `ICharFilter` with composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the published Rowles.Text 1.x filter API and advances the package to 2.0.0.
 - Compile phrase token graphs iteratively within explicit traversal and output limits.
+- Bound phrase graph expansion per parse by path, term, edge, traversal, and Boolean-clause budgets, then compile validated paths incrementally.
 - Compile quoted token-graph paths across positional holes while preserving absolute phrase positions.
 - Preserve position lengths and absolute graph edges through common-gram generation and replay.
 - Unicode tokenisers recognise supplementary letters and digits while preserving UTF-16 offsets; unpaired surrogates delimit words.
