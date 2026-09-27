@@ -166,6 +166,23 @@ public sealed class ServerQueryTranslatorTests
     }
 
     [Fact]
+    public void QueryStringUsesFullAnalysisAndNormalisesMultiTermLiterals()
+    {
+        var term = Assert.IsType<Rowles.LeanCorpus.Search.Queries.TermQuery>(TranslateQueryString("GUIDE"));
+        var phrase = Assert.IsType<Rowles.LeanCorpus.Search.Queries.PhraseQuery>(TranslateQueryString("\"GUIDE SEARCH\""));
+        var prefix = Assert.IsType<Rowles.LeanCorpus.Search.Queries.PrefixQuery>(TranslateQueryString("GUIDE*"));
+        var wildcard = Assert.IsType<Rowles.LeanCorpus.Search.Queries.WildcardQuery>(TranslateQueryString("GU?DE"));
+        var range = Assert.IsType<Rowles.LeanCorpus.Search.Queries.TermRangeQuery>(TranslateQueryString("[GUIDE TO WOLF]"));
+
+        Assert.Equal("guide", term.Term);
+        Assert.Equal(new[] { "guide", "search" }, phrase.Terms);
+        Assert.Equal("guide", prefix.Prefix);
+        Assert.Equal("gu?de", wildcard.Pattern);
+        Assert.Equal("guide", range.LowerTerm);
+        Assert.Equal("wolf", range.UpperTerm);
+    }
+
+    [Fact]
     public void QueryStringStopwordOperandIsLoweredAfterSyntaxRecognition()
     {
         bool translated = ServerQueryTranslator.TryTranslate(
@@ -261,6 +278,22 @@ public sealed class ServerQueryTranslatorTests
         Assert.False(translated);
         Assert.Null(query);
         Assert.Equal("query_too_complex", failure?.Code);
+    }
+
+    private static Rowles.LeanCorpus.Search.Query TranslateQueryString(string text)
+    {
+        bool translated = ServerQueryTranslator.TryTranslate(
+            new QueryStringDefinition(text),
+            CreateSchema(),
+            new ServerCoreOptions(),
+            defaultField: "title",
+            maximumBooleanClauses: null,
+            out var query,
+            out var failure);
+
+        Assert.True(translated, failure?.Message);
+        Assert.Null(failure);
+        return Assert.IsAssignableFrom<Rowles.LeanCorpus.Search.Query>(query);
     }
 
     private static CompiledIndexSchema CreateSchema() => CompiledIndexSchema.Create(
