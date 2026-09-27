@@ -7,25 +7,84 @@ public static class CompressionCodecRegistry
 {
     private static readonly object SyncRoot = new();
     private static readonly Dictionary<byte, IFieldCompressionCodec> Codecs = new();
+    private static bool _indexOpened;
+    private static int _generation;
 
     static CompressionCodecRegistry()
     {
-        Register(new NoneCompressionCodec());
-        Register(new DeflateCompressionCodec());
-        Register(new BrotliCompressionCodec());
+        Codecs.Add((byte)FieldCompressionPolicy.None, new NoneCompressionCodec());
+        Codecs.Add((byte)FieldCompressionPolicy.Deflate, new DeflateCompressionCodec());
+        Codecs.Add((byte)FieldCompressionPolicy.Brotli, new BrotliCompressionCodec());
     }
 
     /// <summary>
-    /// Registers a stored-field compression codec.
+    /// Registers a stored-field compression codec during application bootstrap.
+    /// Registration is copied into each immutable codec catalogue and is rejected
+    /// once an index has opened.
     /// </summary>
     /// <param name="codec">The codec to register.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="codec"/> is <c>null</c>.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when its policy byte is already registered or an index has opened.</exception>
     public static void Register(IFieldCompressionCodec codec)
     {
         ArgumentNullException.ThrowIfNull(codec);
 
         lock (SyncRoot)
+        {
+            if (Codecs.ContainsKey(codec.PolicyByte))
+                throw new InvalidOperationException(
+                    $"A stored-field compression codec is already registered for policy byte {codec.PolicyByte}. " +
+                    "Use Replace before opening an index if replacement is intentional.");
+            if (_indexOpened)
+                throw new InvalidOperationException(
+                    "Stored-field compression registration is closed because an index has already opened.");
+            Codecs.Add(codec.PolicyByte, codec);
+            _generation++;
+        }
+    }
+
+    /// <summary>Explicitly replaces a bootstrap codec before any index opens.</summary>
+    /// <param name="codec">The replacement codec.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="codec"/> is <c>null</c>.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when no codec exists for its policy byte or an index has opened.</exception>
+    public static void Replace(IFieldCompressionCodec codec)
+    {
+        ArgumentNullException.ThrowIfNull(codec);
+
+        lock (SyncRoot)
+        {
+            if (_indexOpened)
+                throw new InvalidOperationException(
+                    "Stored-field compression replacement is closed because an index has already opened.");
+            if (!Codecs.ContainsKey(codec.PolicyByte))
+                throw new InvalidOperationException(
+                    $"No stored-field compression codec is registered for policy byte {codec.PolicyByte} to replace.");
             Codecs[codec.PolicyByte] = codec;
+            _generation++;
+        }
+    }
+
+    internal static IFieldCompressionCodec[] CaptureForCatalog()
+        => CaptureForCatalog(out _);
+
+    internal static IFieldCompressionCodec[] CaptureForCatalog(out int generation)
+    {
+        lock (SyncRoot)
+        {
+            generation = _generation;
+            return Codecs.Values.ToArray();
+        }
+    }
+
+    internal static void MarkIndexOpened()
+    {
+        IFieldCompressionCodec[] snapshot;
+        lock (SyncRoot)
+        {
+            _indexOpened = true;
+            snapshot = Codecs.Values.ToArray();
+        }
+        Rowles.LeanCorpus.Codecs.CodecKit.CodecCatalog.FreezeDefault(snapshot);
     }
 
     /// <summary>

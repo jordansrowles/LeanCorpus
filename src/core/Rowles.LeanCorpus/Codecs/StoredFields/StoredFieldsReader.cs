@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Codecs.StoredFields;
@@ -18,6 +19,7 @@ internal sealed class StoredFieldsReader : IDisposable
     private readonly int[] _blockDocCounts;
     private readonly int[]? _blockDocStarts;
     private readonly FieldCompressionPolicy _compression;
+    private readonly IFieldCompressionCodec _compressionCodec;
     private readonly long _bodyEnd;
     private readonly IDisposable _fdtFrame;
 
@@ -41,6 +43,7 @@ internal sealed class StoredFieldsReader : IDisposable
         int[] blockDocCounts,
         int[]? blockDocStarts,
         FieldCompressionPolicy compression,
+        IFieldCompressionCodec compressionCodec,
         long bodyEnd,
         IDisposable fdtFrame)
     {
@@ -55,6 +58,7 @@ internal sealed class StoredFieldsReader : IDisposable
         _blockDocCounts = blockDocCounts;
         _blockDocStarts = blockDocStarts;
         _compression = compression;
+        _compressionCodec = compressionCodec;
         _bodyEnd = bodyEnd;
         _fdtFrame = fdtFrame;
     }
@@ -65,18 +69,25 @@ internal sealed class StoredFieldsReader : IDisposable
     /// <summary>Compression policy used for the blocks in this file.</summary>
     internal FieldCompressionPolicy Compression => _compression;
 
-    public static StoredFieldsReader Open(string fdtPath, string fdxPath)
-        => OpenPaths(fdtPath, fdxPath, requireMatchingVersions: true);
+    public static StoredFieldsReader Open(string fdtPath, string fdxPath, CodecCatalog? catalog = null)
+        => OpenPaths(fdtPath, fdxPath, requireMatchingVersions: true, catalog);
 
-    internal static StoredFieldsReader OpenForMigration(string fdtPath, string fdxPath)
-        => OpenPaths(fdtPath, fdxPath, requireMatchingVersions: false);
+    internal static StoredFieldsReader OpenForMigration(
+        string fdtPath,
+        string fdxPath,
+        CodecCatalog? catalog = null)
+        => OpenPaths(fdtPath, fdxPath, requireMatchingVersions: false, catalog);
 
-    private static StoredFieldsReader OpenPaths(string fdtPath, string fdxPath, bool requireMatchingVersions)
+    private static StoredFieldsReader OpenPaths(
+        string fdtPath,
+        string fdxPath,
+        bool requireMatchingVersions,
+        CodecCatalog? catalog)
     {
         var fdtInput = new IndexInput(fdtPath);
         try
         {
-            return Open(fdtInput, new IndexInput(fdxPath), requireMatchingVersions);
+            return Open(fdtInput, new IndexInput(fdxPath), requireMatchingVersions, catalog);
         }
         catch
         {
@@ -85,11 +96,20 @@ internal sealed class StoredFieldsReader : IDisposable
         }
     }
 
-    internal static StoredFieldsReader Open(IndexInput fdtInput, IndexInput fdxInput)
-        => Open(fdtInput, fdxInput, requireMatchingVersions: true);
+    internal static StoredFieldsReader Open(
+        IndexInput fdtInput,
+        IndexInput fdxInput,
+        CodecCatalog? catalog = null)
+        => Open(fdtInput, fdxInput, requireMatchingVersions: true, catalog);
 
-    private static StoredFieldsReader Open(IndexInput fdtInput, IndexInput fdxInput, bool requireMatchingVersions)
+    private static StoredFieldsReader Open(
+        IndexInput fdtInput,
+        IndexInput fdxInput,
+        bool requireMatchingVersions,
+        CodecCatalog? catalog)
     {
+        CompressionCodecRegistry.MarkIndexOpened();
+        catalog ??= CodecCatalog.Default;
         StoredFieldsReadFrame? fdtFrame = null;
         try
         {
@@ -124,10 +144,19 @@ internal sealed class StoredFieldsReader : IDisposable
             if (!StoredFieldsBlockPolicy.IsValidMaximumDocumentCount(fdtBlockSize))
                 throw new InvalidDataException(
                     $"Stored fields block size {fdtBlockSize} is out of range [1, {StoredFieldsBlockPolicy.MaximumDocumentCount}].");
-            var compression = (FieldCompressionPolicy)fdtInput.ReadByte();
-
-            if (!Enum.IsDefined(compression))
-                throw new InvalidDataException($"Stored fields compression policy {(byte)compression} is unsupported.");
+            byte compressionPolicyByte = fdtInput.ReadByte();
+            var compression = (FieldCompressionPolicy)compressionPolicyByte;
+            IFieldCompressionCodec compressionCodec;
+            try
+            {
+                compressionCodec = catalog.GetCompressionCodec(compressionPolicyByte);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new InvalidDataException(
+                    $"Stored fields compression policy byte {compressionPolicyByte} is not registered in the codec catalogue.",
+                    exception);
+            }
             long firstBlockPosition = fdtInput.Position;
             long previousOffset = -1;
             foreach (long offset in blockOffsets)
@@ -164,6 +193,7 @@ internal sealed class StoredFieldsReader : IDisposable
                 blockDocCounts,
                 blockDocStarts,
                 compression,
+                compressionCodec,
                 fdtFrame.BodyEnd,
                 fdtFrame);
             fdtFrame = null;
@@ -524,7 +554,7 @@ internal sealed class StoredFieldsReader : IDisposable
             }
 
             var rawData = StoredFieldCompression.Decompress(
-                compData!, compLength, rawLength, _compression);
+                compData!, compLength, rawLength, _compressionCodec);
             if (rawData.Length != rawLength)
                 throw new InvalidDataException(
                     $"Stored fields decompressor returned {rawData.Length} bytes; expected {rawLength} bytes.");

@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Codecs.Hnsw;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
@@ -22,6 +23,7 @@ public sealed partial class SegmentReader : IDisposable
 
     private readonly MMapDirectory _directory;
     private readonly SegmentDescriptor _info;
+    private readonly CodecCatalog _codecCatalog;
     private readonly BoundedLruCache<string, SegmentReaderState> _cache;
     private readonly Func<SegmentReaderState> _stateFactory;
     private readonly bool _ownsCache;
@@ -47,9 +49,16 @@ public sealed partial class SegmentReader : IDisposable
 
     /// <summary>Creates a lazy reader that privately retains its heavy state.</summary>
     public SegmentReader(MMapDirectory directory, SegmentInfo info)
+        : this(directory, info, CodecCatalog.Default)
+    {
+    }
+
+    /// <summary>Creates a lazy reader that uses the supplied immutable codec catalogue.</summary>
+    public SegmentReader(MMapDirectory directory, SegmentInfo info, CodecCatalog codecCatalog)
     {
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(info);
+        ArgumentNullException.ThrowIfNull(codecCatalog);
         var descriptor = new SegmentDescriptor(info);
         var segmentId = descriptor.SegmentId;
         var snapshot = directory.AcquireSnapshot(
@@ -66,8 +75,9 @@ public sealed partial class SegmentReader : IDisposable
         }
         _directory = directory;
         _info = descriptor;
+        _codecCatalog = codecCatalog;
         _cache = new BoundedLruCache<string, SegmentReaderState>(1, StringComparer.Ordinal);
-        _stateFactory = () => new SegmentReaderState(directory, descriptor);
+        _stateFactory = () => new SegmentReaderState(directory, descriptor, _codecCatalog);
         _ownsCache = true;
     }
 
@@ -75,8 +85,9 @@ public sealed partial class SegmentReader : IDisposable
         MMapDirectory directory,
         SegmentInfo info,
         BoundedLruCache<string, SegmentReaderState> cache,
-        IReadOnlyCollection<string> inventory)
-        : this(directory, new SegmentDescriptor(info), cache, inventory)
+        IReadOnlyCollection<string> inventory,
+        CodecCatalog? codecCatalog = null)
+        : this(directory, new SegmentDescriptor(info), cache, inventory, codecCatalog)
     {
     }
 
@@ -84,15 +95,18 @@ public sealed partial class SegmentReader : IDisposable
         MMapDirectory directory,
         SegmentDescriptor info,
         BoundedLruCache<string, SegmentReaderState> cache,
-        IReadOnlyCollection<string> inventory)
+        IReadOnlyCollection<string> inventory,
+        CodecCatalog? codecCatalog = null)
     {
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(info);
+        codecCatalog ??= CodecCatalog.Default;
         ValidateRequiredFiles(info, inventory);
         _directory = directory;
         _info = info;
+        _codecCatalog = codecCatalog;
         _cache = cache;
-        _stateFactory = () => new SegmentReaderState(directory, info);
+        _stateFactory = () => new SegmentReaderState(directory, info, _codecCatalog);
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]

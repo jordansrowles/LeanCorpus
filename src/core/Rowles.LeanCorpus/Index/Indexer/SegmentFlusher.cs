@@ -165,7 +165,7 @@ internal static class SegmentFlusher
         // Stored fields
         StoredFieldsWriter.Write(basePath + ".fdt", basePath + ".fdx",
             source.StoredDocStarts, source.StoredFieldIds, source.StoredValues, source.StoredFieldIdToName,
-            config.StoredFieldBlockSize, config.CompressionPolicy);
+            config.StoredFieldBlockSize, config.CompressionPolicy, config.CodecCatalog);
 
         // Numeric field index
         WriteNumericIndex(source.NumericIndex, basePath + ".num");
@@ -502,7 +502,7 @@ internal static class SegmentFlusher
 
         SegmentStats segmentStats;
         using (var statisticsDirectory = new MMapDirectory(directoryPath))
-        using (var statisticsReader = new SegmentReader(statisticsDirectory, segInfo))
+        using (var statisticsReader = new SegmentReader(statisticsDirectory, segInfo, config.CodecCatalog))
             segmentStats = SegmentStats.FromSegmentReader(statisticsReader);
         segmentStats.WriteTo(SegmentStats.GetStatsPath(directoryPath, segId));
 

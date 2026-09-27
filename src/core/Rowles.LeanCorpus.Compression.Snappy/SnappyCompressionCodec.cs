@@ -34,6 +34,9 @@ public sealed class SnappyCompressionCodec : IFieldCompressionCodec
 /// </summary>
 public static class SnappyCompression
 {
+    private static readonly object RegistrationSyncRoot = new();
+    private static bool _registered;
+
     /// <summary>
     /// Registers the Snappy codec with the LeanCorpus compression codec registry.
     /// </summary>
@@ -45,7 +48,13 @@ public static class SnappyCompression
     /// </remarks>
     public static void Register()
     {
-        CompressionCodecRegistry.Register(new SnappyCompressionCodec());
+        lock (RegistrationSyncRoot)
+        {
+            if (_registered)
+                return;
+            CompressionCodecRegistry.Register(new SnappyCompressionCodec());
+            _registered = true;
+        }
     }
 
 #pragma warning disable CA2255

@@ -19,7 +19,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
     private readonly string _fdtPath;
     private readonly string _fdxPath;
     private readonly int _blockSize;
-    private readonly FieldCompressionPolicy _compression;
+    private readonly IFieldCompressionCodec _compressionCodec;
     private readonly ArrayBufferWriter<byte> _rawBuf;
     private readonly List<long> _blockOffsets;
     private readonly List<int> _intraOffsets;
@@ -30,14 +30,16 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
     private bool _disposed;
 
     internal StoredFieldsStreamWriter(string fdtPath, string fdxPath,
-        int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
+        int blockSize = DefaultBlockSize,
+        FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate,
+        CodecCatalog? catalog = null)
     {
+        CompressionCodecRegistry.MarkIndexOpened();
+        _compressionCodec = (catalog ?? CodecCatalog.Default).GetCompressionCodec((byte)compression);
         StoredFieldsBlockPolicy.ValidateMaximumDocumentCount(blockSize);
         _fdtPath = fdtPath;
         _fdxPath = fdxPath;
         _blockSize = blockSize;
-        _compression = compression;
-
         _rawBuf = new ArrayBufferWriter<byte>(4096);
         _blockOffsets = new List<long>();
         _intraOffsets = new List<int>(blockSize);
@@ -64,7 +66,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
                 var oversizedBuffer = new ArrayBufferWriter<byte>(checked((int)documentRawLength));
                 StoredFieldsBlockSerializer.WriteDocument(oversizedBuffer, fields, encodeBuf);
                 StoredFieldsWriter.WriteBlock(
-                    _fdtScope.Output, _blockOffsets, oversizedBuffer.WrittenSpan, [0], _compression);
+                    _fdtScope.Output, _blockOffsets, oversizedBuffer.WrittenSpan, [0], _compressionCodec);
             }
             else
             {
@@ -93,7 +95,7 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         if (_docsInBlock == 0) return;
 
         StoredFieldsWriter.WriteBlock(
-            _fdtScope.Output, _blockOffsets, _rawBuf.WrittenSpan, _intraOffsets, _compression);
+            _fdtScope.Output, _blockOffsets, _rawBuf.WrittenSpan, _intraOffsets, _compressionCodec);
 
         _rawBuf.Clear();
         _intraOffsets.Clear();

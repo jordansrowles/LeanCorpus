@@ -4,6 +4,7 @@ using System.Threading;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Hnsw;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.TermVectors;
@@ -19,6 +20,7 @@ internal sealed partial class SegmentReaderState : IDisposable
 {
     private readonly MMapDirectory _directory;
     private readonly SegmentDescriptor _info;
+    private readonly CodecCatalog _codecCatalog;
     private readonly SegmentFileAccess _files;
     private TermDictionaryReader? _dictionaryReader;
     private IndexInput? _postingsInput;
@@ -101,12 +103,17 @@ internal sealed partial class SegmentReaderState : IDisposable
     /// </summary>
     /// <param name="directory">The directory containing the segment files.</param>
     /// <param name="info">The segment metadata.</param>
+    /// <param name="codecCatalog">The immutable codec catalogue for stored-field compression.</param>
     /// <exception cref="FileNotFoundException">Thrown if required segment files are missing.</exception>
     /// <exception cref="InvalidDataException">Thrown if segment files contain corrupted or incompatible data.</exception>
-    internal SegmentReaderState(MMapDirectory directory, SegmentDescriptor info)
+    internal SegmentReaderState(
+        MMapDirectory directory,
+        SegmentDescriptor info,
+        CodecCatalog? codecCatalog = null)
     {
         _directory = directory;
         _info = info;
+        _codecCatalog = codecCatalog ?? CodecCatalog.Default;
         _basePath = Path.Combine(directory.DirectoryPath, info.SegmentId);
         _files = SegmentFileAccess.Open(directory, info);
 
@@ -192,7 +199,10 @@ internal sealed partial class SegmentReaderState : IDisposable
             {
                 if (_storedReaderLoaded) return _storedReader;
                 if (_files.Exists(".fdt") && _files.Exists(".fdx"))
-                    _storedReader = StoredFieldsReader.Open(_files.OpenInput(".fdt"), _files.OpenInput(".fdx"));
+                    _storedReader = StoredFieldsReader.Open(
+                        _files.OpenInput(".fdt"),
+                        _files.OpenInput(".fdx"),
+                        _codecCatalog);
                 Volatile.Write(ref _storedReaderLoaded, true);
                 return _storedReader;
             }

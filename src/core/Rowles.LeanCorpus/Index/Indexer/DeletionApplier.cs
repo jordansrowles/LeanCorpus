@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
@@ -19,7 +20,8 @@ internal static class DeletionApplier
         MMapDirectory directory,
         int commitGeneration,
         bool durableCommits,
-        Diagnostics.IMetricsCollector metrics)
+        Diagnostics.IMetricsCollector metrics,
+        CodecCatalog codecCatalog)
     {
         var stopwatch = Stopwatch.StartNew();
         var pendingDeletes = deleteQueue.GetOrderedList();
@@ -55,7 +57,7 @@ internal static class DeletionApplier
         foreach (var seg in segments)
         {
             var basePath = Path.Combine(dirPath, seg.SegmentId);
-            using var segmentReader = new SegmentReader(directory, seg);
+            using var segmentReader = new SegmentReader(directory, seg, codecCatalog);
             if (!segmentReader.FileExists(".dic") || !segmentReader.FileExists(".pos"))
                 continue;
 

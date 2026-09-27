@@ -197,7 +197,7 @@ public sealed class SegmentMerger
         try
         {
             foreach (var segInfo in segments)
-                readers[segInfo.SegmentId] = new SegmentReader(_directory, segInfo);
+                readers[segInfo.SegmentId] = new SegmentReader(_directory, segInfo, FileCatalog);
 
             return MergeSegmentsCore(segments, readers, newSegId, basePath, commitGeneration, spatialFields,
                 _destinationVectorQuantisation);
@@ -272,7 +272,8 @@ public sealed class SegmentMerger
         // disk doc-by-doc; doc-values columns still buffer (codec format requires it).
         using var ctx = new MergeContext(totalDocs, fieldNames);
         bool anyTermVectors = readers.Values.Any(r => r.HasTermVectors);
-        using (var storedWriter = new StoredFieldsStreamWriter(basePath + ".fdt", basePath + ".fdx"))
+        using (var storedWriter = new StoredFieldsStreamWriter(
+            basePath + ".fdt", basePath + ".fdx", catalog: FileCatalog))
         using (var tvWriter = anyTermVectors ? new TermVectorsStreamWriter(basePath + ".tvd", basePath + ".tvx") : null)
         {
             ctx.StoredWriter = storedWriter;
@@ -1897,7 +1898,7 @@ public sealed class SegmentMerger
         try
         {
             foreach (var segInfo in sourceSegments)
-                readers[segInfo.SegmentId] = new SegmentReader(sourceDirectory, segInfo);
+                readers[segInfo.SegmentId] = new SegmentReader(sourceDirectory, segInfo, config.CodecCatalog);
 
             return MergeSegmentsCore(sourceSegments, readers, newSegId, basePath, commitGeneration, spatialFields,
                 config.VectorQuantisation);

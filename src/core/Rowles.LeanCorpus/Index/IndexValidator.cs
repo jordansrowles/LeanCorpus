@@ -37,6 +37,7 @@ public static class IndexValidator
 
         options ??= new IndexCheckOptions();
         var catalog = options.Catalog ?? throw new ArgumentException("The codec catalogue cannot be null.", nameof(options));
+        CompressionCodecRegistry.MarkIndexOpened();
         var result = new IndexCheckResult();
         var dirPath = directory.DirectoryPath;
         var formatInventory = IndexFormatInspector.Inspect(directory, new IndexFormatInspectionOptions
@@ -194,7 +195,7 @@ public static class IndexValidator
             IndexFileInspector.CheckRequiredFile(basePath + RequiredExtensions[i], segmentId, result);
 
         result.DocumentsChecked += Math.Max(info.DocCount, 0);
-        CheckStoredFields(basePath, segmentId, info, result);
+        CheckStoredFields(basePath, segmentId, info, options.Catalog, result);
         CheckDeletionGeneration(basePath, segmentId, info, result);
         CheckVectors(basePath, segmentId, info, options, result);
         RunDeepChecks(directoryPath: dirPath, basePath, info, options, result);
@@ -255,14 +256,23 @@ public static class IndexValidator
         }
     }
 
-    private static void CheckStoredFields(string basePath, string segmentId, SegmentInfo info, IndexCheckResult result)
+    private static void CheckStoredFields(
+        string basePath,
+        string segmentId,
+        SegmentInfo info,
+        CodecCatalog catalog,
+        IndexCheckResult result)
     {
-        CheckStoredFieldsCompression(basePath + ".fdt", segmentId, result);
+        CheckStoredFieldsCompression(basePath + ".fdt", segmentId, catalog, result);
         CheckStoredFieldsIndex(basePath + ".fdx", segmentId, info, result);
-        CheckStoredFieldsBlockMapping(basePath, segmentId, result);
+        CheckStoredFieldsBlockMapping(basePath, segmentId, catalog, result);
     }
 
-    private static void CheckStoredFieldsBlockMapping(string basePath, string segmentId, IndexCheckResult result)
+    private static void CheckStoredFieldsBlockMapping(
+        string basePath,
+        string segmentId,
+        CodecCatalog catalog,
+        IndexCheckResult result)
     {
         string fdtPath = basePath + ".fdt";
         string fdxPath = basePath + ".fdx";
@@ -274,7 +284,7 @@ public static class IndexValidator
         {
             // Opening the reader validates the cross-file block layout, including
             // variable document counts in v4, without decompressing block payloads.
-            using var reader = StoredFieldsReader.Open(fdtPath, fdxPath);
+            using var reader = StoredFieldsReader.Open(fdtPath, fdxPath, catalog);
         }
         catch (Exception ex) when (ex is IOException or EndOfStreamException or InvalidDataException)
         {
@@ -288,7 +298,11 @@ public static class IndexValidator
         }
     }
 
-    private static void CheckStoredFieldsCompression(string fdtPath, string segmentId, IndexCheckResult result)
+    private static void CheckStoredFieldsCompression(
+        string fdtPath,
+        string segmentId,
+        CodecCatalog catalog,
+        IndexCheckResult result)
     {
         if (!FileOpenRetry.FileExists(fdtPath))
             return;
@@ -301,7 +315,7 @@ public static class IndexValidator
             using var frame = StoredFieldsCodecFiles.OpenData(input);
             input.ReadInt32();
             byte policyByte = input.ReadByte();
-            if (!CompressionCodecRegistry.TryGet(policyByte, out _))
+            if (!catalog.TryGetCompressionCodec(policyByte, out _))
             {
                 result.AddIssue(
                     IndexCheckSeverity.Error,
@@ -552,7 +566,7 @@ public static class IndexValidator
         if (options.Deep || options.VerifyDocValues)
             ValidateDocValuesDeep(basePath, info, result);
         if (options.Deep || options.VerifyStoredFields)
-            ValidateStoredFieldsDeep(basePath, info, result);
+            ValidateStoredFieldsDeep(basePath, info, options.Catalog, result);
         if (options.Deep || options.VerifyPostings)
             ValidatePostingsDeep(directoryPath, info, result);
         if (options.Deep || options.VerifyVectors)
@@ -572,7 +586,7 @@ public static class IndexValidator
         if (options.Deep || options.VerifyDocValues)
             ValidateCompoundDocValuesDeep(directoryPath, info, result);
         if (options.Deep || options.VerifyStoredFields)
-            ValidateCompoundStoredFieldsDeep(directoryPath, info, result);
+            ValidateCompoundStoredFieldsDeep(directoryPath, info, options.Catalog, result);
         if (options.Deep || options.VerifyPostings)
             ValidatePostingsDeep(directoryPath, info, result);
         if (options.Deep || options.VerifyVectors)
@@ -609,12 +623,13 @@ public static class IndexValidator
     private static void ValidateCompoundStoredFieldsDeep(
         string directoryPath,
         SegmentInfo info,
+        CodecCatalog catalog,
         IndexCheckResult result)
     {
         try
         {
             using var directory = new MMapDirectory(directoryPath);
-            using var reader = new SegmentReader(directory, info);
+            using var reader = new SegmentReader(directory, info, catalog);
             for (int docId = 0; docId < info.DocCount; docId++)
                 reader.GetStoredFieldValues(docId);
         }
@@ -761,12 +776,16 @@ public static class IndexValidator
         }
     }
 
-    private static void ValidateStoredFieldsDeep(string basePath, SegmentInfo info, IndexCheckResult result)
+    private static void ValidateStoredFieldsDeep(
+        string basePath,
+        SegmentInfo info,
+        CodecCatalog catalog,
+        IndexCheckResult result)
     {
         string fileName = Path.GetFileName(basePath + ".fdt");
         try
         {
-            using var reader = StoredFieldsReader.Open(basePath + ".fdt", basePath + ".fdx");
+            using var reader = StoredFieldsReader.Open(basePath + ".fdt", basePath + ".fdx", catalog);
             for (int docId = 0; docId < info.DocCount; docId++)
                 reader.ReadDocument(docId);
         }

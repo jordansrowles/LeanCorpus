@@ -71,6 +71,9 @@ public sealed class ZstandardCompressionCodec : IFieldCompressionCodec
 /// </summary>
 public static class ZstandardCompression
 {
+    private static readonly object RegistrationSyncRoot = new();
+    private static bool _registered;
+
     /// <summary>
     /// Registers the Zstandard codec with the LeanCorpus compression codec registry.
     /// </summary>
@@ -82,7 +85,13 @@ public static class ZstandardCompression
     /// </remarks>
     public static void Register()
     {
-        CompressionCodecRegistry.Register(new ZstandardCompressionCodec());
+        lock (RegistrationSyncRoot)
+        {
+            if (_registered)
+                return;
+            CompressionCodecRegistry.Register(new ZstandardCompressionCodec());
+            _registered = true;
+        }
     }
 
 #pragma warning disable CA2255

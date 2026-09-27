@@ -55,6 +55,9 @@ public sealed class Lz4CompressionCodec : IFieldCompressionCodec
 /// </summary>
 public static class Lz4Compression
 {
+    private static readonly object RegistrationSyncRoot = new();
+    private static bool _registered;
+
     /// <summary>
     /// Registers the LZ4 codec with the LeanCorpus compression codec registry.
     /// </summary>
@@ -66,7 +69,13 @@ public static class Lz4Compression
     /// </remarks>
     public static void Register()
     {
-        CompressionCodecRegistry.Register(new Lz4CompressionCodec());
+        lock (RegistrationSyncRoot)
+        {
+            if (_registered)
+                return;
+            CompressionCodecRegistry.Register(new Lz4CompressionCodec());
+            _registered = true;
+        }
     }
 
 #pragma warning disable CA2255

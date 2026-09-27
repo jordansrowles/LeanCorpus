@@ -101,7 +101,8 @@ internal static class CommitManager
             DeletionApplier.ApplyPendingDeletions(
                 writer.DeleteQueue, writer.CommittedSegments,
                 writer.Directory, writer.CommitGeneration,
-                writer.Config.DurableCommits, writer.Config.Metrics);
+                writer.Config.DurableCommits, writer.Config.Metrics,
+                writer.Config.CodecCatalog);
 
         if (writer.ContentChangedSinceCommit)
             writer.ContentToken++;
@@ -223,7 +224,7 @@ internal static class CommitManager
             {
                 segmentStatsForCommit.Add(segmentStats);
             }
-            else if (AccumulateSegmentStatsByScan(seg, writer.Directory) is { } scannedStats)
+            else if (AccumulateSegmentStatsByScan(seg, writer.Directory, writer.Config.CodecCatalog) is { } scannedStats)
             {
                 scannedStats.WriteTo(SegmentStats.GetStatsPath(dirPath, seg.SegmentId));
                 segmentStatsForCommit.Add(scannedStats);
@@ -234,12 +235,15 @@ internal static class CommitManager
         stats.WriteTo(IndexStats.GetStatsPath(dirPath, writer.CommitGeneration));
     }
 
-    private static SegmentStats? AccumulateSegmentStatsByScan(SegmentInfo segment, MMapDirectory directory)
+    private static SegmentStats? AccumulateSegmentStatsByScan(
+        SegmentInfo segment,
+        MMapDirectory directory,
+        CodecCatalog codecCatalog)
     {
         SegmentReader? reader = null;
         try
         {
-            reader = new SegmentReader(directory, segment);
+            reader = new SegmentReader(directory, segment, codecCatalog);
         }
         catch (FileNotFoundException)
         {
@@ -377,7 +381,8 @@ internal static class CommitManager
                 DeletionApplier.ApplyPendingDeletions(
                     writer.DeleteQueue, writer.CommittedSegments,
                     writer.Directory, writer.CommitGeneration,
-                    writer.Config.DurableCommits, writer.Config.Metrics);
+                    writer.Config.DurableCommits, writer.Config.Metrics,
+                    writer.Config.CodecCatalog);
 
             if (writer.CommittedSegments.Count <= 1)
                 return 0;
@@ -456,7 +461,8 @@ internal static class CommitManager
                 DeletionApplier.ApplyPendingDeletions(
                     writer.DeleteQueue, writer.CommittedSegments,
                     writer.Directory, writer.CommitGeneration,
-                    writer.Config.DurableCommits, writer.Config.Metrics);
+                    writer.Config.DurableCommits, writer.Config.Metrics,
+                    writer.Config.CodecCatalog);
 
             var protectedSegments = SnapshotManager.GetSnapshotProtectedSegments(writer);
 
@@ -545,7 +551,8 @@ internal static class CommitManager
                 DeletionApplier.ApplyPendingDeletions(
                     writer.DeleteQueue, writer.CommittedSegments,
                     writer.Directory, writer.CommitGeneration,
-                    writer.Config.DurableCommits, writer.Config.Metrics);
+                    writer.Config.DurableCommits, writer.Config.Metrics,
+                    writer.Config.CodecCatalog);
 
             if (writer.ContentChangedSinceCommit)
                 writer.ContentToken++;

@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Codecs.StoredFields;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using Rowles.LeanCorpus.Index;
@@ -256,6 +257,7 @@ public sealed partial class IndexSearcher : IDisposable
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(config);
         config.Validate();
+        CompressionCodecRegistry.MarkIndexOpened();
         _directory = directory;
         _config = config;
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
@@ -291,7 +293,8 @@ public sealed partial class IndexSearcher : IDisposable
                     name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out var inventory);
                 var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
                 foreach (var info in segmentInfos)
-                    _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet));
+                    _readers.Add(new SegmentReader(
+                        directory, info, _segmentReaderCache, inventorySet, config.CodecCatalog));
                 _snapshotLease = attemptSnapshot;
                 attemptSnapshot = null;
                 break;
@@ -389,6 +392,7 @@ public sealed partial class IndexSearcher : IDisposable
         ArgumentNullException.ThrowIfNull(segments);
         ArgumentNullException.ThrowIfNull(config);
         config.Validate();
+        CompressionCodecRegistry.MarkIndexOpened();
         _directory = directory;
         _config = config;
         _segmentReaderCache = new BoundedLruCache<string, SegmentReaderState>(
@@ -415,7 +419,8 @@ public sealed partial class IndexSearcher : IDisposable
                 name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out var inventory);
             var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
             foreach (var descriptor in segments)
-                _readers.Add(new SegmentReader(directory, descriptor, _segmentReaderCache, inventorySet));
+                _readers.Add(new SegmentReader(
+                    directory, descriptor, _segmentReaderCache, inventorySet, config.CodecCatalog));
 
             _docBases = AssignDocBases();
             _totalDocCount = _docBases.Length > 0

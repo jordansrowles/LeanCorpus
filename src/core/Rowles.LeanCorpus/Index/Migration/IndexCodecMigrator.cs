@@ -49,8 +49,10 @@ public static class IndexCodecMigrator
             ["leancorpus.numeric-structures.int64-numeric-index"] = static context => RewriteInt64NumericIndex(context.SourcePath, context.TargetPath),
             ["leancorpus.deletes.parent-bitset"] = static context => RewriteParentBitSet(context.SourcePath, context.TargetPath),
             ["leancorpus.deletes.live-docs"] = static context => RewriteLiveDocs(context),
-            ["leancorpus.stored-fields.data"] = static context => RewriteStoredFields(context.TargetDirectory, context.Action, context.SegmentIdMap),
-            ["leancorpus.stored-fields.index"] = static context => RewriteStoredFields(context.TargetDirectory, context.Action, context.SegmentIdMap),
+            ["leancorpus.stored-fields.data"] = static context => RewriteStoredFields(
+                context.TargetDirectory, context.Action, context.SegmentIdMap, context.Catalog),
+            ["leancorpus.stored-fields.index"] = static context => RewriteStoredFields(
+                context.TargetDirectory, context.Action, context.SegmentIdMap, context.Catalog),
             ["leancorpus.term-vectors.data"] = static context => RewriteTermVectors(context.TargetDirectory, context.Action, context.SegmentIdMap),
             ["leancorpus.term-vectors.index"] = static context => RewriteTermVectors(context.TargetDirectory, context.Action, context.SegmentIdMap),
         };
@@ -1251,7 +1253,11 @@ public static class IndexCodecMigrator
         }
     }
 
-    private static void RewriteStoredFields(string targetDirectory, IndexCodecMigrationAction action, IReadOnlyDictionary<string, string> segmentIdMap)
+    private static void RewriteStoredFields(
+        string targetDirectory,
+        IndexCodecMigrationAction action,
+        IReadOnlyDictionary<string, string> segmentIdMap,
+        CodecCatalog catalog)
     {
         if (action.SegmentId is null)
             throw new InvalidDataException($"Stored fields action for '{action.SourcePath}' has no segment ID.");
@@ -1271,14 +1277,16 @@ public static class IndexCodecMigrator
 
         try
         {
-            using (var reader = StoredFieldsReader.OpenForMigration(sourceBase + ".fdt", sourceBase + ".fdx"))
+            using (var reader = StoredFieldsReader.OpenForMigration(
+                sourceBase + ".fdt", sourceBase + ".fdx", catalog))
             {
                 StoredFieldsWriter.Write(
                     temporaryFdtPath,
                     temporaryFdxPath,
                     info.DocCount,
                     reader.ReadDocumentValues,
-                    compression: reader.Compression);
+                    compression: reader.Compression,
+                    catalog: catalog);
             }
 
             FileOpenRetry.Move(temporaryFdtPath, fdtPath, overwrite: true);

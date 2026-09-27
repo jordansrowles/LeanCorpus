@@ -106,6 +106,7 @@ public sealed partial class IndexWriter : IDisposable
         ArgumentNullException.ThrowIfNull(config);
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(disposeTimeout, TimeSpan.Zero);
         config.Validate();
+        CompressionCodecRegistry.MarkIndexOpened();
 
         _directory = directory;
         _config = config;
@@ -223,7 +224,8 @@ public sealed partial class IndexWriter : IDisposable
                     // is examined.
                     DeletionApplier.ApplyPendingDeletions(
                         _deleteQueue, _committedSegments,
-                        _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
+                        _directory, _commitGeneration, _config.DurableCommits, _config.Metrics,
+                        _config.CodecCatalog);
                     enteredCore = true;
                     DwptManager.AddDocument(this, replacement);
                 }
@@ -280,7 +282,8 @@ public sealed partial class IndexWriter : IDisposable
                     // cleared, including segments materialised by this update.
                     DeletionApplier.ApplyPendingDeletions(
                         _deleteQueue, _committedSegments,
-                        _directory, _commitGeneration, _config.DurableCommits, _config.Metrics);
+                        _directory, _commitGeneration, _config.DurableCommits, _config.Metrics,
+                        _config.CodecCatalog);
                     enteredCore = true;
                     DwptManager.AddDocument(this, replacement);
                 }

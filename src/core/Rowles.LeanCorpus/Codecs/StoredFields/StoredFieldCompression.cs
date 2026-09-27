@@ -1,17 +1,21 @@
 ﻿namespace Rowles.LeanCorpus.Codecs.StoredFields;
 
+using Rowles.LeanCorpus.Codecs.CodecKit;
+
 /// <summary>Compression/decompression dispatch for stored field blocks.</summary>
 internal static class StoredFieldCompression
 {
     /// <summary>Compresses raw block data using the specified policy.</summary>
     internal static (byte[] Data, int Length) Compress(ReadOnlySpan<byte> raw, FieldCompressionPolicy policy)
+        => Compress(raw, CodecCatalog.Default.GetCompressionCodec((byte)policy));
+
+    internal static (byte[] Data, int Length) Compress(ReadOnlySpan<byte> raw, IFieldCompressionCodec codec)
     {
         if (raw.Length == 0)
         {
             return ([], 0);
         }
 
-        var codec = CompressionCodecRegistry.Get(policy);
         if (codec is IBufferedFieldCompressionCodec bufferedCodec)
         {
             return bufferedCodec.CompressToBuffer(raw);
@@ -23,6 +27,9 @@ internal static class StoredFieldCompression
 
     /// <summary>Decompresses block data using the specified policy.</summary>
     internal static byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize, FieldCompressionPolicy policy)
+        => Decompress(compressed, originalSize, CodecCatalog.Default.GetCompressionCodec((byte)policy));
+
+    internal static byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize, IFieldCompressionCodec codec)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(originalSize);
 
@@ -34,11 +41,22 @@ internal static class StoredFieldCompression
             return [];
         }
 
-        return CompressionCodecRegistry.Get(policy).Decompress(compressed, originalSize);
+        return codec.Decompress(compressed, originalSize);
     }
 
     /// <summary>Decompresses block data from an array-backed buffer using the specified policy.</summary>
     internal static byte[] Decompress(byte[] compressed, int compressedLength, int originalSize, FieldCompressionPolicy policy)
+        => Decompress(
+            compressed,
+            compressedLength,
+            originalSize,
+            CodecCatalog.Default.GetCompressionCodec((byte)policy));
+
+    internal static byte[] Decompress(
+        byte[] compressed,
+        int compressedLength,
+        int originalSize,
+        IFieldCompressionCodec codec)
     {
         ArgumentNullException.ThrowIfNull(compressed);
         ArgumentOutOfRangeException.ThrowIfNegative(originalSize);
@@ -54,10 +72,6 @@ internal static class StoredFieldCompression
             return [];
         }
 
-        if (policy == FieldCompressionPolicy.None)
-            return CompressionCodecRegistry.Get(policy).Decompress(compressed.AsSpan(0, compressedLength), originalSize);
-
-        var codec = CompressionCodecRegistry.Get(policy);
         if (codec is IBufferedFieldCompressionCodec bufferedCodec)
         {
             return bufferedCodec.Decompress(compressed, compressedLength, originalSize);

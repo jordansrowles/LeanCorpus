@@ -1,3 +1,5 @@
+using Rowles.LeanCorpus.Codecs.StoredFields;
+
 namespace Rowles.LeanCorpus.Codecs.CodecKit;
 
 /// <summary>
@@ -6,6 +8,7 @@ namespace Rowles.LeanCorpus.Codecs.CodecKit;
 public sealed class CodecCatalogBuilder
 {
     private readonly List<CodecFamilyDescriptor> _families = [];
+    private readonly Dictionary<byte, IFieldCompressionCodec> _compressionCodecs = new();
 
     /// <summary>Adds a codec family declaration.</summary>
     /// <param name="family">The family to add.</param>
@@ -17,12 +20,46 @@ public sealed class CodecCatalogBuilder
         return this;
     }
 
-    /// <summary>Adds all statically declared LeanCorpus built-in persistent formats.</summary>
+    /// <summary>Adds built-in persistent formats and stored-field compression codecs registered during bootstrap.</summary>
     /// <returns>This builder for chaining.</returns>
     public CodecCatalogBuilder AddBuiltIns()
+        => AddBuiltIns(CompressionCodecRegistry.CaptureForCatalog());
+
+    internal CodecCatalogBuilder AddBuiltIns(IFieldCompressionCodec[] compressionCodecs)
     {
         foreach (var family in CodecCatalogBuiltIns.Families)
             _families.Add(family);
+        foreach (var codec in compressionCodecs)
+            _compressionCodecs.Add(codec.PolicyByte, codec);
+        return this;
+    }
+
+    /// <summary>Adds a stored-field compression codec to the catalogue being built.</summary>
+    /// <param name="codec">The codec to add.</param>
+    /// <returns>This builder for chaining.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="codec"/> is <c>null</c>.</exception>
+    /// <exception cref="InvalidOperationException">A codec with the same persisted policy byte is already present.</exception>
+    public CodecCatalogBuilder AddCompressionCodec(IFieldCompressionCodec codec)
+    {
+        ArgumentNullException.ThrowIfNull(codec);
+        if (!_compressionCodecs.TryAdd(codec.PolicyByte, codec))
+            throw new InvalidOperationException(
+                $"Duplicate stored-field compression policy byte {codec.PolicyByte}.");
+        return this;
+    }
+
+    /// <summary>Explicitly replaces a stored-field compression codec before building the catalogue.</summary>
+    /// <param name="codec">The replacement codec.</param>
+    /// <returns>This builder for chaining.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="codec"/> is <c>null</c>.</exception>
+    /// <exception cref="InvalidOperationException">No codec with the same policy byte is present.</exception>
+    public CodecCatalogBuilder ReplaceCompressionCodec(IFieldCompressionCodec codec)
+    {
+        ArgumentNullException.ThrowIfNull(codec);
+        if (!_compressionCodecs.ContainsKey(codec.PolicyByte))
+            throw new InvalidOperationException(
+                $"No stored-field compression codec is registered for policy byte {codec.PolicyByte} to replace.");
+        _compressionCodecs[codec.PolicyByte] = codec;
         return this;
     }
 
@@ -101,7 +138,7 @@ public sealed class CodecCatalogBuilder
             }
         }
 
-        return new CodecCatalog(_families.ToArray(), files.ToArray());
+        return new CodecCatalog(_families.ToArray(), files.ToArray(), _compressionCodecs.Values.ToArray());
     }
 
     private static void ValidateFile(CodecFamilyDescriptor family, CodecFileDescriptor file)

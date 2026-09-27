@@ -20,8 +20,12 @@ internal static class StoredFieldsWriter
     /// </summary>
     internal static void Write(string fdtPath, string fdxPath,
         List<int> docStarts, List<int> fieldIds, List<StoredFieldValue> values, List<string> fieldNames,
-        int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
+        int blockSize = DefaultBlockSize,
+        FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate,
+        CodecCatalog? catalog = null)
     {
+        CompressionCodecRegistry.MarkIndexOpened();
+        var compressionCodec = (catalog ?? CodecCatalog.Default).GetCompressionCodec((byte)compression);
         StoredFieldsBlockPolicy.ValidateMaximumDocumentCount(blockSize);
         int docCount = docStarts.Count;
 
@@ -73,25 +77,25 @@ internal static class StoredFieldsWriter
 
                 if (documentRawLength > StoredFieldsBlockPolicy.TargetRawBytes)
                 {
-                    FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compression);
+                    FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compressionCodec);
                     var oversizedBuffer = new ArrayBufferWriter<byte>(checked((int)documentRawLength));
                     SerializeDocument(
                         oversizedBuffer, fieldIds, values, fieldNames,
                         entryStart, entryEnd, distinctFieldIds, encodeBuf);
-                    WriteBlock(fdtScope.Output, blockOffsets, oversizedBuffer.WrittenSpan, [0], compression);
+                    WriteBlock(fdtScope.Output, blockOffsets, oversizedBuffer.WrittenSpan, [0], compressionCodec);
                     continue;
                 }
 
                 if (StoredFieldsBlockPolicy.ShouldFlushBeforeAdd(
                         docsInBlock, rawBuf.WrittenCount, documentRawLength, blockSize))
-                    FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compression);
+                    FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compressionCodec);
 
                 intraOffsets.Add(rawBuf.WrittenCount);
                 SerializeDocument(rawBuf, fieldIds, values, fieldNames, entryStart, entryEnd, distinctFieldIds, encodeBuf);
                 docsInBlock++;
 
                 if (StoredFieldsBlockPolicy.ShouldFlushAfterAdd(docsInBlock, rawBuf.WrittenCount, blockSize))
-                    FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compression);
+                    FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compressionCodec);
             }
         }
         finally
@@ -99,13 +103,15 @@ internal static class StoredFieldsWriter
             ArrayPool<bool>.Shared.Return(seenFieldId);
         }
 
-        FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compression);
+        FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compressionCodec);
         fdtScope.Complete();
         WriteFdx(fdxPath, blockSize, docCount, blockOffsets);
     }
 
     internal static void Write(string fdtPath, string fdxPath, IReadOnlyList<Dictionary<string, List<string>>> docs,
-        int blockSize = DefaultBlockSize, FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
+        int blockSize = DefaultBlockSize,
+        FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate,
+        CodecCatalog? catalog = null)
         => Write(
             fdtPath,
             fdxPath,
@@ -114,7 +120,8 @@ internal static class StoredFieldsWriter
                 static kvp => kvp.Key,
                 static kvp => kvp.Value.Select(StoredFieldValue.FromString).ToList()),
             blockSize,
-            compression);
+            compression,
+            catalog);
 
     internal static void Write(
         string fdtPath,
@@ -122,8 +129,11 @@ internal static class StoredFieldsWriter
         int docCount,
         Func<int, Dictionary<string, List<StoredFieldValue>>> readDocument,
         int blockSize = DefaultBlockSize,
-        FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate)
+        FieldCompressionPolicy compression = FieldCompressionPolicy.Deflate,
+        CodecCatalog? catalog = null)
     {
+        CompressionCodecRegistry.MarkIndexOpened();
+        var compressionCodec = (catalog ?? CodecCatalog.Default).GetCompressionCodec((byte)compression);
         ArgumentOutOfRangeException.ThrowIfNegative(docCount);
         ArgumentNullException.ThrowIfNull(readDocument);
         StoredFieldsBlockPolicy.ValidateMaximumDocumentCount(blockSize);
@@ -147,26 +157,26 @@ internal static class StoredFieldsWriter
 
             if (documentRawLength > StoredFieldsBlockPolicy.TargetRawBytes)
             {
-                FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compression);
+                FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compressionCodec);
                 var oversizedBuffer = new ArrayBufferWriter<byte>(checked((int)documentRawLength));
                 StoredFieldsBlockSerializer.WriteDocument(oversizedBuffer, fields, encodeBuf);
-                WriteBlock(fdtScope.Output, blockOffsets, oversizedBuffer.WrittenSpan, [0], compression);
+                WriteBlock(fdtScope.Output, blockOffsets, oversizedBuffer.WrittenSpan, [0], compressionCodec);
                 continue;
             }
 
             if (StoredFieldsBlockPolicy.ShouldFlushBeforeAdd(
                     docsInBlock, rawBuf.WrittenCount, documentRawLength, blockSize))
-                FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compression);
+                FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compressionCodec);
 
             intraOffsets.Add(rawBuf.WrittenCount);
             StoredFieldsBlockSerializer.WriteDocument(rawBuf, fields, encodeBuf);
             docsInBlock++;
 
             if (StoredFieldsBlockPolicy.ShouldFlushAfterAdd(docsInBlock, rawBuf.WrittenCount, blockSize))
-                FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compression);
+                FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compressionCodec);
         }
 
-        FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compression);
+        FlushBlock(fdtScope.Output, blockOffsets, rawBuf, intraOffsets, ref docsInBlock, compressionCodec);
         fdtScope.Complete();
         WriteFdx(fdxPath, blockSize, docCount, blockOffsets);
     }
@@ -208,10 +218,10 @@ internal static class StoredFieldsWriter
         ArrayBufferWriter<byte> rawBuf,
         List<int> intraOffsets,
         ref int docsInBlock,
-        FieldCompressionPolicy compression)
+        IFieldCompressionCodec compressionCodec)
     {
         if (docsInBlock == 0) return;
-        WriteBlock(output, blockOffsets, rawBuf.WrittenSpan, intraOffsets, compression);
+        WriteBlock(output, blockOffsets, rawBuf.WrittenSpan, intraOffsets, compressionCodec);
         rawBuf.Clear();
         intraOffsets.Clear();
         docsInBlock = 0;
@@ -223,10 +233,23 @@ internal static class StoredFieldsWriter
         ReadOnlySpan<byte> rawData,
         IReadOnlyList<int> intraOffsets,
         FieldCompressionPolicy compression)
+        => WriteBlock(
+            output,
+            blockOffsets,
+            rawData,
+            intraOffsets,
+            CodecCatalog.Default.GetCompressionCodec((byte)compression));
+
+    internal static void WriteBlock(
+        ISequentialIndexOutput output,
+        List<long> blockOffsets,
+        ReadOnlySpan<byte> rawData,
+        IReadOnlyList<int> intraOffsets,
+        IFieldCompressionCodec compressionCodec)
     {
         int rawLength = rawData.Length;
         StoredFieldsBlockPolicy.ValidateRawLength(rawLength);
-        var (compData, compLength) = StoredFieldCompression.Compress(rawData, compression);
+        var (compData, compLength) = StoredFieldCompression.Compress(rawData, compressionCodec);
         ValidateCompressedLength(rawLength, compLength);
 
         blockOffsets.Add(output.Position);

@@ -439,10 +439,10 @@ public sealed class IndexWriterConfig
                 "SoftDeleteRetentionSeconds must be positive when SoftDeletesEnabled is true.",
                 nameof(SoftDeleteRetentionSeconds));
 
-        if (!Codecs.StoredFields.CompressionCodecRegistry.TryGet((byte)CompressionPolicy, out _))
+        if (CodecCatalog is null || !CodecCatalog.TryGetCompressionCodec((byte)CompressionPolicy, out _))
             throw new ArgumentException(
                 $"No compression codec is registered for policy '{CompressionPolicy}'. " +
-                "Install the matching compression package or register a codec before opening the writer.",
+                "Add the matching codec to the writer's immutable CodecCatalog before opening the writer.",
                 nameof(CompressionPolicy));
     }
 }
