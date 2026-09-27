@@ -174,7 +174,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
                 Assert.Equal(
                     1,
                     searcher.Search(
-                        parser.Parse("\"nat* aot\""),
+                        parser.Parse("\"native aot\""),
                         10,
                         TestContext.Current.CancellationToken).TotalHits);
             }

@@ -80,12 +80,9 @@ public sealed class QueryParserConcurrencyTests
         var prefix = Assert.IsType<PrefixQuery>(analysingParser.Parse("QUICK*"));
         Assert.Equal("quick", prefix.Prefix);
 
-        var complexPhraseParser = new ComplexPhraseQueryParser("body", static () => new StandardAnalyser())
-        {
-            InOrder = false
-        };
-        var phrase = Assert.IsType<SpanNearQuery>(complexPhraseParser.Parse("\"quick* brown\""));
-        Assert.False(phrase.InOrder);
+        var complexPhraseParser = new ComplexPhraseQueryParser("body", static () => new StandardAnalyser());
+        var phrase = Assert.IsType<PhraseQuery>(complexPhraseParser.Parse("\"quick brown\""));
+        Assert.Equal(["quick", "brown"], phrase.Terms);
     }
 
     private sealed class BlockingAnalyser(

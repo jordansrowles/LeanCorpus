@@ -192,23 +192,28 @@ public sealed class PaginationRelevanceTests : IClassFixture<TestDirectoryFixtur
     }
 
     [Fact]
-    public void ComplexPhraseQueryParser_ExpandsAlternativesAndMultiTermClauses()
+    public void ComplexPhraseQueryParser_RejectsEmbeddedSyntaxWithoutPositionPreservingGrammar()
     {
         var parser = new ComplexPhraseQueryParser("body", new StandardAnalyser());
-        using var searcher = CreateSearcher(
-            nameof(ComplexPhraseQueryParser_ExpandsAlternativesAndMultiTermClauses),
-            ("quick", "quick brown", 1),
-            ("fast", "fast broken", 2),
-            ("miss", "slow brown", 3));
 
-        var query = Assert.IsType<SpanNearQuery>(
-            parser.Parse("\"(quick OR fast) bro*\"~1"));
-        var ids = GetIds(searcher, query);
+        var exception = Assert.Throws<QueryParseException>(
+            () => parser.Parse("\"(quick OR fast) bro*\"~1"));
 
-        Assert.IsType<SpanOrQuery>(query.Clauses[0]);
-        Assert.IsType<SpanMultiTermQueryWrapper>(query.Clauses[1]);
-        Assert.Equal(1, query.Slop);
-        Assert.Equal(new[] { "fast", "quick" }, ids);
+        Assert.Contains("position-preserving grammar", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ComplexPhraseQueryParser_PunctuationPreservesAllAnalyserTokensAndPositions()
+    {
+        var parser = new ComplexPhraseQueryParser("body", new StandardAnalyser());
+
+        var slashPhrase = Assert.IsType<PhraseQuery>(parser.Parse("\"foo/bar baz\""));
+        Assert.Equal(["foo", "bar", "baz"], slashPhrase.Terms);
+        Assert.Equal([0, 1, 2], slashPhrase.Positions);
+
+        var escapedWildcardPhrase = Assert.IsType<PhraseQuery>(parser.Parse("\"foo\\*bar baz\""));
+        Assert.Equal(["foo", "bar", "baz"], escapedWildcardPhrase.Terms);
+        Assert.Equal([0, 1, 2], escapedWildcardPhrase.Positions);
     }
 
     [Fact]

@@ -415,12 +415,16 @@ public class QueryParser
         // Quoted phrase
         if (tokens[pos].Type == QTokenType.Phrase)
         {
-            var phrase = tokens[pos].Value;
+            QToken phraseToken = tokens[pos];
+            var phrase = phraseToken.Value;
             pos++;
             string field = _defaultField;
 
             int slop = ReadSlop(tokens, ref pos);
-            return ApplyBoost(CreateSyntaxNode(new PhraseQuerySyntax(field, phrase, slop)), tokens, ref pos);
+            return ApplyBoost(
+                CreateSyntaxNode(new PhraseQuerySyntax(field, phrase, slop, RawText: phraseToken.Raw)),
+                tokens,
+                ref pos);
         }
 
         if (tokens[pos].Type == QTokenType.Regex)
@@ -466,10 +470,12 @@ public class QueryParser
                 {
                     if (tokens[pos].Type == QTokenType.Phrase)
                     {
-                        var phrase = tokens[pos].Value;
+                        QToken phraseToken = tokens[pos];
+                        var phrase = phraseToken.Value;
                         pos++;
                         int slop = ReadSlop(tokens, ref pos);
-                        var pq = CreateSyntaxNode(new PhraseQuerySyntax(field, phrase, slop));
+                        var pq = CreateSyntaxNode(
+                            new PhraseQuerySyntax(field, phrase, slop, RawText: phraseToken.Raw));
                         return ApplyBoost(pq, tokens, ref pos);
                     }
                     else if (tokens[pos].Type == QTokenType.Regex)
@@ -713,6 +719,15 @@ public class QueryParser
     /// <summary>Builds a phrase query from analysed phrase text.</summary>
     protected virtual Query BuildPhraseQuery(string field, string phraseText, int slop) =>
         CompilePhraseExpansion(field, slop, CreatePhraseExpansion(field, phraseText));
+
+    /// <summary>Builds a phrase query while retaining the raw escaped phrase content.</summary>
+    /// <param name="field">The field analysed by the phrase query.</param>
+    /// <param name="phraseText">The unescaped phrase content.</param>
+    /// <param name="rawPhraseText">The phrase content as it appeared between the quotes.</param>
+    /// <param name="slop">The phrase slop.</param>
+    /// <returns>The compiled phrase query.</returns>
+    private protected virtual Query BuildPhraseQuery(string field, string phraseText, string rawPhraseText, int slop) =>
+        BuildPhraseQuery(field, phraseText, slop);
 
     private PhraseQuerySyntaxExpansion CreatePhraseExpansion(string field, string phraseText)
     {
@@ -1069,7 +1084,7 @@ public class QueryParser
         if (phrase.Expansion is not null)
             return CompilePhraseExpansion(phrase.Field, phrase.Slop, phrase.Expansion);
 
-        return BuildPhraseQuery(phrase.Field, phrase.Text, phrase.Slop);
+        return BuildPhraseQuery(phrase.Field, phrase.Text, phrase.RawText ?? phrase.Text, phrase.Slop);
     }
 
     private static FuzzyQuery CompileFuzzy(FuzzyQuerySyntax syntax)
@@ -1728,7 +1743,12 @@ internal sealed record UnanalysedFuzzyQuerySyntax(string Field, string Term, int
 internal sealed record TermQuerySyntax(string Field, string Term) : QuerySyntax;
 internal sealed record FuzzyQuerySyntax(string Field, string Term, int MaxEdits, int ModifierOffset) : QuerySyntax;
 internal sealed record MultiTermQuerySyntax(string Field, string Pattern, string Term) : QuerySyntax;
-internal sealed record PhraseQuerySyntax(string Field, string Text, int Slop, PhraseQuerySyntaxExpansion? Expansion = null) : QuerySyntax;
+internal sealed record PhraseQuerySyntax(
+    string Field,
+    string Text,
+    int Slop,
+    PhraseQuerySyntaxExpansion? Expansion = null,
+    string? RawText = null) : QuerySyntax;
 internal sealed record PhraseGraphPlan(
     int StartPosition,
     int EndPosition,
