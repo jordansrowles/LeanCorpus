@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
@@ -45,6 +46,62 @@ public sealed class IndexSnapshotTests : IDisposable
         Assert.Single(snapshot.Segments);
         Assert.Equal("seg_0", snapshot.Segments[0].SegmentId);
         Assert.Equal(1, snapshot.Segments[0].DocCount);
+
+        writer.ReleaseSnapshot(snapshot);
+    }
+
+    [Fact(DisplayName = "Create Snapshot: Exposes Deeply Immutable Segment Descriptors")]
+    public void CreateSnapshot_ExposesDeeplyImmutableSegmentDescriptors()
+    {
+        using var directory = new MMapDirectory(_dir);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig { MaxBufferedDocs = 1 });
+        var document = CreateDocument("snapshot metadata");
+        document.Add(new VectorField("embedding", new ReadOnlyMemory<float>([1f, 2f])));
+        writer.AddDocument(document);
+        writer.Commit();
+
+        SegmentInfo source = Assert.Single(writer.CommittedSegments);
+        source.TotalBytes = 4096;
+        source.CodecBytes["test"] = 512;
+        source.MinSequenceNumber = 41;
+        source.MaxSequenceNumber = 43;
+        source.EarliestSoftDeleteTimestamp = 19;
+
+        var snapshot = writer.CreateSnapshot();
+
+        var descriptor = Assert.IsType<SegmentDescriptor>(Assert.Single(snapshot.Segments));
+        Assert.Equal(4096, descriptor.TotalBytes);
+        Assert.Equal(512, descriptor.CodecBytes["test"]);
+        Assert.Equal(41, descriptor.MinSequenceNumber);
+        Assert.Equal(43, descriptor.MaxSequenceNumber);
+        Assert.Equal(19, descriptor.EarliestSoftDeleteTimestamp);
+        Assert.Equal(2, Assert.Single(descriptor.VectorFields).Dimension);
+
+        source.TotalBytes = 0;
+        source.CodecBytes["test"] = 0;
+        source.MinSequenceNumber = null;
+        source.MaxSequenceNumber = null;
+        source.EarliestSoftDeleteTimestamp = null;
+        source.VectorFields[0] = new VectorFieldInfo { FieldName = "embedding", Dimension = 3 };
+
+        Assert.Equal(4096, descriptor.TotalBytes);
+        Assert.Equal(512, descriptor.CodecBytes["test"]);
+        Assert.Equal(41, descriptor.MinSequenceNumber);
+        Assert.Equal(43, descriptor.MaxSequenceNumber);
+        Assert.Equal(19, descriptor.EarliestSoftDeleteTimestamp);
+        Assert.Equal(2, Assert.Single(descriptor.VectorFields).Dimension);
+
+        IList<SegmentDescriptor> snapshotSegments = Assert.IsAssignableFrom<IList<SegmentDescriptor>>(snapshot.Segments);
+        Assert.True(snapshotSegments.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() => snapshotSegments[0] = descriptor);
+
+        IDictionary<string, long> codecBytes = Assert.IsAssignableFrom<IDictionary<string, long>>(descriptor.CodecBytes);
+        Assert.True(codecBytes.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() => codecBytes["test"] = 0);
+
+        IList<VectorFieldInfo> vectorFields = Assert.IsAssignableFrom<IList<VectorFieldInfo>>(descriptor.VectorFields);
+        Assert.True(vectorFields.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() => vectorFields[0] = new VectorFieldInfo());
 
         writer.ReleaseSnapshot(snapshot);
     }

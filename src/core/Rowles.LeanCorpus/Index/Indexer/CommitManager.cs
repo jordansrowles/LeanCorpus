@@ -312,7 +312,7 @@ internal static class CommitManager
         var snapshotsBySegment = new Dictionary<string, HashSet<int?>>(StringComparer.Ordinal);
         foreach (IndexSnapshot snapshot in writer.HeldSnapshots)
         {
-            foreach (SegmentInfo segment in snapshot.Segments)
+            foreach (SegmentDescriptor segment in snapshot.Segments)
             {
                 if (!snapshotsBySegment.TryGetValue(segment.SegmentId, out var generations))
                 {

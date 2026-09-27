@@ -10,16 +10,17 @@ public sealed class IndexSnapshot
     /// <summary>Unique generation of the commit this snapshot represents.</summary>
     public int CommitGeneration { get; }
 
-    /// <summary>Segment infos captured at snapshot time (defensive copy).</summary>
-    public IReadOnlyList<SegmentInfo> Segments { get; }
+    /// <summary>Immutable segment descriptors captured at snapshot time.</summary>
+    public IReadOnlyList<SegmentDescriptor> Segments { get; }
 
     /// <summary>UTC timestamp when the snapshot was taken.</summary>
     public DateTimeOffset TakenAtUtc { get; }
 
     internal IndexSnapshot(int commitGeneration, IReadOnlyList<SegmentInfo> segments)
     {
+        ArgumentNullException.ThrowIfNull(segments);
         CommitGeneration = commitGeneration;
-        Segments = segments;
+        Segments = Array.AsReadOnly(segments.Select(static segment => new SegmentDescriptor(segment)).ToArray());
         TakenAtUtc = DateTimeOffset.UtcNow;
     }
 }

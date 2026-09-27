@@ -38,7 +38,7 @@ internal static class SnapshotManager
 
             var snapshot = new IndexSnapshot(
                 writer.CommitGeneration,
-                writer.CommittedSegments.Select(static segment => segment.DeepCopy()).ToList().AsReadOnly());
+                writer.CommittedSegments);
 
             writer.HeldSnapshots.Add(snapshot);
             return snapshot;
