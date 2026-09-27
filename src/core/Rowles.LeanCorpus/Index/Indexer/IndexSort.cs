@@ -1,4 +1,7 @@
-﻿namespace Rowles.LeanCorpus.Index.Indexer;
+﻿using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Search.Scoring;
+
+namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
 /// Defines the sort order applied to documents within a segment at flush time.
@@ -19,13 +22,16 @@ public sealed class IndexSort : IEquatable<IndexSort>
     /// Initialises a new <see cref="IndexSort"/> with the specified sort fields.
     /// </summary>
     /// <param name="fields">One or more sort fields that define the document ordering. Score and point-distance sort types are not allowed.</param>
-    /// <exception cref="ArgumentException">Thrown if no fields are provided, or if any field uses a score or point-distance sort type.</exception>
+    /// <exception cref="ArgumentException">Thrown if fields are missing, unsupported, or cannot be represented by the persisted sort format.</exception>
     public IndexSort(params SortField[] fields)
     {
+        ArgumentNullException.ThrowIfNull(fields);
         if (fields.Length == 0)
             throw new ArgumentException("At least one sort field is required.", nameof(fields));
         foreach (var f in fields)
         {
+            if (f is null)
+                throw new ArgumentException("Index sort fields cannot contain null entries.", nameof(fields));
             if (f.Type is SortFieldType.Score or SortFieldType.GeoDistance or SortFieldType.XYDistance)
                 throw new ArgumentException("Index sort cannot use score or point-distance sort types.", nameof(fields));
         }
@@ -40,8 +46,51 @@ public sealed class IndexSort : IEquatable<IndexSort>
             serialised.Add(f.Selector == SortValueSelector.Min
                 ? $"{f.Type}:{f.FieldName}:{f.Descending}"
                 : $"{f.Type}:{f.FieldName}:{f.Descending}:{f.Selector}");
+            if (!TryParseSerialisedField(serialised[^1], out _))
+                throw new ArgumentException("Index sort field metadata cannot be represented by the persisted format.", nameof(fields));
         }
         SerialisedFields = serialised;
+    }
+
+    internal static bool TryParseSerialisedField(string? metadata, out SortField sortField)
+    {
+        sortField = default!;
+        if (string.IsNullOrEmpty(metadata))
+            return false;
+
+        var parts = metadata.Split(':');
+        if (parts.Length is < 3 or > 4
+            || !Enum.TryParse(parts[0], out SortFieldType type)
+            || !Enum.IsDefined(type)
+            || type is SortFieldType.Score or SortFieldType.GeoDistance or SortFieldType.XYDistance
+            || !bool.TryParse(parts[2], out bool descending))
+            return false;
+
+        string fieldName = parts[1];
+        if (type == SortFieldType.DocId)
+        {
+            if (fieldName.Length != 0)
+                return false;
+        }
+        else
+        {
+            try
+            {
+                FieldNameValidator.Validate(fieldName, nameof(metadata));
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+
+        var selector = SortValueSelector.Min;
+        if (parts.Length == 4
+            && (!Enum.TryParse(parts[3], out selector) || !Enum.IsDefined(selector)))
+            return false;
+
+        sortField = new SortField(type, fieldName, descending, selector);
+        return true;
     }
 
     /// <inheritdoc/>

@@ -1,6 +1,7 @@
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Geo;
 using Rowles.LeanCorpus.Search.Scoring;
@@ -571,7 +572,7 @@ public sealed partial class IndexSearcher
         {
             var fields = reader.Info.IndexSortFields;
             if (fields is not { Count: 1 }
-                || !TryParseIndexSortField(fields[0], out var readerSort))
+                || !IndexSort.TryParseSerialisedField(fields[0], out var readerSort))
             {
                 return false;
             }
@@ -583,20 +584,6 @@ public sealed partial class IndexSearcher
         }
 
         indexSortField = commonSort!;
-        return true;
-    }
-
-    private static bool TryParseIndexSortField(string metadata, out SortField sortField)
-    {
-        sortField = default!;
-        var parts = metadata.Split(':');
-        if (parts.Length is < 3 or > 4) return false;
-        if (!Enum.TryParse<SortFieldType>(parts[0], out var type)) return false;
-        if (type is SortFieldType.GeoDistance or SortFieldType.XYDistance) return false;
-        if (!bool.TryParse(parts[2], out bool descending)) return false;
-        var selector = SortValueSelector.Min;
-        if (parts.Length == 4 && !Enum.TryParse(parts[3], out selector)) return false;
-        sortField = new SortField(type, parts[1], descending, selector);
         return true;
     }
 

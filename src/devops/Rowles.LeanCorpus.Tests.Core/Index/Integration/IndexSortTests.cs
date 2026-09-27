@@ -146,6 +146,15 @@ public sealed class IndexSortTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal("Numeric:price:False", segInfo.IndexSortFields[0]);
     }
 
+    [Fact(DisplayName = "Index Sort: Rejects Fields That Cannot Be Persisted")]
+    public void IndexSort_RejectsFieldsThatCannotBePersisted()
+    {
+        Assert.Throws<ArgumentException>(
+            () => new IndexSort(SortField.Numeric("price:retail")));
+        Assert.Throws<ArgumentException>(
+            () => new IndexSort(new SortField((SortFieldType)127, "price")));
+    }
+
     /// <summary>
     /// Verifies the Index Sort: Early Termination Matches Sort Order scenario.
     /// </summary>
