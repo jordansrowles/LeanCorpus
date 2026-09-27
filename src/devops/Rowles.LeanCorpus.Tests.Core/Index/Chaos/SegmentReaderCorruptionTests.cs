@@ -1,5 +1,6 @@
 using FsCheck;
 using FsCheck.Xunit;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
@@ -45,6 +46,39 @@ public sealed class SegmentReaderCorruptionTests : IClassFixture<ChaosDirectoryF
             var reader = searcher.GetSegmentReaders()[0];
             _ = reader.GetNumericDocValues("price");
         }));
+    }
+
+    [Fact]
+    public void SegmentReader_CorruptedNumericDocValuesChecksumCanBeRetriedWithoutPoisoningOtherColumns()
+    {
+        var path = Path.Combine(_fixture.Path, $"sr_corrupt_dvn_checksum_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        using var directory = new MMapDirectory(path);
+        SegmentInfo segmentInfo;
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new NumericField("price", 1.0));
+            doc.Add(new StringField("category", "alpha"));
+            writer.AddDocument(doc);
+            writer.Commit();
+            segmentInfo = writer.GetNrtSegments()[0];
+        }
+
+        var dvnFile = Directory.GetFiles(path, "*.dvn").Single();
+        FlipByte(dvnFile, new FileInfo(dvnFile).Length - 1);
+
+        using var reader = new SegmentReader(directory, segmentInfo);
+        var firstFailure = Assert.Throws<CodecFileException>(
+            () => reader.GetNumericDocValues("price"));
+        Assert.Equal(CodecFileErrorCode.ChecksumMismatch, firstFailure.ErrorCode);
+
+        Assert.True(reader.TryGetSortedDocValue("category", 0, out var category));
+        Assert.Equal("alpha", category);
+
+        var retryFailure = Assert.Throws<CodecFileException>(
+            () => reader.GetNumericDocValues("price"));
+        Assert.Equal(CodecFileErrorCode.ChecksumMismatch, retryFailure.ErrorCode);
     }
 
     [Property(MaxTest = 8)]

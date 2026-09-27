@@ -143,21 +143,98 @@ public sealed class SegmentReaderDocValuesTests: IDisposable
         }
     }
 
-    [Fact(DisplayName = "SegmentReader: EnsureBinaryDocValues Second Call Returns Same Reference")]
-    public void EnsureBinaryDocValues_SecondCall_ReturnsSameReference()
+    [Fact(DisplayName = "SegmentReader: GetBinaryDocValues Returns Independent Deep Copies")]
+    public void GetBinaryDocValues_ReturnsIndependentDeepCopies()
     {
         var (dir, searcher) = BuildAndOpen(w =>
         {
             var doc = new LeanDocument();
-            doc.Add(new TextField("body", "hello world"));
+            doc.Add(new BinaryField("payload", new byte[] { 1, 2, 3 }));
+            doc.Add(new BinaryField("payload", new byte[] { 4, 5, 6 }));
             w.AddDocument(doc);
         });
         using (dir) using (searcher)
         {
             var reader = searcher.GetSegmentReaders()[0];
-            var first = reader.GetBinaryDocValues("body");
-            var second = reader.GetBinaryDocValues("body");
-            Assert.Same(first, second);
+            var first = reader.GetBinaryDocValues("payload");
+            var second = reader.GetBinaryDocValues("payload");
+            Assert.NotNull(first);
+            Assert.NotNull(second);
+            Assert.NotSame(first, second);
+
+            first![0][0][0] = 99;
+            first[0][1] = [88];
+            first[0] = [];
+
+            Assert.Equal(new byte[] { 1, 2, 3 }, second![0][0]);
+            Assert.Equal(new byte[] { 4, 5, 6 }, second[0][1]);
+            Assert.Equal(new byte[] { 1, 2, 3 }, reader.GetBinaryDocValues("payload")![0][0]);
+        }
+    }
+
+    [Fact(DisplayName = "SegmentReader: Cached DocValues Getters Return Defensive Copies")]
+    public void CachedDocValuesGetters_ReturnDefensiveCopies()
+    {
+        var (dir, searcher) = BuildAndOpen(w =>
+        {
+            var doc = new LeanDocument();
+            doc.Add(new NumericField("number", 9.99, stored: false));
+            doc.Add(new StringField("sorted", "alpha", stored: false));
+            doc.Add(new StringField("set", "alpha", stored: false));
+            doc.Add(new StringField("set", "beta", stored: false));
+            doc.Add(new NumericField("numbers", 7.5, stored: false));
+            doc.Add(new NumericField("numbers", 1.5, stored: false));
+            doc.Add(new Int64Field("integer", 42, stored: false));
+            doc.Add(new Int64Field("integers", 20, stored: false));
+            doc.Add(new Int64Field("integers", 10, stored: false));
+            doc.Add(new BinaryField("payload", new byte[] { 1, 2, 3 }));
+            doc.Add(new TextField("body", "hello world"));
+            w.AddDocument(doc);
+        });
+
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+
+            var numeric = reader.GetNumericDocValues("number")!;
+            numeric[0] = 123;
+            Assert.Equal(9.99, reader.GetNumericDocValues("number")![0]);
+
+            var sorted = reader.GetSortedDocValues("sorted")!;
+            sorted[0] = "changed";
+            Assert.Equal("alpha", reader.GetSortedDocValues("sorted")![0]);
+
+            var sortedSet = reader.GetSortedSetDocValues("set")!;
+            sortedSet[0][0] = "changed";
+            sortedSet[0] = [];
+            Assert.Equal(["alpha", "beta"], reader.GetSortedSetDocValues("set")![0]);
+
+            var sortedTerms = reader.GetSortedDocValueTerms("sorted")!;
+            sortedTerms[0] = "changed";
+            Assert.Equal("alpha", reader.GetSortedDocValueTerms("sorted")![0]);
+
+            var sortedSetTerms = reader.GetSortedSetDocValueTerms("set")!;
+            sortedSetTerms[0] = "changed";
+            Assert.Equal(["alpha", "beta"], reader.GetSortedSetDocValueTerms("set")!);
+
+            var sortedNumeric = reader.GetSortedNumericDocValues("numbers")!;
+            sortedNumeric[0][0] = 123;
+            Assert.Equal([1.5, 7.5], reader.GetSortedNumericDocValues("numbers")![0]);
+
+            var int64 = reader.GetInt64DocValues("integer")!;
+            int64[0] = 123;
+            Assert.Equal(42, reader.GetInt64DocValues("integer")![0]);
+
+            var sortedInt64 = reader.GetSortedInt64DocValues("integers")!;
+            sortedInt64[0][0] = 123;
+            Assert.Equal([10L, 20L], reader.GetSortedInt64DocValues("integers")![0]);
+
+            Assert.True(reader.TryGetFieldLengths("body", out var fieldLengths));
+            int originalLength = fieldLengths![0];
+            fieldLengths[0] = 0;
+            Assert.Equal(originalLength, reader.GetFieldLength(0, "body"));
+            Assert.True(reader.TryGetFieldLengths("body", out var nextFieldLengths));
+            Assert.Equal(originalLength, nextFieldLengths![0]);
         }
     }
 

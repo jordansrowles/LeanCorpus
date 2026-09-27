@@ -179,15 +179,15 @@ public sealed partial class IndexSearcher
             float avgDocLength = Stats.GetAvgFieldLength(query.Field);
             var (f1, f2, f3) = ComputeTermFactors(
                 blendedDocFreq, avgDocLength, collectionFreq, query.Field);
-            reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+            var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
             reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
             int docBase = reader.DocBase;
 
             for (int i = 0; i < docCount; i++)
             {
                 int docId = docIds[i];
-                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                    ? fieldLengths[docId]
+                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                    ? fieldLengths.Value.Span[docId]
                     : 1;
                 float score = ScoreTerm(
                     f1, f2, f3, frequencies[docId], docLength, query.Field) * query.Boost;
@@ -527,7 +527,7 @@ public sealed partial class IndexSearcher
         float boost = query.Boost;
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
-        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         var scores = EnsureScratch(ref t_patternScores, reader.MaxDoc);
         var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
@@ -607,7 +607,7 @@ public sealed partial class IndexSearcher
         float boost = query.Boost;
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
-        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         var scores = EnsureScratch(ref t_patternScores, reader.MaxDoc);
         var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
@@ -682,15 +682,15 @@ public sealed partial class IndexSearcher
 
     private void AccumulatePostingsScores(SegmentReader reader, PostingsEnum postings,
         float f1, float f2, float f3, string field,
-        int[]? fieldLengths, float[]? fieldBoosts, float boost,
+        ReadOnlyMemory<int>? fieldLengths, float[]? fieldBoosts, float boost,
         float[] scores, bool[] seen, int[] docIds, ref int docCount)
     {
         while (postings.MoveNextUnchecked(out int docId, out int tf))
         {
             if (!reader.IsLive(docId)) continue;
 
-            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                ? fieldLengths[docId] : 1;
+            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                ? fieldLengths.Value.Span[docId] : 1;
             float score = ScoreTerm(f1, f2, f3, tf, docLength, field);
             score *= boost;
             score = ApplyFieldBoost(fieldBoosts, docId, score);
@@ -842,7 +842,7 @@ public sealed partial class IndexSearcher
         float boost = query.Boost;
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
-        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         var scores = EnsureScratch(ref t_patternScores, reader.MaxDoc);
         var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
@@ -872,8 +872,8 @@ public sealed partial class IndexSearcher
                 {
                     if (!reader.IsLive(docId)) continue;
 
-                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                        ? fieldLengths[docId] : 1;
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                        ? fieldLengths.Value.Span[docId] : 1;
                     float score = ScoreTerm(
                         f1, f2, f3, tf, docLength, query.Field) * distanceFactor;
                     score *= boost;
@@ -906,7 +906,7 @@ public sealed partial class IndexSearcher
         float boost = query.Boost;
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
-        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
 
         foreach (var (qualifiedTerm, postingsOffset) in matchingTerms)
@@ -925,8 +925,8 @@ public sealed partial class IndexSearcher
             {
                 if (!reader.IsLive(docId)) continue;
 
-                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                    ? fieldLengths[docId] : 1;
+                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                    ? fieldLengths.Value.Span[docId] : 1;
                 float score = ScoreTerm(f1, f2, f3, tf, docLength, query.Field);
                 score *= boost;
                 score = ApplyFieldBoost(fieldBoosts, docId, score);
@@ -975,7 +975,7 @@ public sealed partial class IndexSearcher
         float boost = query.Boost;
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
-        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
 
         foreach (var (qualifiedTerm, postingsOffset) in candidates)
@@ -999,8 +999,8 @@ public sealed partial class IndexSearcher
             {
                 if (!reader.IsLive(docId)) continue;
 
-                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                    ? fieldLengths[docId] : 1;
+                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                    ? fieldLengths.Value.Span[docId] : 1;
                 float score = ScoreTerm(f1, f2, f3, tf, docLength, query.Field);
                 score *= boost;
                 score = ApplyFieldBoost(fieldBoosts, docId, score);
@@ -1018,7 +1018,7 @@ public sealed partial class IndexSearcher
         float boost = query.Boost;
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
         int docBase = reader.DocBase;
-        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         var scores = EnsureScratch(ref t_patternScores, reader.MaxDoc);
         var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
@@ -1131,7 +1131,7 @@ public sealed partial class IndexSearcher
                     ? GetGlobalCollectionFreq(qualifiedTerm)
                     : 0;
                 var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, termQuery.Field);
-                reader.TryGetFieldLengths(termQuery.Field, out var fieldLengths);
+                var fieldLengths = reader.GetFieldLengthsForQuery(termQuery.Field);
                 reader.TryGetFieldBoosts(termQuery.Field, out var fieldBoosts);
                 float termBoost = termQuery.Boost;
 
@@ -1140,8 +1140,8 @@ public sealed partial class IndexSearcher
                     if (!reader.IsLive(docId))
                         continue;
 
-                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                        ? fieldLengths[docId] : 1;
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                        ? fieldLengths.Value.Span[docId] : 1;
                     float score = ScoreTerm(
                         f1, f2, f3, termFrequency, docLength, termQuery.Field);
                     score *= termBoost;
@@ -1411,7 +1411,7 @@ public sealed partial class IndexSearcher
 
         int docBase = reader.DocBase;
         bool hasDeletions = reader.HasDeletions;
-        reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(tq.Field);
         NumericDocValuesColumn? numericValues = null;
         bool hasNumericDocValues = fsq.IsSimpleNumericField
             && reader.TryGetNumericDocValues(fsq.NumericField, out numericValues);
@@ -1420,8 +1420,8 @@ public sealed partial class IndexSearcher
         {
             if (hasDeletions && !reader.IsLive(docId)) continue;
 
-            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                ? fieldLengths[docId] : 1;
+            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                ? fieldLengths.Value.Span[docId] : 1;
             float score = ScoreTerm(f1, f2, f3, tf, docLength, tq.Field);
             if (boost != 1.0f) score *= boost;
             score = ApplyFieldBoost(reader, docId, tq.Field, score);

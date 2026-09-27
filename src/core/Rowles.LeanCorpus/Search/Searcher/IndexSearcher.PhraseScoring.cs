@@ -46,7 +46,7 @@ public sealed partial class IndexSearcher
         int slop = query.Slop;
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         bool hasDeletions = reader.HasDeletions;
-        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
 
         // Compute scoring factors for every term, not just the leader.
@@ -94,8 +94,8 @@ public sealed partial class IndexSearcher
             if (hasAllPositions && HasPositionsWithinSlopSpan(
                     postingsArr, termCount, query.PositionSpan, slop))
             {
-                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                    ? fieldLengths[docId] : 1;
+                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                    ? fieldLengths.Value.Span[docId] : 1;
                 // Sum scores across all terms using the leader's term frequency
                 // as an estimate of the phrase frequency.
                 float score = 0;

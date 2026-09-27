@@ -371,6 +371,10 @@ internal sealed partial class SegmentReaderState
     internal bool HasSortedInt64DocValues(string field) => EnsureInt64SortedDocValueColumns().ContainsKey(field);
     internal bool HasBinaryDocValues(string field) => EnsureBinaryDocValueColumns().ContainsKey(field);
 
+    internal bool HasBinaryDocValue(string field, int docId)
+        => EnsureBinaryDocValueColumns().TryGetValue(field, out var column)
+            && column.HasValues(docId);
+
     internal void ValidateDocValuesDocumentCounts()
     {
         int expectedDocumentCount = _info.DocCount;
@@ -444,9 +448,21 @@ internal sealed partial class SegmentReaderState
     public string[]? GetSortedDocValueTerms(string field)
         => EnsureSortedDocValueTerms().GetValueOrDefault(field);
 
+    internal IReadOnlyList<string>? GetSortedDocValueTermsView(string field)
+    {
+        var terms = GetSortedDocValueTerms(field);
+        return terms is null ? null : Array.AsReadOnly(terms);
+    }
+
     /// <summary>Returns the sorted-set local term dictionary for a field, or null if unavailable.</summary>
     public string[]? GetSortedSetDocValueTerms(string field)
         => EnsureSortedSetDocValueTerms().GetValueOrDefault(field);
+
+    internal IReadOnlyList<string>? GetSortedSetDocValueTermsView(string field)
+    {
+        var terms = GetSortedSetDocValueTerms(field);
+        return terms is null ? null : Array.AsReadOnly(terms);
+    }
 
     /// <summary>Returns the SortedNumericDocValues array for a field, or null if unavailable.</summary>
     public double[][]? GetSortedNumericDocValues(string field)

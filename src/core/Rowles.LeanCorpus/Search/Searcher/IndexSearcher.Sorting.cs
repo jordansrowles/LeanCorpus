@@ -917,12 +917,11 @@ public sealed partial class IndexSearcher
             if (legacyCandidates is not null && legacyCandidates.Cardinality <= metadata.DocumentCount)
                 return;
 
-            byte[][][]? exactGeoValues = _reader.GetBinaryDocValues(
-                GeoPointDocValues.GetFieldName(_sort.FieldName));
+            string exactField = GeoPointDocValues.GetFieldName(_sort.FieldName);
             if (legacyCandidates is null)
             {
                 for (int localDocId = 0; localDocId < _reader.MaxDoc && !ShouldStop; localDocId++)
-                    CollectLegacyGeoDocument(localDocId, exactGeoValues);
+                    CollectLegacyGeoDocument(localDocId, exactField);
                 return;
             }
 
@@ -931,11 +930,11 @@ public sealed partial class IndexSearcher
                 if (ShouldStop)
                     break;
 
-                CollectLegacyGeoDocument(localDocId, exactGeoValues);
+                CollectLegacyGeoDocument(localDocId, exactField);
             }
         }
 
-        private void CollectLegacyGeoDocument(int localDocId, byte[][][]? exactGeoValues)
+        private void CollectLegacyGeoDocument(int localDocId, string exactField)
         {
             if (!_reader.IsLive(localDocId))
                 return;
@@ -944,9 +943,7 @@ public sealed partial class IndexSearcher
                 _filterCandidatesRejected++;
                 return;
             }
-            if (exactGeoValues is not null
-                && (uint)localDocId < (uint)exactGeoValues.Length
-                && exactGeoValues[localDocId].Length > 0)
+            if (_reader.HasBinaryDocValue(exactField, localDocId))
                 return;
 
             AddDocument(_reader.DocBase + localDocId, includeMissing: false);

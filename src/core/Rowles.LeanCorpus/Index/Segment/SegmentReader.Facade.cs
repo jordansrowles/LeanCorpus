@@ -259,7 +259,45 @@ public sealed partial class SegmentReader : IDisposable
     public float GetFieldBoost(int docId, string field) { if (TryGetFastState(out var state)) return state.GetFieldBoost(docId, field); using var lease = AcquireReadLease(); return lease.State.GetFieldBoost(docId, field); }
     internal bool TryGetFieldBoosts(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out float[]? boosts) { if (TryGetFastState(out var state)) return state.TryGetFieldBoosts(field, out boosts); using var lease = AcquireReadLease(); return lease.State.TryGetFieldBoosts(field, out boosts); }
     public int GetFieldLength(int docId, string field) { if (TryGetFastState(out var state)) return state.GetFieldLength(docId, field); using var lease = AcquireReadLease(); return lease.State.GetFieldLength(docId, field); }
-    public bool TryGetFieldLengths(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out int[]? lengths) { if (TryGetFastState(out var state)) return state.TryGetFieldLengths(field, out lengths); using var lease = AcquireReadLease(); return lease.State.TryGetFieldLengths(field, out lengths); }
+    /// <summary>
+    /// Tries to retrieve field lengths for this segment. The returned array is a
+    /// defensive copy and can be changed without affecting later reads.
+    /// </summary>
+    public bool TryGetFieldLengths(string field, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out int[]? lengths)
+    {
+        if (TryGetFastState(out var fastState))
+        {
+            if (fastState.TryGetFieldLengths(field, out var fastLengths))
+            {
+                lengths = (int[])fastLengths.Clone();
+                return true;
+            }
+
+            lengths = null;
+            return false;
+        }
+
+        using var lease = AcquireReadLease();
+        if (lease.State.TryGetFieldLengths(field, out var stateLengths))
+        {
+            lengths = (int[])stateLengths.Clone();
+            return true;
+        }
+
+        lengths = null;
+        return false;
+    }
+
+    /// <summary>Gets a read-only field-length view while the current query lease pins this segment state.</summary>
+    internal ReadOnlyMemory<int>? GetFieldLengthsForQuery(string field)
+    {
+        if (!TryGetFastState(out var state))
+            throw new InvalidOperationException("Field-length views require an active segment query lease.");
+
+        return state.TryGetFieldLengths(field, out var lengths)
+            ? new ReadOnlyMemory<int>(lengths)
+            : null;
+    }
     public Dictionary<string, List<TermVectorEntry>>? GetTermVectors(int docId) { using var lease = AcquireReadLease(); return lease.State.GetTermVectors(docId); }
     public bool HasTermVectors { get { using var lease = AcquireReadLease(); return lease.State.HasTermVectors; } }
     public int[] GetDocIds(string field, string term) { using var lease = AcquireReadLease(); return lease.State.GetDocIds(field, term); }
@@ -422,17 +460,87 @@ public sealed partial class SegmentReader : IDisposable
         using var lease = AcquireReadLease();
         return lease.State.HasBinaryDocValuesForEveryDocument(field);
     }
-    public double[]? GetNumericDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetNumericDocValues(field); }
-    public string[]? GetSortedDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedDocValues(field); }
-    public string[][]? GetSortedSetDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedSetDocValues(field); }
-    /// <summary>Returns the sorted local term dictionary for a field, or null if unavailable.</summary>
-    public string[]? GetSortedDocValueTerms(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedDocValueTerms(field); }
-    /// <summary>Returns the sorted-set local term dictionary for a field, or null if unavailable.</summary>
-    public string[]? GetSortedSetDocValueTerms(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedSetDocValueTerms(field); }
-    public double[][]? GetSortedNumericDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedNumericDocValues(field); }
-    public byte[][][]? GetBinaryDocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetBinaryDocValues(field); }
-    public long[]? GetInt64DocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetInt64DocValues(field); }
-    public long[][]? GetSortedInt64DocValues(string field) { using var lease = AcquireReadLease(); return lease.State.GetSortedInt64DocValues(field); }
+    /// <summary>Returns a defensive copy of the NumericDocValues array for a field, or null if unavailable.</summary>
+    public double[]? GetNumericDocValues(string field) { using var lease = AcquireReadLease(); return CloneArray(lease.State.GetNumericDocValues(field)); }
+
+    /// <summary>Returns a defensive copy of the SortedDocValues array for a field, or null if unavailable.</summary>
+    public string[]? GetSortedDocValues(string field) { using var lease = AcquireReadLease(); return CloneArray(lease.State.GetSortedDocValues(field)); }
+
+    /// <summary>Returns a deep defensive copy of the SortedSetDocValues arrays for a field, or null if unavailable.</summary>
+    public string[][]? GetSortedSetDocValues(string field) { using var lease = AcquireReadLease(); return CloneNestedArray(lease.State.GetSortedSetDocValues(field)); }
+
+    /// <summary>Returns a defensive copy of the sorted local term dictionary, or null if unavailable.</summary>
+    public string[]? GetSortedDocValueTerms(string field) { using var lease = AcquireReadLease(); return CloneArray(lease.State.GetSortedDocValueTerms(field)); }
+
+    /// <summary>Returns an internal immutable term view for ordinal construction.</summary>
+    internal IReadOnlyList<string>? GetSortedDocValueTermsView(string field)
+    {
+        using var lease = AcquireReadLease();
+        return lease.State.GetSortedDocValueTermsView(field);
+    }
+
+    /// <summary>Returns a defensive copy of the sorted-set local term dictionary, or null if unavailable.</summary>
+    public string[]? GetSortedSetDocValueTerms(string field) { using var lease = AcquireReadLease(); return CloneArray(lease.State.GetSortedSetDocValueTerms(field)); }
+
+    /// <summary>Returns an internal immutable term view for ordinal construction.</summary>
+    internal IReadOnlyList<string>? GetSortedSetDocValueTermsView(string field)
+    {
+        using var lease = AcquireReadLease();
+        return lease.State.GetSortedSetDocValueTermsView(field);
+    }
+
+    /// <summary>Returns a deep defensive copy of the SortedNumericDocValues arrays for a field, or null if unavailable.</summary>
+    public double[][]? GetSortedNumericDocValues(string field) { using var lease = AcquireReadLease(); return CloneNestedArray(lease.State.GetSortedNumericDocValues(field)); }
+
+    /// <summary>Returns a deep defensive copy of the BinaryDocValues arrays and payloads for a field, or null if unavailable.</summary>
+    public byte[][][]? GetBinaryDocValues(string field) { using var lease = AcquireReadLease(); return CloneBinaryArray(lease.State.GetBinaryDocValues(field)); }
+
+    /// <summary>Returns a defensive copy of the Int64DocValues array for a field, or null if unavailable.</summary>
+    public long[]? GetInt64DocValues(string field) { using var lease = AcquireReadLease(); return CloneArray(lease.State.GetInt64DocValues(field)); }
+
+    /// <summary>Returns a deep defensive copy of the Int64SortedNumericDocValues arrays for a field, or null if unavailable.</summary>
+    public long[][]? GetSortedInt64DocValues(string field) { using var lease = AcquireReadLease(); return CloneNestedArray(lease.State.GetSortedInt64DocValues(field)); }
+
+    internal bool HasBinaryDocValue(string field, int docId)
+    {
+        if (TryGetFastState(out var fastState))
+            return fastState.HasBinaryDocValue(field, docId);
+
+        using var lease = AcquireReadLease();
+        return lease.State.HasBinaryDocValue(field, docId);
+    }
+
+    private static T[]? CloneArray<T>(T[]? values)
+        => values is null ? null : (T[])values.Clone();
+
+    private static T[][]? CloneNestedArray<T>(T[][]? values)
+    {
+        if (values is null)
+            return null;
+
+        var copy = new T[values.Length][];
+        for (int i = 0; i < values.Length; i++)
+            copy[i] = (T[])values[i].Clone();
+        return copy;
+    }
+
+    private static byte[][][]? CloneBinaryArray(byte[][][]? values)
+    {
+        if (values is null)
+            return null;
+
+        var copy = new byte[values.Length][][];
+        for (int i = 0; i < values.Length; i++)
+        {
+            byte[][] documentValues = values[i];
+            var documentCopy = new byte[documentValues.Length][];
+            for (int j = 0; j < documentValues.Length; j++)
+                documentCopy[j] = (byte[])documentValues[j].Clone();
+            copy[i] = documentCopy;
+        }
+
+        return copy;
+    }
     public bool HasNumericField(string field) { using var lease = AcquireReadLease(); return lease.State.HasNumericField(field); }
     internal bool HasNumericIndex(string field) { using var lease = AcquireReadLease(); return lease.State.HasNumericIndex(field); }
     internal bool HasInt64Index(string field) { using var lease = AcquireReadLease(); return lease.State.HasInt64Index(field); }

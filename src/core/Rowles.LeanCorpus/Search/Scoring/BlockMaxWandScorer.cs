@@ -100,7 +100,7 @@ internal sealed class BlockMaxWandScorer
         public int CurrentDoc;
 
         private readonly ScoreFunc _scoreFunc;
-        private readonly int[]? _fieldLengths;
+        private readonly ReadOnlyMemory<int>? _fieldLengths;
         private readonly float[]? _fieldBoosts;
         private readonly float _avgDl;
 
@@ -111,7 +111,7 @@ internal sealed class BlockMaxWandScorer
         /// Creates a BM25-backed term scorer. Used by tests.
         /// </summary>
         public TermScorer(BlockPostingsEnum postings, float idf, float k1, float b, float avgDl,
-            int[]? fieldLengths = null, float[]? fieldBoosts = null)
+            ReadOnlyMemory<int>? fieldLengths = null, float[]? fieldBoosts = null)
         {
             Postings = postings;
             _fieldLengths = fieldLengths;
@@ -151,7 +151,7 @@ internal sealed class BlockMaxWandScorer
             float f1, float f2, float f3,
             Func<float, float, float, int, int, float> lmScore,
             float avgDl,
-            int[]? fieldLengths = null, float[]? fieldBoosts = null)
+            ReadOnlyMemory<int>? fieldLengths = null, float[]? fieldBoosts = null)
         {
             Postings = postings;
             _fieldLengths = fieldLengths;
@@ -217,8 +217,8 @@ internal sealed class BlockMaxWandScorer
         {
             int tf = Postings.Freq;
             int docId = Postings.DocId;
-            int dl = _fieldLengths is not null && (uint)docId < (uint)_fieldLengths.Length
-                ? _fieldLengths[docId]
+            int dl = _fieldLengths is { } fieldLengths && (uint)docId < (uint)fieldLengths.Length
+                ? fieldLengths.Span[docId]
                 : (int)_avgDl;
             if (dl < 1) dl = 1;
 

@@ -27,6 +27,7 @@
 - Map Rowles.Text Tokenisers test-source changes to the Tokenisers area for affected test runs.
 - Map Core TextIntegration test-source changes to the TextIntegration area for affected test runs.
 - Map phrase documentation and phrase benchmark changes to Core Search for affected test and benchmark runs.
+- Map SegmentReader DocValues benchmark changes to Core Index tests in affected runs.
 - Add a paired allocation benchmark for legacy and graph-aware token cache paths, with a focused DevOps benchmark group.
 - Apply queued deletes through logical segment members so compound segments can be deleted and updated without unpacking their `.dic` and `.pos` files.
 - Set Core package, assembly and file versions to `3.2.0`.
@@ -50,6 +51,7 @@
 
 ### Fixed
 
+- Return defensive copies from public SegmentReader DocValues getters, including nested binary payloads and field lengths, while keeping internal query access read-only and lease-scoped.
 - Validate the stored-field block document-count limit consistently in writer configuration, direct and stream writers, readers, and index inspection.
 - Reject Binary DocValues field payloads above 2,147,483,646 bytes before writing offsets or publishing the `.dvb` file, using checked 64-bit size accounting while preserving the current 32-bit offset format.
 - Validate DocValues frame lengths, field and document counts, offsets, and presence payloads before allocating; reject malformed counts and body overruns as codec corruption.

@@ -263,7 +263,7 @@ public sealed partial class IndexSearcher
         var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
         int docBase = reader.DocBase;
         float boost = query.Boost;
-        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         bool hasDeletions = reader.HasDeletions;
         bool hasQueryBoost = boost != 1.0f;
@@ -272,8 +272,8 @@ public sealed partial class IndexSearcher
         {
             if (hasDeletions && !reader.IsLive(docId)) continue;
 
-            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                ? fieldLengths[docId] : 1;
+            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                ? fieldLengths.Value.Span[docId] : 1;
             float score = ScoreTerm(f1, f2, f3, termFrequency, docLength, query.Field);
             if (hasQueryBoost) score *= boost;
             score = ApplyFieldBoost(fieldBoosts, docId, score);
@@ -409,18 +409,18 @@ public sealed partial class IndexSearcher
             bool hasDeletions = reader.HasDeletions;
 
             // Resolve field-length arrays once per clause to avoid per-doc dictionary lookups
-            var mustFieldLens = mustCount > 0 ? new int[]?[mustCount] : null;
+            var mustFieldLens = mustCount > 0 ? new ReadOnlyMemory<int>?[mustCount] : null;
             var mustFieldBoosts = mustCount > 0 ? new float[]?[mustCount] : null;
             for (int i = 0; i < mustCount; i++)
             {
-                reader.TryGetFieldLengths(mustFields![i], out mustFieldLens![i]);
+                mustFieldLens![i] = reader.GetFieldLengthsForQuery(mustFields![i]);
                 reader.TryGetFieldBoosts(mustFields[i], out mustFieldBoosts![i]);
             }
-            var shouldFieldLens = shouldCount > 0 ? new int[]?[shouldCount] : null;
+            var shouldFieldLens = shouldCount > 0 ? new ReadOnlyMemory<int>?[shouldCount] : null;
             var shouldFieldBoosts = shouldCount > 0 ? new float[]?[shouldCount] : null;
             for (int i = 0; i < shouldCount; i++)
             {
-                reader.TryGetFieldLengths(shouldFields![i], out shouldFieldLens![i]);
+                shouldFieldLens![i] = reader.GetFieldLengthsForQuery(shouldFields![i]);
                 reader.TryGetFieldBoosts(shouldFields[i], out shouldFieldBoosts![i]);
             }
 
@@ -476,7 +476,7 @@ public sealed partial class IndexSearcher
                     float score = 0f;
                     for (int i = 0; i < mustCount; i++)
                     {
-                        int docLength = mustFieldLens![i] is { } mfl && (uint)docId < (uint)mfl.Length ? mfl[docId] : 1;
+                        int docLength = mustFieldLens![i] is { } mfl && (uint)docId < (uint)mfl.Length ? mfl.Span[docId] : 1;
                         score += ApplyFieldBoost(mustFieldBoosts![i], docId, ScoreTerm(
                             mustFactors![i].Idf, mustFactors[i].K1BOverAvgDL, mustFactors[i].CollectionProb,
                             mustEnums[i].Freq, docLength, mustFields![i]));
@@ -489,7 +489,7 @@ public sealed partial class IndexSearcher
                         if (shouldEnums![i].Advance(docId) && shouldEnums[i].DocId == docId)
                         {
                             shouldMatches++;
-                            int docLength = shouldFieldLens![i] is { } sfl && (uint)docId < (uint)sfl.Length ? sfl[docId] : 1;
+                            int docLength = shouldFieldLens![i] is { } sfl && (uint)docId < (uint)sfl.Length ? sfl.Span[docId] : 1;
                             score += ApplyFieldBoost(shouldFieldBoosts![i], docId, ScoreTerm(
                                 shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
                                 shouldEnums[i].Freq, docLength, shouldFields![i]));
@@ -566,7 +566,7 @@ public sealed partial class IndexSearcher
                             if (currentDocs[i] == minDoc)
                             {
                                 shouldMatches++;
-                                int docLength = shouldFieldLens![i] is { } fl && (uint)minDoc < (uint)fl.Length ? fl[minDoc] : 1;
+                                int docLength = shouldFieldLens![i] is { } fl && (uint)minDoc < (uint)fl.Length ? fl.Span[minDoc] : 1;
                                 score += ApplyFieldBoost(shouldFieldBoosts![i], minDoc, ScoreTerm(
                                     shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
                                     localShouldEnums[i].Freq, docLength, shouldFields![i]));
@@ -855,7 +855,7 @@ public sealed partial class IndexSearcher
                         : 0;
                     float avgDocLength = Stats.GetAvgFieldLength(tq.Field);
                     var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
-                    reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
+                    var fieldLengths = reader.GetFieldLengthsForQuery(tq.Field);
                     reader.TryGetFieldBoosts(tq.Field, out var fieldBoosts);
                     // For selective queries (fewer than 2 batches), use an inline loop to avoid
                     // stackalloc + two-pass batch overhead. The batch+SIMD path only pays off
@@ -867,8 +867,8 @@ public sealed partial class IndexSearcher
                         {
                             int docId = postings.DocId;
                             if (!reader.IsLive(docId)) continue;
-                            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                                ? fieldLengths[docId] : 1;
+                            int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                                ? fieldLengths.Value.Span[docId] : 1;
                             float score = ScoreTerm(
                                 f1, f2, f3, postings.Freq, docLength, tq.Field);
                             score = ApplyFieldBoost(fieldBoosts, docId, score);
@@ -889,8 +889,8 @@ public sealed partial class IndexSearcher
                             if (!reader.IsLive(docId)) continue;
                             docIds[batchCount] = docId;
                             termFreqs[batchCount] = postings.Freq;
-                            docLengths[batchCount] = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                                ? fieldLengths[docId] : 1;
+                            docLengths[batchCount] = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                                ? fieldLengths.Value.Span[docId] : 1;
                             batchCount++;
                             if (batchCount == batchSize)
                             {
@@ -1154,7 +1154,7 @@ public sealed partial class IndexSearcher
 
     private void ExecuteShouldOnlyWand(
         PostingsEnum[] shouldEnums,
-        int[]?[] shouldFieldLens,
+        ReadOnlyMemory<int>?[] shouldFieldLens,
         float[]?[] shouldFieldBoosts,
         (float Idf, float K1BOverAvgDL, float CollectionProb)[] shouldFactors,
         string[] shouldFields,
@@ -1185,7 +1185,7 @@ public sealed partial class IndexSearcher
     // --- Should-only heap merge for large clause counts (MoreLikeThis, etc.) ---
 
     private void ExecuteShouldOnlyHeap(
-        PostingsEnum[] se, int[]?[] sfl, float[]?[] sfb,
+        PostingsEnum[] se, ReadOnlyMemory<int>?[] sfl, float[]?[] sfb,
         (float Idf, float K1BOverAvgDL, float CollectionProb)[] shouldFactors,
         string[] shouldFields,
         PostingsEnum[]? mustNotEnums,
@@ -1225,7 +1225,7 @@ public sealed partial class IndexSearcher
                 {
                     anyLive = true;
                     shouldMatches++;
-                    int docLength = sfl[idx] is { } fl && (uint)minDoc < (uint)fl.Length ? fl[minDoc] : 1;
+                    int docLength = sfl[idx] is { } fl && (uint)minDoc < (uint)fl.Length ? fl.Span[minDoc] : 1;
                     score += ApplyFieldBoost(sfb[idx], minDoc, ScoreTerm(
                         shouldFactors[idx].Idf, shouldFactors[idx].K1BOverAvgDL,
                         shouldFactors[idx].CollectionProb, se[idx].Freq, docLength,

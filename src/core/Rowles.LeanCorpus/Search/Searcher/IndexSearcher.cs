@@ -187,8 +187,8 @@ public sealed partial class IndexSearcher : IDisposable
         for (int i = 0; i < _readers.Count; i++)
         {
             sourceTerms[i] = sortedSet
-                ? _readers[i].GetSortedSetDocValueTerms(fieldName) ?? Array.Empty<string>()
-                : _readers[i].GetSortedDocValueTerms(fieldName) ?? Array.Empty<string>();
+                ? _readers[i].GetSortedSetDocValueTermsView(fieldName) ?? Array.Empty<string>()
+                : _readers[i].GetSortedDocValueTermsView(fieldName) ?? Array.Empty<string>();
         }
         return OrdinalMap.Build(sourceTerms);
     }
@@ -1523,15 +1523,15 @@ public sealed partial class IndexSearcher : IDisposable
                 using var queryLease = reader.AcquireQueryLease();
                 int docBase = reader.DocBase;
                 bool hasDeletions = reader.HasDeletions;
-                reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+                var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
                 reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
 
                 while (postings.MoveNextUnchecked(out int docId, out int tf))
                 {
                     if (hasDeletions && !reader.IsLive(docId)) continue;
 
-                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                        ? fieldLengths[docId] : 1;
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                        ? fieldLengths.Value.Span[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength, query.Field);
                     if (boost != 1.0f) score *= boost;
                     score = ApplyFieldBoost(fieldBoosts, docId, score);
@@ -1603,7 +1603,7 @@ public sealed partial class IndexSearcher : IDisposable
                 collector.SetSideCollectorContext(reader);
                 int docBase = reader.DocBase;
                 bool hasDeletions = reader.HasDeletions;
-                reader.TryGetFieldLengths(tq.Field, out var fieldLengths);
+                var fieldLengths = reader.GetFieldLengthsForQuery(tq.Field);
                 reader.TryGetFieldBoosts(tq.Field, out var fieldBoosts);
                 bool hasNumericDocValues = reader.TryGetNumericDocValues(
                     fsq.NumericField, out var numericValues);
@@ -1613,8 +1613,8 @@ public sealed partial class IndexSearcher : IDisposable
                 {
                     if (hasDeletions && !reader.IsLive(docId)) continue;
 
-                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                        ? fieldLengths[docId] : 1;
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                        ? fieldLengths.Value.Span[docId] : 1;
                     float score = ScoreTerm(f1, f2, f3, tf, docLength, tq.Field);
                     if (boost != 1.0f) score *= boost;
                     score = ApplyFieldBoost(fieldBoosts, docId, score);

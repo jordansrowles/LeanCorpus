@@ -206,7 +206,7 @@ public sealed partial class IndexSearcher
             int docBase = reader.DocBase;
             reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
             bool hasDeletions = reader.HasDeletions;
-            reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+            var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
             float avgDocLength = Stats.GetAvgFieldLength(query.Field);
 
             // Compute scoring factors for every clause, not just the leader.
@@ -245,8 +245,8 @@ public sealed partial class IndexSearcher
 
                 if (allMatch && HasSpanNearPositions(postings, termCount, query.Slop, query.InOrder))
                 {
-                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                        ? fieldLengths[docId] : 1;
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                        ? fieldLengths.Value.Span[docId] : 1;
                     // Sum scores across all clauses using the leader's term frequency
                     // as an estimate of the span frequency.
                     float score = 0;
@@ -286,7 +286,7 @@ public sealed partial class IndexSearcher
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
         bool hasDeletions = reader.HasDeletions;
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
-        reader.TryGetFieldLengths(query.Field, out var fieldLengths);
+        var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         float boost = query.Boost;
 
         try
@@ -309,8 +309,8 @@ public sealed partial class IndexSearcher
 
                     seen[docId] = true;
                     docIds[docCount++] = docId;
-                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Length
-                        ? fieldLengths[docId] : 1;
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                        ? fieldLengths.Value.Span[docId] : 1;
                     float score = ScoreTerm(
                         f1, f2, f3, frequency, docLength, query.Field);
                     if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;

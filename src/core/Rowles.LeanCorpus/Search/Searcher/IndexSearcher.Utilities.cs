@@ -1095,8 +1095,8 @@ public sealed partial class IndexSearcher
                 string? incompatibleSegment = null;
                 foreach (var reader in readers)
                 {
-                    bool readerHasSorted = reader.GetSortedDocValueTerms(field) is not null;
-                    bool readerHasSortedSet = reader.GetSortedSetDocValueTerms(field) is not null;
+                    bool readerHasSorted = reader.GetSortedDocValueTermsView(field) is not null;
+                    bool readerHasSortedSet = reader.GetSortedSetDocValueTermsView(field) is not null;
                     hasSorted |= readerHasSorted;
                     hasSortedSet |= readerHasSortedSet;
                     hasSortedOnly |= readerHasSorted && !readerHasSortedSet;
@@ -1123,8 +1123,8 @@ public sealed partial class IndexSearcher
                 for (int i = 0; i < readers.Count; i++)
                 {
                     sourceTerms[i] = (sortedSet
-                        ? readers[i].GetSortedSetDocValueTerms(field)
-                        : readers[i].GetSortedDocValueTerms(field)) ?? Array.Empty<string>();
+                        ? readers[i].GetSortedSetDocValueTermsView(field)
+                        : readers[i].GetSortedDocValueTermsView(field)) ?? Array.Empty<string>();
                 }
 
                 var plan = new FlatFacetOrdinalPlan(field, sortedSet, OrdinalMap.Build(sourceTerms), hasSorted || hasSortedSet);
