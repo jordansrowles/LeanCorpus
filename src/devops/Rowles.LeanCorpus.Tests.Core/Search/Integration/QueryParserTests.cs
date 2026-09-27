@@ -51,6 +51,68 @@ public sealed class QueryParserTests
         Assert.Throws<NotSupportedException>(() => new ComplexPhraseQueryParser("body", static () => new StandardAnalyser(), lenient: true));
     }
 
+    [Fact(DisplayName = "Parse: Query parser options reject oversized input before analysis and can be reused")]
+    public void Parse_OptionsRejectOversizedInputBeforeAnalysisAndCanBeReused()
+    {
+        var analyser = new CountingAnalyser();
+        var parser = new QueryParser(
+            "body",
+            analyser,
+            QueryParserOptions.Default with { MaxInputChars = 8 });
+
+        var exception = Assert.Throws<QueryParseException>(() => parser.Parse("123456789"));
+
+        Assert.Contains("input character limit of 8", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, analyser.Calls);
+        Assert.Equal("safe", Assert.IsType<TermQuery>(parser.Parse("safe")).Term);
+        Assert.Equal(1, analyser.Calls);
+    }
+
+    [Fact(DisplayName = "Parse: Query parser options bound syntax, clauses and expensive modifiers")]
+    public void Parse_OptionsBoundSyntaxClausesAndExpensiveModifiers()
+    {
+        var tokenParser = new QueryParser("body", new KeywordAnalyser(), QueryParserOptions.Default with { MaxTokens = 2 });
+        var depthParser = new QueryParser("body", new KeywordAnalyser(), QueryParserOptions.Default with { MaxSyntaxDepth = 2 });
+        var syntaxNodeParser = new QueryParser("body", new KeywordAnalyser(), QueryParserOptions.Default with { MaxSyntaxNodes = 1 });
+        var clauseParser = new QueryParser("body", new KeywordAnalyser(), QueryParserOptions.Default with { MaxQueryClauses = 2 });
+        var wildcardParser = new QueryParser("body", new KeywordAnalyser(), QueryParserOptions.Default with { MaxWildcardPatternChars = 3 });
+        var regexpParser = new QueryParser("body", new KeywordAnalyser(), QueryParserOptions.Default with { MaxRegexpPatternChars = 3 });
+        var fuzzyParser = new QueryParser("body", new KeywordAnalyser(), QueryParserOptions.Default with { MaxFuzzyEdits = 1 });
+        var phraseParser = new QueryParser("body", new KeywordAnalyser(), QueryParserOptions.Default with { MaxPhraseSlop = 1 });
+
+        Assert.Throws<QueryParseException>(() => tokenParser.Parse("one two three"));
+        Assert.Throws<QueryParseException>(() => depthParser.Parse("((one))"));
+        Assert.Throws<QueryParseException>(() => syntaxNodeParser.Parse("one"));
+        Assert.Throws<QueryParseException>(() => clauseParser.Parse("one OR two"));
+        Assert.Throws<QueryParseException>(() => wildcardParser.Parse("long*"));
+        Assert.Throws<QueryParseException>(() => regexpParser.Parse("/long/"));
+        Assert.Throws<QueryParseException>(() => fuzzyParser.Parse("term~2"));
+        Assert.Throws<QueryParseException>(() => phraseParser.Parse("\"term\"~2"));
+    }
+
+    [Fact(DisplayName = "Parse: All parser variants accept the shared options object")]
+    public void Parse_ParserVariantsAcceptQueryParserOptions()
+    {
+        QueryParserOptions options = QueryParserOptions.Default with { MaxInputChars = 16 };
+
+        Assert.IsType<TermQuery>(new QueryParser("body", new KeywordAnalyser(), options).Parse("safe"));
+        Assert.IsType<TermQuery>(new QueryParser("body", static () => new KeywordAnalyser(), options).Parse("safe"));
+        Assert.IsType<TermQuery>(new AnalysingQueryParser("body", new KeywordAnalyser(), options).Parse("safe"));
+        Assert.IsType<TermQuery>(new AnalysingQueryParser("body", static () => new KeywordAnalyser(), options).Parse("safe"));
+        Assert.IsType<TermQuery>(new ComplexPhraseQueryParser("body", new KeywordAnalyser(), options).Parse("safe"));
+        Assert.IsType<TermQuery>(new ComplexPhraseQueryParser("body", static () => new KeywordAnalyser(), options).Parse("safe"));
+    }
+
+    [Fact(DisplayName = "Parse: Malformed bounded query fails and parser remains reusable")]
+    public void Parse_MalformedBoundedQueryFailsAndParserRemainsReusable()
+    {
+        var parser = new QueryParser("body", new KeywordAnalyser(), QueryParserOptions.Default);
+
+        Assert.Throws<QueryParseException>(() => parser.Parse("title:/unterminated"));
+
+        Assert.Equal("safe", Assert.IsType<TermQuery>(parser.Parse("safe")).Term);
+    }
+
     /// <summary>
     /// Verifies the Parse: Field Colon Term Returns Term Query With Field scenario.
     /// </summary>
@@ -689,6 +751,19 @@ public sealed class QueryParserTests
     private sealed class DelegateAnalyser(Action<ISpanTokenSink> emit) : IAnalyser
     {
         public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink) => emit(sink);
+    }
+
+    private sealed class CountingAnalyser : IAnalyser
+    {
+        private readonly StandardAnalyser _inner = new();
+
+        public int Calls { get; private set; }
+
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        {
+            Calls++;
+            _inner.Analyse(input, sink);
+        }
     }
 
     private static QueryParser CreateFieldAwareParser() => new(

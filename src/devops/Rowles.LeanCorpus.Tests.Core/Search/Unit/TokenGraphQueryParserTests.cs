@@ -157,6 +157,54 @@ public sealed class TokenGraphQueryParserTests
         Assert.Contains("configured maximum of 3 paths", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact(DisplayName = "QueryParser: options enforce each phrase graph budget")]
+    public void Parse_CustomOptionsEnforcePhraseGraphBudgets()
+    {
+        QueryParseException phraseTokenException = Assert.Throws<QueryParseException>(() =>
+            new QueryParser(
+                "body",
+                new BranchingPhraseAnalyser(branchCount: 2, tailLength: 1),
+                QueryParserOptions.Default with { MaxPhraseTokens = 1 })
+            .Parse("\"graph\""));
+        QueryParseException graphEdgeException = Assert.Throws<QueryParseException>(() =>
+            new QueryParser(
+                "body",
+                new BranchingPhraseAnalyser(branchCount: 2, tailLength: 1),
+                QueryParserOptions.Default with { MaxGraphEdges = 1 })
+            .Parse("\"graph\""));
+        QueryParseException traversalException = Assert.Throws<QueryParseException>(() =>
+            new QueryParser(
+                "body",
+                new BranchingPhraseAnalyser(branchCount: 1, tailLength: 2),
+                QueryParserOptions.Default with { MaxGraphTraversalSteps = 1 })
+            .Parse("\"graph\""));
+        QueryParseException pathException = Assert.Throws<QueryParseException>(() =>
+            new QueryParser(
+                "body",
+                new BranchingPhraseAnalyser(branchCount: 2, tailLength: 1),
+                QueryParserOptions.Default with { MaxGraphPaths = 1 })
+            .Parse("\"graph\""));
+        QueryParseException compiledTermException = Assert.Throws<QueryParseException>(() =>
+            new QueryParser(
+                "body",
+                new BranchingPhraseAnalyser(branchCount: 2, tailLength: 1),
+                QueryParserOptions.Default with { MaxCompiledPhraseTerms = 1 })
+            .Parse("\"graph\""));
+        QueryParseException compiledClauseException = Assert.Throws<QueryParseException>(() =>
+            new QueryParser(
+                "body",
+                new BranchingPhraseAnalyser(branchCount: 2, tailLength: 1),
+                QueryParserOptions.Default with { MaxCompiledPhraseClauses = 1 })
+            .Parse("\"graph\""));
+
+        Assert.Contains("phrase token count", phraseTokenException.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("graph edge count", graphEdgeException.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("traversal steps", traversalException.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("maximum of 1 paths", pathException.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("compiled phrase term count", compiledTermException.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("compiled phrase query clause count", compiledClauseException.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact(DisplayName = "QueryParser: phrase graph bounds total compiled path terms")]
     public void Parse_PhraseGraphExceedingCompiledTermBudget_RejectsWithBoundedAllocation()
     {

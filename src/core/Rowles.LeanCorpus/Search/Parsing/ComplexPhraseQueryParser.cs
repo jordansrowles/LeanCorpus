@@ -22,6 +22,15 @@ public sealed class ComplexPhraseQueryParser : QueryParser
     {
     }
 
+    /// <summary>Initialises a complex-phrase parser with explicit parser-time budgets.</summary>
+    /// <param name="defaultField">The field used when no explicit field prefix is present.</param>
+    /// <param name="analyser">The analyser used to build quoted phrase queries.</param>
+    /// <param name="options">The parser-time limits to enforce for each query.</param>
+    public ComplexPhraseQueryParser(string defaultField, IAnalyser analyser, QueryParserOptions options)
+        : base(defaultField, analyser, options)
+    {
+    }
+
     /// <summary>Initialises a complex-phrase parser with a per-parse analyser factory.</summary>
     /// <param name="defaultField">The field used when no explicit field prefix is present.</param>
     /// <param name="analyserFactory">Creates an analyser for each parse invocation.</param>
@@ -32,6 +41,15 @@ public sealed class ComplexPhraseQueryParser : QueryParser
         Func<IAnalyser> analyserFactory,
         bool lenient = false)
         : base(defaultField, analyserFactory, lenient)
+    {
+    }
+
+    /// <summary>Initialises a complex-phrase parser with explicit budgets and a per-parse analyser factory.</summary>
+    /// <param name="defaultField">The field used when no explicit field prefix is present.</param>
+    /// <param name="analyserFactory">Creates an analyser for each parse invocation.</param>
+    /// <param name="options">The parser-time limits to enforce for each query.</param>
+    public ComplexPhraseQueryParser(string defaultField, Func<IAnalyser> analyserFactory, QueryParserOptions options)
+        : base(defaultField, analyserFactory, options)
     {
     }
 

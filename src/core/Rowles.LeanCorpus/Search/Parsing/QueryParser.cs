@@ -22,25 +22,22 @@ namespace Rowles.LeanCorpus.Search.Parsing;
 /// </remarks>
 public class QueryParser
 {
-    private const int MaximumAnalysedPhraseTokenCount = 16_384;
-    private const int MaximumPhraseGraphEdgeCount = 8_192;
-    private const int MaximumPhraseGraphTraversalSteps = 65_536;
-    private const int MaximumCompiledPhraseTermCount = 65_536;
-    private const int MaximumCompiledPhraseClauseCount = 512;
-
     private readonly string _defaultField;
     private IAnalyser? _analyser;
     private readonly Func<IAnalyser>? _analyserFactory;
     private readonly Func<string, QueryFieldCompilationContext>? _fieldContextResolver;
+    private readonly QueryParserOptions _options;
     private Dictionary<string, QueryFieldCompilationContext> _fieldContexts = new(StringComparer.Ordinal);
-    private readonly int _maxGraphPaths;
     private int _depth;
     private int _maxDepth = 64;
     private int _maxSyntaxNodes = int.MaxValue;
+    private int _queryClauseCount;
+    private int _maxQueryClauses = int.MaxValue;
     private int _syntaxNodeCount;
     private QueryCompilationBudget? _queryCompilationBudget;
     private bool _parseLimitsAreComplexity;
     private bool _graphPathLimitIsComplexity;
+    private bool _countQueryClauses;
     private int _parseInProgress;
 
     /// <summary>Gets the analyser used to build query terms.</summary>
@@ -54,7 +51,16 @@ public class QueryParser
     /// <param name="maxGraphPaths">The maximum complete analysed phrase paths permitted across one parse.</param>
     /// <exception cref="NotSupportedException">Thrown when <paramref name="lenient"/> is <see langword="true"/>.</exception>
     public QueryParser(string defaultField, IAnalyser analyser, bool lenient = false, int maxGraphPaths = 256)
-        : this(defaultField, analyser, fieldContextResolver: null, lenient, maxGraphPaths)
+        : this(defaultField, analyser, fieldContextResolver: null, CreateLegacyOptions(lenient, maxGraphPaths))
+    {
+    }
+
+    /// <summary>Initialises a parser with explicit parser-time budgets.</summary>
+    /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present in the query string.</param>
+    /// <param name="analyser">The analyser used to tokenise terms and phrases at query time.</param>
+    /// <param name="options">The parser-time limits to enforce for each query.</param>
+    public QueryParser(string defaultField, IAnalyser analyser, QueryParserOptions options)
+        : this(defaultField, analyser, fieldContextResolver: null, ValidateOptions(options))
     {
     }
 
@@ -72,7 +78,16 @@ public class QueryParser
     /// </remarks>
     /// <exception cref="NotSupportedException">Thrown when <paramref name="lenient"/> is <see langword="true"/>.</exception>
     public QueryParser(string defaultField, Func<IAnalyser> analyserFactory, bool lenient = false, int maxGraphPaths = 256)
-        : this(defaultField, analyserFactory, fieldContextResolver: null, lenient, maxGraphPaths)
+        : this(defaultField, analyserFactory, fieldContextResolver: null, CreateLegacyOptions(lenient, maxGraphPaths))
+    {
+    }
+
+    /// <summary>Initialises a parser with explicit parser-time budgets and a per-parse analyser factory.</summary>
+    /// <param name="defaultField">The field used when no explicit <c>field:</c> prefix is present in the query string.</param>
+    /// <param name="analyserFactory">Creates an analyser for one parse invocation.</param>
+    /// <param name="options">The parser-time limits to enforce for each query.</param>
+    public QueryParser(string defaultField, Func<IAnalyser> analyserFactory, QueryParserOptions options)
+        : this(defaultField, analyserFactory, fieldContextResolver: null, ValidateOptions(options))
     {
     }
 
@@ -82,15 +97,22 @@ public class QueryParser
         Func<string, QueryFieldCompilationContext>? fieldContextResolver,
         bool lenient = false,
         int maxGraphPaths = 256)
+        : this(defaultField, analyser, fieldContextResolver, CreateLegacyOptions(lenient, maxGraphPaths))
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(maxGraphPaths, 1);
+    }
+
+    internal QueryParser(
+        string defaultField,
+        IAnalyser analyser,
+        Func<string, QueryFieldCompilationContext>? fieldContextResolver,
+        QueryParserOptions options)
+    {
         ArgumentNullException.ThrowIfNull(defaultField);
         ArgumentNullException.ThrowIfNull(analyser);
-        EnsureStrictParsing(lenient);
+        _options = ValidateOptions(options);
         _defaultField = defaultField;
         _analyser = analyser;
         _fieldContextResolver = fieldContextResolver;
-        _maxGraphPaths = maxGraphPaths;
     }
 
     internal QueryParser(
@@ -99,15 +121,35 @@ public class QueryParser
         Func<string, QueryFieldCompilationContext>? fieldContextResolver,
         bool lenient = false,
         int maxGraphPaths = 256)
+        : this(defaultField, analyserFactory, fieldContextResolver, CreateLegacyOptions(lenient, maxGraphPaths))
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(maxGraphPaths, 1);
+    }
+
+    internal QueryParser(
+        string defaultField,
+        Func<IAnalyser> analyserFactory,
+        Func<string, QueryFieldCompilationContext>? fieldContextResolver,
+        QueryParserOptions options)
+    {
         ArgumentNullException.ThrowIfNull(defaultField);
         ArgumentNullException.ThrowIfNull(analyserFactory);
-        EnsureStrictParsing(lenient);
+        _options = ValidateOptions(options);
         _defaultField = defaultField;
         _analyserFactory = analyserFactory;
         _fieldContextResolver = fieldContextResolver;
-        _maxGraphPaths = maxGraphPaths;
+    }
+
+    private static QueryParserOptions CreateLegacyOptions(bool lenient, int maxGraphPaths)
+    {
+        EnsureStrictParsing(lenient);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxGraphPaths, 1);
+        return ValidateOptions(QueryParserOptions.Trusted with { MaxGraphPaths = maxGraphPaths });
+    }
+
+    private static QueryParserOptions ValidateOptions(QueryParserOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return options.Validate();
     }
 
     private static void EnsureStrictParsing(bool lenient)
@@ -128,6 +170,8 @@ public class QueryParser
     /// <exception cref="QueryParseException">Thrown when the query string contains a syntax error.</exception>
     public Query Parse(string queryString)
     {
+        if (queryString is not null && queryString.Length > _options.MaxInputChars)
+            throw new QueryParseException($"The query exceeds the configured input character limit of {_options.MaxInputChars}.");
         if (string.IsNullOrWhiteSpace(queryString))
             return new BooleanQuery.Builder().Build();
 
@@ -141,11 +185,11 @@ public class QueryParser
         try
         {
             QueryParser invocation = CreateInvocationParser();
-            return invocation.CompileSyntax(invocation.ParseSyntax(
-                queryString,
-                maximumDepth: 64,
-                maximumClauses: int.MaxValue,
-                maximumTokens: int.MaxValue));
+            return invocation.CompileSyntax(invocation.ParseSyntax(queryString));
+        }
+        catch (QueryParseLimitException exception)
+        {
+            throw new QueryParseException(exception.Message);
         }
         finally
         {
@@ -168,24 +212,23 @@ public class QueryParser
 
     internal QuerySyntax ParseSyntax(
         string queryString,
-        int maximumDepth,
-        int maximumClauses,
-        int maximumTokens,
         bool limitsAreComplexity = false)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(maximumDepth, 1);
-        ArgumentOutOfRangeException.ThrowIfLessThan(maximumClauses, 1);
-        ArgumentOutOfRangeException.ThrowIfLessThan(maximumTokens, 1);
+        _parseLimitsAreComplexity = limitsAreComplexity;
+        if (queryString is not null && queryString.Length > _options.MaxInputChars)
+            ThrowQueryParseLimitExceeded($"The query exceeds the configured input character limit of {_options.MaxInputChars}.");
         if (string.IsNullOrWhiteSpace(queryString))
             return new EmptyQuerySyntax();
 
         _depth = 0;
         _syntaxNodeCount = 0;
-        _parseLimitsAreComplexity = limitsAreComplexity;
+        _queryClauseCount = 0;
+        _countQueryClauses = false;
         ResetPhraseGraphBudget();
-        _maxDepth = maximumDepth;
-        _maxSyntaxNodes = maximumClauses;
-        var tokens = Tokenize(queryString, maximumTokens);
+        _maxDepth = _options.MaxSyntaxDepth;
+        _maxSyntaxNodes = _options.MaxSyntaxNodes;
+        _maxQueryClauses = _options.MaxQueryClauses;
+        var tokens = Tokenize(queryString);
         int pos = 0;
         var parsed = ParseExpression(tokens, ref pos);
         if (pos < tokens.Count)
@@ -194,8 +237,15 @@ public class QueryParser
             throw new QueryParseException(
                 $"Unexpected token '{tok.Value}' at position {pos}.", tok.Offset);
         }
-        _syntaxNodeCount = 0;
-        return LowerAnalysedSyntax(parsed.Query ?? new EmptyQuerySyntax());
+        _countQueryClauses = true;
+        try
+        {
+            return LowerAnalysedSyntax(parsed.Query ?? new EmptyQuerySyntax());
+        }
+        finally
+        {
+            _countQueryClauses = false;
+        }
     }
 
     internal QuerySyntax PrepareSyntax(QuerySyntax syntax, Action<int, int> consumeAdditionalClauses, bool graphPathLimitIsComplexity)
@@ -499,23 +549,30 @@ public class QueryParser
             {
                 int modifierOffset = tokens[pos].Offset;
                 int suffixPosition = pos + 1;
-                if (suffixPosition >= tokens.Count ||
-                    tokens[suffixPosition].Type != QTokenType.Term ||
-                    !int.TryParse(
+                int maxEdits = 0;
+                bool hasEditDistance = suffixPosition < tokens.Count &&
+                    tokens[suffixPosition].Type == QTokenType.Term &&
+                    int.TryParse(
                         tokens[suffixPosition].Value,
                         System.Globalization.NumberStyles.Integer,
                         System.Globalization.CultureInfo.InvariantCulture,
-                        out int maxEdits) ||
-                    maxEdits is < 0 or > 2)
+                        out maxEdits);
+                if (!hasEditDistance || maxEdits is < 0 or > 2)
                 {
-                    throw new QueryParseException("Fuzzy edit distance must be an integer between 0 and 2.", modifierOffset);
+                    throw new QueryParseException(
+                        $"Fuzzy edit distance must be an integer between 0 and {_options.MaxFuzzyEdits}.",
+                        modifierOffset);
                 }
-                else
+                if (maxEdits > _options.MaxFuzzyEdits)
                 {
-                    pos = suffixPosition + 1;
-                    var fuzzy = CreateSyntaxNode(new UnanalysedFuzzyQuerySyntax(field, term, maxEdits, modifierOffset));
-                    return ApplyBoost(fuzzy, tokens, ref pos);
+                    ThrowQueryParseLimitExceeded(
+                        $"Fuzzy edit distance exceeds the configured maximum of {_options.MaxFuzzyEdits}.",
+                        modifierOffset);
                 }
+
+                pos = suffixPosition + 1;
+                var fuzzy = CreateSyntaxNode(new UnanalysedFuzzyQuerySyntax(field, term, maxEdits, modifierOffset));
+                return ApplyBoost(fuzzy, tokens, ref pos);
             }
 
             // Recognise the term now; analysis lowering runs after the complete syntax tree exists.
@@ -875,19 +932,27 @@ public class QueryParser
 
     private void ThrowPhraseGraphLimitExceeded(string message)
     {
+        ThrowQueryParseLimitExceeded(message, offset: 0);
+    }
+
+    private void ThrowQueryParseLimitExceeded(string message, int? offset = null)
+    {
         if (_graphPathLimitIsComplexity || _parseLimitsAreComplexity)
             throw new QueryParseLimitException(message);
 
-        throw new QueryParseException(message, 0);
+        if (offset is int value)
+            throw new QueryParseException(message, value);
+
+        throw new QueryParseException(message);
     }
 
     private void ResetPhraseGraphBudget()
     {
-        _queryCompilationBudget = new QueryCompilationBudget(_maxGraphPaths);
+        _queryCompilationBudget = new QueryCompilationBudget(_options);
     }
 
     private QueryCompilationBudget GetQueryCompilationBudget() =>
-        _queryCompilationBudget ??= new QueryCompilationBudget(_maxGraphPaths);
+        _queryCompilationBudget ??= new QueryCompilationBudget(_options);
 
     private Query CompilePhraseExpansion(string field, int slop, PhraseQuerySyntaxExpansion expansion)
     {
@@ -967,17 +1032,24 @@ public class QueryParser
 
         int modifierOffset = tokens[pos].Offset;
         int suffixPosition = pos + 1;
-        if (suffixPosition >= tokens.Count ||
-            tokens[suffixPosition].Type != QTokenType.Term ||
-            !int.TryParse(
+        int slop = 0;
+        bool hasSlop = suffixPosition < tokens.Count &&
+            tokens[suffixPosition].Type == QTokenType.Term &&
+            int.TryParse(
                 tokens[suffixPosition].Value,
                 System.Globalization.NumberStyles.Integer,
                 System.Globalization.CultureInfo.InvariantCulture,
-                out int slop) ||
-            slop is < 0 or > PhraseQuery.MaximumSlop)
+                out slop);
+        if (!hasSlop || slop < 0 || slop > PhraseQuery.MaximumSlop)
         {
             throw new QueryParseException(
-                $"Phrase slop must be an integer between 0 and {PhraseQuery.MaximumSlop}.",
+                $"Phrase slop must be an integer between 0 and {_options.MaxPhraseSlop}.",
+                modifierOffset);
+        }
+        if (slop > _options.MaxPhraseSlop)
+        {
+            ThrowQueryParseLimitExceeded(
+                $"Phrase slop exceeds the configured maximum of {_options.MaxPhraseSlop}.",
                 modifierOffset);
         }
 
@@ -1015,10 +1087,27 @@ public class QueryParser
     private T CreateSyntaxNode<T>(T syntax) where T : QuerySyntax
     {
         if (_syntaxNodeCount >= _maxSyntaxNodes)
-            throw new QueryParseLimitException("The query exceeds the configured Boolean clause limit.");
+            ThrowQueryParseLimitExceeded(
+                $"The query exceeds the configured syntax-node limit of {_maxSyntaxNodes}.");
         _syntaxNodeCount++;
+
+        if (_countQueryClauses && IsQueryClauseNode(syntax))
+        {
+            if (_queryClauseCount >= _maxQueryClauses)
+                ThrowQueryParseLimitExceeded(
+                    $"The query exceeds the configured query-clause limit of {_maxQueryClauses}.");
+            _queryClauseCount++;
+        }
+
         return syntax;
     }
+
+    private static bool IsQueryClauseNode(QuerySyntax syntax) => syntax is
+        AnalysedEmptyQuerySyntax or RecoveredQuerySyntax or BooleanQuerySyntax or
+        DisjunctionMaxQuerySyntax or TermQuerySyntax or FuzzyQuerySyntax or
+        MultiTermQuerySyntax or PhraseQuerySyntax or RegexpQuerySyntax or
+        TermRangeQuerySyntax or FieldExistsQuerySyntax ||
+        syntax is BoostQuerySyntax { ConstantScore: true };
 
     private Query? Compile(QuerySyntax syntax) => syntax switch
     {
@@ -1062,6 +1151,11 @@ public class QueryParser
     private Query CompileMultiTerm(MultiTermQuerySyntax syntax)
     {
         string term = AnalyseMultiTerm(syntax.Field, syntax.Pattern);
+        if (term.Length > _options.MaxWildcardPatternChars)
+        {
+            ThrowQueryParseLimitExceeded(
+                $"The analysed wildcard pattern exceeds the configured character limit of {_options.MaxWildcardPatternChars}.");
+        }
         if (TryGetPrefixLiteral(term.AsSpan(), out string prefix))
             return new PrefixQuery(syntax.Field, prefix);
         return new WildcardQuery(syntax.Field, term);
@@ -1372,15 +1466,15 @@ public class QueryParser
         }
     }
 
-    private static List<QToken> Tokenize(string input, int maximumTokens)
+    private List<QToken> Tokenize(string input)
     {
         var tokens = new List<QToken>();
         int i = 0;
 
         void AddToken(QToken token)
         {
-            if (tokens.Count >= maximumTokens)
-                throw new QueryParseLimitException("The query exceeds the configured parser token limit.");
+            if (tokens.Count >= _options.MaxTokens)
+                ThrowQueryParseLimitExceeded($"The query exceeds the configured parser token limit of {_options.MaxTokens}.");
             tokens.Add(token);
         }
 
@@ -1412,18 +1506,30 @@ public class QueryParser
                 int slashOffset = i++;
                 var pattern = new System.Text.StringBuilder();
                 bool closed = false;
+
+                void AppendPattern(char value)
+                {
+                    if (pattern.Length >= _options.MaxRegexpPatternChars)
+                    {
+                        ThrowQueryParseLimitExceeded(
+                            $"The regular-expression pattern exceeds the configured character limit of {_options.MaxRegexpPatternChars}.",
+                            slashOffset);
+                    }
+                    pattern.Append(value);
+                }
+
                 while (i < input.Length)
                 {
                     if (input[i] == '\\' && i + 1 < input.Length)
                     {
                         if (input[i + 1] == '/')
                         {
-                            pattern.Append('/');
+                            AppendPattern('/');
                             i += 2;
                             continue;
                         }
-                        pattern.Append(input[i]);
-                        pattern.Append(input[i + 1]);
+                        AppendPattern(input[i]);
+                        AppendPattern(input[i + 1]);
                         i += 2;
                         continue;
                     }
@@ -1433,7 +1539,7 @@ public class QueryParser
                         closed = true;
                         break;
                     }
-                    pattern.Append(input[i++]);
+                    AppendPattern(input[i++]);
                 }
                 if (!closed)
                     throw new QueryParseException("Unmatched regular expression delimiter.", slashOffset);
@@ -1495,10 +1601,19 @@ public class QueryParser
                     i++;
                 }
 
-                string raw = input[start..i];
+                ReadOnlySpan<char> rawSpan = input.AsSpan(start, i - start);
+                bool hasUnescapedWildcard = HasUnescapedWildcard(rawSpan);
+                if (hasUnescapedWildcard && rawSpan.Length > _options.MaxWildcardPatternChars)
+                {
+                    ThrowQueryParseLimitExceeded(
+                        $"The wildcard pattern exceeds the configured character limit of {_options.MaxWildcardPatternChars}.",
+                        start);
+                }
+
+                string raw = rawSpan.ToString();
                 string termValue = hasEscapes ? Unescape(raw.AsSpan()) : raw;
                 var type = !hasEscapes ? GetKeywordType(termValue) : QTokenType.Term;
-                AddToken(new QToken(type, termValue, start, raw, HasUnescapedWildcard(raw.AsSpan())));
+                AddToken(new QToken(type, termValue, start, raw, hasUnescapedWildcard));
             }
         }
 
@@ -1596,7 +1711,7 @@ public class QueryParser
         public override int GetHashCode() => CombineBoost(HashCode.Combine(nameof(NoClauseQuery)));
     }
 
-    private sealed class QueryCompilationBudget(int maximumGraphPaths)
+    private sealed class QueryCompilationBudget(QueryParserOptions options)
     {
         private int _analysedPhraseTokenCount;
         private int _graphEdgesRead;
@@ -1607,8 +1722,8 @@ public class QueryParser
 
         public string? TryConsumePhraseTokens(int count)
         {
-            if (count > MaximumAnalysedPhraseTokenCount - _analysedPhraseTokenCount)
-                return $"Analysed phrase token count exceeds the maximum of {MaximumAnalysedPhraseTokenCount}.";
+            if (count > options.MaxPhraseTokens - _analysedPhraseTokenCount)
+                return $"Analysed phrase token count exceeds the maximum of {options.MaxPhraseTokens}.";
 
             _analysedPhraseTokenCount += count;
             return null;
@@ -1616,8 +1731,8 @@ public class QueryParser
 
         public string? TryReadGraphEdge()
         {
-            if (_graphEdgesRead >= MaximumPhraseGraphEdgeCount)
-                return $"Analysed phrase graph edge count exceeds the maximum of {MaximumPhraseGraphEdgeCount}.";
+            if (_graphEdgesRead >= options.MaxGraphEdges)
+                return $"Analysed phrase graph edge count exceeds the maximum of {options.MaxGraphEdges}.";
 
             _graphEdgesRead++;
             return null;
@@ -1625,8 +1740,8 @@ public class QueryParser
 
         public string? TryTakeTraversalStep()
         {
-            if (_traversalSteps >= MaximumPhraseGraphTraversalSteps)
-                return $"Analysed phrase graph traversal steps exceed the maximum of {MaximumPhraseGraphTraversalSteps}.";
+            if (_traversalSteps >= options.MaxGraphTraversalSteps)
+                return $"Analysed phrase graph traversal steps exceed the maximum of {options.MaxGraphTraversalSteps}.";
 
             _traversalSteps++;
             return null;
@@ -1634,8 +1749,8 @@ public class QueryParser
 
         public string? TryEmitPath(int termCount)
         {
-            if (_pathsEmitted >= maximumGraphPaths)
-                return $"Analysed phrase graph exceeds the configured maximum of {maximumGraphPaths} paths.";
+            if (_pathsEmitted >= options.MaxGraphPaths)
+                return $"Analysed phrase graph exceeds the configured maximum of {options.MaxGraphPaths} paths.";
             string? termLimit = TryCompileTerms(termCount);
             if (termLimit is not null)
                 return termLimit;
@@ -1646,8 +1761,8 @@ public class QueryParser
 
         public string? TryCompileTerms(int count)
         {
-            if (count > MaximumCompiledPhraseTermCount - _compiledTerms)
-                return $"Compiled phrase term count exceeds the maximum of {MaximumCompiledPhraseTermCount}.";
+            if (count > options.MaxCompiledPhraseTerms - _compiledTerms)
+                return $"Compiled phrase term count exceeds the maximum of {options.MaxCompiledPhraseTerms}.";
 
             _compiledTerms += count;
             return null;
@@ -1655,8 +1770,8 @@ public class QueryParser
 
         public string? TryGenerateBooleanClauses(int count)
         {
-            if (count > MaximumCompiledPhraseClauseCount - _generatedBooleanClauses)
-                return $"Compiled phrase query clause count exceeds the maximum of {MaximumCompiledPhraseClauseCount}.";
+            if (count > options.MaxCompiledPhraseClauses - _generatedBooleanClauses)
+                return $"Compiled phrase query clause count exceeds the maximum of {options.MaxCompiledPhraseClauses}.";
 
             _generatedBooleanClauses += count;
             return null;
