@@ -1,7 +1,5 @@
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Compression.LZ4;
-using Rowles.LeanCorpus.Compression.Snappy;
-using Rowles.LeanCorpus.Compression.Zstandard;
 
 namespace Rowles.LeanCorpus.Tests.Core.CodecKit;
 [Category(TestCategory.Integration)]
@@ -19,13 +17,6 @@ public sealed class CompressionCodecParityTests
     ];
 
     private static readonly int[] PayloadSizes = [0, 1, 4 * 1024, 64 * 1024, 1024 * 1024];
-
-    static CompressionCodecParityTests()
-    {
-        Lz4Compression.Register();
-        SnappyCompression.Register();
-        ZstandardCompression.Register();
-    }
 
     public static TheoryData<FieldCompressionPolicy, int> RoundTripCases()
     {

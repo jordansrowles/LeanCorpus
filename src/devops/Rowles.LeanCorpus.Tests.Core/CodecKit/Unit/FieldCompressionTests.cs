@@ -1,9 +1,11 @@
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Compression.LZ4;
 using Rowles.LeanCorpus.Compression.Zstandard;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Search.Searcher;
 
 namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 
@@ -135,9 +137,72 @@ public class FieldCompressionTests : IDisposable
         Assert.Equal(FieldCompressionPolicy.None, config.CompressionPolicy);
     }
 
+    [Fact(DisplayName = "Custom immutable catalogue round-trips an unlisted stored-field policy")]
+    public void CustomCatalog_RoundTripsCustomPolicyThroughWriterAndSearcher()
+    {
+        const byte policyByte = 0xE1;
+        const string expected = "custom-catalogue-stored-value";
+        string path = SubDir("custom-catalogue");
+        var innerCodec = CodecCatalog.Default.GetCompressionCodec((byte)FieldCompressionPolicy.Deflate);
+        var customCodec = new TrackingCompressionCodec(innerCodec, policyByte);
+        var catalog = new CodecCatalogBuilder()
+            .AddBuiltIns()
+            .AddCompressionCodec(customCodec)
+            .Build();
+
+        using var directory = new MMapDirectory(path);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            CodecCatalog = catalog,
+            CompressionPolicy = (FieldCompressionPolicy)policyByte
+        }))
+        {
+            var document = new LeanDocument();
+            document.Add(new StoredField("body", expected));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        Assert.True(customCodec.CompressCalls > 0);
+
+        using (var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            CodecCatalog = catalog
+        }))
+        {
+            var stored = searcher.GetStoredFields(0);
+            Assert.Equal(expected, stored["body"][0]);
+        }
+
+        Assert.True(customCodec.DecompressCalls > 0);
+    }
+
     private static long GetFdtSize(string dir)
     {
         return Directory.GetFiles(dir, "*.fdt")
             .Sum(f => new FileInfo(f).Length);
+    }
+
+    private sealed class TrackingCompressionCodec(IFieldCompressionCodec inner, byte policyByte)
+        : IFieldCompressionCodec
+    {
+        private int _compressCalls;
+        private int _decompressCalls;
+
+        public byte PolicyByte => policyByte;
+        internal int CompressCalls => Volatile.Read(ref _compressCalls);
+        internal int DecompressCalls => Volatile.Read(ref _decompressCalls);
+
+        public byte[] Compress(ReadOnlySpan<byte> raw)
+        {
+            Interlocked.Increment(ref _compressCalls);
+            return inner.Compress(raw);
+        }
+
+        public byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize)
+        {
+            Interlocked.Increment(ref _decompressCalls);
+            return inner.Decompress(compressed, originalSize);
+        }
     }
 }

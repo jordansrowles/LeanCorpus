@@ -1,4 +1,5 @@
 using System.Text;
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
@@ -11,6 +12,37 @@ public sealed class StoredFieldsConcurrencyTests : IClassFixture<TestDirectoryFi
     private readonly TestDirectoryFixture _fixture;
 
     public StoredFieldsConcurrencyTests(TestDirectoryFixture fixture) => _fixture = fixture;
+
+    [Fact(DisplayName = "Stored Fields: reader keeps the compression implementation captured at open")]
+    public void Reader_CapturesCompressionCodecAtOpen()
+    {
+        const string marker = "core056-reader-codec-snapshot";
+        string path = Path.Combine(_fixture.Path, $"sf-codec-snapshot-{Guid.NewGuid():N}");
+        List<Dictionary<string, List<string>>> docs =
+        [
+            new(StringComparer.Ordinal) { ["id"] = [marker] }
+        ];
+        StoredFieldsWriter.Write(
+            path + ".fdt",
+            path + ".fdx",
+            docs,
+            blockSize: 1,
+            compression: FieldCompressionPolicy.Deflate,
+            catalog: CodecCatalog.Default);
+
+        var catalog = CodecCatalog.Default;
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx", catalog);
+        var originalCodec = catalog.GetCompressionCodec((byte)FieldCompressionPolicy.Deflate);
+        var replacementCodec = new TrackingDecodeCodec(originalCodec);
+
+        Assert.Throws<InvalidOperationException>(() => CompressionCodecRegistry.Register(replacementCodec));
+        Assert.Throws<InvalidOperationException>(() => CompressionCodecRegistry.Replace(replacementCodec));
+        var values = reader.ReadDocumentValues(0);
+
+        Assert.False(replacementCodec.DecodeWasCalled,
+            "An open reader must keep the implementation captured from its immutable codec catalogue.");
+        Assert.Equal(marker, values["id"][0].StringValue);
+    }
 
     [Fact(DisplayName = "Stored Fields: independent document reads decompress concurrently and remain isolated")]
     public async Task ConcurrentReads_UseIndependentCursorsAndPreserveValues()
@@ -30,19 +62,21 @@ public sealed class StoredFieldsConcurrencyTests : IClassFixture<TestDirectoryFi
             })
             .ToList();
 
+        var originalCodec = CodecCatalog.Default.GetCompressionCodec((byte)FieldCompressionPolicy.Deflate);
+        using var barrierCodec = new ConcurrentDecodeBarrierCodec(originalCodec, Encoding.UTF8.GetBytes(marker));
+        var catalog = new CodecCatalogBuilder()
+            .AddBuiltIns()
+            .ReplaceCompressionCodec(barrierCodec)
+            .Build();
         StoredFieldsWriter.Write(
             path + ".fdt",
             path + ".fdx",
             docs,
             blockSize: 1,
-            compression: FieldCompressionPolicy.Deflate);
-
-        var originalCodec = CompressionCodecRegistry.Get(FieldCompressionPolicy.Deflate);
-        using var barrierCodec = new ConcurrentDecodeBarrierCodec(originalCodec, Encoding.UTF8.GetBytes(marker));
-        CompressionCodecRegistry.Register(barrierCodec);
-        try
+            compression: FieldCompressionPolicy.Deflate,
+            catalog: catalog);
+        using (var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx", catalog))
         {
-            using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
             using var start = new Barrier(3);
             Task<Dictionary<string, List<StoredFieldValue>>> read = Task.Factory.StartNew(
                 () =>
@@ -89,10 +123,6 @@ public sealed class StoredFieldsConcurrencyTests : IClassFixture<TestDirectoryFi
             reader.Dispose();
             Assert.Throws<ObjectDisposedException>(() => reader.ReadDocumentValues(0));
         }
-        finally
-        {
-            CompressionCodecRegistry.Register(originalCodec);
-        }
     }
 
     [Fact(DisplayName = "Stored Fields: a failed block decode does not poison later reads")]
@@ -108,27 +138,25 @@ public sealed class StoredFieldsConcurrencyTests : IClassFixture<TestDirectoryFi
                 ["body"] = ["retry-body"]
             }
         ];
+        var originalCodec = CodecCatalog.Default.GetCompressionCodec((byte)FieldCompressionPolicy.Deflate);
+        var failOnceCodec = new FailOnceDecodeCodec(originalCodec, Encoding.UTF8.GetBytes(marker));
+        var catalog = new CodecCatalogBuilder()
+            .AddBuiltIns()
+            .ReplaceCompressionCodec(failOnceCodec)
+            .Build();
         StoredFieldsWriter.Write(
             path + ".fdt",
             path + ".fdx",
             docs,
             blockSize: 1,
-            compression: FieldCompressionPolicy.Deflate);
+            compression: FieldCompressionPolicy.Deflate,
+            catalog: catalog);
 
-        var originalCodec = CompressionCodecRegistry.Get(FieldCompressionPolicy.Deflate);
-        CompressionCodecRegistry.Register(new FailOnceDecodeCodec(originalCodec, Encoding.UTF8.GetBytes(marker)));
-        try
-        {
-            using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
-            Assert.Throws<InvalidDataException>(() => reader.ReadDocumentValues(0));
-            var values = reader.ReadDocumentValues(0);
-            Assert.Equal($"{marker}-0", values["id"][0].StringValue);
-            Assert.Equal("retry-body", values["body"][0].StringValue);
-        }
-        finally
-        {
-            CompressionCodecRegistry.Register(originalCodec);
-        }
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx", catalog);
+        Assert.Throws<InvalidDataException>(() => reader.ReadDocumentValues(0));
+        var values = reader.ReadDocumentValues(0);
+        Assert.Equal($"{marker}-0", values["id"][0].StringValue);
+        Assert.Equal("retry-body", values["body"][0].StringValue);
     }
 
     [Fact(DisplayName = "Stored Fields: writer and reader round-trip codec output larger than twice the raw block")]
@@ -141,29 +169,73 @@ public sealed class StoredFieldsConcurrencyTests : IClassFixture<TestDirectoryFi
             new(StringComparer.Ordinal) { ["id"] = [marker] }
         ];
 
-        var originalCodec = CompressionCodecRegistry.Get(FieldCompressionPolicy.Deflate);
+        var originalCodec = CodecCatalog.Default.GetCompressionCodec((byte)FieldCompressionPolicy.Deflate);
         var expandingCodec = new ExpandingFieldCompressionCodec(originalCodec, Encoding.UTF8.GetBytes(marker));
-        CompressionCodecRegistry.Register(expandingCodec);
-        try
-        {
-            StoredFieldsWriter.Write(
-                path + ".fdt",
-                path + ".fdx",
-                docs,
-                blockSize: 1,
-                compression: FieldCompressionPolicy.Deflate);
+        var catalog = new CodecCatalogBuilder()
+            .AddBuiltIns()
+            .ReplaceCompressionCodec(expandingCodec)
+            .Build();
+        StoredFieldsWriter.Write(
+            path + ".fdt",
+            path + ".fdx",
+            docs,
+            blockSize: 1,
+            compression: FieldCompressionPolicy.Deflate,
+            catalog: catalog);
 
-            using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
-            var values = reader.ReadDocumentValues(0);
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx", catalog);
+        var values = reader.ReadDocumentValues(0);
 
-            Assert.True(expandingCodec.ExpandedBeyondTwiceRawLength);
-            Assert.Equal(marker, values["id"][0].StringValue);
-            Assert.True(reader.HasField(0, "id"));
-        }
-        finally
+        Assert.True(expandingCodec.ExpandedBeyondTwiceRawLength);
+        Assert.Equal(marker, values["id"][0].StringValue);
+        Assert.True(reader.HasField(0, "id"));
+    }
+
+    [Fact(DisplayName = "Stored Fields: parallel immutable codec catalogues stay isolated across repeated reads")]
+    public async Task ParallelCatalogs_CaptureIndependentCodecsAcrossRepeatedReads()
+    {
+        const int catalogueCount = 8;
+        const int readsPerCatalogue = 24;
+        string root = _fixture.Path;
+        var originalCodec = CodecCatalog.Default.GetCompressionCodec((byte)FieldCompressionPolicy.Deflate);
+        var cases = Enumerable.Range(0, catalogueCount)
+            .Select(index =>
+            {
+                string marker = $"core056-independent-catalogue-{index}";
+                string path = Path.Combine(root, $"sf-independent-{Guid.NewGuid():N}");
+                var trackingCodec = new TrackingDecodeCodec(originalCodec);
+                var catalog = new CodecCatalogBuilder()
+                    .AddBuiltIns()
+                    .ReplaceCompressionCodec(trackingCodec)
+                    .Build();
+                var docs = new List<Dictionary<string, List<string>>>
+                {
+                    new(StringComparer.Ordinal) { ["id"] = [marker] }
+                };
+                StoredFieldsWriter.Write(
+                    path + ".fdt",
+                    path + ".fdx",
+                    docs,
+                    blockSize: 1,
+                    compression: FieldCompressionPolicy.Deflate,
+                    catalog: catalog);
+                return (Path: path, Marker: marker, Codec: trackingCodec, Catalog: catalog);
+            })
+            .ToArray();
+
+        await Task.WhenAll(cases.Select(testCase => Task.Run(() =>
         {
-            CompressionCodecRegistry.Register(originalCodec);
-        }
+            for (int read = 0; read < readsPerCatalogue; read++)
+            {
+                using var reader = StoredFieldsReader.Open(
+                    testCase.Path + ".fdt", testCase.Path + ".fdx", testCase.Catalog);
+                var values = reader.ReadDocumentValues(0);
+                Assert.Equal(testCase.Marker, values["id"][0].StringValue);
+            }
+        }, TestContext.Current.CancellationToken)));
+
+        foreach (var testCase in cases)
+            Assert.Equal(readsPerCatalogue, testCase.Codec.DecodeCalls);
     }
 
     private sealed class ConcurrentDecodeBarrierCodec : IFieldCompressionCodec, IDisposable
@@ -212,6 +284,24 @@ public sealed class StoredFieldsConcurrencyTests : IClassFixture<TestDirectoryFi
                 && Interlocked.CompareExchange(ref _maximumConcurrentDecodes, value, observed) != observed)
             {
             }
+        }
+    }
+
+    private sealed class TrackingDecodeCodec(IFieldCompressionCodec inner) : IFieldCompressionCodec
+    {
+        private int _decodeCalls;
+
+        public byte PolicyByte => inner.PolicyByte;
+
+        internal bool DecodeWasCalled => Volatile.Read(ref _decodeCalls) != 0;
+        internal int DecodeCalls => Volatile.Read(ref _decodeCalls);
+
+        public byte[] Compress(ReadOnlySpan<byte> raw) => inner.Compress(raw);
+
+        public byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize)
+        {
+            Interlocked.Increment(ref _decodeCalls);
+            return inner.Decompress(compressed, originalSize);
         }
     }
 
