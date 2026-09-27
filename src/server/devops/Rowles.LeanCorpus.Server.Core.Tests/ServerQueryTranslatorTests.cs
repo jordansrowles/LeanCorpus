@@ -74,6 +74,22 @@ public sealed class ServerQueryTranslatorTests
     }
 
     [Fact]
+    public void QueryStringStopwordOperandIsLoweredAfterSyntaxRecognition()
+    {
+        bool translated = ServerQueryTranslator.TryTranslate(
+            new QueryStringDefinition("guide AND the"),
+            CreateSchema(),
+            new ServerCoreOptions(),
+            defaultField: "title",
+            maximumBooleanClauses: null,
+            out var query,
+            out var failure);
+
+        Assert.True(translated, failure?.Message);
+        Assert.IsType<Rowles.LeanCorpus.Search.Queries.MatchNoDocsQuery>(query);
+    }
+
+    [Fact]
     public void StructuredQueriesUseTheCompilationBudgetBeforeQueryConstruction()
     {
         ServerCoreOptions options = new() { MaximumBooleanClauses = 2 };

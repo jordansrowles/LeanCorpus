@@ -58,6 +58,7 @@
 - Compile query-string clauses with the analyser configured for their selected schema field.
 - Parse `~`, `^` and `^=` modifiers atomically, reject non-finite scores, and cap phrase slop at 256 in Core and structured Server queries.
 - Treat quoted phrases with no analysed tokens as no-clause results instead of reconstructing raw terms, returning `MatchNoDocsQuery` when no query clauses remain.
+- Recognise query syntax before analyser lowering and normalise stopword-empty Boolean clauses after analysis.
 - Preserve query-token escape metadata through wildcard, range, and phrase parsing so escaped metacharacters remain literal.
 - Preserve position lengths through legacy filter routing and cached graph replay, with independent cache clones.
 - Return `CharFilterResult` from `ICharFilter` with composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the published Rowles.Text 1.x filter API and advances the package to 2.0.0.

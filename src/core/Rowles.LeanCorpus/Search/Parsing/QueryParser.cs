@@ -199,7 +199,8 @@ public class QueryParser
                     $"Unexpected token '{tok.Value}' at position {pos}.", tok.Offset);
             }
         }
-        return syntax ?? new EmptyQuerySyntax();
+        _syntaxNodeCount = 0;
+        return LowerAnalysedSyntax(syntax ?? new EmptyQuerySyntax());
     }
 
     internal QuerySyntax PrepareSyntax(QuerySyntax syntax, Action<int, int> consumeAdditionalClauses, bool graphPathLimitIsComplexity)
@@ -217,7 +218,7 @@ public class QueryParser
 
     internal Query CompileSyntax(QuerySyntax syntax)
     {
-        Query? query = Compile(syntax);
+        Query? query = syntax is AnalysedEmptyQuerySyntax ? null : Compile(syntax);
         return query switch
         {
             NoClauseQuery => new MatchNoDocsQuery(),
@@ -316,7 +317,7 @@ public class QueryParser
             int operatorOffset = tokens[pos].Offset;
             pos++;
             var next = ParseUnary(tokens, ref pos);
-            if (next.Query is null)
+            if (next.Query is null || next.State is QueryClauseState.SyntaxMissing or QueryClauseState.RecoveredError)
             {
                 if (_lenient)
                     break;
@@ -372,13 +373,18 @@ public class QueryParser
         if (_lenient)
         {
             try { query = ParseClause(tokens, ref pos); }
-            catch (QueryParseException) { return default; }
+            catch (QueryParseException)
+            {
+                return new ParsedSyntaxClause(null, occur, QueryClauseState.RecoveredError);
+            }
         }
         else
         {
             query = ParseClause(tokens, ref pos);
         }
-        return new ParsedSyntaxClause(query, occur);
+        return query is null
+            ? new ParsedSyntaxClause(null, occur, QueryClauseState.RecoveredError)
+            : new ParsedSyntaxClause(query, occur, QueryClauseState.Parsed);
     }
 
     private static bool CanStartClause(QTokenType type) =>
@@ -526,22 +532,140 @@ public class QueryParser
                 else
                 {
                     pos = suffixPosition + 1;
-                    var analysedTokens = AnalyseTerm(field, term);
-                    var fuzzy = LowerAnalysedTokens(field, term, analysedTokens, maxEdits, modifierOffset);
-                    return fuzzy is null ? null : ApplyBoost(fuzzy, tokens, ref pos);
+                    var fuzzy = CreateSyntaxNode(new UnanalysedFuzzyQuerySyntax(field, term, maxEdits, modifierOffset));
+                    return ApplyBoost(fuzzy, tokens, ref pos);
                 }
             }
 
-            // Regular term — analyse it
-            var analysedTermTokens = AnalyseTerm(field, term);
-            var loweredTerm = LowerAnalysedTokens(field, term, analysedTermTokens);
-            return loweredTerm is null ? null : ApplyBoost(loweredTerm, tokens, ref pos);
+            // Recognise the term now; analysis lowering runs after the complete syntax tree exists.
+            var unanalysedTerm = CreateSyntaxNode(new UnanalysedTermQuerySyntax(field, term));
+            return ApplyBoost(unanalysedTerm, tokens, ref pos);
         }
 
         if (_lenient) return null;
         throw new QueryParseException(
             $"Unexpected token '{tokens[pos].Value}' at position {pos}.", tokens[pos].Offset);
     }
+
+    private QuerySyntax LowerAnalysedSyntax(QuerySyntax syntax) => syntax switch
+    {
+        UnanalysedTermQuerySyntax term => LowerUnanalysedTermSyntax(term.Field, term.Term),
+        UnanalysedFuzzyQuerySyntax fuzzy => LowerUnanalysedTermSyntax(
+            fuzzy.Field,
+            fuzzy.Term,
+            fuzzy.MaxEdits,
+            fuzzy.ModifierOffset),
+        GroupQuerySyntax group => LowerGroupSyntax(group),
+        BooleanQuerySyntax boolean => LowerBooleanSyntax(boolean),
+        DisjunctionMaxQuerySyntax disjunction => LowerDisjunctionSyntax(disjunction),
+        BoostQuerySyntax boost => LowerBoostSyntax(boost),
+        _ => CreateSyntaxNode(syntax)
+    };
+
+    private QuerySyntax LowerUnanalysedTermSyntax(
+        string field,
+        string term,
+        int? fuzzyMaxEdits = null,
+        int modifierOffset = 0)
+    {
+        try
+        {
+            QuerySyntax? lowered = LowerAnalysedTokens(
+                field,
+                term,
+                AnalyseTerm(field, term),
+                fuzzyMaxEdits,
+                modifierOffset);
+            return lowered ?? CreateSyntaxNode(new AnalysedEmptyQuerySyntax());
+        }
+        catch (QueryParseException) when (_lenient)
+        {
+            return CreateSyntaxNode(new RecoveredQuerySyntax());
+        }
+    }
+
+    private QuerySyntax LowerGroupSyntax(GroupQuerySyntax group)
+    {
+        QuerySyntax inner = LowerAnalysedSyntax(group.Inner);
+        return IsEmptySyntax(inner)
+            ? inner
+            : CreateSyntaxNode(group with { Inner = inner });
+    }
+
+    private QuerySyntax LowerBoostSyntax(BoostQuerySyntax boost)
+    {
+        QuerySyntax inner = LowerAnalysedSyntax(boost.Inner);
+        return IsEmptySyntax(inner)
+            ? inner
+            : CreateSyntaxNode(boost with { Inner = inner });
+    }
+
+    private QuerySyntax LowerBooleanSyntax(BooleanQuerySyntax boolean)
+    {
+        var clauses = new List<QuerySyntaxClause>(boolean.Clauses.Count);
+        bool removedEmptyClause = false;
+        foreach (QuerySyntaxClause clause in boolean.Clauses)
+        {
+            QuerySyntax loweredQuery = LowerAnalysedSyntax(clause.Query);
+            QueryClauseState state = GetClauseState(loweredQuery);
+            QuerySyntaxClause loweredClause = clause with { Query = loweredQuery, State = state };
+            if (state is QueryClauseState.SyntaxMissing or QueryClauseState.RecoveredError)
+            {
+                removedEmptyClause = true;
+                continue;
+            }
+
+            clauses.Add(loweredClause);
+        }
+
+        if (!removedEmptyClause)
+            return CreateSyntaxNode(boolean with { Clauses = clauses.ToArray() });
+        if (clauses.Count == 0)
+            return CreateSyntaxNode(new AnalysedEmptyQuerySyntax());
+        if (clauses.Count == 1
+            && clauses[0].Occur != Occur.MustNot
+            && clauses[0].State != QueryClauseState.AnalysedEmpty)
+            return clauses[0].Query;
+
+        return CreateSyntaxNode(new BooleanQuerySyntax(clauses));
+    }
+
+    private QuerySyntax LowerDisjunctionSyntax(DisjunctionMaxQuerySyntax disjunction)
+    {
+        var clauses = new List<QuerySyntax>(disjunction.Clauses.Count);
+        bool removedEmptyClause = false;
+        foreach (QuerySyntax clause in disjunction.Clauses)
+        {
+            QuerySyntax loweredClause = LowerAnalysedSyntax(clause);
+            if (GetClauseState(loweredClause) is QueryClauseState.SyntaxMissing or QueryClauseState.RecoveredError)
+            {
+                removedEmptyClause = true;
+                continue;
+            }
+
+            clauses.Add(loweredClause);
+        }
+
+        if (!removedEmptyClause)
+            return CreateSyntaxNode(disjunction with { Clauses = clauses.ToArray() });
+        return clauses.Count switch
+        {
+            0 => CreateSyntaxNode(new AnalysedEmptyQuerySyntax()),
+            1 when GetClauseState(clauses[0]) != QueryClauseState.AnalysedEmpty => clauses[0],
+            _ => CreateSyntaxNode(new DisjunctionMaxQuerySyntax(clauses))
+        };
+    }
+
+    private static QueryClauseState GetClauseState(QuerySyntax syntax) => syntax switch
+    {
+        EmptyQuerySyntax => QueryClauseState.SyntaxMissing,
+        AnalysedEmptyQuerySyntax => QueryClauseState.AnalysedEmpty,
+        RecoveredQuerySyntax => QueryClauseState.RecoveredError,
+        _ => QueryClauseState.Parsed
+    };
+
+    private static bool IsEmptySyntax(QuerySyntax syntax) =>
+        GetClauseState(syntax) != QueryClauseState.Parsed;
 
     private QuerySyntax ParseRange(string field, List<QToken> tokens, ref int pos)
     {
@@ -924,6 +1048,8 @@ public class QueryParser
     private Query? Compile(QuerySyntax syntax) => syntax switch
     {
         EmptyQuerySyntax => null,
+        AnalysedEmptyQuerySyntax => NoClauseQuery.Instance,
+        RecoveredQuerySyntax => null,
         GroupQuerySyntax group => Compile(group.Inner),
         TermQuerySyntax term => new TermQuery(term.Field, term.Term),
         FuzzyQuerySyntax fuzzy => CompileFuzzy(fuzzy),
@@ -1487,7 +1613,10 @@ public class QueryParser
     {
         public string Raw => RawValue ?? Value;
     }
-    private readonly record struct ParsedSyntaxClause(QuerySyntax? Query, Occur Occur);
+    private readonly record struct ParsedSyntaxClause(
+        QuerySyntax? Query,
+        Occur Occur,
+        QueryClauseState State = QueryClauseState.Parsed);
 
     private sealed class NoClauseQuery : Query
     {
@@ -1582,8 +1711,20 @@ public class QueryParser
 }
 
 internal abstract record QuerySyntax;
+internal enum QueryClauseState
+{
+    SyntaxMissing,
+    Parsed,
+    AnalysedEmpty,
+    RecoveredError
+}
+
 internal sealed record EmptyQuerySyntax : QuerySyntax;
+internal sealed record AnalysedEmptyQuerySyntax : QuerySyntax;
+internal sealed record RecoveredQuerySyntax : QuerySyntax;
 internal sealed record GroupQuerySyntax(QuerySyntax Inner) : QuerySyntax;
+internal sealed record UnanalysedTermQuerySyntax(string Field, string Term) : QuerySyntax;
+internal sealed record UnanalysedFuzzyQuerySyntax(string Field, string Term, int MaxEdits, int ModifierOffset) : QuerySyntax;
 internal sealed record TermQuerySyntax(string Field, string Term) : QuerySyntax;
 internal sealed record FuzzyQuerySyntax(string Field, string Term, int MaxEdits, int ModifierOffset) : QuerySyntax;
 internal sealed record MultiTermQuerySyntax(string Field, string Pattern, string Term) : QuerySyntax;
@@ -1607,7 +1748,10 @@ internal sealed record FieldExistsQuerySyntax(string Field) : QuerySyntax;
 internal sealed record BoostQuerySyntax(QuerySyntax Inner, float Boost, bool ConstantScore) : QuerySyntax;
 internal sealed record BooleanQuerySyntax(IReadOnlyList<QuerySyntaxClause> Clauses) : QuerySyntax;
 internal sealed record DisjunctionMaxQuerySyntax(IReadOnlyList<QuerySyntax> Clauses) : QuerySyntax;
-internal readonly record struct QuerySyntaxClause(QuerySyntax Query, Occur Occur);
+internal readonly record struct QuerySyntaxClause(
+    QuerySyntax Query,
+    Occur Occur,
+    QueryClauseState State = QueryClauseState.Parsed);
 internal sealed record QueryFieldCompilationContext(
     string Field,
     IAnalyser QueryAnalyser,

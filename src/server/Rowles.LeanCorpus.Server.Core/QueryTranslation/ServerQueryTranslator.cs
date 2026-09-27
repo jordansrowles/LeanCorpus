@@ -178,6 +178,14 @@ internal static class ServerQueryTranslator
                 case EmptyQuerySyntax:
                     return;
 
+                case AnalysedEmptyQuerySyntax:
+                    _budget.CountClause(depth);
+                    return;
+
+                case RecoveredQuerySyntax:
+                    _budget.CountClause(depth);
+                    return;
+
                 case GroupQuerySyntax group:
                     _budget.CheckDepth(depth + 1);
                     ValidateSyntax(group.Inner, depth + 1);

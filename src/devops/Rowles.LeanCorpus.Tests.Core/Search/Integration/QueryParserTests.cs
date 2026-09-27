@@ -115,6 +115,20 @@ public sealed class QueryParserTests
         Assert.IsType<MatchNoDocsQuery>(_parser.Parse("corpus AND \"the and\""));
     }
 
+    [Fact(DisplayName = "Parse: Stopword terms are removed after Boolean syntax is parsed")]
+    public void Parse_AnalysedEmptyTerm_NormalisesAfterBooleanSyntax()
+    {
+        Assert.IsType<MatchNoDocsQuery>(_parser.Parse("corpus AND the"));
+
+        var disjunction = Assert.IsType<BooleanQuery>(_parser.Parse("corpus OR the"));
+        var optionalClause = Assert.Single(disjunction.Clauses);
+        Assert.Equal(Occur.Should, optionalClause.Occur);
+        Assert.Equal("corpus", Assert.IsType<TermQuery>(optionalClause.Query).Term);
+
+        var stopwordOnly = Assert.IsType<BooleanQuery>(_parser.Parse("the"));
+        Assert.Empty(stopwordOnly.Clauses);
+    }
+
     /// <summary>
     /// Verifies the Parse: Required Term Returns Must Clause scenario.
     /// </summary>
