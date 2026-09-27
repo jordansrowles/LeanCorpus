@@ -360,17 +360,14 @@ public static class IndexRecovery
         if (!FileOpenRetry.DirectoryExists(directoryPath))
             return;
 
-        foreach (var tmpFile in FileOpenRetry.GetFiles(directoryPath, "*.tmp"))
+        foreach (var tmpFile in FileOpenRetry.EnumerateFiles(directoryPath, "*"))
         {
-            if (!IsRecognisedTemporaryFile(Path.GetFileName(tmpFile), catalog))
+            if (!SegmentFileSet.IsRegisteredTemporaryFileName(Path.GetFileName(tmpFile), catalog))
                 continue;
 
             try { FileOpenRetry.Delete(tmpFile); } catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "temp file cleanup"); }
         }
     }
-
-    private static bool IsRecognisedTemporaryFile(string fileName, CodecCatalog catalog)
-        => catalog.TryMatchTemporaryFile(fileName, out _);
 
     /// <summary>
     /// Removes unreferenced segment files and prunes obsolete deletion generations for

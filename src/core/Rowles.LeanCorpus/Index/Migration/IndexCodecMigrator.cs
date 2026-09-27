@@ -305,7 +305,7 @@ public static class IndexCodecMigrator
                 durable: true);
             currentState = IndexMigrationState.InProgress;
 
-            CleanupTemporaryFiles(targetDirectory);
+            CleanupTemporaryFiles(targetDirectory, options.Catalog);
             MaterialiseCompoundMembers(targetDirectory, plan.Actions);
 
             var rewrittenTargetPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -554,17 +554,18 @@ public static class IndexCodecMigrator
         if (segmentId is null || !segmentIdMap.TryGetValue(segmentId, out var newSegmentId))
             return sourceFileName;
 
-        if (!sourceFileName.StartsWith(segmentId, StringComparison.Ordinal))
+        if (!SegmentFileSet.IsOwnedFileName(segmentId, sourceFileName))
             return sourceFileName;
 
         return newSegmentId + sourceFileName.Substring(segmentId.Length);
     }
 
-    private static void CleanupTemporaryFiles(string directoryPath)
+    private static void CleanupTemporaryFiles(string directoryPath, CodecCatalog catalog)
     {
-        foreach (var tmpFile in FileOpenRetry.GetFiles(directoryPath, "*.tmp"))
+        foreach (var tmpFile in FileOpenRetry.EnumerateFiles(directoryPath, "*"))
         {
-            TryDeleteFile(tmpFile);
+            if (SegmentFileSet.IsTemporaryFileName(Path.GetFileName(tmpFile), catalog))
+                TryDeleteFile(tmpFile);
         }
     }
 

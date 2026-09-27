@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Compatibility;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;
 using System.Collections.Concurrent;
 using Rowles.LeanCorpus.Search.Parsing;
@@ -287,7 +288,7 @@ public sealed partial class IndexSearcher : IDisposable
                 _readers.Clear();
                 var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
                 attemptSnapshot = directory.AcquireSnapshot(
-                    name => IsSnapshotFile(idSet, name), out var inventory);
+                    name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out var inventory);
                 var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
                 foreach (var info in segmentInfos)
                     _readers.Add(new SegmentReader(directory, info, _segmentReaderCache, inventorySet));
@@ -411,7 +412,7 @@ public sealed partial class IndexSearcher : IDisposable
             var segmentIds = segments.Select(static segment => segment.SegmentId).ToList();
             var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
             _snapshotLease = directory.AcquireSnapshot(
-                name => IsSnapshotFile(idSet, name), out var inventory);
+                name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out var inventory);
             var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
             foreach (var descriptor in segments)
                 _readers.Add(new SegmentReader(directory, descriptor, _segmentReaderCache, inventorySet));
@@ -458,22 +459,6 @@ public sealed partial class IndexSearcher : IDisposable
             docBase += _readers[i].MaxDoc;
         }
         return bases;
-    }
-
-    private static bool IsSnapshotFile(HashSet<string> segmentIds, string fileName)
-    {
-        int dot = fileName.IndexOf('.');
-        if (dot <= 0)
-            return false;
-        var candidate = fileName[..dot];
-        int generationMarker = candidate.IndexOf("_gen_", StringComparison.Ordinal);
-        int vectorMarker = candidate.IndexOf("_v_", StringComparison.Ordinal);
-        int marker = generationMarker > 0 && vectorMarker > 0
-            ? Math.Min(generationMarker, vectorMarker)
-            : Math.Max(generationMarker, vectorMarker);
-        if (marker > 0)
-            candidate = candidate[..marker];
-        return segmentIds.Contains(candidate) && SegmentReader.IsSegmentFile(candidate, fileName);
     }
 
     /// <summary>

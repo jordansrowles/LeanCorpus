@@ -417,12 +417,12 @@ public class CrashRecoveryTests : IDisposable
             "Example custom data",
             CodecFileMatcher.Extension(".custom"),
             currentFormatVersion: null,
-            temporaryFileMatchers: [CodecFileMatcher.ExtensionWithTrailingSuffix(".custom", ".tmp")]);
+            temporaryFileMatchers: [CodecFileMatcher.ExtensionWithTrailingSuffix(".custom", ".codec.staging")]);
         var catalog = new CodecCatalogBuilder()
             .AddBuiltIns()
             .Add(new CodecFamilyDescriptor("example.custom", "Example custom", [customDescriptor]))
             .Build();
-        string temporaryPath = Path.Combine(_dir, "segment.custom.tmp");
+        string temporaryPath = Path.Combine(_dir, "segment.custom.codec.staging");
         File.WriteAllText(temporaryPath, "partial");
 
         var recovery = IndexRecovery.RecoverLatestCommit(_dir, catalog: catalog);

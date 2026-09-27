@@ -183,7 +183,7 @@ internal static class CommitManager
         foreach (var dirtyFile in dirtyFiles)
         {
             var fileName = Path.GetFileName(dirtyFile.Path);
-            if (fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
+            if (SegmentFileSet.IsTemporaryFileName(fileName, writer.Config.CodecCatalog))
                 continue;
 
             try

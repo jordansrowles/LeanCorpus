@@ -74,6 +74,7 @@
 - Fail closed when selected deletion state is missing, malformed, or inconsistent with segment metadata.
 - Expose immutable `SegmentDescriptor` metadata from `SegmentReader.Info` and return deep copies from `GetNrtSegments()`, so later commits cannot change an existing NRT searcher's deletion view.
 - Centralise segment file ownership so merge, deletion and recovery cleanup include vector/HNSW and deletion-generation sidecars, while pruning protects active commit and held-snapshot generations.
+- Apply codec-catalogue temporary-file patterns consistently to searcher snapshot leases, commit syncing, recovery, migration cleanup and validation.
 - Compile query-string clauses with the analyser configured for their selected schema field.
 - Normalise wildcard and range literals through `ITermNormaliser`, preserving lowercasing for stop words and rejecting inputs that cannot map to one term.
 - Parse `~`, `^` and `^=` modifiers atomically, reject non-finite scores, and cap phrase slop at 256 in Core and structured Server queries.

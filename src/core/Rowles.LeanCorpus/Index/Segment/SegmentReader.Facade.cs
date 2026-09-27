@@ -187,11 +187,9 @@ public sealed partial class SegmentReader : IDisposable
         return inventory.Where(selected.Contains).ToArray();
     }
 
-    // Atomic writers briefly expose GUID-suffixed temporary files in the directory.
-    // They are publication machinery, not immutable files belonging to the snapshot.
+    // Temporary codec files are publication machinery, not immutable snapshot files.
     internal static bool IsSegmentFile(string segmentId, string name)
-        => SegmentFileSet.IsOwnedFileName(segmentId, name)
-            && !SegmentFileSet.IsTemporaryFileName(name);
+        => SegmentFileSet.IsSnapshotFile(segmentId, name);
 
     internal static void ValidateRequiredFiles(SegmentDescriptor info, IReadOnlyCollection<string> inventory)
     {

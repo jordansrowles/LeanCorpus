@@ -84,6 +84,34 @@ public sealed class IndexValidatorGapsTests : IDisposable
             i => i.Code == IndexCheckIssueCodes.StaleTemporaryFile);
     }
 
+    [Fact(DisplayName = "Check: Catalogue-Declared Temporary Pattern Reports Stale File")]
+    public void Check_CatalogueDeclaredTemporaryPattern_ReportsStaleFile()
+    {
+        var dir = SubDir("catalogue_tmp_pattern");
+        const string fileName = "seg_0.custom.codec.staging";
+        File.WriteAllBytes(Path.Combine(dir, fileName), []);
+
+        var customDescriptor = new CodecFileDescriptor(
+            "unit-test.validator.custom",
+            "unit-test.validator",
+            "Custom validation file",
+            CodecFileMatcher.Extension(".custom"),
+            currentFormatVersion: null,
+            temporaryFileMatchers:
+            [CodecFileMatcher.ExtensionWithTrailingSuffix(".custom", ".codec.staging")]);
+        var catalog = new CodecCatalogBuilder()
+            .AddBuiltIns()
+            .Add(new CodecFamilyDescriptor("unit-test.validator", "Validator tests", [customDescriptor]))
+            .Build();
+        using var mmap = new MMapDirectory(dir);
+
+        var result = IndexValidator.Check(mmap, new IndexCheckOptions { Catalog = catalog });
+
+        Assert.Contains(result.DetailedIssues,
+            issue => issue.Code == IndexCheckIssueCodes.StaleTemporaryFile
+                     && issue.Severity == IndexCheckSeverity.Warning);
+    }
+
     [Fact(DisplayName = "Check: All Recognised Temp File Patterns Report Warnings")]
     public void Check_AllRecognisedTempPatterns_ReportWarnings()
     {

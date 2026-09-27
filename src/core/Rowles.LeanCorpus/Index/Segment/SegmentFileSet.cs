@@ -124,10 +124,27 @@ internal sealed class SegmentFileSet
         return segmentIds.Contains(candidate) && IsOwnedFileName(candidate, fileName);
     }
 
+    internal static bool IsSnapshotFile(string segmentId, string fileName, CodecCatalog? catalog = null)
+        => IsSnapshotFile(fileName, IsOwnedFileName(segmentId, fileName), catalog);
+
+    internal static bool IsSnapshotFile(
+        string fileName,
+        IReadOnlySet<string> segmentIds,
+        CodecCatalog? catalog = null)
+        => IsSnapshotFile(fileName, IsOwnedByAnySegment(fileName, segmentIds), catalog);
+
+    private static bool IsSnapshotFile(string fileName, bool isOwned, CodecCatalog? catalog)
+        => isOwned && !IsTemporaryFileName(fileName, catalog);
+
     internal static bool IsTemporaryFileName(string fileName, CodecCatalog? catalog = null)
     {
         if (fileName.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase))
             return true;
+        return IsRegisteredTemporaryFileName(fileName, catalog);
+    }
+
+    internal static bool IsRegisteredTemporaryFileName(string fileName, CodecCatalog? catalog = null)
+    {
         catalog ??= CodecCatalog.Default;
         return catalog.TryMatchTemporaryFile(fileName, out _);
     }

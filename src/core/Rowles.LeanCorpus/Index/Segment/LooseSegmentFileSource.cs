@@ -32,8 +32,4 @@ internal sealed class LooseSegmentFileSource : ISegmentFileSource
     public void Dispose()
     {
     }
-
-    internal static bool IsSegmentFile(string fileName, string segmentId)
-        => SegmentFileSet.IsOwnedFileName(segmentId, fileName)
-            && !SegmentFileSet.IsTemporaryFileName(fileName);
 }

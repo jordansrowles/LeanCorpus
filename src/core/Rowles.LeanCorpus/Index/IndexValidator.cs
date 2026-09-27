@@ -112,10 +112,10 @@ public static class IndexValidator
         if (!FileOpenRetry.DirectoryExists(dirPath))
             return;
 
-        foreach (var path in FileOpenRetry.EnumerateFiles(dirPath, "*.tmp"))
+        foreach (var path in FileOpenRetry.EnumerateFiles(dirPath, "*"))
         {
             var fileName = Path.GetFileName(path);
-            if (!IsRecognisedTemporaryFile(fileName, catalog))
+            if (!SegmentFileSet.IsRegisteredTemporaryFileName(fileName, catalog))
                 continue;
 
             result.AddIssue(
@@ -127,9 +127,6 @@ public static class IndexValidator
                 true);
         }
     }
-
-    private static bool IsRecognisedTemporaryFile(string fileName, CodecCatalog catalog)
-        => catalog.TryMatchTemporaryFile(fileName, out _);
 
     private static void CheckSegment(
         string dirPath,

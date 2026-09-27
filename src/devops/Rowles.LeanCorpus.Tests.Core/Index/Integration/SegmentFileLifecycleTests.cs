@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
@@ -29,6 +30,60 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         Assert.True(SegmentFileSet.IsOwnedByAnySegment("seg_1_gen_4.del", segmentIds));
         Assert.False(SegmentFileSet.IsOwnedByAnySegment("seg_10.seg", segmentIds));
         Assert.False(SegmentFileSet.IsOwnedByAnySegment("seg_1_extra.seg", segmentIds));
+    }
+
+    [Fact(DisplayName = "Searcher Snapshot: Does Not Retain Catalogue-Declared Temporary Segment Files")]
+    public void SearcherSnapshot_DoesNotRetainCatalogueDeclaredTemporarySegmentFiles()
+    {
+        string path = SubDir(nameof(SearcherSnapshot_DoesNotRetainCatalogueDeclaredTemporarySegmentFiles));
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig { MaxBufferedDocs = 1 });
+        writer.AddDocument(CreateDocument("snapshot"));
+        writer.Commit();
+
+        string segmentId = Assert.Single(writer.CommittedSegments).SegmentId;
+        const string extension = ".custom";
+        const string temporarySuffix = ".codec.staging";
+        string temporaryFileName = segmentId + extension + temporarySuffix;
+        string temporaryFilePath = Path.Combine(path, temporaryFileName);
+        File.WriteAllBytes(temporaryFilePath, [1]);
+
+        var customFile = new CodecFileDescriptor(
+            "unit-test.segment-ownership.custom",
+            "unit-test.segment-ownership",
+            "Custom segment sidecar",
+            CodecFileMatcher.Extension(extension),
+            currentFormatVersion: null,
+            temporaryFileMatchers: [CodecFileMatcher.ExtensionWithTrailingSuffix(extension, temporarySuffix)]);
+        var catalog = new CodecCatalogBuilder()
+            .AddBuiltIns()
+            .Add(new CodecFamilyDescriptor(
+                "unit-test.segment-ownership",
+                "Segment ownership test",
+                [customFile]))
+            .Build();
+
+        Assert.True(SegmentFileSet.IsTemporaryFileName(temporaryFileName, catalog));
+
+        using (var searcher = new IndexSearcher(directory, new IndexSearcherConfig { CodecCatalog = catalog }))
+        {
+            directory.DeleteFile(temporaryFileName);
+            Assert.False(File.Exists(temporaryFilePath), "A temporary codec file must not be retained by a searcher snapshot.");
+        }
+
+        Assert.False(File.Exists(temporaryFilePath));
+
+        File.WriteAllBytes(temporaryFilePath, [1]);
+        using (var searcher = new IndexSearcher(
+                   directory,
+                   writer.CommittedSegments,
+                   new IndexSearcherConfig { CodecCatalog = catalog }))
+        {
+            directory.DeleteFile(temporaryFileName);
+            Assert.False(File.Exists(temporaryFilePath), "An explicit snapshot searcher must use the same catalogue ownership rules.");
+        }
+
+        Assert.False(File.Exists(temporaryFilePath));
     }
 
     [Fact(DisplayName = "Merge: Removes All Consumed Loose Vector And HNSW Files")]
