@@ -482,6 +482,35 @@ public sealed class QueryParserTests
         Assert.Equal(2, fq.MaxEdits);
     }
 
+    [Theory(DisplayName = "Parse: Fuzzy syntax preserves zero-token stopword semantics")]
+    [InlineData("the", "the~1", false)]
+    [InlineData("the", "the~2", false)]
+    [InlineData("+the", "+the~1", true)]
+    [InlineData("foo AND the", "foo AND the~1", true)]
+    public void Parse_FuzzyStopwordDoesNotCreateAnEmptyTermQuery(
+        string ordinaryQueryText,
+        string fuzzyQueryText,
+        bool expectedMatchNoDocs)
+    {
+        Query ordinaryQuery = _parser.Parse(ordinaryQueryText);
+        Query fuzzyQuery = _parser.Parse(fuzzyQueryText);
+
+        AssertStopwordQueryShape(ordinaryQuery, expectedMatchNoDocs);
+        AssertStopwordQueryShape(fuzzyQuery, expectedMatchNoDocs);
+    }
+
+    private static void AssertStopwordQueryShape(Query query, bool expectedMatchNoDocs)
+    {
+        if (expectedMatchNoDocs)
+        {
+            Assert.IsType<MatchNoDocsQuery>(query);
+            return;
+        }
+
+        var boolean = Assert.IsType<BooleanQuery>(query);
+        Assert.Empty(boolean.Clauses);
+    }
+
     /// <summary>
     /// Verifies parsing rejects unsupported fuzzy edit distances at the modifier offset.
     /// </summary>
