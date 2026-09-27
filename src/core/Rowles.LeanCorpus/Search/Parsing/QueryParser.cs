@@ -614,6 +614,7 @@ public class QueryParser
         int end = graph.Edges.Max(static edge => edge.EndPosition);
         var byStart = graph.Edges.GroupBy(static edge => edge.StartPosition)
             .ToDictionary(static group => group.Key, static group => group.ToArray());
+        int[] startPositions = byStart.Keys.Order().ToArray();
         var paths = new List<PhraseQuerySyntaxPath[]>();
         var path = new List<Analysis.TokenGraph.TokenEdge>();
         var traversal = new List<PhraseGraphTraversalFrame> { new(start, pathLength: 0) };
@@ -646,12 +647,18 @@ public class QueryParser
                 continue;
             }
 
-            if (!byStart.TryGetValue(frame.Position, out var nextEdges))
+            int nextPositionIndex = Array.BinarySearch(startPositions, frame.Position);
+            if (nextPositionIndex < 0)
+                nextPositionIndex = ~nextPositionIndex;
+            if (nextPositionIndex == startPositions.Length)
             {
                 traversal.RemoveAt(frameIndex);
                 continue;
             }
 
+            // Position increments can leave holes. Continue at the next emitted
+            // coordinate, but do not skip a token position that is present.
+            Analysis.TokenGraph.TokenEdge[] nextEdges = byStart[startPositions[nextPositionIndex]];
             if (frame.NextEdgeIndex >= nextEdges.Length)
             {
                 traversal.RemoveAt(frameIndex);

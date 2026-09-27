@@ -34,6 +34,39 @@ public sealed class TokenGraphQueryParserTests
         Assert.Contains(query.Clauses, static clause => clause.Query is PhraseQuery { Terms: ["new york"] });
     }
 
+    [Fact(DisplayName = "QueryParser: quoted linear phrases preserve positional holes")]
+    public void Parse_QuotedLinearPhraseWithPositionHole_PreservesAbsolutePositions()
+    {
+        var parser = new QueryParser("body", new PositionGapPhraseAnalyser(includeBranch: false));
+
+        var phrase = Assert.IsType<PhraseQuery>(parser.Parse("\"first second\""));
+
+        Assert.Equal(["first", "second"], phrase.Terms);
+        Assert.Equal([0, 3], phrase.Positions);
+    }
+
+    [Fact(DisplayName = "QueryParser: quoted branching phrases preserve positional holes")]
+    public void Parse_QuotedBranchingPhraseWithPositionHole_PreservesPathsAndPositions()
+    {
+        var parser = new QueryParser("body", new PositionGapPhraseAnalyser(includeBranch: true));
+
+        var query = Assert.IsType<BooleanQuery>(parser.Parse("\"new york\""));
+        var phrases = query.Clauses.Select(static clause => Assert.IsType<PhraseQuery>(clause.Query)).ToArray();
+
+        Assert.Collection(
+            phrases,
+            phrase =>
+            {
+                Assert.Equal(["new", "york"], phrase.Terms);
+                Assert.Equal([0, 3], phrase.Positions);
+            },
+            phrase =>
+            {
+                Assert.Equal(["nyc", "york"], phrase.Terms);
+                Assert.Equal([0, 3], phrase.Positions);
+            });
+    }
+
     [Fact(DisplayName = "QueryParser: long linear phrase preserves every term position")]
     public void Parse_LongLinearPhrase_PreservesEveryTermPosition()
     {
@@ -148,6 +181,28 @@ public sealed class TokenGraphQueryParserTests
 
             for (int tail = 0; tail < tailLength; tail++)
                 sink.Add("tail".AsSpan(), 0, 4, Token.DefaultType, positionIncrement: 1, positionLength: 1, payload: null);
+        }
+    }
+
+    private sealed class PositionGapPhraseAnalyser(bool includeBranch) : IAnalyser
+    {
+        public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)
+        {
+            if (!includeBranch)
+            {
+                sink.Add("first".AsSpan(), 0, 5, Token.DefaultType,
+                    positionIncrement: 1, positionLength: 1, payload: null);
+                sink.Add("second".AsSpan(), 6, 12, Token.DefaultType,
+                    positionIncrement: 3, positionLength: 1, payload: null);
+                return;
+            }
+
+            sink.Add("new".AsSpan(), 0, 3, Token.DefaultType,
+                positionIncrement: 1, positionLength: 1, payload: null);
+            sink.Add("nyc".AsSpan(), 0, 3, Token.DefaultType,
+                positionIncrement: 0, positionLength: 2, payload: null);
+            sink.Add("york".AsSpan(), 4, 8, Token.DefaultType,
+                positionIncrement: 3, positionLength: 1, payload: null);
         }
     }
 }
