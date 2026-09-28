@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Buffers.Binary;
+using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Codecs.TermVectors;
@@ -48,6 +50,8 @@ public sealed class StoredFieldsAndTermVectorsCanonicalFrameTests : IClassFixtur
             indexInput.Seek(indexFrame.Metadata.BodyStart);
             Assert.Equal(2, indexInput.ReadInt32());
             Assert.Equal(5, indexInput.ReadInt32());
+            Assert.Equal(["id", "number"],
+                StoredFieldsBlockEncoder.ReadFieldNameTable(indexInput, indexFrame.BodyEnd));
             Assert.Equal(3, indexInput.ReadInt32());
             long[] offsets = [indexInput.ReadInt64(), indexInput.ReadInt64(), indexInput.ReadInt64()];
             Assert.Equal(dataFrame.Metadata.BodyStart + sizeof(int) + sizeof(byte), offsets[0]);
@@ -62,17 +66,35 @@ public sealed class StoredFieldsAndTermVectorsCanonicalFrameTests : IClassFixtur
     public void StoredFields_ReaderAcceptsV2CustomPair()
     {
         string path = Path.Combine(_fixture.Path, $"stored-v2-{Guid.NewGuid():N}");
-        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", 1, _ =>
-            new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal)
-            {
-                ["id"] = [StoredFieldValue.FromString("legacy-v2")]
-            });
+        var raw = new ArrayBufferWriter<byte>();
+        raw.WriteInt32(1);
+        byte[] name = Encoding.UTF8.GetBytes("id");
+        raw.WriteInt32(name.Length);
+        raw.WriteBytes(name);
+        raw.WriteInt32(1);
+        raw.WriteByte((byte)StoredFieldValueKind.String);
+        byte[] value = Encoding.UTF8.GetBytes("legacy-v2");
+        raw.WriteInt32(value.Length);
+        raw.WriteBytes(value);
+        var (compressed, compressedLength) = StoredFieldCompression.Compress(
+            raw.WrittenSpan, FieldCompressionPolicy.Deflate);
 
-        var (dataBody, dataBodyStart) = ReadCanonicalBody(path + ".fdt", StoredFieldsCodecFiles.Data);
-        var (indexBody, _) = ReadCanonicalBody(path + ".fdx", StoredFieldsCodecFiles.Index);
-        AdjustOffsets(indexBody, offsetTableStart: 12, count: 1, sizeof(byte) - dataBodyStart);
-        WriteCustomFrame(path + ".fdt", StoredFieldsFileHeader.V2, dataBody);
-        WriteCustomFrame(path + ".fdx", StoredFieldsFileHeader.V2, indexBody);
+        var dataBody = new ArrayBufferWriter<byte>();
+        dataBody.WriteInt32(16);
+        dataBody.WriteByte((byte)FieldCompressionPolicy.Deflate);
+        dataBody.WriteInt32(1);
+        dataBody.WriteInt32(raw.WrittenCount);
+        dataBody.WriteInt32(compressedLength);
+        dataBody.WriteInt32(0);
+        dataBody.WriteBytes(compressed.AsSpan(0, compressedLength));
+
+        var indexBody = new ArrayBufferWriter<byte>();
+        indexBody.WriteInt32(16);
+        indexBody.WriteInt32(1);
+        indexBody.WriteInt32(1);
+        indexBody.WriteInt64(sizeof(byte) + sizeof(int) + sizeof(byte));
+        WriteCustomFrame(path + ".fdt", StoredFieldsFileHeader.V2, dataBody.WrittenSpan.ToArray());
+        WriteCustomFrame(path + ".fdx", StoredFieldsFileHeader.V2, indexBody.WrittenSpan.ToArray());
 
         using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
         Assert.Equal("legacy-v2", reader.ReadDocument(0)["id"].Single());
@@ -84,7 +106,35 @@ public sealed class StoredFieldsAndTermVectorsCanonicalFrameTests : IClassFixtur
         string path = Path.Combine(_fixture.Path, $"stored-mismatch-{Guid.NewGuid():N}");
         StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", 1, _ =>
             new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal));
-        PatchCanonicalFormatVersion(path + ".fdx", StoredFieldsFileHeader.V2);
+
+        int blockSize;
+        int docCount;
+        long[] blockOffsets;
+        using (var indexInput = new IndexInput(path + ".fdx"))
+        using (var indexFrame = CodecFileReader.Open(indexInput, StoredFieldsCodecFiles.Index))
+        {
+            blockSize = indexInput.ReadInt32();
+            docCount = indexInput.ReadInt32();
+            _ = StoredFieldsBlockEncoder.ReadFieldNameTable(indexInput, indexFrame.BodyEnd);
+            int blockCount = indexInput.ReadInt32();
+            blockOffsets = new long[blockCount];
+            for (int i = 0; i < blockCount; i++)
+                blockOffsets[i] = indexInput.ReadInt64();
+        }
+
+        CodecFileWriter.WriteAtomically(
+            path + ".fdx",
+            StoredFieldsCodecFiles.Index.FormatId,
+            StoredFieldsFileHeader.V4,
+            durable: false,
+            output =>
+            {
+                output.WriteInt32(blockSize);
+                output.WriteInt32(docCount);
+                output.WriteInt32(blockOffsets.Length);
+                foreach (long blockOffset in blockOffsets)
+                    output.WriteInt64(blockOffset);
+            });
 
         var error = Assert.Throws<InvalidDataException>(() => StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
         Assert.Contains("Mismatched stored fields versions", error.Message, StringComparison.Ordinal);

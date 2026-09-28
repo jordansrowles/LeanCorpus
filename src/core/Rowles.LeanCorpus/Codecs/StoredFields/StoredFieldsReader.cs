@@ -15,6 +15,8 @@ internal sealed class StoredFieldsReader : IDisposable
     private readonly IndexInput _fdtInput;
     private readonly int _blockSize;
     private readonly int _docCount;
+    private readonly int _formatVersion;
+    private readonly string[] _fieldNames;
     private readonly long[] _blockOffsets;
     private readonly int[] _blockDocCounts;
     private readonly int[]? _blockDocStarts;
@@ -39,6 +41,8 @@ internal sealed class StoredFieldsReader : IDisposable
         IndexInput fdtInput,
         int blockSize,
         int docCount,
+        int formatVersion,
+        string[] fieldNames,
         long[] blockOffsets,
         int[] blockDocCounts,
         int[]? blockDocStarts,
@@ -54,6 +58,8 @@ internal sealed class StoredFieldsReader : IDisposable
         _fdtInput = fdtInput;
         _blockSize = blockSize;
         _docCount = docCount;
+        _formatVersion = formatVersion;
+        _fieldNames = fieldNames;
         _blockOffsets = blockOffsets;
         _blockDocCounts = blockDocCounts;
         _blockDocStarts = blockDocStarts;
@@ -116,6 +122,7 @@ internal sealed class StoredFieldsReader : IDisposable
             int fdxVersion;
             int fdxBlockSize;
             int docCount;
+            string[] fieldNames;
             long[] blockOffsets;
             using (fdxInput)
             using (var fdxFrame = StoredFieldsCodecFiles.OpenIndex(fdxInput))
@@ -123,6 +130,9 @@ internal sealed class StoredFieldsReader : IDisposable
                 fdxVersion = fdxFrame.Version;
                 fdxBlockSize = fdxInput.ReadInt32();
                 docCount = fdxInput.ReadInt32();
+                fieldNames = fdxFrame.Version >= 5
+                    ? StoredFieldsBlockEncoder.ReadFieldNameTable(fdxInput, fdxFrame.BodyEnd)
+                    : [];
                 int blockCount = fdxInput.ReadInt32();
 
                 if (docCount < 0)
@@ -141,6 +151,8 @@ internal sealed class StoredFieldsReader : IDisposable
             fdtFrame = StoredFieldsCodecFiles.OpenData(fdtInput);
             int fdtBlockSize = fdtInput.ReadInt32();
             ValidateMatchingHeaders(".fdt", ".fdx", fdtFrame.Version, fdxVersion, fdtBlockSize, fdxBlockSize, requireMatchingVersions);
+            if (fdtFrame.Version >= 5 && fdxVersion < 5)
+                throw new InvalidDataException("Stored fields v5 data requires a v5 index field-name table.");
             if (!StoredFieldsBlockPolicy.IsValidMaximumDocumentCount(fdtBlockSize))
                 throw new InvalidDataException(
                     $"Stored fields block size {fdtBlockSize} is out of range [1, {StoredFieldsBlockPolicy.MaximumDocumentCount}].");
@@ -189,6 +201,8 @@ internal sealed class StoredFieldsReader : IDisposable
                 fdtInput,
                 fdtBlockSize,
                 docCount,
+                fdtFrame.Version,
+                fieldNames,
                 blockOffsets,
                 blockDocCounts,
                 blockDocStarts,
@@ -329,7 +343,9 @@ internal sealed class StoredFieldsReader : IDisposable
         var block = GetBlockForDocument(docId, out int blockIndex, out int docInBlock);
         try
         {
-            return ParseDocument(GetDocumentSpan(block, docInBlock), fieldsToLoad, fieldToFind: null, out _)!;
+            return ParseDocument(
+                GetDocumentSpan(block, docInBlock), fieldsToLoad, fieldToFind: null,
+                _formatVersion, _fieldNames, out _)!;
         }
         catch (InvalidDataException)
         {
@@ -343,7 +359,9 @@ internal sealed class StoredFieldsReader : IDisposable
         var block = GetBlockForDocument(docId, out int blockIndex, out int docInBlock);
         try
         {
-            _ = ParseDocument(GetDocumentSpan(block, docInBlock), fieldsToLoad: null, fieldToFind: field, out bool hasField);
+            _ = ParseDocument(
+                GetDocumentSpan(block, docInBlock), fieldsToLoad: null, fieldToFind: field,
+                _formatVersion, _fieldNames, out bool hasField);
             return hasField;
         }
         catch (InvalidDataException)
@@ -357,6 +375,8 @@ internal sealed class StoredFieldsReader : IDisposable
         ReadOnlySpan<byte> document,
         ISet<string>? fieldsToLoad,
         string? fieldToFind,
+        int formatVersion,
+        string[] fieldNames,
         out bool hasField)
     {
         var cursor = new DocumentCursor(document);
@@ -368,8 +388,21 @@ internal sealed class StoredFieldsReader : IDisposable
 
         for (int i = 0; i < fieldCount; i++)
         {
-            int nameLength = cursor.ReadLength("field name");
-            string name = Encoding.UTF8.GetString(cursor.ReadSpan(nameLength));
+            string name;
+            if (formatVersion >= 5)
+            {
+                int fieldId = cursor.ReadInt32();
+                if ((uint)fieldId >= (uint)fieldNames.Length)
+                    throw new InvalidDataException(
+                        $"Stored fields document field ID {fieldId} is outside the {fieldNames.Length}-entry name table.");
+                name = fieldNames[fieldId];
+            }
+            else
+            {
+                int nameLength = cursor.ReadLength("field name");
+                name = Encoding.UTF8.GetString(cursor.ReadSpan(nameLength));
+            }
+
             int valueCount = cursor.ReadCount("value", minimumRecordBytes: sizeof(byte) + sizeof(int));
             bool materialiseValues = fields is not null && (fieldsToLoad is null || fieldsToLoad.Contains(name));
             if (fieldToFind is not null && valueCount > 0 && string.Equals(name, fieldToFind, StringComparison.Ordinal))

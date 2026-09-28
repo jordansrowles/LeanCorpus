@@ -20,7 +20,7 @@ public sealed class StoredFieldsCorruptionTests : IClassFixture<TestDirectoryFix
         string path = CreateIndex([CreateStringDocument("first"), CreateStringDocument("second")], blockSize: 1);
         long[] blockOffsets = ReadBlockOffsets(path + ".fdx");
         long rawDataOffset = ReadRawDataOffset(path + ".fdt", blockOffsets[0]);
-        WriteByte(path + ".fdt", rawDataOffset + ValueKindOffset("id"), byte.MaxValue);
+        WriteByte(path + ".fdt", rawDataOffset + ValueKindOffset(), byte.MaxValue);
 
         using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
 
@@ -34,7 +34,7 @@ public sealed class StoredFieldsCorruptionTests : IClassFixture<TestDirectoryFix
         string path = CreateIndex([CreateStringDocument("first")], blockSize: 1);
         long blockOffset = ReadBlockOffsets(path + ".fdx")[0];
         long rawDataOffset = ReadRawDataOffset(path + ".fdt", blockOffset);
-        WriteByte(path + ".fdt", rawDataOffset + ValueKindOffset("id"), byte.MaxValue);
+        WriteByte(path + ".fdt", rawDataOffset + ValueKindOffset(), byte.MaxValue);
 
         using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
 
@@ -47,7 +47,7 @@ public sealed class StoredFieldsCorruptionTests : IClassFixture<TestDirectoryFix
         string path = CreateIndex([CreateStringDocument("first"), CreateStringDocument("second")], blockSize: 1);
         long[] blockOffsets = ReadBlockOffsets(path + ".fdx");
         long rawDataOffset = ReadRawDataOffset(path + ".fdt", blockOffsets[0]);
-        WriteInt32(path + ".fdt", rawDataOffset + ValueLengthOffset("id"), -1);
+        WriteInt32(path + ".fdt", rawDataOffset + ValueLengthOffset(), -1);
 
         using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
 
@@ -68,7 +68,7 @@ public sealed class StoredFieldsCorruptionTests : IClassFixture<TestDirectoryFix
         string valueCountPath = CreateIndex([CreateStringDocument("first")], blockSize: 1);
         long valueCountBlock = ReadBlockOffsets(valueCountPath + ".fdx")[0];
         long valueCountRaw = ReadRawDataOffset(valueCountPath + ".fdt", valueCountBlock);
-        WriteInt32(valueCountPath + ".fdt", valueCountRaw + ValueCountOffset("id"), 1_000);
+        WriteInt32(valueCountPath + ".fdt", valueCountRaw + ValueCountOffset(), 1_000);
         using var valueReader = StoredFieldsReader.Open(valueCountPath + ".fdt", valueCountPath + ".fdx");
         Assert.Throws<InvalidDataException>(() => valueReader.ReadDocumentValues(0));
     }
@@ -86,13 +86,13 @@ public sealed class StoredFieldsCorruptionTests : IClassFixture<TestDirectoryFix
         string valueCountPath = CreateIndex([CreateStringDocument("first")], blockSize: 1);
         long valueCountBlock = ReadBlockOffsets(valueCountPath + ".fdx")[0];
         long valueCountRaw = ReadRawDataOffset(valueCountPath + ".fdt", valueCountBlock);
-        WriteInt32(valueCountPath + ".fdt", valueCountRaw + ValueCountOffset("id"), -1);
+        WriteInt32(valueCountPath + ".fdt", valueCountRaw + ValueCountOffset(), -1);
         using var valueReader = StoredFieldsReader.Open(valueCountPath + ".fdt", valueCountPath + ".fdx");
         Assert.Throws<InvalidDataException>(() => valueReader.ReadDocumentValues(0));
     }
 
-    [Fact(DisplayName = "Stored Fields: field names cannot extend beyond the current document")]
-    public void ReadDocumentValues_RejectsFieldNameLengthBeyondDocument()
+    [Fact(DisplayName = "Stored Fields: document field IDs must reference the segment name table")]
+    public void ReadDocumentValues_RejectsFieldIdOutsideNameTable()
     {
         string path = CreateIndex([CreateStringDocument("first")], blockSize: 1);
         long blockOffset = ReadBlockOffsets(path + ".fdx")[0];
@@ -110,7 +110,7 @@ public sealed class StoredFieldsCorruptionTests : IClassFixture<TestDirectoryFix
         string path = CreateIndex([CreateStringDocument("first")], blockSize: 1);
         long blockOffset = ReadBlockOffsets(path + ".fdx")[0];
         long rawDataOffset = ReadRawDataOffset(path + ".fdt", blockOffset);
-        WriteInt32(path + ".fdt", rawDataOffset + ValueLengthOffset("id"), int.MaxValue);
+        WriteInt32(path + ".fdt", rawDataOffset + ValueLengthOffset(), int.MaxValue);
 
         using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
 
@@ -127,7 +127,7 @@ public sealed class StoredFieldsCorruptionTests : IClassFixture<TestDirectoryFix
         string path = CreateIndex([document], blockSize: 1);
         long blockOffset = ReadBlockOffsets(path + ".fdx")[0];
         long rawDataOffset = ReadRawDataOffset(path + ".fdt", blockOffset);
-        WriteInt32(path + ".fdt", rawDataOffset + ValueLengthOffset("count"), sizeof(long) - 1);
+        WriteInt32(path + ".fdt", rawDataOffset + ValueLengthOffset(), sizeof(long) - 1);
 
         using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
 
@@ -183,10 +183,23 @@ public sealed class StoredFieldsCorruptionTests : IClassFixture<TestDirectoryFix
         using var input = new IndexInput(fdxPath);
         using var frame = CodecFileReader.Open(input, StoredFieldsCodecFiles.Index);
         byte[] body = frame.ReadBody();
-        int blockCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(2 * sizeof(int)));
+        int cursor = 2 * sizeof(int);
+        if (frame.Metadata.FormatVersion >= 5)
+        {
+            int fieldNameCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(cursor));
+            cursor += sizeof(int);
+            for (int i = 0; i < fieldNameCount; i++)
+            {
+                int nameLength = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(cursor));
+                cursor = checked(cursor + sizeof(int) + nameLength);
+            }
+        }
+
+        int blockCount = BinaryPrimitives.ReadInt32LittleEndian(body.AsSpan(cursor));
+        cursor += sizeof(int);
         var offsets = new long[blockCount];
         for (int i = 0; i < blockCount; i++)
-            offsets[i] = BinaryPrimitives.ReadInt64LittleEndian(body.AsSpan(3 * sizeof(int) + i * sizeof(long)));
+            offsets[i] = BinaryPrimitives.ReadInt64LittleEndian(body.AsSpan(cursor + i * sizeof(long)));
         return offsets;
     }
 
@@ -200,14 +213,11 @@ public sealed class StoredFieldsCorruptionTests : IClassFixture<TestDirectoryFix
         return checked(blockOffset + header.Length + (long)docCount * sizeof(int));
     }
 
-    private static int ValueKindOffset(string fieldName)
-        => checked(sizeof(int) + sizeof(int) + System.Text.Encoding.UTF8.GetByteCount(fieldName) + sizeof(int));
+    private static int ValueKindOffset() => 3 * sizeof(int);
 
-    private static int ValueLengthOffset(string fieldName)
-        => checked(ValueKindOffset(fieldName) + sizeof(byte));
+    private static int ValueLengthOffset() => checked(ValueKindOffset() + sizeof(byte));
 
-    private static int ValueCountOffset(string fieldName)
-        => checked(sizeof(int) + sizeof(int) + System.Text.Encoding.UTF8.GetByteCount(fieldName));
+    private static int ValueCountOffset() => 2 * sizeof(int);
 
     private static int ReadRawLength(string fdtPath, long blockOffset)
     {

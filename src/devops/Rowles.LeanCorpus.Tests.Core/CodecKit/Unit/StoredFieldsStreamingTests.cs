@@ -1,4 +1,6 @@
 using System.Buffers;
+using System.Buffers.Binary;
+using System.Text;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.StoredFields;
@@ -60,10 +62,110 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         AssertCanonicalFrame(path + ".fdx", StoredFieldsCodecFiles.Index);
     }
 
-    [Fact(DisplayName = "Stored Fields v4: writer emits coordinated canonical frames")]
-    public void Writer_EmitsVersion4()
+    [Fact(DisplayName = "Stored Fields v5: flat records reference the segment field-name table")]
+    public void FlatWriter_StoresFieldIdsAndAOncePerSegmentNameTable()
     {
-        var path = Path.Combine(_fixture.Path, $"sf-v4-{Guid.NewGuid():N}");
+        var path = Path.Combine(_fixture.Path, $"sf-v5-flat-field-ids-{Guid.NewGuid():N}");
+        List<int> starts = [0];
+        List<int> ids = [0, 1, 0];
+        List<string> names = ["title", "tag"];
+        List<StoredFieldValue> values =
+        [
+            StoredFieldValue.FromString("first-title"),
+            StoredFieldValue.FromString("one-tag"),
+            StoredFieldValue.FromString("second-title")
+        ];
+
+        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", starts, ids, values, names, blockSize: 1);
+
+        using var fdxInput = new IndexInput(path + ".fdx");
+        using var fdxFrame = CodecFileReader.Open(fdxInput, StoredFieldsCodecFiles.Index);
+        Assert.Equal((byte)5, fdxFrame.Metadata.FormatVersion);
+        _ = fdxInput.ReadInt32(); // block size
+        Assert.Equal(1, fdxInput.ReadInt32()); // document count
+        int fieldNameCount = fdxInput.ReadInt32();
+        Assert.Equal(2, fieldNameCount);
+        var fieldNames = new string[fieldNameCount];
+        for (int i = 0; i < fieldNames.Length; i++)
+        {
+            int byteCount = fdxInput.ReadInt32();
+            fieldNames[i] = Encoding.UTF8.GetString(fdxInput.ReadBytes(byteCount));
+        }
+
+        Assert.Equal(["title", "tag"], fieldNames);
+        int blockCount = fdxInput.ReadInt32();
+        Assert.Equal(1, blockCount);
+        long blockOffset = fdxInput.ReadInt64();
+
+        using var fdtInput = new IndexInput(path + ".fdt");
+        using var fdtFrame = StoredFieldsCodecFiles.OpenData(fdtInput);
+        _ = fdtInput.ReadInt32(); // block size
+        var compression = (FieldCompressionPolicy)fdtInput.ReadByte();
+        fdtInput.Seek(blockOffset);
+        Assert.Equal(1, fdtInput.ReadInt32()); // documents in block
+        int rawLength = fdtInput.ReadInt32();
+        int compressedLength = fdtInput.ReadInt32();
+        _ = fdtInput.ReadInt32(); // first document offset
+        var compressed = fdtInput.ReadBytes(compressedLength);
+        byte[] raw = StoredFieldCompression.Decompress(compressed, rawLength, compression);
+
+        int cursor = 0;
+        int fieldCount = ReadInt32(raw, ref cursor);
+        Assert.Equal(2, fieldCount);
+        int firstFieldId = ReadInt32(raw, ref cursor);
+        int firstValueCount = ReadInt32(raw, ref cursor);
+        Assert.Equal(0, firstFieldId);
+        Assert.Equal(2, firstValueCount);
+        Assert.Equal("first-title", ReadStringValue(raw, ref cursor));
+        Assert.Equal("second-title", ReadStringValue(raw, ref cursor));
+        int secondFieldId = ReadInt32(raw, ref cursor);
+        int secondValueCount = ReadInt32(raw, ref cursor);
+        Assert.Equal(1, secondFieldId);
+        Assert.Equal(1, secondValueCount);
+        Assert.Equal("one-tag", ReadStringValue(raw, ref cursor));
+        Assert.Equal(raw.Length, cursor);
+
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        var stored = reader.ReadDocument(0);
+        Assert.Equal(["first-title", "second-title"], stored["title"]);
+        Assert.Equal(["one-tag"], stored["tag"]);
+    }
+
+    [Fact(DisplayName = "Stored Fields v5: reader rejects duplicate segment field names")]
+    public void Reader_RejectsDuplicateFieldNamesInV5Index()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-v5-duplicate-names-{Guid.NewGuid():N}");
+        StoredFieldsWriter.Write(
+            path + ".fdt", path + ".fdx", 0,
+            static _ => new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal));
+        CodecFileWriter.WriteAtomically(
+            path + ".fdx",
+            StoredFieldsCodecFiles.Index.FormatId,
+            formatVersion: 5,
+            durable: false,
+            output =>
+            {
+                output.WriteInt32(16);
+                output.WriteInt32(0);
+                output.WriteInt32(2);
+                foreach (string name in new[] { "duplicate", "duplicate" })
+                {
+                    byte[] nameBytes = Encoding.UTF8.GetBytes(name);
+                    output.WriteInt32(nameBytes.Length);
+                    output.WriteBytes(nameBytes);
+                }
+                output.WriteInt32(0);
+            });
+
+        var error = Assert.Throws<InvalidDataException>(() =>
+            StoredFieldsReader.Open(path + ".fdt", path + ".fdx"));
+        Assert.Contains("duplicate name", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact(DisplayName = "Stored Fields v5: writer emits coordinated canonical frames")]
+    public void Writer_EmitsVersion5()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-v5-{Guid.NewGuid():N}");
         var docs = new[]
         {
             new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal)
@@ -192,7 +294,7 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         Assert.Equal("small", reader.ReadDocument(1)["body"][0]);
     }
 
-    [Fact(DisplayName = "Stored Fields v4: reader maps variable block counts during parallel reads")]
+    [Fact(DisplayName = "Stored Fields v5: reader maps variable block counts during parallel reads")]
     public void Reader_MapsVariableBlockCountsDuringParallelReads()
     {
         var path = Path.Combine(_fixture.Path, $"sf-variable-parallel-{Guid.NewGuid():N}");
@@ -381,7 +483,7 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
             }
         };
 
-        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId]);
+        WriteLegacyStoredFieldsFiles(path, StoredFieldsFileHeader.V3, docs);
         long fdtOffsetDelta = RewriteAsV1(path + ".fdt", StoredFieldsCodecFiles.Data);
         RewriteFdxAsV1(path + ".fdx", fdtOffsetDelta);
 
@@ -406,13 +508,36 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
                 ["title"] = [StoredFieldValue.FromString("legacy-v3-second")]
             }
         };
-        StoredFieldsWriter.Write(path + ".fdt", path + ".fdx", docs.Length, docId => docs[docId]);
-        RewriteCanonicalVersion(path + ".fdt", StoredFieldsCodecFiles.Data, StoredFieldsFileHeader.V3);
-        RewriteCanonicalVersion(path + ".fdx", StoredFieldsCodecFiles.Index, StoredFieldsFileHeader.V3);
+        WriteLegacyStoredFieldsFiles(path, StoredFieldsFileHeader.V3, docs);
 
         using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
         Assert.Equal("legacy-v3", reader.ReadDocument(0)["title"][0]);
         Assert.Equal("legacy-v3-second", reader.ReadDocument(1)["title"][0]);
+    }
+
+    [Fact(DisplayName = "Stored Fields v4: reader keeps variable block counts readable")]
+    public void Reader_ReadsV4VariableBlockFiles()
+    {
+        var path = Path.Combine(_fixture.Path, $"sf-v4-variable-{Guid.NewGuid():N}");
+        var docs = new[]
+        {
+            new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal)
+            {
+                ["title"] = [StoredFieldValue.FromString("legacy-v4-first")]
+            },
+            new Dictionary<string, List<StoredFieldValue>>(StringComparer.Ordinal)
+            {
+                ["title"] = [StoredFieldValue.FromString("legacy-v4-second")]
+            }
+        };
+
+        WriteLegacyStoredFieldsFiles(
+            path, StoredFieldsFileHeader.V4, docs, blockSize: 16, documentsPerBlock: [1, 1]);
+
+        Assert.Equal(2, ReadBlockCount(path + ".fdx"));
+        using var reader = StoredFieldsReader.Open(path + ".fdt", path + ".fdx");
+        Assert.Equal("legacy-v4-first", reader.ReadDocument(0)["title"][0]);
+        Assert.Equal("legacy-v4-second", reader.ReadDocument(1)["title"][0]);
     }
 
     [Fact(DisplayName = "Stored Fields: reader rejects future version")]
@@ -483,17 +608,6 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         return 1 + varintSize - canonicalBodyStart;
     }
 
-    private static void RewriteCanonicalVersion(string filePath, CodecFileDescriptor descriptor, byte version)
-    {
-        var (body, _) = ReadCanonicalBody(filePath, descriptor);
-        CodecFileWriter.WriteAtomically(
-            filePath,
-            descriptor.FormatId,
-            version,
-            durable: false,
-            output => output.WriteBytes(body));
-    }
-
     private static void RewriteFdxAsV1(string filePath, long offsetDelta)
     {
         var (bodyBytes, _) = ReadCanonicalBody(filePath, StoredFieldsCodecFiles.Index);
@@ -529,7 +643,25 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         using var frame = CodecFileReader.Open(input, StoredFieldsCodecFiles.Index);
         _ = input.ReadInt32();
         _ = input.ReadInt32();
+        if (frame.Metadata.FormatVersion >= 5)
+            _ = StoredFieldsBlockEncoder.ReadFieldNameTable(input, frame.BodyEnd);
         return input.ReadInt32();
+    }
+
+    private static int ReadInt32(byte[] bytes, ref int cursor)
+    {
+        int value = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(cursor, sizeof(int)));
+        cursor += sizeof(int);
+        return value;
+    }
+
+    private static string ReadStringValue(byte[] bytes, ref int cursor)
+    {
+        Assert.Equal(StoredFieldValueKind.String, (StoredFieldValueKind)bytes[cursor++]);
+        int byteCount = ReadInt32(bytes, ref cursor);
+        string value = Encoding.UTF8.GetString(bytes.AsSpan(cursor, byteCount));
+        cursor += byteCount;
+        return value;
     }
 
     private static (int DocumentCount, int RawLength)[] ReadBlockHeaders(string fdtPath)
@@ -544,6 +676,8 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         {
             _ = fdxInput.ReadInt32();
             _ = fdxInput.ReadInt32();
+            if (fdxFrame.Metadata.FormatVersion >= 5)
+                _ = StoredFieldsBlockEncoder.ReadFieldNameTable(fdxInput, fdxFrame.BodyEnd);
             int blockCount = fdxInput.ReadInt32();
             for (int i = 0; i < blockCount; i++)
                 offsets.Add(fdxInput.ReadInt64());
@@ -558,6 +692,121 @@ public sealed class StoredFieldsStreamingTests : IClassFixture<TestDirectoryFixt
         }
 
         return headers;
+    }
+
+    private static void WriteLegacyStoredFieldsFiles(
+        string path,
+        byte formatVersion,
+        IReadOnlyList<Dictionary<string, List<StoredFieldValue>>> documents,
+        int blockSize = 16,
+        int[]? documentsPerBlock = null)
+    {
+        if (formatVersion is not (StoredFieldsFileHeader.V3 or StoredFieldsFileHeader.V4))
+            throw new ArgumentOutOfRangeException(nameof(formatVersion));
+
+        var blockOffsets = new List<long>();
+        int nextDocument = 0;
+        int blockIndex = 0;
+        CodecFileWriter.WriteAtomically(
+            path + ".fdt",
+            StoredFieldsCodecFiles.Data.FormatId,
+            formatVersion,
+            durable: false,
+            output =>
+            {
+                output.WriteInt32(blockSize);
+                output.WriteByte((byte)FieldCompressionPolicy.Deflate);
+                while (nextDocument < documents.Count)
+                {
+                    int documentCount = documentsPerBlock is null
+                        ? Math.Min(blockSize, documents.Count - nextDocument)
+                        : documentsPerBlock[blockIndex];
+                    var raw = new ArrayBufferWriter<byte>();
+                    var intraOffsets = new int[documentCount];
+                    for (int i = 0; i < documentCount; i++)
+                    {
+                        intraOffsets[i] = raw.WrittenCount;
+                        WriteLegacyDocument(raw, documents[nextDocument + i]);
+                    }
+
+                    var (compressed, compressedLength) = StoredFieldCompression.Compress(
+                        raw.WrittenSpan, FieldCompressionPolicy.Deflate);
+                    blockOffsets.Add(output.Position);
+                    output.WriteInt32(documentCount);
+                    output.WriteInt32(raw.WrittenCount);
+                    output.WriteInt32(compressedLength);
+                    foreach (int intraOffset in intraOffsets)
+                        output.WriteInt32(intraOffset);
+                    output.WriteBytes(compressed.AsSpan(0, compressedLength));
+
+                    nextDocument += documentCount;
+                    blockIndex++;
+                }
+            });
+
+        if (documentsPerBlock is not null && blockIndex != documentsPerBlock.Length)
+            throw new InvalidOperationException("Legacy fixture block counts do not cover its documents.");
+
+        CodecFileWriter.WriteAtomically(
+            path + ".fdx",
+            StoredFieldsCodecFiles.Index.FormatId,
+            formatVersion,
+            durable: false,
+            output =>
+            {
+                output.WriteInt32(blockSize);
+                output.WriteInt32(documents.Count);
+                output.WriteInt32(blockOffsets.Count);
+                foreach (long blockOffset in blockOffsets)
+                    output.WriteInt64(blockOffset);
+            });
+    }
+
+    private static void WriteLegacyDocument(
+        IBufferWriter<byte> writer,
+        IReadOnlyDictionary<string, List<StoredFieldValue>> fields)
+    {
+        writer.WriteInt32(fields.Count);
+        Span<byte> encodeBuffer = stackalloc byte[512];
+        foreach (var (name, values) in fields)
+        {
+            int nameByteCount = Encoding.UTF8.GetByteCount(name);
+            Span<byte> nameBytes = nameByteCount <= encodeBuffer.Length ? encodeBuffer : new byte[nameByteCount];
+            Encoding.UTF8.GetBytes(name, nameBytes);
+            writer.WriteInt32(nameByteCount);
+            writer.WriteBytes(nameBytes[..nameByteCount]);
+            writer.WriteInt32(values.Count);
+            foreach (StoredFieldValue value in values)
+                WriteLegacyValue(writer, value, encodeBuffer);
+        }
+    }
+
+    private static void WriteLegacyValue(IBufferWriter<byte> writer, StoredFieldValue value, Span<byte> encodeBuffer)
+    {
+        writer.WriteByte((byte)value.Kind);
+        if (value.IsBinary)
+        {
+            byte[] bytes = value.BinaryValue ?? [];
+            writer.WriteInt32(bytes.Length);
+            writer.WriteBytes(bytes);
+            return;
+        }
+
+        if (value.IsLong)
+        {
+            writer.WriteInt32(sizeof(long));
+            Span<byte> bytes = stackalloc byte[sizeof(long)];
+            BinaryPrimitives.WriteInt64LittleEndian(bytes, value.LongValue);
+            writer.WriteBytes(bytes);
+            return;
+        }
+
+        string text = value.StringValue ?? string.Empty;
+        int byteCount = Encoding.UTF8.GetByteCount(text);
+        Span<byte> textBytes = byteCount <= encodeBuffer.Length ? encodeBuffer : new byte[byteCount];
+        Encoding.UTF8.GetBytes(text, textBytes);
+        writer.WriteInt32(byteCount);
+        writer.WriteBytes(textBytes[..byteCount]);
     }
 
     private static long ReadCanonicalBodyStart(string path, CodecFileDescriptor descriptor)

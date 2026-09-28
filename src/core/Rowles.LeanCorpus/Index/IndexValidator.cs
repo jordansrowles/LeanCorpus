@@ -351,6 +351,8 @@ public static class IndexValidator
             using var frame = StoredFieldsCodecFiles.OpenIndex(input);
             int blockSize = input.ReadInt32();
             int docCount = input.ReadInt32();
+            if (frame.Version >= 5)
+                _ = StoredFieldsBlockEncoder.ReadFieldNameTable(input, frame.BodyEnd);
             int blockCount = input.ReadInt32();
             if (!StoredFieldsBlockPolicy.IsValidMaximumDocumentCount(blockSize) ||
                 blockCount < 0 || docCount < 0 || docCount != info.DocCount)

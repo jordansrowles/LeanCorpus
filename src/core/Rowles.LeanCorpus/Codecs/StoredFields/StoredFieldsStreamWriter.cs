@@ -23,6 +23,8 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
     private readonly ArrayBufferWriter<byte> _rawBuf;
     private readonly List<long> _blockOffsets;
     private readonly List<int> _intraOffsets;
+    private readonly Dictionary<string, int> _fieldNameToId = new(StringComparer.Ordinal);
+    private readonly List<string> _fieldNames = [];
 
     private int _docsInBlock;
     private int _docCount;
@@ -56,7 +58,8 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
 
         try
         {
-            long documentRawLength = StoredFieldsBlockPolicy.GetDocumentRawLength(fields);
+            long documentRawLength = StoredFieldsBlockEncoder.GetDictionaryDocumentRawLength(
+                fields, _fieldNameToId, _fieldNames);
             StoredFieldsBlockPolicy.ValidateRawLength(documentRawLength);
             Span<byte> encodeBuf = stackalloc byte[512];
 
@@ -64,7 +67,8 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
             {
                 FlushBlock();
                 var oversizedBuffer = new ArrayBufferWriter<byte>(checked((int)documentRawLength));
-                StoredFieldsBlockSerializer.WriteDocument(oversizedBuffer, fields, encodeBuf);
+                StoredFieldsBlockEncoder.WriteDictionaryDocument(
+                    oversizedBuffer, fields, _fieldNameToId, _fieldNames, encodeBuf);
                 StoredFieldsWriter.WriteBlock(
                     _fdtScope.Output, _blockOffsets, oversizedBuffer.WrittenSpan, [0], _compressionCodec);
             }
@@ -75,7 +79,8 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
                     FlushBlock();
 
                 _intraOffsets.Add(_rawBuf.WrittenCount);
-                StoredFieldsBlockSerializer.WriteDocument(_rawBuf, fields, encodeBuf);
+                StoredFieldsBlockEncoder.WriteDictionaryDocument(
+                    _rawBuf, fields, _fieldNameToId, _fieldNames, encodeBuf);
                 _docsInBlock++;
                 if (StoredFieldsBlockPolicy.ShouldFlushAfterAdd(_docsInBlock, _rawBuf.WrittenCount, _blockSize))
                     FlushBlock();
@@ -148,11 +153,8 @@ internal sealed class StoredFieldsStreamWriter : IDisposable
         {
             using var fdxOutput = new IndexOutput(_fdxPath);
             using var fdxScope = CodecFileWriter.Begin(fdxOutput, StoredFieldsCodecFiles.Index);
-            fdxScope.Output.WriteInt32(_blockSize);
-            fdxScope.Output.WriteInt32(_docCount);
-            fdxScope.Output.WriteInt32(_blockOffsets.Count);
-            foreach (var offset in _blockOffsets)
-                fdxScope.Output.WriteInt64(offset);
+            StoredFieldsBlockEncoder.WriteIndexBody(
+                fdxScope.Output, _blockSize, _docCount, _fieldNames, _blockOffsets);
             fdxScope.Complete();
         }
         catch
