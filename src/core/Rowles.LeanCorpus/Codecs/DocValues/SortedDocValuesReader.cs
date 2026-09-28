@@ -63,6 +63,10 @@ internal static class SortedDocValuesReader
                 throw body.Corruption(
                     $"Ordinal count {ordinalCount} exceeds the field's {documentCount} documents.",
                     fieldName);
+            if (documentCount > 0 && ordinalCount == 0 && frame.FormatVersion < 3)
+                throw body.Corruption(
+                    "A field with documents has no terms in a format version that requires a placeholder term.",
+                    fieldName);
             string[] terms = body.ReadStringArray(ordinalCount, "term table", fieldName);
 
             int bitsPerOrdinal = body.ReadByte("bits-per-ordinal", fieldName);
@@ -81,7 +85,8 @@ internal static class SortedDocValuesReader
                 try
                 {
                     int ordinal = column.GetOrdinal(documentId);
-                    if ((uint)ordinal >= (uint)ordinalCount)
+                    bool hasValue = presence is null || presence.Contains(documentId);
+                    if (hasValue && (uint)ordinal >= (uint)ordinalCount)
                         throw body.Corruption(
                             $"Ordinal {ordinal} is outside the {ordinalCount}-term table.",
                             fieldName);

@@ -238,6 +238,26 @@ public sealed class SegmentReaderDocValuesTests: IDisposable
         }
     }
 
+    [Fact(DisplayName = "SegmentReader: Missing sorted values do not add an empty term")]
+    public void GetSortedDocValueTerms_MissingDocumentsDoNotCreateEmptyTerm()
+    {
+        var (dir, searcher) = BuildAndOpen(writer =>
+        {
+            var present = new LeanDocument();
+            present.Add(new StringField("tag", "alpha", stored: false));
+            writer.AddDocument(present);
+            writer.AddDocument(new LeanDocument());
+        });
+
+        using (dir) using (searcher)
+        {
+            var reader = searcher.GetSegmentReaders()[0];
+
+            Assert.Equal(["alpha"], reader.GetSortedDocValueTerms("tag")!);
+            Assert.Equal(["alpha", ""], reader.GetSortedDocValues("tag")!);
+        }
+    }
+
     // GetNumericDocValues
 
     [Fact(DisplayName = "SegmentReader: GetNumericDocValues With Numeric Field Returns Non Null")]

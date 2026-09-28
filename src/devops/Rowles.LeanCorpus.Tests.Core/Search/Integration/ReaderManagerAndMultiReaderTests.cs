@@ -191,7 +191,26 @@ public sealed class ReaderManagerAndMultiReaderTests : IDisposable
         Assert.Equal(1, betaOrdinal);
     }
 
-    private string CreateIndex(string name, string[] bodies, double[]? numbers = null, string[]? tags = null)
+    [Fact]
+    public void OrdinalMapIgnoresMissingSortedValuesButKeepsExplicitEmptyTerms()
+    {
+        var firstPath = CreateIndex("ordinal-missing-first", ["common", "common"], tags: [null, "alpha"]);
+        var secondPath = CreateIndex("ordinal-empty-second", ["common"], tags: [""]);
+        using var firstDirectory = new MMapDirectory(firstPath);
+        using var secondDirectory = new MMapDirectory(secondPath);
+        using var reader = new MultiReader([firstDirectory, secondDirectory]);
+
+        var map = reader.GetOrdinalMap("tag");
+
+        Assert.Equal(["", "alpha"], map.Terms);
+        Assert.False(map.TryGetGlobalOrdinal(0, "", out _));
+        Assert.True(map.TryGetGlobalOrdinal(1, "", out int emptyOrdinal));
+        Assert.Equal(0, emptyOrdinal);
+        Assert.True(map.TryGetGlobalOrdinal(0, "alpha", out int alphaOrdinal));
+        Assert.Equal(1, alphaOrdinal);
+    }
+
+    private string CreateIndex(string name, string[] bodies, double[]? numbers = null, string?[]? tags = null)
     {
         var path = Path.Combine(_root, name);
         Directory.CreateDirectory(path);
@@ -202,8 +221,8 @@ public sealed class ReaderManagerAndMultiReaderTests : IDisposable
             var document = CreateDocument(bodies[i]);
             if (numbers is not null)
                 document.Add(new NumericField("number", numbers[i], stored: true));
-            if (tags is not null)
-                document.Add(new StringField("tag", tags[i]));
+            if (tags?[i] is { } tag)
+                document.Add(new StringField("tag", tag));
             writer.AddDocument(document);
         }
         writer.Commit();

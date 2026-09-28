@@ -58,12 +58,9 @@ internal static class SortedDocValuesWriter
         var ordList = new List<string>();
         for (int i = 0; i < docCount; i++)
         {
-            var v = values[i] ?? string.Empty;
-            if (!ordMap.ContainsKey(v))
-            {
-                ordMap[v] = ordList.Count;
-                ordList.Add(v);
-            }
+            string? value = values[i];
+            if (value is not null && ordMap.TryAdd(value, ordList.Count))
+                ordList.Add(value);
         }
 
         ordList.Sort(StringComparer.Ordinal);
@@ -83,7 +80,8 @@ internal static class SortedDocValuesWriter
             int bitsInBuffer = 0;
             for (int i = 0; i < docCount; i++)
             {
-                int ord = ordMap[values[i] ?? string.Empty];
+                string? value = values[i];
+                int ord = value is null ? 0 : ordMap[value];
                 buffer |= (ulong)ord << bitsInBuffer;
                 bitsInBuffer += bitsPerOrd;
                 while (bitsInBuffer >= 8)

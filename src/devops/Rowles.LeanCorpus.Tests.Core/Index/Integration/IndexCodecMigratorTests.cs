@@ -5,6 +5,7 @@ using System.Text;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
@@ -18,6 +19,7 @@ using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
+using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index.Migration;
 [Category(TestCategory.Integration)]
@@ -76,6 +78,48 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
 
         writer.Commit();
         return path;
+    }
+
+    private string CreateIndexWithMissingSortedValue(string name)
+    {
+        var path = Path.Combine(_fixture.Path, name);
+        Directory.CreateDirectory(path);
+        using var directory = new MMapDirectory(path);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig());
+
+        var present = new LeanDocument();
+        present.Add(new TextField("body", "first migration document"));
+        present.Add(new StringField("tag", "alpha", stored: false));
+        writer.AddDocument(present);
+
+        var missing = new LeanDocument();
+        missing.Add(new TextField("body", "second migration document"));
+        writer.AddDocument(missing);
+        writer.Commit();
+        return path;
+    }
+
+    private static void WriteLegacyV2SortedDocValuesWithMissingValue(string path)
+    {
+        var presence = new RoaringBitmap();
+        presence.Add(1);
+        using var bitmapStream = new MemoryStream();
+        using (var bitmapWriter = new BinaryWriter(bitmapStream, Encoding.UTF8, leaveOpen: true))
+            presence.Serialise(bitmapWriter);
+
+        using var output = new IndexOutput(path);
+        using var frame = CodecFileHeader.BeginStreamingWrite(output, version: 2);
+        var body = frame.Output;
+        body.WriteInt32(1);
+        body.WriteString("tag");
+        body.WriteInt32(checked((int)bitmapStream.Length));
+        body.WriteBytes(bitmapStream.GetBuffer().AsSpan(0, checked((int)bitmapStream.Length)));
+        body.WriteInt32(2);
+        body.WriteInt32(2);
+        body.WriteString("");
+        body.WriteString("alpha");
+        body.WriteByte(1);
+        body.WriteByte(2);
     }
 
     private string CreateVectorIndex(string name, VectorQuantisation quantisation)
@@ -919,6 +963,35 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     [Fact(DisplayName = "Migrate: Rewrite sorted doc values")]
     public void Migrate_Rewrite_SortedDocValues()
         => AssertRewriteRestoresVersion("migrate_rewrite_dvs", "*.dvs", CodecConstants.SortedDocValuesVersion);
+
+    [Fact(DisplayName = "Migrate: Rewrite sorted DocValues v2 and remove the missing placeholder term")]
+    public void Migrate_Rewrite_SortedDocValuesV2_RemovesMissingPlaceholder()
+    {
+        string path = CreateIndexWithMissingSortedValue("migrate_rewrite_dvs_v2");
+        string docValuesPath = Directory.GetFiles(path, "*.dvs").Single();
+        WriteLegacyV2SortedDocValuesWithMissingValue(docValuesPath);
+
+        Assert.Equal(["", "alpha"], SortedDocValuesReader.ReadTerms(docValuesPath)["tag"]);
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = false,
+            });
+
+        Assert.True(result.Succeeded,
+            $"Sorted DocValues v2 rewrite failed. Issues: {string.Join("; ", result.Issues.Select(issue => issue.Message))}");
+        Assert.Equal(CodecConstants.SortedDocValuesVersion, ReadVersionByte(path, "*.dvs"));
+
+        using var directory = new MMapDirectory(path);
+        using var searcher = new IndexSearcher(directory);
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        Assert.Equal(["alpha"], reader.GetSortedDocValueTerms("tag")!);
+        Assert.Equal(["", "alpha"], reader.GetSortedDocValues("tag")!);
+    }
 
     [Fact(DisplayName = "Migrate: Rewrite sorted set doc values")]
     public void Migrate_Rewrite_SortedSetDocValues()

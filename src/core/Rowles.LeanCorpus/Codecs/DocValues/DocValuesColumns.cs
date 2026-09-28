@@ -178,6 +178,8 @@ internal sealed class SortedDocValuesColumn
     internal string GetValue(int documentId)
     {
         int ordinal = GetOrdinal(documentId);
+        if (Presence is not null && !Presence.Contains(documentId))
+            return string.Empty;
         return (uint)ordinal < (uint)_terms.Length ? _terms[ordinal] : string.Empty;
     }
 
