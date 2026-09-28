@@ -3,7 +3,7 @@ adr: ADR031
 title: DWPT postings use a pooled block arena
 date: 2026-09-21
 status: Accepted
-version-added: 3.2.0
+version-added: 4.0.0
 summary: Keep mutable postings in one pooled DWPT store and stream immutable snapshots directly to segment files.
 areas: [indexing, storage, performance]
 ---

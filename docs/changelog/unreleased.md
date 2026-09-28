@@ -1,6 +1,7 @@
 ### Added
 
 - Add `UrlEmailTokeniser` for URL, email, hashtag and mention heuristics.
+- Add public disposable `JapaneseDictionary` ownership and `AnalyserFactory.CreateOwnedJapaneseAnalyser` for custom `.jlc` dictionaries.
 - Added a 256 MiB default retained-resource budget for heavy segment-reader states, an override through process-wide searcher defaults, and public per-component cache metrics.
 - Added optional Shape DocValues `.dvg` v1 for indexed Geo and XY shapes, preserving the exact Packed BKD primitive stream for metadata aggregations.
 - Added one-pass heterogeneous numeric and Geo distance, centroid and bounds aggregation requests, including legacy point fallback and complete shape DocValues coverage checks.
@@ -19,6 +20,7 @@
 ### Changed
 
 - Mark `Uax29UrlEmailTokeniser` obsolete and keep it as a forwarding compatibility wrapper; remove the false UAX #29 conformance claim.
+- Replace path-owning `JapaneseTokeniser` construction with explicit `JapaneseDictionary` ownership; tokenisers borrow supplied dictionaries, and disposal waits for active tokenisation. This public API break advances Rowles.Text to 3.0.0 and Core to 4.0.0.
 - Reuse thread-affine execution contexts for the built-in language analyser filters, avoiding per-field filter clones and routing-sink allocations.
 - Expand DocValues benchmarks to large dense, sparse, high-cardinality and multi-valued workloads with explicit `.dvn` reads, and measure concurrent random stored-field reads across shared and separate blocks.
 - Capture stored-field compression implementations in immutable `CodecCatalog` snapshots, reject duplicate policy registrations, and close process bootstrap registration when an index opens.
@@ -44,7 +46,7 @@
 - Map SegmentReader DocValues benchmark changes to Core Index tests in affected runs.
 - Add a paired allocation benchmark for legacy and graph-aware token cache paths, with a focused DevOps benchmark group.
 - Apply queued deletes through logical segment members so compound segments can be deleted and updated without unpacking their `.dic` and `.pos` files.
-- Set Core package, assembly and file versions to `3.2.0`.
+- Set Core package, assembly and file versions to `4.0.0`.
 - Use the existing indexed latitude range to select candidates for single-valued packed Geo distance queries, while retaining exact Haversine checks and packed/mixed fallbacks.
 - Added construction-time `IndexingConcurrency` configuration and explicit concurrent async bulk ingestion for the Core writer, and made concurrent bulk ingestion use bounded producers through the normal DWPT pipeline.
 - Made concurrent indexing ownership explicit for analyser components across maintained built-ins, consolidated automatic DWPT flushing, and now account for active and detached flush-buffer retention separately.

@@ -32,10 +32,11 @@ var stemmer = new KStemmer(lexicon);
 var thai = ThaiTokeniser.FromFile("lexicons/thai-dict.txt");
 var analyser = new IcuAnalyser(thaiTokeniser: thai);
 
-using var japanese = new JapaneseTokeniser("lexicons/japanese.jlc");
+using var japaneseDictionary = new JapaneseDictionary("lexicons/japanese.jlc");
+var japanese = new JapaneseTokeniser(japaneseDictionary);
 ```
 
-`JapaneseTokeniser` searches parent directories for `lexicons/japanese.jlc` when the default asset is used. A custom codec path is loaded lazily; dispose tokenisers created with a custom path when they are no longer needed.
+`JapaneseTokeniser` searches parent directories for `lexicons/japanese.jlc` when the default asset is used. A custom codec is opened by `JapaneseDictionary`, which owns the resource. Tokenisers and their thread-local copies borrow that dictionary; dispose it after all tokenisation has finished. For an owned analyser composition, use `AnalyserFactory.CreateOwnedJapaneseAnalyser(path)`.
 
 > [!TIP]
 > Resolve deployment paths explicitly. A development checkout layout is not a reliable production content path.

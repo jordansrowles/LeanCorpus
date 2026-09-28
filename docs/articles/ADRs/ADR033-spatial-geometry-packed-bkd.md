@@ -3,7 +3,7 @@ adr: ADR033
 title: Spatial geometry uses canonical encoded coordinates and multidimensional Packed BKD
 date: 2026-09-21
 status: Accepted
-version-added: 3.2.0
+version-added: 4.0.0
 summary: Define the immutable Geo and XY geometry foundation and deterministic Packed BKD v1 format.
 areas: [spatial, indexing, storage, codecs, performance]
 ---
@@ -15,7 +15,7 @@ areas: [spatial, indexing, storage, codecs, performance]
 
 ## Context
 
-Later 3.2 spatial features need a common geometry contract and a multidimensional
+Later 4.0 spatial features need a common geometry contract and a multidimensional
 point structure. The existing `.bkd` and `.bkdl` formats are established 1D
 numeric structures and must remain byte-compatible. A new format must therefore
 be independently versioned, bounded, deterministic and usable in loose or
@@ -32,7 +32,7 @@ finite `float` coordinates and coordinate-unit radii. Public geometry contains n
 indexing or tessellation state. The marker interfaces are `IGeoGeometry` and
 `IXYGeometry`; they describe the built-in geometry models but do not register
 custom indexable geometries. LeanCorpus indexing supports the documented
-built-in Geo and XY geometry types in 3.2. `GeoEncodingUtils` exposes
+built-in Geo and XY geometry types in 4.0. `GeoEncodingUtils` exposes
 `NormaliseLongitude`. The internal proof configurations are
 `PackedBkdConfig.Point2D()` and `PackedBkdConfig.Shape7D4Indexed()`.
 
@@ -137,7 +137,7 @@ than point count.
 - Implementation-only geometry helpers live under `Search.Geo.Internal` and
   `Search.XY.Internal`; shared coordinate encoding lives under
   `Search.Internal`.
-- Public geometry marker interfaces are closed in supported behaviour for 3.2
+- Public geometry marker interfaces are closed in supported behaviour for 4.0
   and do not register custom geometries for indexing.
 - `.bkd` and `.bkdl` constants, bytes and migration behaviour do not change.
 - Shape primitive bytes are additive values in Packed BKD v1; ADR034 is their

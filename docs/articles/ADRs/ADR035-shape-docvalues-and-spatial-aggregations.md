@@ -3,7 +3,7 @@ adr: ADR035
 title: Shape DocValues preserve encoded primitives and spatial metadata
 date: 2026-09-24
 status: Accepted
-version-added: 3.2.0
+version-added: 4.0.0
 summary: Define the Shape DocValues file, owned primitive reuse, metadata semantics and single-pass spatial aggregations.
 areas: [spatial, indexing, storage, codecs, search, aggregations]
 ---

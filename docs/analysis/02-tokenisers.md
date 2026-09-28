@@ -12,7 +12,7 @@ Tokenisers split raw text into token boundaries. Choose based on the input struc
 | `EdgeNGramTokeniser` | Prefix n-grams; useful for autocomplete-style matching |
 | `CJKBigramTokeniser` | Overlapping bigrams for CJK ideographs with supplementary-plane support |
 | `ChineseLexiconTokeniser` | Greedy longest-match Chinese segmentation with unigram fallback |
-| `JapaneseTokeniser` | Character-class-based segmentation using Kuromoji `CharacterDefinition.dat`. Splits at script boundaries (kanji, hiragana, katakana) |
+| `JapaneseTokeniser` | Dictionary-backed least-cost segmentation using the versioned Japanese `.jlc` codec. Custom dictionaries are owned by `JapaneseDictionary` and borrowed by the tokeniser |
 | `PathTreeTokeniser` | Path hierarchy tokeniser: compound tokens from root to leaf (or leaf to root in suffix mode). Root-aware parsing for drive letters, UNC paths, and scheme URIs |
 | `IcuTokeniser` | Unicode-aware segmentation. Thai opt-in via constructor |
 | `UrlEmailTokeniser` | Preserves URLs, emails, hashtags, and mentions using Unicode-aware word heuristics; it does not claim UAX #29 conformance. Thai opt-in |
@@ -29,7 +29,24 @@ Tokenisers split raw text into token boundaries. Choose based on the input struc
 
   - With depth payloads: `new PathTreeTokeniser { EmitDepthPayloads = true }` attaches depth metadata for shallow-match boosting.
   - Suffix mode: `new PathTreeTokeniser { SuffixMode = true }` emits leaf-to-root tokens like `["user.cs", "models/user.cs", ...]`.
-- Use `JapaneseTokeniser` with Kuromoji `CharacterDefinition.dat` in `lexicons/kuromoji/` for Japanese script-boundary segmentation.
+- Use `JapaneseTokeniser` for dictionary-backed Japanese segmentation. The default `.jlc` dictionary is shared for the process lifetime.
+
+### Japanese dictionary lifetime
+
+Own a custom dictionary for at least as long as its tokenisers and analysers:
+
+```csharp
+using var dictionary = new JapaneseDictionary(dictionaryPath);
+var tokeniser = new JapaneseTokeniser(dictionary);
+var analyser = new LanguageAnalyser(tokeniser, StopWords.Japanese, stemmer: null);
+```
+
+`JapaneseTokeniser` and its thread-local copies borrow the dictionary. Disposing
+the dictionary waits for active tokenisation calls; later calls through those
+tokenisers throw `ObjectDisposedException`. For a custom dictionary analyser
+with an explicit owner in one value, use
+`AnalyserFactory.CreateOwnedJapaneseAnalyser(dictionaryPath)` and dispose the
+returned analyser after its calls and thread-local analysers finish.
 ## Custom pipeline
 
 ```csharp

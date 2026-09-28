@@ -42,7 +42,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Edge n-gram tokeniser | ✔   `EdgeNGramTokeniser` | ✔ | ✔ | Lucene: `EdgeNGramTokenizer` |
 | CJK bigram tokeniser | ✔   `CJKBigramTokeniser` | ✔ | ✔ | Lucene: `CJKBigramTokenizer` |
 | Chinese lexicon tokeniser | ✔   `ChineseLexiconTokeniser` | ✔ | ✔ | Greedy longest-match segmentation with unigram fallback |
-| Japanese morphological tokeniser | ✔   `JapaneseTokeniser` | ✔ | ✔ | Character-class-based segmentation using Kuromoji data; splits at kanji/hiragana/katakana boundaries |
+| Japanese morphological tokeniser | ✔   `JapaneseTokeniser` | ✔ | ✔ | Uses a Kuromoji-derived `.jlc` dictionary and least-cost Viterbi segmentation |
 | ICU tokeniser (Unicode segmenter) | ✔   `IcuTokeniser` / `UnicodeTokenisation` | ✔ | ✔ | |
 | Thai tokeniser | ✔   `ThaiTokeniser` | ✔ | ✔ | Lucene: `ThaiTokenizer` |
 | URL/email heuristic tokeniser | ✔   `UrlEmailTokeniser` | ✔ | ✔ | Lucene uses `UAX29URLEmailTokenizer`; LeanCorpus preserves these terms with local Unicode-aware heuristics and does not claim UAX #29 conformance. |

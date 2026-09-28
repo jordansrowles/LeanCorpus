@@ -3,7 +3,7 @@ adr: ADR034
 title: Shape values use stable Packed BKD primitives and document-level relations
 date: 2026-09-24
 status: Accepted
-version-added: 3.2.0
+version-added: 4.0.0
 summary: Freeze the shape primitive bytes, value identity, field metadata, tessellation boundary and Geo/XY document relation semantics.
 areas: [spatial, indexing, search, storage, compatibility]
 ---
@@ -147,7 +147,7 @@ search-session identity does not depend on runtime object hashes.
 ## Consequences
 
 - `.pbkd` v1 bytes, frame, version and descriptor remain unchanged.
-- Shape fields have no Stored Fields representation in 3.2. Optional Shape
+- Shape fields have no Stored Fields representation in 4.0. Optional Shape
   DocValues and spatial aggregation semantics are defined by ADR035.
 - Circle shapes remain query-only.
 - Persisted spatial kind metadata prevents Geo/XY and point/shape reinterpretation.
