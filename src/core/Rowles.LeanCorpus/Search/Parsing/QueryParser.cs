@@ -1304,6 +1304,43 @@ public class QueryParser
     protected string AnalyseSingleToken(string field, string term) =>
         AnalyseSingleToken(ResolveFieldContext(field).QueryAnalyser, term);
 
+    /// <summary>Analyses one simple complex-phrase slot within the active phrase budgets.</summary>
+    private protected string AnalyseComplexPhraseTerm(string field, string term)
+    {
+        var tokens = new List<Analysis.Token>();
+        var sink = new CapturingSink(tokens, this);
+        ResolveFieldContext(field).QueryAnalyser.Analyse(term.AsSpan(), sink);
+        if (tokens.Count != 1 || tokens[0].PositionLength != 1)
+        {
+            throw new QueryParseException(
+                "Each term in a complex phrase alternative must analyse to exactly one linear token.");
+        }
+
+        _ = CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: true);
+        return tokens[0].Text;
+    }
+
+    /// <summary>Charges custom complex-phrase slots and alternatives to the active query budgets.</summary>
+    private protected void ConsumeComplexPhraseClauses(int clauseCount, int alternativeClauseCount)
+    {
+        if (clauseCount < 0 || alternativeClauseCount < 0 || alternativeClauseCount > clauseCount)
+            throw new ArgumentOutOfRangeException(nameof(clauseCount));
+
+        if (clauseCount > _maxQueryClauses - _queryClauseCount)
+        {
+            ThrowQueryParseLimitExceeded(
+                $"The query exceeds the configured query-clause limit of {_maxQueryClauses}.");
+        }
+
+        _queryClauseCount += clauseCount;
+        if (alternativeClauseCount == 0)
+            return;
+
+        string? clauseLimit = GetQueryCompilationBudget().TryGenerateBooleanClauses(alternativeClauseCount);
+        if (clauseLimit is not null)
+            ThrowPhraseGraphLimitExceeded(clauseLimit);
+    }
+
     private static string AnalyseSingleToken(IAnalyser analyser, string term)
     {
         var tokens = new List<Analysis.Token>();
