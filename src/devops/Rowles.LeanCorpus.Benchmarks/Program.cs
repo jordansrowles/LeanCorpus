@@ -355,6 +355,7 @@ internal static class Program
         if (runAll || suites.Contains(BenchmarkSuite.StoredFieldsRead))
         {
             RunSuite<StoredFieldsReadBenchmarks>("stored-fields", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<StoredFieldsWriteBenchmarks>("stored-fields-write", runDir, benchmarkArgs, suiteSummaries, gcDump);
             RunSuite<StoredFieldsByteBoundedBenchmarks>("stored-fields-byte-bounded", runDir, benchmarkArgs, suiteSummaries, gcDump);
         }
 
@@ -770,7 +771,7 @@ internal static class Program
               vq                  VectorQuantisationBenchmarks -- HNSW search with vector quantisation (vs Lucene.NET flat scan)
               hnsw                HnswSearchBenchmarks -- HNSW graph search vs flat scan (vs Lucene.NET baseline)
               hybrid              HybridSearchBenchmarks -- vector filters and text-vector RRF
-              stored-fields       StoredFieldsReadBenchmarks and StoredFieldsByteBoundedBenchmarks -- concurrent and byte-bounded read allocation
+              stored-fields       StoredFieldsReadBenchmarks, StoredFieldsWriteBenchmarks, and StoredFieldsByteBoundedBenchmarks -- read allocation and wide-document flush encoding
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
               diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
               packed-int-codec    PackedIntCodecBenchmarks -- Pack/Unpack scalar loop throughput (explicit only)

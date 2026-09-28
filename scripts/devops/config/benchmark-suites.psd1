@@ -70,7 +70,7 @@
     hybrid               = 'HybridSearchBenchmarks'
     vq                   = 'VectorQuantisationBenchmarks'
     'compound-file'      = 'CompoundFileBenchmarks'
-    'stored-fields'      = 'StoredFieldsReadBenchmarks and StoredFieldsByteBoundedBenchmarks -- concurrent reads and byte-bounded read allocation'
+    'stored-fields'      = 'StoredFieldsReadBenchmarks, StoredFieldsWriteBenchmarks, and StoredFieldsByteBoundedBenchmarks -- reads and wide-document flush encoding'
     'tv-highlighter'     = 'TermVectorHighlighterBenchmarks'
     'analysis-parity'    = 'AnalyserParityBenchmarks'
     'analysis-filters'   = 'TokenFilterBenchmarks'
