@@ -91,14 +91,19 @@ terms and phrases.
 
 ## Complex phrases
 
-`ComplexPhraseQueryParser` uses the configured analyser for quoted phrases and
-supports token-graph alternatives. Embedded operators are rejected until a
-position-preserving phrase grammar is defined:
+`ComplexPhraseQueryParser` uses the configured analyser for ordinary quoted
+phrases and supports flat, single-token alternatives separated by `OR`:
 
 ```csharp
 var parser = new ComplexPhraseQueryParser("body", new StandardAnalyser());
-Query query = parser.Parse("\"quick brown\"~1");
+Query query = parser.Parse("\"quick (fast OR swift) brown\"~1");
 ```
+
+Each alternative group must contain at least two terms. `OR` is
+case-insensitive. Every term in a phrase containing alternatives must analyse
+to one linear token. Nested groups, missing or misplaced operators, and other
+embedded operators are rejected. Phrases without alternative groups retain the
+regular parser's graph-aware phrase analysis.
 
 ## See also
 

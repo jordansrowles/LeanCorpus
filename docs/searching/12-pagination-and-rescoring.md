@@ -63,7 +63,7 @@ signals by deriving from `DoubleValuesSource`.
   matching.
 - `AnalysingQueryParser` analyses literal portions of wildcard and prefix
   terms.
-- `ComplexPhraseQueryParser` turns multi-term and alternative clauses inside
-  quotes into span queries.
+- `ComplexPhraseQueryParser` composes flat `(a OR b)` alternative groups inside
+  quotes as span slots; nested groups and other embedded operators are rejected.
 - `TermsQuery` accepts exact UTF-8 terms for large sets without converting
   them to strings during lookup.
