@@ -81,11 +81,11 @@ internal sealed class QueryCompiler
         return context;
     }
 
-    internal string AnalyseComplexPhraseTerm(string field, string term, int sourceOffset)
+    internal string AnalyseComplexPhraseTerm(string field, ReadOnlySpan<char> term, int sourceOffset)
     {
-        var tokens = new List<Analysis.Token>();
+        var tokens = new QueryAnalysisTokenBuffer(this, sourceOffset);
         ResolveFieldContext(field).QueryAnalyser.Analyse(
-            term.AsSpan(), new PhraseTokenCapturingSink(tokens, this, sourceOffset));
+            term, tokens);
         if (tokens.Count != 1 || tokens[0].PositionLength != 1)
         {
             throw new QueryParseException(
@@ -273,9 +273,8 @@ internal sealed class QueryCompiler
 
     private PhraseQuerySyntaxExpansion CreatePhraseExpansion(string field, string phraseText, int sourceOffset)
     {
-        var tokens = new List<Analysis.Token>();
-        var sink = new PhraseTokenCapturingSink(tokens, this, sourceOffset);
-        ResolveFieldContext(field).QueryAnalyser.Analyse(phraseText.AsSpan(), sink);
+        var tokens = new QueryAnalysisTokenBuffer(this, sourceOffset);
+        ResolveFieldContext(field).QueryAnalyser.Analyse(phraseText.AsSpan(), tokens);
         return CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: true, sourceOffset);
     }
 
@@ -295,8 +294,9 @@ internal sealed class QueryCompiler
 
         QueryCompilationBudget budget = GetQueryCompilationBudget();
         var graph = new Analysis.TokenGraph();
-        foreach (var token in tokens)
+        for (int index = 0; index < tokens.Count; index++)
         {
+            Analysis.Token token = tokens[index];
             string? edgeLimit = budget.TryReadGraphEdge();
             if (edgeLimit is not null)
                 ThrowPhraseGraphLimitExceeded(edgeLimit, sourceOffset);
@@ -402,7 +402,17 @@ internal sealed class QueryCompiler
         if (tokens.Count == 0)
             return null;
 
-        if (tokens.Any(static token => token.PositionLength != 1))
+        bool hasGraphEdge = false;
+        for (int index = 0; index < tokens.Count; index++)
+        {
+            if (tokens[index].PositionLength != 1)
+            {
+                hasGraphEdge = true;
+                break;
+            }
+        }
+
+        if (hasGraphEdge)
         {
             if (fuzzyMaxEdits.HasValue)
             {
@@ -415,8 +425,8 @@ internal sealed class QueryCompiler
         }
 
         var graph = new Analysis.TokenGraph();
-        foreach (var token in tokens)
-            graph.Add(token);
+        for (int index = 0; index < tokens.Count; index++)
+            graph.Add(tokens[index]);
         graph.ValidateOrdered();
 
         var positionQueries = new List<QuerySyntax>();
@@ -444,7 +454,7 @@ internal sealed class QueryCompiler
         CreateSyntaxNode(new BooleanQuerySyntax(
             queries.Select(static query => new QuerySyntaxClause(query, Occur.Should)).ToArray()));
 
-    private void ConsumeAnalysedPhraseToken(int sourceOffset)
+    internal void ConsumeAnalysedPhraseToken(int sourceOffset)
     {
         string? tokenLimit = GetQueryCompilationBudget().TryConsumePhraseTokens(1);
         if (tokenLimit is not null)
@@ -825,37 +835,6 @@ internal sealed class QueryCompiler
         public int Position { get; }
         public int NextEdgeIndex { get; set; }
         public int PathLength { get; }
-    }
-
-    private sealed class PhraseTokenCapturingSink(
-        List<Analysis.Token> tokens,
-        QueryCompiler phraseOwner,
-        int sourceOffset) : Analysis.ISpanTokenSink
-    {
-        public void Add(
-            ReadOnlySpan<char> text,
-            int startOffset,
-            int endOffset,
-            string type = Analysis.Token.DefaultType,
-            int positionIncrement = 1,
-            byte[]? payload = null)
-        {
-            phraseOwner.ConsumeAnalysedPhraseToken(sourceOffset);
-            tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
-        }
-
-        public void Add(
-            ReadOnlySpan<char> text,
-            int startOffset,
-            int endOffset,
-            string type,
-            int positionIncrement,
-            int positionLength,
-            byte[]? payload)
-        {
-            phraseOwner.ConsumeAnalysedPhraseToken(sourceOffset);
-            tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
-        }
     }
 
 }

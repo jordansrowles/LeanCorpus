@@ -87,12 +87,9 @@ internal sealed class QuerySyntaxParser
 
     private ParsedSyntaxClause ParseDisjunction(List<QueryToken> tokens, ref int pos)
     {
-        var clauses = new List<ParsedSyntaxClause>();
-        var operators = new List<QueryTokenType>();
-
-        var first = ParseConjunction(tokens, ref pos);
-        if (first.Query is not null)
-            clauses.Add(first);
+        ParsedSyntaxClause first = ParseConjunction(tokens, ref pos);
+        List<ParsedSyntaxClause>? additionalClauses = null;
+        bool allOperatorsArePipe = true;
 
         while (pos < tokens.Count && tokens[pos].Type != QueryTokenType.RParen)
         {
@@ -114,31 +111,53 @@ internal sealed class QuerySyntaxParser
             var next = ParseConjunction(tokens, ref pos);
             if (next.Query is null)
                 continue;
-            operators.Add(op);
-            clauses.Add(next);
+            allOperatorsArePipe &= op == QueryTokenType.Pipe;
+
+            if (first.Query is null)
+            {
+                first = next;
+                continue;
+            }
+
+            additionalClauses ??= [first];
+            additionalClauses.Add(next);
         }
 
-        if (clauses.Count == 0)
+        if (first.Query is null)
             return default;
-        if (clauses.Count == 1)
-            return clauses[0];
+        if (additionalClauses is null)
+            return first;
 
-        if (operators.Count > 0 && operators.All(static op => op == QueryTokenType.Pipe)
-            && clauses.All(static clause => clause.Occur == Occur.Should))
+        bool allShould = first.Occur == Occur.Should;
+        for (int index = 1; allShould && index < additionalClauses.Count; index++)
+            allShould = additionalClauses[index].Occur == Occur.Should;
+
+        if (allOperatorsArePipe && allShould)
         {
             QuerySourceSpan sourceSpan = QuerySourceSpan.Cover(
-                clauses[0].Query!.SourceSpan,
-                clauses[^1].Query!.SourceSpan);
+                first.Query.SourceSpan,
+                additionalClauses[^1].Query!.SourceSpan);
+            var clauses = new QuerySyntax[additionalClauses.Count];
+            clauses[0] = first.Query;
+            for (int index = 1; index < additionalClauses.Count; index++)
+                clauses[index] = additionalClauses[index].Query!;
             return new ParsedSyntaxClause(
-                CreateSyntaxNode(new DisjunctionMaxQuerySyntax(clauses.Select(static clause => clause.Query!).ToArray()), sourceSpan),
+                CreateSyntaxNode(new DisjunctionMaxQuerySyntax(clauses), sourceSpan),
                 Occur.Should);
         }
 
         QuerySourceSpan booleanSpan = QuerySourceSpan.Cover(
-            clauses[0].Query!.SourceSpan,
-            clauses[^1].Query!.SourceSpan);
+            first.Query.SourceSpan,
+            additionalClauses[^1].Query!.SourceSpan);
+        var booleanClauses = new QuerySyntaxClause[additionalClauses.Count];
+        booleanClauses[0] = new QuerySyntaxClause(first.Query, first.Occur);
+        for (int index = 1; index < additionalClauses.Count; index++)
+        {
+            ParsedSyntaxClause clause = additionalClauses[index];
+            booleanClauses[index] = new QuerySyntaxClause(clause.Query!, clause.Occur);
+        }
         return new ParsedSyntaxClause(
-            CreateSyntaxNode(new BooleanQuerySyntax(clauses.Select(static clause => new QuerySyntaxClause(clause.Query!, clause.Occur)).ToArray()), booleanSpan),
+            CreateSyntaxNode(new BooleanQuerySyntax(booleanClauses), booleanSpan),
             Occur.Should);
     }
 
@@ -276,7 +295,7 @@ internal sealed class QuerySyntaxParser
         {
             string field = _defaultField;
             QueryToken termToken = tokens[pos];
-            string term = termToken.Value;
+            string term;
             int termOffset = termToken.Offset;
             pos++;
 
@@ -285,7 +304,7 @@ internal sealed class QuerySyntaxParser
             {
                 pos++; // consume ':'
 
-                if (string.Equals(term, "_exists_", StringComparison.Ordinal))
+                if (termToken.ValueSpan.Equals("_exists_", StringComparison.Ordinal))
                 {
                     if (pos < tokens.Count && tokens[pos].Type == QueryTokenType.Term)
                     {
@@ -299,7 +318,7 @@ internal sealed class QuerySyntaxParser
                         "_exists_ must be followed by a field name.", termOffset);
                 }
 
-                field = term;
+                field = termToken.Value;
 
                 if (pos < tokens.Count)
                 {
@@ -343,6 +362,10 @@ internal sealed class QuerySyntaxParser
                     throw new QueryParseException(
                         $"Field '{field}' must be followed by a term or phrase.", termOffset);
                 }
+            }
+            else
+            {
+                term = termToken.Value;
             }
 
             // Check for wildcard/prefix/fuzzy suffixes
@@ -435,7 +458,7 @@ internal sealed class QuerySyntaxParser
     }
 
     private static bool IsUnboundedRangeMarker(QueryToken token) =>
-        token.Type == QueryTokenType.Term && string.Equals(token.Raw, "*", StringComparison.Ordinal);
+        token.Type == QueryTokenType.Term && token.RawSpan.SequenceEqual("*");
 
     private int ReadSlop(List<QueryToken> tokens, ref int pos)
     {

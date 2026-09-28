@@ -262,12 +262,14 @@ public class QueryParser
     protected IReadOnlyList<Analysis.Token> AnalyseTerm(string term) => AnalyseTerm(_defaultField, term);
 
     /// <summary>Analyses a literal query term with the analyser resolved for <paramref name="field"/>.</summary>
-    protected IReadOnlyList<Analysis.Token> AnalyseTerm(string field, string term)
+    protected IReadOnlyList<Analysis.Token> AnalyseTerm(string field, string term) =>
+        AnalyseTermBuffer(field, term);
+
+    private QueryAnalysisTokenBuffer AnalyseTermBuffer(string field, string term)
     {
-        var tokens = new List<Analysis.Token>();
-        var sink = new CapturingSink(tokens);
-        ResolveFieldContext(field).QueryAnalyser.Analyse(term.AsSpan(), sink);
-        return tokens.ToArray();
+        var tokens = new QueryAnalysisTokenBuffer();
+        ResolveFieldContext(field).QueryAnalyser.Analyse(term.AsSpan(), tokens);
+        return tokens;
     }
 
     /// <summary>Analyses a literal that must remain a single term, such as a wildcard fragment.</summary>
@@ -280,7 +282,7 @@ public class QueryParser
         AnalyseSingleToken(ResolveFieldContext(field).QueryAnalyser, term);
 
     /// <summary>Analyses one simple complex-phrase slot within the active phrase budgets.</summary>
-    private protected string AnalyseComplexPhraseTerm(string field, string term, int sourceOffset) =>
+    private protected string AnalyseComplexPhraseTerm(string field, ReadOnlySpan<char> term, int sourceOffset) =>
         GetCompiler().AnalyseComplexPhraseTerm(field, term, sourceOffset);
 
     /// <summary>Charges custom complex-phrase slots and alternatives to the active query budgets.</summary>
@@ -289,8 +291,8 @@ public class QueryParser
 
     private static string AnalyseSingleToken(IAnalyser analyser, string term)
     {
-        var tokens = new List<Analysis.Token>();
-        analyser.Analyse(term.AsSpan(), new CapturingSink(tokens));
+        var tokens = new QueryAnalysisTokenBuffer();
+        analyser.Analyse(term.AsSpan(), tokens);
         if (tokens.Count == 0)
             return string.Empty;
         if (tokens.Count != 1 || tokens[0].PositionLength != 1)
@@ -410,22 +412,11 @@ public class QueryParser
     /// <summary>Normalises one bounded term in a text range query.</summary>
     protected virtual string AnalyseRangeBound(string term) => term;
 
-    private sealed class CapturingSink(List<Analysis.Token> tokens) : Analysis.ISpanTokenSink
-    {
-        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
-            string type = Analysis.Token.DefaultType, int positionIncrement = 1, byte[]? payload = null) =>
-            tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
-
-        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset, string type,
-            int positionIncrement, int positionLength, byte[]? payload) =>
-            tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
-    }
-
     internal Func<string, QueryFieldCompilationContext>? FieldContextResolverForCompilation => _fieldContextResolver;
     internal IAnalyser CurrentAnalyserForCompilation => Analyser;
 
-    internal IReadOnlyList<Analysis.Token> AnalyseTermForCompilation(string field, string term) =>
-        AnalyseTerm(field, term);
+    internal QueryAnalysisTokenBuffer AnalyseTermForCompilation(string field, string term) =>
+        AnalyseTermBuffer(field, term);
 
     internal string AnalyseMultiTermLiteralForCompilation(string pattern) =>
         AnalyseMultiTerm(pattern);

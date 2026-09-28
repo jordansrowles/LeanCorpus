@@ -149,14 +149,29 @@ internal sealed class QueryLexer
                     throw new QueryParseException(
                         "Unmatched quote in query string.", quoteOffset);
                 }
-                string phraseRaw = input[start..i];
-                AddToken(new QueryToken(
-                    QueryTokenType.Phrase,
-                    Unescape(phraseRaw),
-                    quoteOffset,
-                    phraseRaw,
-                    HasEscapes: ContainsEscape(phraseRaw),
-                    EndOffset: i + 1));
+                ReadOnlySpan<char> phraseRawSpan = input.AsSpan(start, i - start);
+                if (!ContainsEscape(phraseRawSpan))
+                {
+                    AddToken(QueryToken.FromSource(
+                        QueryTokenType.Phrase,
+                        input,
+                        quoteOffset,
+                        start,
+                        phraseRawSpan.Length,
+                        hasUnescapedWildcard: false,
+                        EndOffset: i + 1));
+                }
+                else
+                {
+                    string phraseRaw = phraseRawSpan.ToString();
+                    AddToken(new QueryToken(
+                        QueryTokenType.Phrase,
+                        Unescape(phraseRaw.AsSpan()),
+                        quoteOffset,
+                        phraseRaw,
+                        HasEscapes: true,
+                        EndOffset: i + 1));
+                }
                 i++; // skip closing quote
                 continue;
             }
@@ -197,10 +212,30 @@ internal sealed class QueryLexer
                         start);
                 }
 
+                if (!hasEscapes)
+                {
+                    QueryTokenType type = GetKeywordType(rawSpan);
+                    AddToken(QueryToken.FromSource(
+                        type,
+                        input,
+                        start,
+                        start,
+                        rawSpan.Length,
+                        hasUnescapedWildcard,
+                        EndOffset: i));
+                    continue;
+                }
+
                 string raw = rawSpan.ToString();
-                string termValue = hasEscapes ? Unescape(raw.AsSpan()) : raw;
-                var type = !hasEscapes ? GetKeywordType(termValue) : QueryTokenType.Term;
-                AddToken(new QueryToken(type, termValue, start, raw, hasUnescapedWildcard, hasEscapes, EndOffset: i));
+                string termValue = Unescape(raw.AsSpan());
+                AddToken(new QueryToken(
+                    QueryTokenType.Term,
+                    termValue,
+                    start,
+                    raw,
+                    hasUnescapedWildcard,
+                    HasEscapes: true,
+                    EndOffset: i));
             }
         }
 
@@ -258,7 +293,7 @@ internal sealed class QueryLexer
         });
     }
 
-    private static QueryTokenType GetKeywordType(string value)
+    private static QueryTokenType GetKeywordType(ReadOnlySpan<char> value)
     {
         if (value.Equals("AND", StringComparison.OrdinalIgnoreCase)) return QueryTokenType.And;
         if (value.Equals("OR", StringComparison.OrdinalIgnoreCase)) return QueryTokenType.Or;
@@ -275,15 +310,89 @@ internal enum QueryTokenType
     Equal, And, Or, Not, To, Pipe, OpenSquare, CloseSquare, OpenCurly, CloseCurly
 }
 
-internal readonly record struct QueryToken(
-    QueryTokenType Type,
-    string Value,
-    int Offset,
-    string? RawValue = null,
-    bool HasUnescapedWildcard = false,
-    bool HasEscapes = false,
-    int EndOffset = -1)
+internal struct QueryToken
 {
+    private string? _materialisedValue;
+    private readonly string? _sourceText;
+    private readonly int _valueStart;
+    private readonly int _valueLength;
+
+    public QueryToken(
+        QueryTokenType Type,
+        string Value,
+        int Offset,
+        string? RawValue = null,
+        bool HasUnescapedWildcard = false,
+        bool HasEscapes = false,
+        int EndOffset = -1)
+    {
+        this.Type = Type;
+        _materialisedValue = Value;
+        _sourceText = null;
+        _valueStart = 0;
+        _valueLength = Value.Length;
+        this.Offset = Offset;
+        this.RawValue = RawValue;
+        this.HasUnescapedWildcard = HasUnescapedWildcard;
+        this.HasEscapes = HasEscapes;
+        this.EndOffset = EndOffset;
+    }
+
+    private QueryToken(
+        QueryTokenType type,
+        string sourceText,
+        int offset,
+        int valueStart,
+        int valueLength,
+        bool hasUnescapedWildcard,
+        int endOffset)
+    {
+        Type = type;
+        _materialisedValue = null;
+        _sourceText = sourceText;
+        _valueStart = valueStart;
+        _valueLength = valueLength;
+        Offset = offset;
+        RawValue = null;
+        HasUnescapedWildcard = hasUnescapedWildcard;
+        HasEscapes = false;
+        EndOffset = endOffset;
+    }
+
+    public static QueryToken FromSource(
+        QueryTokenType type,
+        string sourceText,
+        int offset,
+        int valueStart,
+        int valueLength,
+        bool hasUnescapedWildcard,
+        int EndOffset) =>
+        new(type, sourceText, offset, valueStart, valueLength, hasUnescapedWildcard, EndOffset);
+
+    public QueryTokenType Type { get; }
+    public string Value
+    {
+        get
+        {
+            if (_materialisedValue is null)
+                _materialisedValue = _sourceText!.Substring(_valueStart, _valueLength);
+            return _materialisedValue;
+        }
+    }
+
+    public ReadOnlySpan<char> ValueSpan =>
+        _sourceText is null
+            ? _materialisedValue.AsSpan()
+            : _sourceText.AsSpan(_valueStart, _valueLength);
+
+    public ReadOnlySpan<char> RawSpan => RawValue is null ? ValueSpan : RawValue.AsSpan();
+
+    public int Offset { get; }
+    public string? RawValue { get; }
+    public bool HasUnescapedWildcard { get; }
+    public bool HasEscapes { get; }
+    public int EndOffset { get; }
+    public bool IsSourceBackedValue => _sourceText is not null;
     public string Raw => RawValue ?? Value;
     public QuerySourceSpan SourceSpan => new(Offset, EndOffset < Offset ? Offset : EndOffset);
 }

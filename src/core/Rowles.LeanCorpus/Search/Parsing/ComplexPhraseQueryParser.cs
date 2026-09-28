@@ -64,7 +64,7 @@ public sealed class ComplexPhraseQueryParser : QueryParser
         ReadOnlySpan<char> raw = rawPhraseText.AsSpan();
         int contentOffset = sourceSpan.Start + 1;
         if (ContainsUnescapedParenthesis(raw))
-            return BuildFlatAlternativePhrase(field, raw, slop, contentOffset, sourceSpan.Start);
+            return BuildFlatAlternativePhrase(field, rawPhraseText, slop, contentOffset, sourceSpan.Start);
 
         if (FindUnsupportedComplexSyntax(raw) is int unsupportedOffset)
             throw UnsupportedEmbeddedSyntax(contentOffset + unsupportedOffset);
@@ -74,7 +74,7 @@ public sealed class ComplexPhraseQueryParser : QueryParser
 
     private Query BuildFlatAlternativePhrase(
         string field,
-        ReadOnlySpan<char> rawPhraseText,
+        string rawPhraseText,
         int slop,
         int contentOffset,
         int phraseOffset)
@@ -98,7 +98,7 @@ public sealed class ComplexPhraseQueryParser : QueryParser
             for (int index = 0; index < slot.Terms.Count; index++)
             {
                 PhraseTerm term = slot.Terms[index];
-                string analysedTerm = AnalyseComplexPhraseTerm(field, term.Value, term.SourceSpan.Start);
+                string analysedTerm = AnalyseComplexPhraseTerm(field, term.ValueSpan, term.SourceSpan.Start);
                 terms[index] = new SpanTermQuery(field, analysedTerm);
             }
 
@@ -112,32 +112,33 @@ public sealed class ComplexPhraseQueryParser : QueryParser
             : new SpanNearQuery(clauses.ToArray(), slop, InOrder);
     }
 
-    private static List<PhraseSlot> ParseFlatPhrase(ReadOnlySpan<char> rawPhraseText, int contentOffset)
+    private static List<PhraseSlot> ParseFlatPhrase(string rawPhraseText, int contentOffset)
     {
+        ReadOnlySpan<char> raw = rawPhraseText.AsSpan();
         var slots = new List<PhraseSlot>();
         int position = 0;
-        while (position < rawPhraseText.Length)
+        while (position < raw.Length)
         {
-            SkipWhitespace(rawPhraseText, ref position);
-            if (position == rawPhraseText.Length)
+            SkipWhitespace(raw, ref position);
+            if (position == raw.Length)
                 break;
 
-            if (rawPhraseText[position] == ')')
+            if (raw[position] == ')')
                 throw InvalidAlternative("unmatched closing parenthesis", contentOffset + position);
 
             PhraseSlot slot;
-            if (rawPhraseText[position] == '(')
+            if (raw[position] == '(')
             {
-                slot = ParseAlternativeGroup(rawPhraseText, ref position, contentOffset);
+                slot = ParseAlternativeGroup(rawPhraseText, raw, ref position, contentOffset);
             }
             else
             {
-                PhraseTerm term = ReadTerm(rawPhraseText, ref position, contentOffset);
+                PhraseTerm term = ReadTerm(rawPhraseText, raw, ref position, contentOffset);
                 ValidateSimpleTerm(term);
                 slot = new PhraseSlot([term], IsAlternative: false);
             }
 
-            if (position < rawPhraseText.Length && !char.IsWhiteSpace(rawPhraseText[position]))
+            if (position < raw.Length && !char.IsWhiteSpace(raw[position]))
                 throw InvalidAlternative("phrase slots must be separated by whitespace", contentOffset + position);
 
             slots.Add(slot);
@@ -150,6 +151,7 @@ public sealed class ComplexPhraseQueryParser : QueryParser
     }
 
     private static PhraseSlot ParseAlternativeGroup(
+        string sourceText,
         ReadOnlySpan<char> rawPhraseText,
         ref int position,
         int contentOffset)
@@ -177,12 +179,12 @@ public sealed class ComplexPhraseQueryParser : QueryParser
                 return new PhraseSlot(terms, IsAlternative: true);
             }
 
-            PhraseTerm term = ReadTerm(rawPhraseText, ref position, contentOffset);
-            if (term.Value.Length == 0)
+            PhraseTerm term = ReadTerm(sourceText, rawPhraseText, ref position, contentOffset);
+            if (term.ValueSpan.Length == 0)
                 throw InvalidAlternative("a term was expected", contentOffset + position);
 
             bool isOr = !term.WasEscaped
-                && term.Value.Equals("OR", StringComparison.OrdinalIgnoreCase);
+                && term.ValueSpan.Equals("OR", StringComparison.OrdinalIgnoreCase);
             if (expectingTerm)
             {
                 if (isOr)
@@ -201,12 +203,13 @@ public sealed class ComplexPhraseQueryParser : QueryParser
     }
 
     private static PhraseTerm ReadTerm(
+        string sourceText,
         ReadOnlySpan<char> rawPhraseText,
         ref int position,
         int contentOffset)
     {
         int start = position;
-        var value = new System.Text.StringBuilder();
+        System.Text.StringBuilder? value = null;
         bool wasEscaped = false;
         while (position < rawPhraseText.Length)
         {
@@ -218,31 +221,36 @@ public sealed class ComplexPhraseQueryParser : QueryParser
             if (current == '\\')
             {
                 wasEscaped = true;
+                value ??= new System.Text.StringBuilder(rawPhraseText.Length - start)
+                    .Append(rawPhraseText[start..(position - 1)]);
                 if (position < rawPhraseText.Length)
                     value.Append(rawPhraseText[position++]);
                 else
                     value.Append('\\');
             }
-            else
+            else if (value is not null)
             {
                 value.Append(current);
             }
         }
 
         return new PhraseTerm(
-            value.ToString(),
+            sourceText,
+            value?.ToString(),
+            start,
+            position - start,
             wasEscaped,
             new QuerySourceSpan(contentOffset + start, contentOffset + position));
     }
 
     private static void ValidateSimpleTerm(PhraseTerm term)
     {
-        if (term.Value.Length == 0)
+        if (term.ValueSpan.Length == 0)
             throw InvalidAlternative("a term was expected", term.SourceSpan.Start);
         if (term.WasEscaped)
             throw UnsupportedEmbeddedSyntax(term.SourceSpan.Start);
 
-        foreach (char current in term.Value)
+        foreach (char current in term.ValueSpan)
         {
             if (current is '*' or '?' or '~' or '/' or '^' or '=' or ':' or '[' or ']' or '{' or '}' or '|')
                 throw UnsupportedEmbeddedSyntax(term.SourceSpan.Start);
@@ -310,7 +318,18 @@ public sealed class ComplexPhraseQueryParser : QueryParser
             "Complex phrase syntax supports flat alternatives only; other embedded operators remain unsupported until a position-preserving grammar is available.",
             offset);
 
-    private readonly record struct PhraseTerm(string Value, bool WasEscaped, QuerySourceSpan SourceSpan);
+    private readonly record struct PhraseTerm(
+        string SourceText,
+        string? MaterialisedValue,
+        int Start,
+        int Length,
+        bool WasEscaped,
+        QuerySourceSpan SourceSpan)
+    {
+        public ReadOnlySpan<char> ValueSpan => MaterialisedValue is null
+            ? SourceText.AsSpan(Start, Length)
+            : MaterialisedValue.AsSpan();
+    }
 
     private sealed record PhraseSlot(IReadOnlyList<PhraseTerm> Terms, bool IsAlternative);
 }
