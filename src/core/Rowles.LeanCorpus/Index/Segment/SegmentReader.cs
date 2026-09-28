@@ -28,11 +28,8 @@ internal sealed partial class SegmentReaderState : IDisposable
     private bool _storedReaderLoaded;
     private NormState? _normState;
     private readonly Dictionary<string, string> _vectorPaths = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, VectorReader> _vectorReaders = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, QuantisedVectorReader> _quantisedVectorReaders = new(StringComparer.Ordinal);
     private readonly Dictionary<string, VectorQuantisation> _vectorQuantisation = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, HnswGraph?> _hnswGraphs = new(StringComparer.Ordinal);
-    private readonly object _hnswLoadLock = new();
+    private readonly Dictionary<string, VectorFieldState> _vectorFieldStates = new(StringComparer.Ordinal);
     private readonly List<IndexInput> _docValuesInputs = [];
     private readonly Dictionary<string, long> _fileLengthCache = new(StringComparer.Ordinal);
     private readonly Lock _fileLengthCacheLock = new();
@@ -131,6 +128,7 @@ internal sealed partial class SegmentReaderState : IDisposable
                     {
                         _vectorPaths[vf.FieldName] = vqName[info.SegmentId.Length..];
                         _vectorQuantisation[vf.FieldName] = vf.Quantisation;
+                        _vectorFieldStates[vf.FieldName] = new VectorFieldState();
                     }
                 }
                 else
@@ -138,7 +136,10 @@ internal sealed partial class SegmentReaderState : IDisposable
                     var perFieldVecPath = VectorFilePaths.VectorFile(_basePath, vf.FieldName);
                     string vectorName = Path.GetFileName(perFieldVecPath);
                     if (_files.Exists(vectorName[info.SegmentId.Length..]))
+                    {
                         _vectorPaths[vf.FieldName] = vectorName[info.SegmentId.Length..];
+                        _vectorFieldStates[vf.FieldName] = new VectorFieldState();
+                    }
                 }
             }
         }
@@ -146,7 +147,10 @@ internal sealed partial class SegmentReaderState : IDisposable
         {
             // Legacy single-vector segment: pre-multi-vector layout.
             if (_files.Exists(".vec"))
+            {
                 _vectorPaths[string.Empty] = ".vec";
+                _vectorFieldStates[string.Empty] = new VectorFieldState();
+            }
         }
 
         // DocValues and numeric indexes remain genuinely on demand. The searcher's
@@ -569,19 +573,18 @@ internal sealed partial class SegmentReaderState : IDisposable
                 liveDocsAndParentsBytes += FileBytes(".pbs") * 2;
         }
 
-        lock (_hnswLoadLock)
+        foreach ((string fieldName, VectorFieldState fieldState) in _vectorFieldStates)
         {
-            foreach (string path in _vectorReaders.Keys)
-                vectorsBytes += FileBytes(path);
-            foreach (string path in _quantisedVectorReaders.Keys)
-                vectorsBytes += FileBytes(path);
-            foreach ((string fieldName, HnswGraph? graph) in _hnswGraphs)
+            lock (fieldState.LoadLock)
             {
-                if (graph is null)
-                    continue;
-                string path = VectorFilePaths.HnswFile(_basePath, fieldName);
-                string extension = Path.GetFileName(path)[_info.SegmentId.Length..];
-                vectorsBytes += FileBytes(extension) * 2;
+                if (fieldState.Vector is not null || fieldState.QuantisedVector is not null)
+                    vectorsBytes += FileBytes(_vectorPaths[fieldName]);
+                if (fieldState.Graph is not null)
+                {
+                    string path = VectorFilePaths.HnswFile(_basePath, fieldName);
+                    string extension = Path.GetFileName(path)[_info.SegmentId.Length..];
+                    vectorsBytes += FileBytes(extension) * 2;
+                }
             }
         }
 
@@ -696,19 +699,55 @@ internal sealed partial class SegmentReaderState : IDisposable
         _docValuesInputs.Clear();
         lock (_fileLengthCacheLock)
             _fileLengthCache.Clear();
-        foreach (var graph in _hnswGraphs.Values)
-            graph?.Dispose();
-        foreach (var r in _vectorReaders.Values) r.Dispose();
-        _vectorReaders.Clear();
+        foreach (VectorFieldState fieldState in _vectorFieldStates.Values)
+            fieldState.Dispose();
+        _vectorFieldStates.Clear();
         _vectorPaths.Clear();
-        foreach (var r in _quantisedVectorReaders.Values) r.Dispose();
-        _quantisedVectorReaders.Clear();
+        _vectorQuantisation.Clear();
         _termVectorsReader?.Dispose();
         _packedBkdReader?.Dispose();
         _shapeDocValuesReader?.Dispose();
         _bkdReader?.Dispose();
         _int64BkdReader?.Dispose();
         _files.Dispose();
+    }
+
+    private sealed class VectorFieldState : IDisposable
+    {
+        private VectorReader? _vector;
+        private QuantisedVectorReader? _quantisedVector;
+        private HnswGraph? _graph;
+        private int _graphLoaded;
+
+        internal object LoadLock { get; } = new();
+        internal VectorReader? Vector => Volatile.Read(ref _vector);
+        internal QuantisedVectorReader? QuantisedVector => Volatile.Read(ref _quantisedVector);
+        internal HnswGraph? Graph => Volatile.Read(ref _graph);
+        internal bool GraphLoaded => Volatile.Read(ref _graphLoaded) != 0;
+
+        internal void SetVector(VectorReader vector) => Volatile.Write(ref _vector, vector);
+
+        internal void SetQuantisedVector(QuantisedVectorReader vector)
+            => Volatile.Write(ref _quantisedVector, vector);
+
+        internal void SetGraph(HnswGraph? graph)
+        {
+            Volatile.Write(ref _graph, graph);
+            Volatile.Write(ref _graphLoaded, 1);
+        }
+
+        public void Dispose()
+        {
+            lock (LoadLock)
+            {
+                Graph?.Dispose();
+                Vector?.Dispose();
+                QuantisedVector?.Dispose();
+                SetGraph(null);
+                Volatile.Write(ref _vector, null);
+                Volatile.Write(ref _quantisedVector, null);
+            }
+        }
     }
 
     private sealed record NormState(

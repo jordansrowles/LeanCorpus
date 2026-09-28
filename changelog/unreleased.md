@@ -74,6 +74,7 @@
 
 - Use one bulk `AddDocuments` call for verified append-only writes to non-empty Server Core indexes, avoiding per-document segment creation.
 - Batch Server Core replacements by applying ID deletions once before ordered additions, and preserve pinned snapshots with deletion-generation statistics sidecars.
+- Avoid serialising first-time vector reader and HNSW graph loading across independent vector fields.
 - Preserve original UTF-16 query offsets in parser diagnostics from analysis and complex-phrase parsing, and document the `QueryParseException.Offset` coordinate system.
 - Compute segment statistics from exact live-document sets and field presence, invalidate stale statistics sidecars, and recover legacy field presence from postings.
 - Keep bounded segment-reader acquisitions successful when unrelated eviction disposal fails, attempt every selected value, and report aggregate cleanup failures.

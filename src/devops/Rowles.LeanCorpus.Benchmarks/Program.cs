@@ -115,6 +115,7 @@ internal static class Program
                 BenchmarkSuite.FstLookup,
                 BenchmarkSuite.MMapIO,
                 BenchmarkSuite.HnswSearch,
+                BenchmarkSuite.VectorFirstTouch,
                 BenchmarkSuite.VectorQuantisation,
                 BenchmarkSuite.CompoundFile,
                 BenchmarkSuite.WindowsFileSystem,
@@ -400,6 +401,9 @@ internal static class Program
 
         if (suites.Contains(BenchmarkSuite.SegmentReaderResourceCache))
             RunSuite<SegmentReaderResourceCacheBenchmarks>("segment-reader-resource-cache", runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (suites.Contains(BenchmarkSuite.VectorFirstTouch))
+            RunSuite<VectorFirstTouchBenchmarks>("vector-first-touch", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (suites.Contains(BenchmarkSuite.MultiReader))
             RunSuite<MultiReaderBenchmarks>("multi-reader", runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -776,6 +780,7 @@ internal static class Program
               async-index         AsyncIndexingBenchmarks -- sync vs async indexing
               vq                  VectorQuantisationBenchmarks -- HNSW search with vector quantisation (vs Lucene.NET flat scan)
               hnsw                HnswSearchBenchmarks -- HNSW graph search vs flat scan (vs Lucene.NET baseline)
+              vector-first-touch  VectorFirstTouchBenchmarks -- serial and parallel cold vector/HNSW first touch (explicit only)
               hybrid              HybridSearchBenchmarks -- vector filters and text-vector RRF
               stored-fields       StoredFieldsReadBenchmarks, StoredFieldsWriteBenchmarks, and StoredFieldsByteBoundedBenchmarks -- read allocation and wide-document flush encoding
               tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
@@ -1005,6 +1010,7 @@ internal static class Program
             "similarity" => BenchmarkSuite.Similarity,
             "vectorquantisation" or "vq" => BenchmarkSuite.VectorQuantisation,
             "hnsw" or "hnsw-search" => BenchmarkSuite.HnswSearch,
+            "vector-first-touch" or "vectorfirsttouch" => BenchmarkSuite.VectorFirstTouch,
             "hybrid" => BenchmarkSuite.Hybrid,
             "async-index" or "asyncindex" => BenchmarkSuite.AsyncIndex,
             _ => throw new ArgumentException($"Unknown benchmark suite '{value}'. Use --help to list available suites.")
@@ -1078,6 +1084,7 @@ internal static class Program
         AsyncIndex,
         VectorQuantisation,
         HnswSearch,
+        VectorFirstTouch,
         Hybrid,
         PackedIntCodec,
         CodecFrame,

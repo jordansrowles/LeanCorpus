@@ -54,6 +54,13 @@ returned `PostingsEnum` transfers its lease to the cursor's existing shared
 disposal guard. This keeps copied cursors, mapped postings, vector readers, and
 HNSW vector sources valid until their operation ends.
 
+Each vector field owns one lazy holder for its vector reader, quantised reader,
+and HNSW graph. First access to a field is synchronised by that holder, so
+initialising one field does not block another field. Successful readers and
+graphs are published once and reused; a missing graph is cached, while failed
+opens or graph reads remain retryable. Segment state disposes each field's
+graph before its vector reader after active operation leases have drained.
+
 Committed segment files are protected by one searcher snapshot lease acquired
 from a single directory inventory. A process-wide registry, keyed by canonical
 directory and concrete file path, coordinates snapshots, mapped inputs, and
@@ -86,6 +93,9 @@ workaround that was introduced to avoid a merge deletion race.
   not charge every reader for the whole `.cfs` file. Array estimates include
   loaded materialisations; they are conservative guidance for retained cache
   resources, not an exact managed-heap or mapped-page measurement.
+- Vector and HNSW first-touch state is isolated per field; one field's cold
+  reader or graph load does not serialise other fields. All resources remain
+  owned by the segment state and follow its lease-protected disposal lifetime.
 - Smaller budgets can increase reader reload and DocValues materialisation
   work. A configured entry count no longer pins all warmed readers when it is
   greater than the active segment count.

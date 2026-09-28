@@ -832,78 +832,67 @@ internal sealed partial class SegmentReaderState
         if (string.IsNullOrEmpty(fieldName) && _vectorPaths.Count == 1)
             fieldName = _vectorPaths.Keys.First();
 
-        if (_vectorReaders.TryGetValue(fieldName, out var vectorReader))
+        if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState))
+        {
+            destination.Clear();
+            return false;
+        }
+
+        if (!EnsureVectorReadersLoaded(fieldName, fieldState))
+        {
+            destination.Clear();
+            return false;
+        }
+
+        if (fieldState.Vector is { } vectorReader)
         {
             vectorReader.ReadVector(docId, destination);
             return true;
         }
-        if (_quantisedVectorReaders.TryGetValue(fieldName, out var quantisedReader))
+
+        if (fieldState.QuantisedVector is { } quantisedVectorReader)
         {
-            quantisedReader.ReadVector(docId, destination);
+            quantisedVectorReader.ReadVector(docId, destination);
             return true;
         }
 
-        lock (_hnswLoadLock)
-        {
-            if (_vectorReaders.TryGetValue(fieldName, out vectorReader))
-            {
-                vectorReader.ReadVector(docId, destination);
-                return true;
-            }
-            if (_quantisedVectorReaders.TryGetValue(fieldName, out quantisedReader))
-            {
-                quantisedReader.ReadVector(docId, destination);
-                return true;
-            }
-            if (!_vectorPaths.TryGetValue(fieldName, out var path))
-            {
-                destination.Clear();
-                return false;
-            }
-
-            if (_vectorQuantisation.TryGetValue(fieldName, out var quantisation)
-                && quantisation != VectorQuantisation.None)
-            {
-                quantisedReader = QuantisedVectorReader.Open(_files.OpenInput(path));
-                _quantisedVectorReaders[fieldName] = quantisedReader;
-                quantisedReader.ReadVector(docId, destination);
-            }
-            else
-            {
-                vectorReader = VectorReader.Open(_files.OpenInput(path));
-                _vectorReaders[fieldName] = vectorReader;
-                vectorReader.ReadVector(docId, destination);
-            }
-            return true;
-        }
+        destination.Clear();
+        return false;
     }
 
     private float[]? ReadVectorFromField(string fieldName, int docId)
     {
-        if (_vectorReaders.TryGetValue(fieldName, out var vr))
-            return vr.ReadVector(docId);
-        if (_quantisedVectorReaders.TryGetValue(fieldName, out var qr))
-            return qr.ReadVector(docId);
+        if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState)
+            || !EnsureVectorReadersLoaded(fieldName, fieldState))
+            return null;
 
-        lock (_hnswLoadLock)
+        if (fieldState.Vector is { } vectorReader)
+            return vectorReader.ReadVector(docId);
+        return fieldState.QuantisedVector?.ReadVector(docId);
+    }
+
+    private bool EnsureVectorReadersLoaded(string fieldName, VectorFieldState fieldState)
+    {
+        if (fieldState.Vector is not null || fieldState.QuantisedVector is not null)
+            return true;
+        if (!_vectorPaths.TryGetValue(fieldName, out var path))
+            return false;
+
+        lock (fieldState.LoadLock)
         {
-            if (_vectorReaders.TryGetValue(fieldName, out vr))
-                return vr.ReadVector(docId);
-            if (_quantisedVectorReaders.TryGetValue(fieldName, out qr))
-                return qr.ReadVector(docId);
-            if (!_vectorPaths.TryGetValue(fieldName, out var path))
-                return null;
+            if (fieldState.Vector is not null || fieldState.QuantisedVector is not null)
+                return true;
 
-            if (_vectorQuantisation.TryGetValue(fieldName, out var q) && q != VectorQuantisation.None)
+            if (_vectorQuantisation.TryGetValue(fieldName, out var quantisation)
+                && quantisation != VectorQuantisation.None)
             {
-                qr = QuantisedVectorReader.Open(_files.OpenInput(path));
-                _quantisedVectorReaders[fieldName] = qr;
-                return qr.ReadVector(docId);
+                fieldState.SetQuantisedVector(QuantisedVectorReader.Open(_files.OpenInput(path)));
             }
-
-            vr = VectorReader.Open(_files.OpenInput(path));
-            _vectorReaders[fieldName] = vr;
-            return vr.ReadVector(docId);
+            else
+            {
+                fieldState.SetVector(VectorReader.Open(_files.OpenInput(path)));
+            }
+            return true;
         }
     }
 
@@ -916,36 +905,27 @@ internal sealed partial class SegmentReaderState
     /// </summary>
     internal HnswGraph? GetHnswGraph(string fieldName)
     {
-        if (_hnswGraphs.TryGetValue(fieldName, out var cached)) return cached;
-        lock (_hnswLoadLock)
+        if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState))
+            return null;
+        if (fieldState.GraphLoaded)
+            return fieldState.Graph;
+
+        lock (fieldState.LoadLock)
         {
-            if (_hnswGraphs.TryGetValue(fieldName, out cached)) return cached;
+            if (fieldState.GraphLoaded)
+                return fieldState.Graph;
+
             var path = VectorFilePaths.HnswFile(_basePath, fieldName);
             string hnswExtension = Path.GetFileName(path)[_info.SegmentId.Length..];
             HnswGraph? graph = null;
 
-            if (_files.Exists(hnswExtension))
+            if (_files.Exists(hnswExtension) && EnsureVectorReadersLoaded(fieldName, fieldState))
             {
                 IVectorSource? src = null;
-                if (_vectorReaders.TryGetValue(fieldName, out var vr))
+                if (fieldState.Vector is { } vr)
                     src = new VectorReaderSource(vr);
-                else if (_quantisedVectorReaders.TryGetValue(fieldName, out var qr))
+                else if (fieldState.QuantisedVector is { } qr)
                     src = new QuantisedVectorSource(qr);
-                else if (_vectorPaths.TryGetValue(fieldName, out var vecPath))
-                {
-                    if (_vectorQuantisation.TryGetValue(fieldName, out var q) && q != VectorQuantisation.None)
-                    {
-                        qr = QuantisedVectorReader.Open(_files.OpenInput(vecPath));
-                        _quantisedVectorReaders[fieldName] = qr;
-                        src = new QuantisedVectorSource(qr);
-                    }
-                    else
-                    {
-                        vr = VectorReader.Open(_files.OpenInput(vecPath));
-                        _vectorReaders[fieldName] = vr;
-                        src = new VectorReaderSource(vr);
-                    }
-                }
 
                 if (src is not null)
                 {
@@ -954,7 +934,7 @@ internal sealed partial class SegmentReaderState
                     graph = HnswReader.Read(_files.OpenInput(hnswExtension), src, expectedNormalised, docIdRemap: null);
                 }
             }
-            _hnswGraphs[fieldName] = graph;
+            fieldState.SetGraph(graph);
             return graph;
         }
     }

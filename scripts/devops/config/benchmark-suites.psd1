@@ -67,6 +67,7 @@
     'windows-filesystem' = 'WindowsFileSystemBenchmarks'
     'windows-storage'    = 'WindowsStoragePathBenchmarks'
     hnsw                 = 'HnswSearchBenchmarks'
+    'vector-first-touch' = 'VectorFirstTouchBenchmarks -- serial and parallel cold vector/HNSW first touch'
     hybrid               = 'HybridSearchBenchmarks'
     vq                   = 'VectorQuantisationBenchmarks'
     'compound-file'      = 'CompoundFileBenchmarks'
