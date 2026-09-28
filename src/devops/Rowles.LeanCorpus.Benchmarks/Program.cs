@@ -151,7 +151,10 @@ internal static class Program
             RunSuite<TermQueryBenchmarks>("query", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (runAll || suites.Contains(BenchmarkSuite.Parser))
+        {
             RunSuite<QueryParserBenchmarks>("parser", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<QueryParserHotPathBenchmarks>("parser-hot-path", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        }
 
         if (runAll || suites.Contains(BenchmarkSuite.Index))
         {

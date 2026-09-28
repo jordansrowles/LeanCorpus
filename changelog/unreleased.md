@@ -25,6 +25,7 @@
 - Replace repeated Thai and Chinese lexicon prefix hash probes with an allocation-free radix trie, reducing tokenisation time for long unknown runs.
 - Map pagination and rescoring query documentation to Core Search in affected-test selection.
 - Separate query-string lexing, syntax parsing and query compilation into internal stages while preserving escaped source text, parser budgets and the public API.
+- Reduce query-parser allocations by retaining unescaped terms and phrases as source slices, capturing analysed tokens inline for single-token cases, lazily allocating Boolean clauses, and avoiding temporary strings for plain complex-phrase terms.
 - Reuse thread-affine execution contexts for the built-in language analyser filters, avoiding per-field filter clones and routing-sink allocations.
 - Expand DocValues benchmarks to large dense, sparse, high-cardinality and multi-valued workloads with explicit `.dvn` reads, and measure concurrent random stored-field reads across shared and separate blocks.
 - Capture stored-field compression implementations in immutable `CodecCatalog` snapshots, reject duplicate policy registrations, and close process bootstrap registration when an index opens.

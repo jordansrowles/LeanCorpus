@@ -49,3 +49,39 @@ public class QueryParserBenchmarks
         }
     }
 }
+
+/// <summary>Measures parsing time and allocations without including search execution.</summary>
+[MemoryDiagnoser]
+[HtmlExporter]
+[JsonExporterAttribute.Full]
+[MarkdownExporterAttribute.GitHub]
+[RPlotExporter]
+public class QueryParserHotPathBenchmarks
+{
+    private QueryParser _parser = null!;
+    private ComplexPhraseQueryParser _complexPhraseParser = null!;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _parser = new QueryParser("body", new StandardAnalyser());
+        _complexPhraseParser = new ComplexPhraseQueryParser("body", new StandardAnalyser());
+    }
+
+    [Benchmark(Baseline = true)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public Query ParseSingleTerm() => _parser.Parse("quick");
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public Query ParseBooleanQuery() => _parser.Parse("quick AND brown OR fox");
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public Query ParseQuotedPhrase() => _parser.Parse("\"quick brown fox\"");
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public Query ParseFlatComplexPhrase() =>
+        _complexPhraseParser.Parse("\"quick (fast OR swift) brown\"");
+}
