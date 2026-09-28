@@ -77,6 +77,7 @@
 - Keep bounded segment-reader acquisitions successful when unrelated eviction disposal fails, attempt every selected value, and report aggregate cleanup failures.
 - Reject parent bitsets with mismatched word counts or set bits outside the declared document range, and validate `Set` document IDs.
 - Return defensive copies from public SegmentReader DocValues getters, including nested binary payloads and field lengths, while keeping internal query access read-only and lease-scoped.
+- Keep query reader state in a scoped LIFO stack, restore outer readers after nested calls, and reject lease disposal on another thread.
 - Validate the stored-field block document-count limit consistently in writer configuration, direct and stream writers, readers, and index inspection.
 - Reject Binary DocValues field payloads above 2,147,483,646 bytes before writing offsets or publishing the `.dvb` file, using checked 64-bit size accounting while preserving the current 32-bit offset format.
 - Validate DocValues frame lengths, field and document counts, offsets, and presence payloads before allocating; reject malformed counts and body overruns as codec corruption.

@@ -128,8 +128,8 @@ public sealed partial class IndexSearcher
             return;
         }
 
-        // Pin the heavy state for the complete segment operation. Nested query
-        // execution takes additional value-type leases on the same cache entry.
+        // Keep the heavy state alive for this segment operation. Nested query
+        // scopes push LIFO tokens so same-reader calls can reuse its state safely.
         using var segmentLease = reader.AcquireQueryLease();
         collector.SetSideCollectorContext(reader);
         switch (query)

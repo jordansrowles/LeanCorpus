@@ -17,9 +17,112 @@ namespace Rowles.LeanCorpus.Index.Segment;
 /// </summary>
 public sealed partial class SegmentReader : IDisposable
 {
-    [ThreadStatic] private static SegmentReader? t_pinnedReader;
-    [ThreadStatic] private static SegmentReaderState? t_pinnedState;
-    [ThreadStatic] private static int t_pinDepth;
+    [ThreadStatic] private static QueryPinContext? t_queryPins;
+
+    private readonly struct QueryPinFrame
+    {
+        internal SegmentReader Reader { get; }
+        internal SegmentReaderState State { get; }
+        internal long Token { get; }
+        internal bool OwnsResources { get; }
+        internal BoundedLruCache<string, SegmentReaderState>.Lease CacheLease { get; }
+        internal LifetimeLease OperationLease { get; }
+        internal LifetimeLease DirectoryLease { get; }
+
+        internal QueryPinFrame(
+            SegmentReader reader,
+            SegmentReaderState state,
+            long token,
+            BoundedLruCache<string, SegmentReaderState>.Lease cacheLease,
+            LifetimeLease operationLease,
+            LifetimeLease directoryLease,
+            bool ownsResources)
+        {
+            Reader = reader;
+            State = state;
+            Token = token;
+            OwnsResources = ownsResources;
+            CacheLease = cacheLease;
+            OperationLease = operationLease;
+            DirectoryLease = directoryLease;
+        }
+    }
+
+    internal sealed class QueryPinContext
+    {
+        private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
+        private readonly List<QueryPinFrame> _frames = new(capacity: 4);
+        private long _nextToken;
+
+        internal bool TryGetFastState(
+            SegmentReader reader,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out SegmentReaderState? state)
+        {
+            for (int i = _frames.Count - 1; i >= 0; i--)
+            {
+                QueryPinFrame frame = _frames[i];
+                if (ReferenceEquals(frame.Reader, reader))
+                {
+                    state = frame.State;
+                    return true;
+                }
+            }
+
+            state = null;
+            return false;
+        }
+
+        internal long Push(
+            SegmentReader reader,
+            SegmentReaderState state,
+            BoundedLruCache<string, SegmentReaderState>.Lease cacheLease,
+            LifetimeLease operationLease,
+            LifetimeLease directoryLease,
+            bool ownsResources)
+        {
+            long token = ++_nextToken;
+            _frames.Add(new QueryPinFrame(
+                reader, state, token, cacheLease, operationLease, directoryLease, ownsResources));
+            return token;
+        }
+
+        internal void Release(long token)
+        {
+            if (_ownerThreadId != Environment.CurrentManagedThreadId)
+                throw new InvalidOperationException("A segment query lease must be disposed on its acquiring thread.");
+
+            int frameIndex = -1;
+            for (int i = _frames.Count - 1; i >= 0; i--)
+            {
+                if (_frames[i].Token == token)
+                {
+                    frameIndex = i;
+                    break;
+                }
+            }
+
+            if (frameIndex < 0)
+                return;
+            if (frameIndex != _frames.Count - 1)
+                throw new InvalidOperationException("Segment query leases must be disposed in reverse acquisition order.");
+
+            QueryPinFrame frame = _frames[frameIndex];
+            _frames.RemoveAt(frameIndex);
+            if (!frame.OwnsResources)
+                return;
+
+            List<Exception>? failures = null;
+            try { frame.CacheLease.Dispose(); }
+            catch (Exception exception) { (failures ??= []).Add(exception); }
+            try { frame.OperationLease.Dispose(); }
+            catch (Exception exception) { (failures ??= []).Add(exception); }
+            try { frame.DirectoryLease.Dispose(); }
+            catch (Exception exception) { (failures ??= []).Add(exception); }
+
+            if (failures is not null)
+                throw new AggregateException("Segment query lease cleanup failed.", failures);
+        }
+    }
 
     private readonly MMapDirectory _directory;
     private readonly SegmentDescriptor _info;
@@ -125,8 +228,8 @@ public sealed partial class SegmentReader : IDisposable
     internal SegmentReaderLease AcquireReadLease()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (ReferenceEquals(t_pinnedReader, this) && t_pinnedState is not null)
-            return new SegmentReaderLease(t_pinnedState);
+        if (TryGetFastState(out var pinnedState))
+            return new SegmentReaderLease(pinnedState);
 
         var operationLease = _operations.Acquire(this);
         LifetimeLease directoryLease = default;
@@ -147,11 +250,9 @@ public sealed partial class SegmentReader : IDisposable
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     private bool TryGetFastState([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out SegmentReaderState? state)
     {
-        if (ReferenceEquals(t_pinnedReader, this) && t_pinnedState is not null)
-        {
-            state = t_pinnedState;
+        var queryPins = t_queryPins;
+        if (queryPins is not null && queryPins.TryGetFastState(this, out state))
             return true;
-        }
         state = null;
         return false;
     }
@@ -159,50 +260,31 @@ public sealed partial class SegmentReader : IDisposable
     internal SegmentQueryLease AcquireQueryLease()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (ReferenceEquals(t_pinnedReader, this) && t_pinnedState is not null)
+        var queryPins = t_queryPins ??= new QueryPinContext();
+        if (TryGetFastState(out var pinnedState))
         {
-            t_pinDepth++;
-            return new SegmentQueryLease(
-                this, default, default, default, ownsCacheLease: false);
+            long nestedToken = queryPins.Push(this, pinnedState, default, default, default, ownsResources: false);
+            return new SegmentQueryLease(queryPins, nestedToken);
         }
 
         var operationLease = _operations.Acquire(this);
         LifetimeLease directoryLease = default;
+        BoundedLruCache<string, SegmentReaderState>.Lease cacheLease = default;
         try
         {
             directoryLease = _directory.AcquireOperationLease();
-            var cacheLease = _cache.Acquire(_info.SegmentId, _stateFactory);
-            SegmentReaderState state = cacheLease.Value;
-
-            t_pinnedReader = this;
-            t_pinnedState = state;
-            t_pinDepth = 1;
-            return new SegmentQueryLease(
-                this, cacheLease, operationLease, directoryLease, ownsCacheLease: true);
+            cacheLease = _cache.Acquire(_info.SegmentId, _stateFactory);
+            long token = queryPins.Push(
+                this, cacheLease.Value, cacheLease, operationLease, directoryLease, ownsResources: true);
+            return new SegmentQueryLease(queryPins, token);
         }
         catch
         {
+            cacheLease.Dispose();
             directoryLease.Dispose();
             operationLease.Dispose();
             throw;
         }
-    }
-
-    internal void ReleaseQueryLease(
-        BoundedLruCache<string, SegmentReaderState>.Lease cacheLease,
-        LifetimeLease operationLease,
-        LifetimeLease directoryLease,
-        bool ownsCacheLease)
-    {
-        if (--t_pinDepth == 0)
-        {
-            t_pinnedReader = null;
-            t_pinnedState = null;
-        }
-        if (ownsCacheLease)
-            cacheLease.Dispose();
-        operationLease.Dispose();
-        directoryLease.Dispose();
     }
 
     internal static string[] SelectSegmentFiles(string segmentId, IReadOnlyCollection<string> inventory)
@@ -277,7 +359,7 @@ public sealed partial class SegmentReader : IDisposable
         return false;
     }
 
-    /// <summary>Gets a read-only field-length view while the current query lease pins this segment state.</summary>
+    /// <summary>Gets a read-only field-length view while the current query lease retains this segment state.</summary>
     internal ReadOnlyMemory<int>? GetFieldLengthsForQuery(string field)
     {
         if (!TryGetFastState(out var state))
@@ -627,30 +709,22 @@ internal struct SegmentReaderLease : IDisposable
 
 internal struct SegmentQueryLease : IDisposable
 {
-    private SegmentReader? _reader;
-    private BoundedLruCache<string, SegmentReaderState>.Lease _cacheLease;
-    private LifetimeLease _operationLease;
-    private LifetimeLease _directoryLease;
-    private readonly bool _ownsCacheLease;
+    private SegmentReader.QueryPinContext? _context;
+    private readonly long _token;
 
-    internal SegmentQueryLease(
-        SegmentReader reader,
-        BoundedLruCache<string, SegmentReaderState>.Lease cacheLease,
-        LifetimeLease operationLease,
-        LifetimeLease directoryLease,
-        bool ownsCacheLease)
+    internal SegmentQueryLease(SegmentReader.QueryPinContext context, long token)
     {
-        _reader = reader;
-        _cacheLease = cacheLease;
-        _operationLease = operationLease;
-        _directoryLease = directoryLease;
-        _ownsCacheLease = ownsCacheLease;
+        _context = context;
+        _token = token;
     }
 
     public void Dispose()
     {
-        var reader = Interlocked.Exchange(ref _reader, null);
-        reader?.ReleaseQueryLease(
-            _cacheLease, _operationLease, _directoryLease, _ownsCacheLease);
+        var context = _context;
+        if (context is null)
+            return;
+
+        context.Release(_token);
+        _context = null;
     }
 }
