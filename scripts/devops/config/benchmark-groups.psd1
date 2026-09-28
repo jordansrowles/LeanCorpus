@@ -17,7 +17,7 @@
     'TermCaches'    = @{ Area = 'Index';         Globs = @('src/core/Rowles.LeanCorpus/Index/Segment/QualifiedTermCache.cs', 'src/core/Rowles.LeanCorpus/Index/Segment/SegmentReader.cs', 'src/core/Rowles.LeanCorpus/Index/Segment/SegmentReader.Facade.cs', 'src/core/Rowles.LeanCorpus/Search/Searcher/IndexSearcher.cs', 'src/core/Rowles.LeanCorpus/Search/Searcher/BoundedGenerationCache.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/QualifiedTermCacheBenchmarks.cs'); Project = 'core'; Benchmarks = @('QualifiedTermCacheBenchmarks') }
     'BoundedLruCacheFailures' = @{ Area = 'Index'; Globs = @('src/core/Rowles.LeanCorpus/Index/Segment/BoundedLruCache.cs', 'src/devops/Rowles.LeanCorpus.Tests.Core/Index/Unit/BoundedLruCacheTests.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/BoundedLruCacheFailureBenchmarks.cs'); Project = 'core'; Benchmarks = @('BoundedLruCacheFailureBenchmarks') }
     'Parser'        = @{ Area = 'Search';        Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/QueryParserBenchmarks.cs'); Project = 'core'; Benchmarks = @('QueryParserBenchmarks') }
-    'Indexing'      = @{ Area = 'Index';         Globs = @('src/core/Rowles.LeanCorpus/Index/**');                 Project = 'core'; Benchmarks = @('IndexingBenchmarks', 'MergeBenchmarks', 'FlushBenchmarks', 'PostingsArenaBenchmarks', 'DeletionQueueBenchmarks') }
+    'Indexing'      = @{ Area = 'Index';         Globs = @('src/core/Rowles.LeanCorpus/Index/**', 'src/devops/Rowles.LeanCorpus.Benchmarks/Index/LanguageAnalysisIndexingBenchmarks.cs'); Project = 'core'; Benchmarks = @('IndexingBenchmarks', 'LanguageAnalysisIndexingBenchmarks', 'MergeBenchmarks', 'FlushBenchmarks', 'PostingsArenaBenchmarks', 'DeletionQueueBenchmarks') }
     'Diagnostics'   = @{ Area = 'Diagnostics';   Globs = @('src/core/Rowles.LeanCorpus/Diagnostics/**');           Project = 'core'; Benchmarks = @('DiagnosticsBenchmarks', 'NumericAggregatorSimdBenchmarks') }
     'Document'      = @{ Area = 'Document';      Globs = @('src/core/Rowles.LeanCorpus/Document/**');              Project = 'core'; Benchmarks = @('IndexingBenchmarks') }
     'Linq'          = @{ Area = 'Linq';          Globs = @('src/core/Rowles.LeanCorpus/Linq/**');                  Project = 'core'; Benchmarks = @('TermQueryBenchmarks') }
@@ -35,5 +35,5 @@
     }
     'Stemmers'      = @{ Area = 'Stemmers';      Globs = @('src/core/Rowles.Text/Analysis/Stemmers/**');           Project = 'text'; Benchmarks = @('StemmerParityBenchmarks', 'HunspellBenchmarks') }
     'Tokenisers'    = @{ Area = 'Tokenisers';    Globs = @('src/core/Rowles.Text/Analysis/Tokenisers/**');         Project = 'text'; Benchmarks = @('NGramTokeniserBenchmarks', 'PatternTokeniserBenchmarks') }
-    'TextIntegration'= @{ Area = 'TextIntegration'; Globs = @('src/core/Rowles.Text/**');                         Project = 'core'; Benchmarks = @('TokenBudgetBenchmarks') }
+    'TextIntegration'= @{ Area = 'TextIntegration'; Globs = @('src/core/Rowles.Text/**');                         Project = 'core'; Benchmarks = @('TokenBudgetBenchmarks', 'LanguageAnalysisIndexingBenchmarks') }
 }

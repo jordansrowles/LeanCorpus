@@ -1,7 +1,7 @@
 @{
     all                  = 'All primary benchmark suites'
     'all-with-explicit'  = 'All primary plus all explicit-only suites'
-    index                = 'IndexingBenchmarks'
+    index                = 'IndexingBenchmarks and LanguageAnalysisIndexingBenchmarks'
     query                = 'TermQueryBenchmarks'
     parser               = 'QueryParserBenchmarks -- bounded query text parsing and rejection'
     boolean              = 'BooleanQueryBenchmarks'

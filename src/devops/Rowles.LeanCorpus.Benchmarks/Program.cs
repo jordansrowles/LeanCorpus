@@ -154,7 +154,10 @@ internal static class Program
             RunSuite<QueryParserBenchmarks>("parser", runDir, benchmarkArgs, suiteSummaries, gcDump);
 
         if (runAll || suites.Contains(BenchmarkSuite.Index))
+        {
             RunSuite<IndexingBenchmarks>("index", runDir, benchmarkArgs, suiteSummaries, gcDump);
+            RunSuite<LanguageAnalysisIndexingBenchmarks>("index-language-analysis", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        }
 
         if (runAll || suites.Contains(BenchmarkSuite.Boolean))
             RunSuite<BooleanQueryBenchmarks>("boolean", runDir, benchmarkArgs, suiteSummaries, gcDump);
