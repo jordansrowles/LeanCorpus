@@ -166,10 +166,10 @@ public sealed partial class SegmentReader : IDisposable
         var descriptor = new SegmentDescriptor(info);
         var segmentId = descriptor.SegmentId;
         var snapshot = directory.AcquireSnapshot(
-            name => IsSegmentFile(segmentId, name), out var inventory);
+            name => IsSegmentFile(segmentId, name), out _);
         try
         {
-            ValidateRequiredFiles(descriptor, inventory);
+            ValidateRequiredFiles(directory, descriptor);
             _snapshot = snapshot;
         }
         catch
@@ -189,9 +189,8 @@ public sealed partial class SegmentReader : IDisposable
         MMapDirectory directory,
         SegmentInfo info,
         BoundedLruCache<string, SegmentReaderState> cache,
-        IReadOnlyCollection<string> inventory,
         CodecCatalog? codecCatalog = null)
-        : this(directory, new SegmentDescriptor(info), cache, inventory, codecCatalog)
+        : this(directory, new SegmentDescriptor(info), cache, codecCatalog)
     {
     }
 
@@ -199,7 +198,6 @@ public sealed partial class SegmentReader : IDisposable
         MMapDirectory directory,
         SegmentDescriptor info,
         BoundedLruCache<string, SegmentReaderState> cache,
-        IReadOnlyCollection<string> inventory,
         CodecCatalog? codecCatalog = null)
     {
         ArgumentNullException.ThrowIfNull(directory);
@@ -208,7 +206,7 @@ public sealed partial class SegmentReader : IDisposable
             codecCatalog = CaptureDefaultCodecCatalog(directory, info);
         else
             CompressionCodecRegistry.MarkIndexOpened();
-        ValidateRequiredFiles(info, inventory);
+        ValidateRequiredFiles(directory, info);
         _directory = directory;
         _info = info;
         _codecCatalog = codecCatalog;
@@ -299,26 +297,11 @@ public sealed partial class SegmentReader : IDisposable
     internal static bool IsSegmentFile(string segmentId, string name)
         => SegmentFileSet.IsSnapshotFile(segmentId, name);
 
-    internal static void ValidateRequiredFiles(SegmentDescriptor info, IReadOnlyCollection<string> inventory)
+    private static void ValidateRequiredFiles(MMapDirectory directory, SegmentDescriptor info)
     {
-        var files = inventory is HashSet<string> set
-            ? set
-            : new HashSet<string>(inventory, StringComparer.Ordinal);
-        var required = info.IsCompoundFile
-            ? new[] { ".seg", ".cfs" }
-            : new[] { ".seg", ".dic", ".pos", ".nrm" };
-        foreach (var extension in required)
-        {
-            var name = info.SegmentId + extension;
-            if (!files.Contains(name))
-                throw new FileNotFoundException($"Segment file is missing: '{name}'.", name);
-        }
-
-        DeletionStateValidator.RequireFileIfSelected(info, files);
+        using var fileAccess = SegmentFileAccess.Open(directory, info);
+        SegmentStructureValidator.ValidateRequiredFiles(info, fileAccess.LogicalFiles);
     }
-
-    internal static void ValidateRequiredFiles(SegmentInfo info, IReadOnlyCollection<string> inventory)
-        => ValidateRequiredFiles(new SegmentDescriptor(info), inventory);
 
     public bool IsLive(int docId) { if (TryGetFastState(out var state)) return state.IsLive(docId); using var lease = AcquireReadLease(); return lease.State.IsLive(docId); }
     public bool IsSoftDeleted(int docId, out long timestamp) { using var lease = AcquireReadLease(); return lease.State.IsSoftDeleted(docId, out timestamp); }

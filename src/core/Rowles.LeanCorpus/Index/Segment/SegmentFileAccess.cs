@@ -41,6 +41,8 @@ internal sealed class SegmentFileAccess : IDisposable
 
     internal bool IsCompound => _isCompound;
 
+    internal ISegmentFileSource LogicalFiles => _fileSource;
+
     internal string Name(string extension) => _segmentId + extension;
 
     internal bool Exists(string extension)

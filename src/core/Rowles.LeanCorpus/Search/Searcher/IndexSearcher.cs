@@ -290,11 +290,10 @@ public sealed partial class IndexSearcher : IDisposable
                 _readers.Clear();
                 var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
                 attemptSnapshot = directory.AcquireSnapshot(
-                    name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out var inventory);
-                var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
+                    name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out _);
                 foreach (var info in segmentInfos)
                     _readers.Add(new SegmentReader(
-                        directory, info, _segmentReaderCache, inventorySet, config.CodecCatalog));
+                        directory, info, _segmentReaderCache, config.CodecCatalog));
                 _snapshotLease = attemptSnapshot;
                 attemptSnapshot = null;
                 break;
@@ -416,11 +415,10 @@ public sealed partial class IndexSearcher : IDisposable
             var segmentIds = segments.Select(static segment => segment.SegmentId).ToList();
             var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
             _snapshotLease = directory.AcquireSnapshot(
-                name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out var inventory);
-            var inventorySet = new HashSet<string>(inventory, StringComparer.Ordinal);
+                name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out _);
             foreach (var descriptor in segments)
                 _readers.Add(new SegmentReader(
-                    directory, descriptor, _segmentReaderCache, inventorySet, config.CodecCatalog));
+                    directory, descriptor, _segmentReaderCache, config.CodecCatalog));
 
             _docBases = AssignDocBases();
             _totalDocCount = _docBases.Length > 0

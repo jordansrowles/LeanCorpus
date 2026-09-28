@@ -3,7 +3,6 @@ using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
-using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Serialization;
 using Rowles.LeanCorpus.Store;
 
@@ -91,23 +90,9 @@ public static class IndexRecovery
     }
 
     /// <summary>
-    /// Required logical codec files checked during recovery. Their descriptors are the authority
-    /// for both current frames and supported historical frames.
-    /// </summary>
-    private static readonly RequiredSegmentFile[] RequiredSegmentFiles =
-    [
-        new(".dic"),
-        new(".pos"),
-        new(".nrm"),
-        new(".fdt"),
-        new(".fdx"),
-    ];
-
-    /// <summary>
     /// Tries to load and validate a specific commit file.
     /// Returns null if the file is corrupt or references missing or unreadable segments.
-    /// Validates the required per-segment files (.seg, .dic, .pos, .nrm) as well as any
-    /// vector and HNSW files declared in the segment metadata.
+    /// Validates required logical structure and codec bodies for every referenced segment.
     /// </summary>
     private static RecoveryResult? TryLoadCommit(
         string directoryPath,
@@ -184,15 +169,8 @@ public static class IndexRecovery
             using Segment.ISegmentFileSource source = segInfo.IsCompoundFile
                 ? new Segment.CompoundSegmentFileSource(directory, segId)
                 : new Segment.LooseSegmentFileSource(directory, segId);
-
-            foreach (var required in RequiredSegmentFiles)
-            {
-                string fileName = segId + required.Extension;
-                if (!source.FileExists(fileName) || source.GetFileLength(fileName) == 0)
-                    return false;
-            }
-
-            EnsureVectorFilesExist(segInfo, source);
+            Segment.SegmentStructureValidator.ValidateRequiredFiles(
+                new Segment.SegmentDescriptor(segInfo), source);
 
             foreach (var fileName in source.EnumerateFiles())
             {
@@ -222,26 +200,6 @@ public static class IndexRecovery
     private static bool IsRecoverableQueryAccelerator(CodecFileDescriptor descriptor)
         => descriptor.FormatId is "leancorpus.numeric-structures.bkd"
             or "leancorpus.numeric-structures.int64-bkd";
-
-    private static void EnsureVectorFilesExist(Segment.SegmentInfo segment, Segment.ISegmentFileSource source)
-    {
-        foreach (var vector in segment.VectorFields)
-        {
-            bool quantised = vector.Quantisation != VectorQuantisation.None;
-            string vectorFile = quantised
-                ? Path.GetFileName(VectorFilePaths.QuantisedVectorFile(segment.SegmentId, vector.FieldName))
-                : Path.GetFileName(VectorFilePaths.VectorFile(segment.SegmentId, vector.FieldName));
-            if (!source.FileExists(vectorFile))
-                throw new InvalidDataException($"Segment '{segment.SegmentId}' is missing vector file '{vectorFile}'.");
-
-            if (!vector.HasHnsw)
-                continue;
-
-            string hnswFile = Path.GetFileName(VectorFilePaths.HnswFile(segment.SegmentId, vector.FieldName));
-            if (!source.FileExists(hnswFile))
-                throw new InvalidDataException($"Segment '{segment.SegmentId}' is missing HNSW file '{hnswFile}'.");
-        }
-    }
 
     private static void ValidateCodecFile(IndexInput input, CodecFileDescriptor descriptor, int maxDoc)
     {
@@ -320,8 +278,6 @@ public static class IndexRecovery
                 $"Codec format '{descriptor.FormatId}' uses unreadable legacy version {version}.");
         }
     }
-
-    private sealed record RequiredSegmentFile(string Extension);
 
     /// <summary>
     /// Promotes orphaned <c>segments_N.pending</c> files to full commits.
