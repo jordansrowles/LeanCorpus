@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
 namespace Rowles.LeanCorpus.Analysis.Analysers;
@@ -6,9 +7,11 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// Composable analyser that runs a tokeniser followed by a chain of span filters.
 /// </summary>
 /// <remarks>
-/// Each call creates an execution context with its own filter instances and routing
-/// sinks. Filters must return an independent stateful instance from
-/// <see cref="ISpanTokenFilter.Clone"/>; stateless filters may return themselves.
+/// Each call uses an execution context with its own filter instances and routing
+/// sinks. The built-in language filters use a thread-affine context after successful
+/// calls; other filters receive a fresh context for every call. Filters must return
+/// an independent stateful instance from <see cref="ISpanTokenFilter.Clone"/>;
+/// stateless filters may return themselves.
 /// Concurrent calls are supported when the configured tokeniser implements
 /// <see cref="IShareableSpanTokeniser"/>. For a thread-local tokeniser, create one
 /// analyser per worker with <see cref="IThreadLocalAnalyser.CreateThreadLocalAnalyser"/>.
@@ -17,8 +20,12 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// </remarks>
 public sealed class Analyser : IThreadLocalAnalyser
 {
+    [ThreadStatic]
+    private static ConditionalWeakTable<Analyser, AnalysisContext>? t_threadContexts;
+
     private readonly ISpanTokeniser _tokeniser;
     private readonly ISpanTokenFilter[] _filters;
+    private readonly bool _canReuseThreadContext;
 
     /// <summary>
     /// Initialises a new <see cref="Analyser"/> with the specified span tokeniser and optional filter chain.
@@ -30,6 +37,16 @@ public sealed class Analyser : IThreadLocalAnalyser
         _tokeniser = tokeniser ?? throw new ArgumentNullException(nameof(tokeniser));
         ArgumentNullException.ThrowIfNull(filters);
         _filters = (ISpanTokenFilter[])filters.Clone();
+
+        _canReuseThreadContext = true;
+        foreach (var filter in _filters)
+        {
+            if (filter is not IReusableAnalysisFilter || filter is IAnalysisContextFilter)
+            {
+                _canReuseThreadContext = false;
+                break;
+            }
+        }
     }
 
     /// <summary>Creates a new <see cref="Analyser"/> with independently owned mutable components.</summary>
@@ -66,19 +83,65 @@ public sealed class Analyser : IThreadLocalAnalyser
             return;
         }
 
-        var context = new AnalysisContext(_filters, sink);
+        AnalysisContext context;
+        bool reusedContext;
+        if (_canReuseThreadContext)
+            reusedContext = TryBeginReusableContext(sink, out context!);
+        else
+        {
+            reusedContext = false;
+            context = null!;
+        }
+
+        if (!reusedContext)
+        {
+            context = new AnalysisContext(_filters);
+            context.Begin(sink);
+        }
+
+        bool completed = false;
         try
         {
             _tokeniser.Tokenise(input, context);
             context.Finish();
             context.Complete();
+            completed = true;
         }
         finally
         {
-            // The context and all mutable filter state belong to this invocation.
-            // Drop its sink and stage references on success and on every failure path.
-            context.Clear();
+            if (reusedContext && completed)
+            {
+                // Reused filters are stateless or thread-affine and have completed
+                // successfully. Keep their execution state, but release this sink.
+                context.Release();
+            }
+            else
+            {
+                // Failed reusable executions are discarded so partially-mutated
+                // filter state cannot affect a later analysis on this thread.
+                context.Clear();
+                if (reusedContext)
+                    t_threadContexts?.Remove(this);
+            }
         }
+    }
+
+    private bool TryBeginReusableContext(ISpanTokenSink sink, out AnalysisContext context)
+    {
+        var contexts = t_threadContexts ??= new ConditionalWeakTable<Analyser, AnalysisContext>();
+        if (!contexts.TryGetValue(this, out context!))
+        {
+            context = new AnalysisContext(_filters);
+            contexts.Add(this, context);
+        }
+
+        if (context.TryBegin(sink))
+            return true;
+
+        // Recursive analysis on the same thread gets a one-shot context rather
+        // than overwriting the active call's sink or stage state.
+        context = null!;
+        return false;
     }
 
     private sealed class AnalysisContext : ISpanTokenSink
@@ -86,8 +149,9 @@ public sealed class Analyser : IThreadLocalAnalyser
         private ISpanTokenFilter[] _filters;
         private StageSink[] _stageSinks;
         private ISpanTokenSink? _finalSink;
+        private bool _active;
 
-        public AnalysisContext(ISpanTokenFilter[] filterConfiguration, ISpanTokenSink finalSink)
+        public AnalysisContext(ISpanTokenFilter[] filterConfiguration)
         {
             _filters = new ISpanTokenFilter[filterConfiguration.Length];
             for (int i = 0; i < filterConfiguration.Length; i++)
@@ -100,10 +164,25 @@ public sealed class Analyser : IThreadLocalAnalyser
                         $"Filter '{configuredFilter.GetType().FullName}' returned null from its execution factory.");
             }
 
-            _finalSink = finalSink;
             _stageSinks = new StageSink[_filters.Length];
             for (int i = 0; i < _stageSinks.Length; i++)
                 _stageSinks[i] = new StageSink(this, i + 1);
+        }
+
+        public bool TryBegin(ISpanTokenSink finalSink)
+        {
+            if (_active)
+                return false;
+
+            _finalSink = finalSink;
+            _active = true;
+            return true;
+        }
+
+        public void Begin(ISpanTokenSink finalSink)
+        {
+            if (!TryBegin(finalSink))
+                throw new InvalidOperationException("An analysis execution context is already active.");
         }
 
         public void Add(
@@ -151,9 +230,15 @@ public sealed class Analyser : IThreadLocalAnalyser
             }
         }
 
-        public void Clear()
+        public void Release()
         {
             _finalSink = null;
+            _active = false;
+        }
+
+        public void Clear()
+        {
+            Release();
             Array.Clear(_filters);
             Array.Clear(_stageSinks);
             _filters = [];

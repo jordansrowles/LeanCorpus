@@ -38,6 +38,20 @@ public sealed class AnalyserExecutionContextTests
         }
     }
 
+    [Fact(DisplayName = "Analyser: recursive analysis uses a separate execution context")]
+    public void RecursiveAnalysis_UsesSeparateExecutionContext()
+    {
+        var analyser = new Analyser(new Tokeniser(), new LowercaseFilter());
+        var outerSink = new MaterialisingTokenSink();
+        var nestedSink = new MaterialisingTokenSink();
+        var recursiveSink = new RecursiveAnalysisSink(analyser, outerSink, nestedSink);
+
+        analyser.Analyse("OUTER", recursiveSink);
+
+        AssertToken(outerSink, "outer", 0, 5, 1, 1);
+        AssertToken(nestedSink, "inner", 0, 5, 1, 1);
+    }
+
     [Fact(DisplayName = "Analyser: downstream sink failure does not poison the next analysis")]
     public void DownstreamSinkFailure_NextAnalysisStartsClean()
     {
@@ -234,6 +248,41 @@ public sealed class AnalyserExecutionContextTests
         }
 
         public ISpanTokenFilter Clone() => new ThrowingStatefulFilter(failure);
+    }
+
+    private sealed class RecursiveAnalysisSink(
+        Analyser analyser,
+        ISpanTokenSink outerSink,
+        ISpanTokenSink nestedSink) : ISpanTokenSink
+    {
+        private bool _recurred;
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+            => Add(text, startOffset, endOffset, type, positionIncrement, 1, payload);
+
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type,
+            int positionIncrement,
+            int positionLength,
+            byte[]? payload)
+        {
+            if (!_recurred)
+            {
+                _recurred = true;
+                analyser.Analyse("INNER", nestedSink);
+            }
+
+            outerSink.Add(text, startOffset, endOffset, type, positionIncrement, positionLength, payload);
+        }
     }
 
     private sealed class GraphTokeniser(byte[] payload) : IShareableSpanTokeniser

@@ -86,7 +86,8 @@ public interface ISpanTokenFilter
     /// but fresh state. The default returns <c>this</c>, which is safe for
     /// stateless filters. Stateful filters must override to return a new instance.
     /// <see cref="Analysers.Analyser"/> uses this contract to create isolated filter
-    /// state for each analysis call.
+    /// state for reusable thread-affine contexts or for individual calls when a filter
+    /// does not opt into context reuse.
     /// </summary>
     ISpanTokenFilter Clone() => this;
 }
@@ -97,4 +98,9 @@ internal interface IAnalysisContextFilter
     ISpanTokenFilter CreateExecutionFilter();
 
     void CompleteAnalysis();
+}
+
+/// <summary>Marks a filter that is safe to reuse by one thread after a successful analysis.</summary>
+internal interface IReusableAnalysisFilter
+{
 }

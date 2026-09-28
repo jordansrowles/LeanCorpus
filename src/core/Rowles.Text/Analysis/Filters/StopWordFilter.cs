@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// Removes common English stop words from a token list using a frozen set
 /// for fast, allocation-free lookups.
 /// </summary>
-public sealed class StopWordFilter : ISpanTokenFilter
+public sealed class StopWordFilter : ISpanTokenFilter, IReusableAnalysisFilter
 {
     /// <summary>
     /// The classic 33-word English stop word list used by the default analyser.

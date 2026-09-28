@@ -7,7 +7,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// Applies an <see cref="ISpanStemmer"/> to each token in the list.
 /// Useful as a drop-in filter in the composable <see cref="Analysers.Analyser"/> pipeline.
 /// </summary>
-public sealed class StemTokenFilter : ISpanTokenFilter
+public sealed class StemTokenFilter : ISpanTokenFilter, IReusableAnalysisFilter
 {
     private readonly ISpanStemmer _stemmer;
     private readonly KeywordMarkerFilter? _keywordMarker;

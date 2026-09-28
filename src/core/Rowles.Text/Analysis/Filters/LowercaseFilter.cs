@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// <summary>
 /// Performs an in-place lowercase transformation on tokens or a character buffer.
 /// </summary>
-public sealed class LowercaseFilter : ISpanTokenFilter
+public sealed class LowercaseFilter : ISpanTokenFilter, IReusableAnalysisFilter
 {
     // SIMD-accelerated search values for uppercase ASCII letters A-Z.
     private static readonly System.Buffers.SearchValues<char> UppercaseLetters =

@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Reuse thread-affine execution contexts for the built-in language analyser filters, avoiding per-field filter clones and routing-sink allocations.
 - Expand DocValues benchmarks to large dense, sparse, high-cardinality and multi-valued workloads with explicit `.dvn` reads, and measure concurrent random stored-field reads across shared and separate blocks.
 - Capture stored-field compression implementations in immutable `CodecCatalog` snapshots, reject duplicate policy registrations, and close process bootstrap registration when an index opens.
 - Map optional compression package and compression guide changes to the Core CodecKit area in affected-test selection.
