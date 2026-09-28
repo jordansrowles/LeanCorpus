@@ -174,6 +174,42 @@ public sealed class AdvancedTokeniserTests
         Assert.All(tokens, static token => Assert.Equal(ThaiTokeniser.ThaiType, token.Type));
     }
 
+    [Fact(DisplayName = "Lexicon tokenisers: Thai and Chinese share one longest-prefix trie")]
+    public void LexiconTokenisers_UseTriePrefixLookup()
+    {
+        AssertTrieBacked(typeof(ThaiTokeniser));
+        AssertTrieBacked(typeof(ChineseLexiconTokeniser));
+
+        static void AssertTrieBacked(Type tokeniserType)
+        {
+            var matcher = tokeniserType.GetField(
+                "_prefixTrie",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+
+            Assert.NotNull(matcher);
+            Assert.Equal("LexiconPrefixTrie", matcher!.FieldType.Name);
+        }
+    }
+
+    [Fact(DisplayName = "Thai Tokeniser: Longest prefix and cluster fallback preserve token contract")]
+    public void ThaiTokeniser_LongestPrefixAndFallback_PreservesTokenContract()
+    {
+        var tokeniser = new ThaiTokeniser(["ก", "กข", "กขค"]);
+        var sink = new MaterialisingTokenSink();
+        const string input = "กขคง";
+
+        tokeniser.Tokenise(input, sink);
+
+        Assert.Equal(
+            new[]
+            {
+                ("กขค", 0, 3, ThaiTokeniser.ThaiType, 1, 1),
+                ("ง", 3, 4, ThaiTokeniser.ThaiType, 1, 1)
+            },
+            sink.Tokens.Select(static token =>
+                (token.Text, token.StartOffset, token.EndOffset, token.Type, token.PositionIncrement, token.PositionLength)));
+    }
+
     [Fact(DisplayName = "Thai Tokeniser: Unknown Words Fall Back to Grapheme Clusters")]
     public void ThaiTokeniser_UnknownWords_FallsBackToClusters()
     {

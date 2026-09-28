@@ -1,6 +1,3 @@
-using System.Collections.Frozen;
-
-
 #if !ROWLES_TEXT
 using Rowles.LeanCorpus.Store;
 #endif
@@ -22,8 +19,7 @@ public sealed class ChineseLexiconTokeniser : IShareableSpanTokeniser
     /// <summary>Token type emitted for CJK ideograph tokens.</summary>
     public const string CjkType = CJKBigramTokeniser.CjkType;
 
-    private readonly FrozenSet<string> _lexicon;
-    private readonly int _maxWordLength;
+    private readonly LexiconPrefixTrie _prefixTrie;
 
     /// <summary>
     /// Initialises a new <see cref="ChineseLexiconTokeniser"/> with the supplied lexicon.
@@ -43,8 +39,7 @@ public sealed class ChineseLexiconTokeniser : IShareableSpanTokeniser
         if (words.Length == 0)
             throw new ArgumentException("Lexicon must contain at least one word.", nameof(lexicon));
 
-        _lexicon = words.ToFrozenSet(StringComparer.Ordinal);
-        _maxWordLength = words.Max(static word => word.Length);
+        _prefixTrie = new LexiconPrefixTrie(words);
     }
 
     /// <summary>
@@ -156,16 +151,5 @@ public sealed class ChineseLexiconTokeniser : IShareableSpanTokeniser
     }
 
     private int TryFindLongestLexiconMatch(ReadOnlySpan<char> input, int start, int end)
-    {
-        int maxLength = Math.Min(_maxWordLength, end - start);
-        for (int length = maxLength; length > 0; length--)
-        {
-            var candidate = input.Slice(start, length);
-            if (_lexicon.GetAlternateLookup<ReadOnlySpan<char>>().Contains(candidate))
-                return length;
-        }
-
-        return 0;
-    }
-
+        => _prefixTrie.FindLongest(input, start, end);
 }

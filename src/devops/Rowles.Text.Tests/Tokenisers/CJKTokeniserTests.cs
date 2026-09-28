@@ -253,6 +253,25 @@ public sealed class CJKTokeniserTests
         Assert.Equal("\u4E2D\u56FD", sink.Tokens[0].Text); // 中国 (max match)
     }
 
+    [Fact(DisplayName = "ChineseLexiconTokeniser: Longest prefix and unknown fallback preserve token contract")]
+    public void ChineseLexiconTokeniser_LongestPrefixAndFallback_PreservesTokenContract()
+    {
+        var tokeniser = new ChineseLexiconTokeniser(["\u4E2D", "\u4E2D\u56FD", "\u4E2D\u56FD\u4EBA"]);
+        var sink = new MaterialisingTokenSink();
+        const string input = "\u4E2D\u56FD\u4EBA\u6587"; // 中国人文
+
+        tokeniser.Tokenise(input, sink);
+
+        Assert.Equal(
+            new[]
+            {
+                ("\u4E2D\u56FD\u4EBA", 0, 3, ChineseLexiconTokeniser.CjkType, 1, 1),
+                ("\u6587", 3, 4, ChineseLexiconTokeniser.CjkType, 1, 1)
+            },
+            sink.Tokens.Select(static token =>
+                (token.Text, token.StartOffset, token.EndOffset, token.Type, token.PositionIncrement, token.PositionLength)));
+    }
+
     [Fact(DisplayName = "ChineseLexiconTokeniser: Unknown characters fall back to unigram")]
     public void ChineseLexiconTokeniser_UnknownCharacters_FallbackUnigram()
     {
