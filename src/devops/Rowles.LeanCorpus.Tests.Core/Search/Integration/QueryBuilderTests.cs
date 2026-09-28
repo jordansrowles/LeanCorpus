@@ -1,3 +1,4 @@
+using System.Reflection;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
@@ -35,6 +36,20 @@ public sealed class QueryBuilderTests
         Assert.Equal(new[] { "quick", "fox" }, q.Terms);
     }
 
+    [Fact(DisplayName = "Bool: QueryBuilder reuses the public BooleanQuery builder")]
+    public void Bool_UsesExistingPublicBuilder()
+    {
+        Assembly assembly = typeof(QueryBuilder).Assembly;
+
+        Assert.Null(assembly.GetType("Rowles.LeanCorpus.Search.Parsing.BooleanQueryBuilder"));
+
+        var method = typeof(QueryBuilder).GetMethod(nameof(QueryBuilder.Bool));
+        Assert.NotNull(method);
+        Assert.Equal(
+            typeof(Action<BooleanQuery.Builder>),
+            method!.GetParameters()[0].ParameterType);
+    }
+
     /// <summary>
     /// Verifies the Bool: Builder Creates Valid Boolean Query scenario.
     /// </summary>
@@ -42,9 +57,9 @@ public sealed class QueryBuilderTests
     public void Bool_Builder_CreatesValidBooleanQuery()
     {
         var q = QueryBuilder.Bool(b => b
-            .Must(QueryBuilder.Term("title", "hello"))
-            .Should(QueryBuilder.Term("body", "world"))
-            .MustNot(QueryBuilder.Term("status", "deleted")));
+            .Add(QueryBuilder.Term("title", "hello"), Occur.Must)
+            .Add(QueryBuilder.Term("body", "world"), Occur.Should)
+            .Add(QueryBuilder.Term("status", "deleted"), Occur.MustNot));
 
         Assert.Equal(3, q.Clauses.Count);
         Assert.Equal(Occur.Must, q.Clauses[0].Occur);

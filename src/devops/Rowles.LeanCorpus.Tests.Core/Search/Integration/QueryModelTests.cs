@@ -823,9 +823,9 @@ public sealed class QueryModelTests
     {
         var q = QueryBuilder.Bool(b =>
         {
-            b.Must(new TermQuery("f", "x"));
-            b.Should(new TermQuery("f", "y"));
-            b.MinimumShouldMatch(1);
+            b.Add(new TermQuery("f", "x"), Occur.Must);
+            b.Add(new TermQuery("f", "y"), Occur.Should);
+            b.SetMinimumNumberShouldMatch(1);
         });
 
         Assert.IsType<BooleanQuery>(q);

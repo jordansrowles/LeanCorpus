@@ -112,9 +112,9 @@ public static class QueryBuilder
     public static VectorQuery Vector(string field, float[] queryVector, int topK = 10) => new(field, queryVector, topK);
 
     /// <summary>Starts building a <see cref="BooleanQuery"/> using a fluent callback.</summary>
-    public static BooleanQuery Bool(Action<BooleanQueryBuilder> configure)
+    public static BooleanQuery Bool(Action<BooleanQuery.Builder> configure)
     {
-        var builder = new BooleanQueryBuilder();
+        var builder = new BooleanQuery.Builder();
         configure(builder);
         return builder.Build();
     }
