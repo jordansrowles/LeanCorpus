@@ -9,7 +9,7 @@ Analysis turns raw text into the terms LeanCorpus stores and queries. Use the sa
 | Component | Role | Starting point |
 |---|---|---|
 | `IAnalyser` | End-to-end pipeline | `StandardAnalyser`, `StemmedAnalyser`, `LanguageAnalyser`, `IcuAnalyser` |
-| `ITokeniser` | Splits input into tokens | `Tokeniser`, `Uax29UrlEmailTokeniser`, `IcuTokeniser` |
+| `ISpanTokeniser` | Splits input into tokens | `Tokeniser`, `UrlEmailTokeniser`, `IcuTokeniser` |
 | `ITokenFilter` | Rewrites or drops tokens | `LowercaseFilter`, `StopWordFilter`, `SynonymGraphFilter` |
 | `ICharFilter` | Rewrites input text and maps UTF-16 offsets back to source before tokenisation | `HtmlStripCharFilter`, `MappingCharFilter`, `PatternReplaceCharFilter` |
 | `IStemmer` | Reduces tokens to root forms | `EnglishStemmer`, `FrenchStemmer`, `GermanStemmer` |
@@ -40,7 +40,7 @@ using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
 var analyser = new Analyser(
-    tokeniser: new Uax29UrlEmailTokeniser(),
+    tokeniser: new UrlEmailTokeniser(),
     new LowercaseFilter(),
     new StopWordFilter(StopWords.English),
     new SynonymGraphFilter(new SynonymMap(new Dictionary<string, string[]>

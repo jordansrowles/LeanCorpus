@@ -45,7 +45,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Japanese morphological tokeniser | ✔   `JapaneseTokeniser` | ✔ | ✔ | Character-class-based segmentation using Kuromoji data; splits at kanji/hiragana/katakana boundaries |
 | ICU tokeniser (Unicode segmenter) | ✔   `IcuTokeniser` / `UnicodeTokenisation` | ✔ | ✔ | |
 | Thai tokeniser | ✔   `ThaiTokeniser` | ✔ | ✔ | Lucene: `ThaiTokenizer` |
-| UAX29 URL/email tokeniser | ✔   `Uax29UrlEmailTokeniser` | ✔ | ✔ | Lucene: `UAX29URLEmailTokenizer` |
+| URL/email heuristic tokeniser | ✔   `UrlEmailTokeniser` | ✔ | ✔ | Lucene uses `UAX29URLEmailTokenizer`; LeanCorpus preserves these terms with local Unicode-aware heuristics and does not claim UAX #29 conformance. |
 | Wikipedia tokeniser | ✔   `MediaWikiTokeniser` | ✔ | ✔ | Lucene: `WikipediaTokenizer` |
 | Pattern tokeniser | ✔   `PatternTokeniser` | ✔ | ✔ | Lucene: `PatternTokenizer` |
 | Path-hierarchy tokeniser | ✔   `PathTreeTokeniser` | ✔ | ✔ | Lucene: `PathHierarchyTokenizer`; adds suffix mode, depth payloads, root-aware parsing |

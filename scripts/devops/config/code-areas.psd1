@@ -42,7 +42,9 @@
     'core-configuration-docs' = @{ Globs = @('docs/getting-started/05-configuration-reference.md'); Targets = @('core:Foundation', 'core:Search') }
     'core-compression-docs' = @{ Globs = @('docs/getting-started/01-installation.md', 'docs/getting-started/03-configuration.md', 'docs/tips/01-compression.md'); Targets = @('core:CodecKit') }
     'text-analysis-docs' = @{ Globs = @('docs/analysis/**'); Targets = @('text:Analysers') }
+    'text-tokeniser-docs' = @{ Globs = @('docs/analysis/02-tokenisers.md', 'docs/analysis/index.md', 'docs/articles/features/analysis.md', 'docs/articles/vs-lucene.md'); Targets = @('text:Tokenisers', 'core:TextIntegration') }
     'aot-search-smoke-test' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/IndexSmokeTests.cs'); Targets = @('aot:Search') }
+    'aot-analysis-smoke-test' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/AnalysisSmokeTests.cs'); Targets = @('aot:Search') }
     'text-analyser-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Analysers/**'); Targets = @('text:Analysers') }
     'text-filter-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Filters/**'); Targets = @('text:Filters') }
     'text-filter-benchmarks' = @{

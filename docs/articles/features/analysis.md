@@ -28,7 +28,7 @@ Return to the [feature comparison overview](index.md) for status definitions and
 | --- | :---: | :---: | :---: | --- |
 | Standard, keyword, letter, whitespace, and pattern tokenisers | ✔ | ✔ | ✔ | General-purpose tokenisation. |
 | N-gram and edge n-gram tokenisers | ✔ | ✔ | ✔ | Substring and prefix indexing. |
-| URL and email tokenisation | ✔ | ✔ | ✔ | UAX29-compatible URL and email handling. |
+| URL and email tokenisation | ✔ | ✔ | ✔ | URL, email, hashtag and mention preservation with Unicode-aware word heuristics; no UAX #29 conformance claim. |
 | Path hierarchy tokenisation | ✔ | ✔ | ✔ | Prefix and suffix modes with depth payloads. |
 | CJK bigram tokenisation | ✔ | ✔ | ✔ | CJK bigram support. |
 | Chinese lexicon tokenisation | ✔ | ✔ | ✔ | Longest-match segmentation with unigram fallback. |

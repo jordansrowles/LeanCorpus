@@ -1,5 +1,6 @@
 ### Added
 
+- Add `UrlEmailTokeniser` for URL, email, hashtag and mention heuristics.
 - Added a 256 MiB default retained-resource budget for heavy segment-reader states, an override through process-wide searcher defaults, and public per-component cache metrics.
 - Added optional Shape DocValues `.dvg` v1 for indexed Geo and XY shapes, preserving the exact Packed BKD primitive stream for metadata aggregations.
 - Added one-pass heterogeneous numeric and Geo distance, centroid and bounds aggregation requests, including legacy point fallback and complete shape DocValues coverage checks.
@@ -17,6 +18,7 @@
 
 ### Changed
 
+- Mark `Uax29UrlEmailTokeniser` obsolete and keep it as a forwarding compatibility wrapper; remove the false UAX #29 conformance claim.
 - Reuse thread-affine execution contexts for the built-in language analyser filters, avoiding per-field filter clones and routing-sink allocations.
 - Expand DocValues benchmarks to large dense, sparse, high-cardinality and multi-valued workloads with explicit `.dvn` reads, and measure concurrent random stored-field reads across shared and separate blocks.
 - Capture stored-field compression implementations in immutable `CodecCatalog` snapshots, reject duplicate policy registrations, and close process bootstrap registration when an index opens.
