@@ -161,7 +161,9 @@ public class QueryParser
     public Query Parse(string queryString)
     {
         if (queryString is not null && queryString.Length > _options.MaxInputChars)
-            throw new QueryParseException($"The query exceeds the configured input character limit of {_options.MaxInputChars}.");
+            throw new QueryParseException(
+                $"The query exceeds the configured input character limit of {_options.MaxInputChars}.",
+                _options.MaxInputChars);
         if (string.IsNullOrWhiteSpace(queryString))
             return new BooleanQuery.Builder().Build();
 
@@ -179,7 +181,9 @@ public class QueryParser
         }
         catch (QueryParseLimitException exception)
         {
-            throw new QueryParseException(exception.Message);
+            throw exception.Offset is int offset
+                ? new QueryParseException(exception.Message, offset)
+                : new QueryParseException(exception.Message);
         }
         finally
         {
@@ -209,7 +213,8 @@ public class QueryParser
 
         if (queryString is not null && queryString.Length > _options.MaxInputChars)
             compiler.ThrowQueryParseLimitExceeded(
-                $"The query exceeds the configured input character limit of {_options.MaxInputChars}.");
+                $"The query exceeds the configured input character limit of {_options.MaxInputChars}.",
+                _options.MaxInputChars);
         if (string.IsNullOrWhiteSpace(queryString))
             return new EmptyQuerySyntax();
 
@@ -246,6 +251,14 @@ public class QueryParser
     private protected virtual Query BuildPhraseQuery(string field, string phraseText, string rawPhraseText, int slop) =>
         BuildPhraseQuery(field, phraseText, slop);
 
+    private protected virtual Query BuildPhraseQuery(
+        string field,
+        string phraseText,
+        string rawPhraseText,
+        int slop,
+        QuerySourceSpan sourceSpan) =>
+        BuildPhraseQuery(field, phraseText, rawPhraseText, slop);
+
     protected IReadOnlyList<Analysis.Token> AnalyseTerm(string term) => AnalyseTerm(_defaultField, term);
 
     /// <summary>Analyses a literal query term with the analyser resolved for <paramref name="field"/>.</summary>
@@ -267,12 +280,12 @@ public class QueryParser
         AnalyseSingleToken(ResolveFieldContext(field).QueryAnalyser, term);
 
     /// <summary>Analyses one simple complex-phrase slot within the active phrase budgets.</summary>
-    private protected string AnalyseComplexPhraseTerm(string field, string term) =>
-        GetCompiler().AnalyseComplexPhraseTerm(field, term);
+    private protected string AnalyseComplexPhraseTerm(string field, string term, int sourceOffset) =>
+        GetCompiler().AnalyseComplexPhraseTerm(field, term, sourceOffset);
 
     /// <summary>Charges custom complex-phrase slots and alternatives to the active query budgets.</summary>
-    private protected void ConsumeComplexPhraseClauses(int clauseCount, int alternativeClauseCount) =>
-        GetCompiler().ConsumeComplexPhraseClauses(clauseCount, alternativeClauseCount);
+    private protected void ConsumeComplexPhraseClauses(int clauseCount, int alternativeClauseCount, int sourceOffset) =>
+        GetCompiler().ConsumeComplexPhraseClauses(clauseCount, alternativeClauseCount, sourceOffset);
 
     private static string AnalyseSingleToken(IAnalyser analyser, string term)
     {
@@ -420,8 +433,16 @@ public class QueryParser
     internal string AnalyseRangeBoundLiteralForCompilation(string term) =>
         AnalyseRangeBound(term);
 
-    internal Query BuildPhraseQueryForCompilation(string field, string phraseText, string rawPhraseText, int slop) =>
-        BuildPhraseQuery(field, phraseText, rawPhraseText, slop);
+    internal Query BuildPhraseQueryForCompilation(
+        string field,
+        string phraseText,
+        string rawPhraseText,
+        int slop,
+        QuerySourceSpan sourceSpan) =>
+        BuildPhraseQuery(field, phraseText, rawPhraseText, slop, sourceSpan);
+
+    internal Query BuildStandardPhraseQueryForCompilation(string field, string phraseText, int slop, int sourceOffset) =>
+        GetCompiler().BuildPhraseQuery(field, phraseText, slop, sourceOffset);
 
     private QueryCompiler GetCompiler() =>
         _compiler ??= new QueryCompiler(this, _options, parseLimitsAreComplexity: false);
@@ -431,8 +452,10 @@ public class QueryParser
 /// <summary>Exception thrown when a query string cannot be parsed.</summary>
 public sealed class QueryParseException : FormatException
 {
-    /// <summary>Gets the zero-based character offset within the query string where the error was detected.</summary>
+    /// <summary>Gets the zero-based UTF-16 code-unit offset within the original query string where the error was detected.</summary>
     public int Offset { get; }
+
+    internal bool HasOffset { get; }
 
     /// <summary>Initialises a new <see cref="QueryParseException"/> with the supplied message.</summary>
     /// <param name="message">Description of the parse error.</param>
@@ -440,11 +463,12 @@ public sealed class QueryParseException : FormatException
     {
     }
 
-    /// <summary>Initialises a new <see cref="QueryParseException"/> with the supplied message and character offset.</summary>
+    /// <summary>Initialises a new <see cref="QueryParseException"/> with the supplied message and UTF-16 code-unit offset.</summary>
     /// <param name="message">Description of the parse error.</param>
-    /// <param name="offset">Zero-based character offset within the query string where the error was detected.</param>
+    /// <param name="offset">Zero-based UTF-16 code-unit offset within the original query string where the error was detected.</param>
     public QueryParseException(string message, int offset) : base(message)
     {
         Offset = offset;
+        HasOffset = true;
     }
 }

@@ -2,7 +2,27 @@ namespace Rowles.LeanCorpus.Search.Parsing;
 
 using Rowles.LeanCorpus.Analysis.Analysers;
 
-internal abstract record QuerySyntax;
+internal readonly record struct QuerySourceSpan(int Start, int End)
+{
+    public int Length => Math.Max(0, End - Start);
+
+    public static QuerySourceSpan Cover(QuerySourceSpan first, QuerySourceSpan last)
+    {
+        if (first.Length == 0)
+            return last;
+        if (last.Length == 0)
+            return first;
+        return new QuerySourceSpan(Math.Min(first.Start, last.Start), Math.Max(first.End, last.End));
+    }
+}
+
+internal abstract record QuerySyntax
+{
+    public QuerySourceSpan SourceSpan { get; init; }
+
+    internal QuerySyntax WithSourceSpan(QuerySourceSpan sourceSpan) =>
+        this with { SourceSpan = sourceSpan };
+}
 internal enum QueryClauseState
 {
     SyntaxMissing,
@@ -54,4 +74,7 @@ internal sealed record QueryFieldCompilationContext(
     IAnalyser QueryAnalyser,
     Func<string, string>? MultiTermNormaliser);
 
-internal sealed class QueryParseLimitException(string message) : Exception(message);
+internal sealed class QueryParseLimitException(string message, int? offset = null) : Exception(message)
+{
+    public int? Offset { get; } = offset;
+}

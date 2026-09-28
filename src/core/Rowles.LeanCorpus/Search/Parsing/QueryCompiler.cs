@@ -61,8 +61,8 @@ internal sealed class QueryCompiler
         };
     }
 
-    internal Query BuildPhraseQuery(string field, string phraseText, int slop) =>
-        CompilePhraseExpansion(field, slop, CreatePhraseExpansion(field, phraseText));
+    internal Query BuildPhraseQuery(string field, string phraseText, int slop, int sourceOffset = 0) =>
+        CompilePhraseExpansion(field, slop, CreatePhraseExpansion(field, phraseText, sourceOffset), sourceOffset);
 
     internal QueryFieldCompilationContext ResolveFieldContext(string field)
     {
@@ -81,32 +81,34 @@ internal sealed class QueryCompiler
         return context;
     }
 
-    internal string AnalyseComplexPhraseTerm(string field, string term)
+    internal string AnalyseComplexPhraseTerm(string field, string term, int sourceOffset)
     {
         var tokens = new List<Analysis.Token>();
-        ResolveFieldContext(field).QueryAnalyser.Analyse(term.AsSpan(), new PhraseTokenCapturingSink(tokens, this));
+        ResolveFieldContext(field).QueryAnalyser.Analyse(
+            term.AsSpan(), new PhraseTokenCapturingSink(tokens, this, sourceOffset));
         if (tokens.Count != 1 || tokens[0].PositionLength != 1)
         {
             throw new QueryParseException(
-                "Each term in a complex phrase alternative must analyse to exactly one linear token.");
+                "Each term in a complex phrase alternative must analyse to exactly one linear token.",
+                sourceOffset);
         }
 
-        _ = CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: true);
+        _ = CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: true, sourceOffset);
         return tokens[0].Text;
     }
 
-    internal void ConsumeComplexPhraseClauses(int clauseCount, int alternativeClauseCount)
+    internal void ConsumeComplexPhraseClauses(int clauseCount, int alternativeClauseCount, int sourceOffset)
     {
         if (clauseCount < 0 || alternativeClauseCount < 0 || alternativeClauseCount > clauseCount)
             throw new ArgumentOutOfRangeException(nameof(clauseCount));
 
-        _syntaxBudget.ConsumeQueryClauses(clauseCount);
+        _syntaxBudget.ConsumeQueryClauses(clauseCount, sourceOffset);
         if (alternativeClauseCount == 0)
             return;
 
         string? clauseLimit = GetQueryCompilationBudget().TryGenerateBooleanClauses(alternativeClauseCount);
         if (clauseLimit is not null)
-            ThrowPhraseGraphLimitExceeded(clauseLimit);
+            ThrowPhraseGraphLimitExceeded(clauseLimit, sourceOffset);
     }
 
     private T CreateSyntaxNode<T>(T syntax) where T : QuerySyntax =>
@@ -128,33 +130,61 @@ internal sealed class QueryCompiler
             : normaliseLiteral(term);
     }
 
-    private QuerySyntax LowerAnalysedSyntaxCore(QuerySyntax syntax) => syntax switch
+    private QuerySyntax LowerAnalysedSyntaxCore(QuerySyntax syntax)
     {
-        UnanalysedTermQuerySyntax term => LowerUnanalysedTermSyntax(term.Field, term.Term),
-        UnanalysedFuzzyQuerySyntax fuzzy => LowerUnanalysedTermSyntax(
-            fuzzy.Field,
-            fuzzy.Term,
-            fuzzy.MaxEdits,
-            fuzzy.ModifierOffset),
-        GroupQuerySyntax group => LowerGroupSyntax(group),
-        BooleanQuerySyntax boolean => LowerBooleanSyntax(boolean),
-        DisjunctionMaxQuerySyntax disjunction => LowerDisjunctionSyntax(disjunction),
-        BoostQuerySyntax boost => LowerBoostSyntax(boost),
-        _ => CreateSyntaxNode(syntax)
-    };
+        try
+        {
+            QuerySyntax lowered = syntax switch
+            {
+                UnanalysedTermQuerySyntax term => LowerUnanalysedTermSyntax(
+                    term.Field,
+                    term.Term,
+                    sourceOffset: term.SourceSpan.Start),
+                UnanalysedFuzzyQuerySyntax fuzzy => LowerUnanalysedTermSyntax(
+                    fuzzy.Field,
+                    fuzzy.Term,
+                    fuzzy.MaxEdits,
+                    fuzzy.ModifierOffset,
+                    fuzzy.SourceSpan.Start),
+                GroupQuerySyntax group => LowerGroupSyntax(group),
+                BooleanQuerySyntax boolean => LowerBooleanSyntax(boolean),
+                DisjunctionMaxQuerySyntax disjunction => LowerDisjunctionSyntax(disjunction),
+                BoostQuerySyntax boost => LowerBoostSyntax(boost),
+                _ => CreateSyntaxNode(syntax)
+            };
+            return syntax.SourceSpan.Length == 0 ? lowered : lowered.WithSourceSpan(syntax.SourceSpan);
+        }
+        catch (QueryParseException exception) when (NeedsSourceOffset(exception, syntax.SourceSpan))
+        {
+            throw new QueryParseException(exception.Message, syntax.SourceSpan.Start);
+        }
+        catch (QueryParseLimitException exception) when (NeedsSourceOffset(exception, syntax.SourceSpan))
+        {
+            throw new QueryParseLimitException(exception.Message, syntax.SourceSpan.Start);
+        }
+    }
+
+    private static bool NeedsSourceOffset(QueryParseException exception, QuerySourceSpan sourceSpan) =>
+        sourceSpan.Length > 0 && (!exception.HasOffset || (exception.Offset == 0 && sourceSpan.Start != 0));
+
+    private static bool NeedsSourceOffset(QueryParseLimitException exception, QuerySourceSpan sourceSpan) =>
+        sourceSpan.Length > 0 &&
+        (!exception.Offset.HasValue || (exception.Offset == 0 && sourceSpan.Start != 0));
 
     private QuerySyntax LowerUnanalysedTermSyntax(
         string field,
         string term,
         int? fuzzyMaxEdits = null,
-        int modifierOffset = 0)
+        int modifierOffset = 0,
+        int sourceOffset = 0)
     {
         QuerySyntax? lowered = LowerAnalysedTokens(
             field,
             term,
             _parser.AnalyseTermForCompilation(field, term),
             fuzzyMaxEdits,
-            modifierOffset);
+            modifierOffset,
+            sourceOffset);
         return lowered ?? CreateSyntaxNode(new AnalysedEmptyQuerySyntax());
     }
 
@@ -241,17 +271,18 @@ internal sealed class QueryCompiler
     private static bool IsEmptySyntax(QuerySyntax syntax) =>
         GetClauseState(syntax) != QueryClauseState.Parsed;
 
-    private PhraseQuerySyntaxExpansion CreatePhraseExpansion(string field, string phraseText)
+    private PhraseQuerySyntaxExpansion CreatePhraseExpansion(string field, string phraseText, int sourceOffset)
     {
         var tokens = new List<Analysis.Token>();
-        var sink = new PhraseTokenCapturingSink(tokens, this);
+        var sink = new PhraseTokenCapturingSink(tokens, this, sourceOffset);
         ResolveFieldContext(field).QueryAnalyser.Analyse(phraseText.AsSpan(), sink);
-        return CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: true);
+        return CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: true, sourceOffset);
     }
 
     private PhraseQuerySyntaxExpansion CreatePhraseExpansionFromTokens(
         IReadOnlyList<Analysis.Token> tokens,
-        bool tokensAlreadyCounted)
+        bool tokensAlreadyCounted,
+        int sourceOffset)
     {
         if (tokens.Count == 0)
             return new PhraseQuerySyntaxExpansion(null, null, 0, 0);
@@ -259,7 +290,7 @@ internal sealed class QueryCompiler
         if (!tokensAlreadyCounted)
         {
             foreach (var _ in tokens)
-                ConsumeAnalysedPhraseToken();
+                ConsumeAnalysedPhraseToken(sourceOffset);
         }
 
         QueryCompilationBudget budget = GetQueryCompilationBudget();
@@ -268,7 +299,7 @@ internal sealed class QueryCompiler
         {
             string? edgeLimit = budget.TryReadGraphEdge();
             if (edgeLimit is not null)
-                ThrowPhraseGraphLimitExceeded(edgeLimit);
+                ThrowPhraseGraphLimitExceeded(edgeLimit, sourceOffset);
             graph.Add(token);
         }
         graph.ValidateOrdered();
@@ -285,7 +316,7 @@ internal sealed class QueryCompiler
         {
             string? pathLimit = budget.TryEmitPath(path.Count);
             if (pathLimit is not null)
-                ThrowPhraseGraphLimitExceeded(pathLimit);
+                ThrowPhraseGraphLimitExceeded(pathLimit, sourceOffset);
 
             pathCount++;
             compiledTermCount += path.Count;
@@ -295,12 +326,12 @@ internal sealed class QueryCompiler
             {
                 string? clauseLimit = budget.TryGenerateBooleanClauses(newBooleanClauses);
                 if (clauseLimit is not null)
-                    ThrowPhraseGraphLimitExceeded(clauseLimit);
+                    ThrowPhraseGraphLimitExceeded(clauseLimit, sourceOffset);
             }
-        }, countTraversalSteps: true);
+        }, countTraversalSteps: true, sourceOffset);
 
         if (pathCount == 0)
-            throw new QueryParseException("Analysed phrase token graph has no complete path.", 0);
+            throw new QueryParseException("Analysed phrase token graph has no complete path.", sourceOffset);
 
         return new PhraseQuerySyntaxExpansion(null, graphPlan, pathCount, compiledTermCount);
     }
@@ -308,7 +339,8 @@ internal sealed class QueryCompiler
     private void EnumeratePhraseGraphPaths(
         PhraseGraphPlan graph,
         Action<IReadOnlyList<Analysis.TokenGraph.TokenEdge>> onCompletePath,
-        bool countTraversalSteps)
+        bool countTraversalSteps,
+        int sourceOffset = 0)
     {
         var path = new List<Analysis.TokenGraph.TokenEdge>();
         var traversal = new List<PhraseGraphTraversalFrame> { new(graph.StartPosition, pathLength: 0) };
@@ -348,7 +380,7 @@ internal sealed class QueryCompiler
             {
                 string? traversalLimit = GetQueryCompilationBudget().TryTakeTraversalStep();
                 if (traversalLimit is not null)
-                    ThrowPhraseGraphLimitExceeded(traversalLimit);
+                    ThrowPhraseGraphLimitExceeded(traversalLimit, sourceOffset);
             }
 
             Analysis.TokenGraph.TokenEdge edge = nextEdges[frame.NextEdgeIndex];
@@ -364,7 +396,8 @@ internal sealed class QueryCompiler
         string sourceText,
         IReadOnlyList<Analysis.Token> tokens,
         int? fuzzyMaxEdits = null,
-        int modifierOffset = 0)
+        int modifierOffset = 0,
+        int sourceOffset = 0)
     {
         if (tokens.Count == 0)
             return null;
@@ -377,7 +410,7 @@ internal sealed class QueryCompiler
                     "A fuzzy query analyser must not emit multi-position graph edges.", modifierOffset);
             }
 
-            var expansion = CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: false);
+            var expansion = CreatePhraseExpansionFromTokens(tokens, tokensAlreadyCounted: false, sourceOffset);
             return CreateSyntaxNode(new PhraseQuerySyntax(field, sourceText, 0, expansion));
         }
 
@@ -411,22 +444,22 @@ internal sealed class QueryCompiler
         CreateSyntaxNode(new BooleanQuerySyntax(
             queries.Select(static query => new QuerySyntaxClause(query, Occur.Should)).ToArray()));
 
-    private void ConsumeAnalysedPhraseToken()
+    private void ConsumeAnalysedPhraseToken(int sourceOffset)
     {
         string? tokenLimit = GetQueryCompilationBudget().TryConsumePhraseTokens(1);
         if (tokenLimit is not null)
-            ThrowPhraseGraphLimitExceeded(tokenLimit);
+            ThrowPhraseGraphLimitExceeded(tokenLimit, sourceOffset);
     }
 
-    private void ThrowPhraseGraphLimitExceeded(string message)
+    private void ThrowPhraseGraphLimitExceeded(string message, int sourceOffset)
     {
-        ThrowQueryParseLimitExceeded(message, offset: 0);
+        ThrowQueryParseLimitExceeded(message, sourceOffset);
     }
 
     internal void ThrowQueryParseLimitExceeded(string message, int? offset = null)
     {
         if (_graphPathLimitIsComplexity || _parseLimitsAreComplexity)
-            throw new QueryParseLimitException(message);
+            throw new QueryParseLimitException(message, offset);
 
         if (offset is int value)
             throw new QueryParseException(message, value);
@@ -437,7 +470,11 @@ internal sealed class QueryCompiler
     private QueryCompilationBudget GetQueryCompilationBudget() =>
         _queryCompilationBudget;
 
-    internal Query CompilePhraseExpansion(string field, int slop, PhraseQuerySyntaxExpansion expansion)
+    internal Query CompilePhraseExpansion(
+        string field,
+        int slop,
+        PhraseQuerySyntaxExpansion expansion,
+        int sourceOffset = 0)
     {
         if (expansion.IsNoClause)
             return NoClauseQuery.Instance;
@@ -471,7 +508,7 @@ internal sealed class QueryCompiler
 
             compiledPathCount++;
             compiledTermCount += path.Count;
-        }, countTraversalSteps: false);
+        }, countTraversalSteps: false, sourceOffset);
 
         if (compiledPathCount != expansion.PathCount || compiledTermCount != expansion.CompiledTermCount)
             throw new InvalidOperationException("The validated phrase graph changed while compiling its query paths.");
@@ -502,37 +539,58 @@ internal sealed class QueryCompiler
 
     private PhraseQuerySyntax PreparePhrase(PhraseQuerySyntax phrase, Action<int, int> consumeAdditionalClauses, int depth)
     {
-        PhraseQuerySyntaxExpansion expansion = phrase.Expansion ?? CreatePhraseExpansion(phrase.Field, phrase.Text);
+        int sourceOffset = phrase.SourceSpan.Length == 0 ? 0 : phrase.SourceSpan.Start;
+        PhraseQuerySyntaxExpansion expansion = phrase.Expansion ?? CreatePhraseExpansion(phrase.Field, phrase.Text, sourceOffset);
         if (expansion.PathCount > 1)
             consumeAdditionalClauses(expansion.PathCount, depth + 1);
         return phrase with { Expansion = expansion };
     }
 
-    private Query? CompileQuery(QuerySyntax syntax) => syntax switch
+    private Query? CompileQuery(QuerySyntax syntax)
     {
-        EmptyQuerySyntax => null,
-        AnalysedEmptyQuerySyntax => NoClauseQuery.Instance,
-        RecoveredQuerySyntax => null,
-        GroupQuerySyntax group => CompileQuery(group.Inner),
-        TermQuerySyntax term => new TermQuery(term.Field, term.Term),
-        FuzzyQuerySyntax fuzzy => CompileFuzzy(fuzzy),
-        MultiTermQuerySyntax multiTerm => CompileMultiTerm(multiTerm),
-        PhraseQuerySyntax phrase => CompilePhrase(phrase),
-        RegexpQuerySyntax regexp => CompileRegexp(regexp),
-        TermRangeQuerySyntax range => CompileRange(range),
-        FieldExistsQuerySyntax exists => new FieldExistsQuery(exists.Field),
-        BoostQuerySyntax boost => CompileBoost(boost),
-        BooleanQuerySyntax boolean => CompileBoolean(boolean),
-        DisjunctionMaxQuerySyntax disjunction => CompileDisjunctionMax(disjunction),
-        _ => throw new InvalidOperationException($"Unsupported query syntax '{syntax.GetType().Name}'.")
-    };
+        try
+        {
+            return syntax switch
+            {
+                EmptyQuerySyntax => null,
+                AnalysedEmptyQuerySyntax => NoClauseQuery.Instance,
+                RecoveredQuerySyntax => null,
+                GroupQuerySyntax group => CompileQuery(group.Inner),
+                TermQuerySyntax term => new TermQuery(term.Field, term.Term),
+                FuzzyQuerySyntax fuzzy => CompileFuzzy(fuzzy),
+                MultiTermQuerySyntax multiTerm => CompileMultiTerm(multiTerm),
+                PhraseQuerySyntax phrase => CompilePhrase(phrase),
+                RegexpQuerySyntax regexp => CompileRegexp(regexp),
+                TermRangeQuerySyntax range => CompileRange(range),
+                FieldExistsQuerySyntax exists => new FieldExistsQuery(exists.Field),
+                BoostQuerySyntax boost => CompileBoost(boost),
+                BooleanQuerySyntax boolean => CompileBoolean(boolean),
+                DisjunctionMaxQuerySyntax disjunction => CompileDisjunctionMax(disjunction),
+                _ => throw new InvalidOperationException($"Unsupported query syntax '{syntax.GetType().Name}'.")
+            };
+        }
+        catch (QueryParseException exception) when (NeedsSourceOffset(exception, syntax.SourceSpan))
+        {
+            throw new QueryParseException(exception.Message, syntax.SourceSpan.Start);
+        }
+        catch (QueryParseLimitException exception) when (NeedsSourceOffset(exception, syntax.SourceSpan))
+        {
+            throw new QueryParseLimitException(exception.Message, syntax.SourceSpan.Start);
+        }
+    }
 
     private Query CompilePhrase(PhraseQuerySyntax phrase)
     {
+        int sourceOffset = phrase.SourceSpan.Length == 0 ? 0 : phrase.SourceSpan.Start;
         if (phrase.Expansion is not null)
-            return CompilePhraseExpansion(phrase.Field, phrase.Slop, phrase.Expansion);
+            return CompilePhraseExpansion(phrase.Field, phrase.Slop, phrase.Expansion, sourceOffset);
 
-        return _parser.BuildPhraseQueryForCompilation(phrase.Field, phrase.Text, phrase.RawText ?? phrase.Text, phrase.Slop);
+        return _parser.BuildPhraseQueryForCompilation(
+            phrase.Field,
+            phrase.Text,
+            phrase.RawText ?? phrase.Text,
+            phrase.Slop,
+            phrase.SourceSpan);
     }
 
     private static FuzzyQuery CompileFuzzy(FuzzyQuerySyntax syntax)
@@ -769,7 +827,10 @@ internal sealed class QueryCompiler
         public int PathLength { get; }
     }
 
-    private sealed class PhraseTokenCapturingSink(List<Analysis.Token> tokens, QueryCompiler phraseOwner) : Analysis.ISpanTokenSink
+    private sealed class PhraseTokenCapturingSink(
+        List<Analysis.Token> tokens,
+        QueryCompiler phraseOwner,
+        int sourceOffset) : Analysis.ISpanTokenSink
     {
         public void Add(
             ReadOnlySpan<char> text,
@@ -779,7 +840,7 @@ internal sealed class QueryCompiler
             int positionIncrement = 1,
             byte[]? payload = null)
         {
-            phraseOwner.ConsumeAnalysedPhraseToken();
+            phraseOwner.ConsumeAnalysedPhraseToken(sourceOffset);
             tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload));
         }
 
@@ -792,7 +853,7 @@ internal sealed class QueryCompiler
             int positionLength,
             byte[]? payload)
         {
-            phraseOwner.ConsumeAnalysedPhraseToken();
+            phraseOwner.ConsumeAnalysedPhraseToken(sourceOffset);
             tokens.Add(new Analysis.Token(text.ToString(), startOffset, endOffset, type, positionIncrement, payload, positionLength));
         }
     }

@@ -14,7 +14,7 @@ internal sealed class QueryLexer
     private void ThrowQueryParseLimitExceeded(string message, int? offset = null)
     {
         if (_limitsAreComplexity)
-            throw new QueryParseLimitException(message);
+            throw new QueryParseLimitException(message, offset);
 
         if (offset is int value)
             throw new QueryParseException(message, value);
@@ -41,7 +41,11 @@ internal sealed class QueryLexer
         void AddToken(QueryToken token)
         {
             if (tokens.Count >= _options.MaxTokens)
-                ThrowQueryParseLimitExceeded($"The query exceeds the configured parser token limit of {_options.MaxTokens}.");
+            {
+                ThrowQueryParseLimitExceeded(
+                    $"The query exceeds the configured parser token limit of {_options.MaxTokens}.",
+                    token.Offset);
+            }
             tokens.Add(token);
         }
 
@@ -53,19 +57,19 @@ internal sealed class QueryLexer
 
             switch (c)
             {
-                case '+': AddToken(new QueryToken(QueryTokenType.Plus, "+", i)); i++; continue;
-                case '-': AddToken(new QueryToken(QueryTokenType.Minus, "-", i)); i++; continue;
-                case '(': AddToken(new QueryToken(QueryTokenType.LParen, "(", i)); i++; continue;
-                case ')': AddToken(new QueryToken(QueryTokenType.RParen, ")", i)); i++; continue;
-                case ':': AddToken(new QueryToken(QueryTokenType.Colon, ":", i)); i++; continue;
-                case '~': AddToken(new QueryToken(QueryTokenType.Tilde, "~", i)); i++; continue;
-                case '^': AddToken(new QueryToken(QueryTokenType.Caret, "^", i)); i++; continue;
-                case '=': AddToken(new QueryToken(QueryTokenType.Equal, "=", i)); i++; continue;
-                case '|': AddToken(new QueryToken(QueryTokenType.Pipe, "|", i)); i++; continue;
-                case '[': AddToken(new QueryToken(QueryTokenType.OpenSquare, "[", i)); i++; continue;
-                case ']': AddToken(new QueryToken(QueryTokenType.CloseSquare, "]", i)); i++; continue;
-                case '{': AddToken(new QueryToken(QueryTokenType.OpenCurly, "{", i)); i++; continue;
-                case '}': AddToken(new QueryToken(QueryTokenType.CloseCurly, "}", i)); i++; continue;
+                case '+': AddToken(new QueryToken(QueryTokenType.Plus, "+", i, EndOffset: i + 1)); i++; continue;
+                case '-': AddToken(new QueryToken(QueryTokenType.Minus, "-", i, EndOffset: i + 1)); i++; continue;
+                case '(': AddToken(new QueryToken(QueryTokenType.LParen, "(", i, EndOffset: i + 1)); i++; continue;
+                case ')': AddToken(new QueryToken(QueryTokenType.RParen, ")", i, EndOffset: i + 1)); i++; continue;
+                case ':': AddToken(new QueryToken(QueryTokenType.Colon, ":", i, EndOffset: i + 1)); i++; continue;
+                case '~': AddToken(new QueryToken(QueryTokenType.Tilde, "~", i, EndOffset: i + 1)); i++; continue;
+                case '^': AddToken(new QueryToken(QueryTokenType.Caret, "^", i, EndOffset: i + 1)); i++; continue;
+                case '=': AddToken(new QueryToken(QueryTokenType.Equal, "=", i, EndOffset: i + 1)); i++; continue;
+                case '|': AddToken(new QueryToken(QueryTokenType.Pipe, "|", i, EndOffset: i + 1)); i++; continue;
+                case '[': AddToken(new QueryToken(QueryTokenType.OpenSquare, "[", i, EndOffset: i + 1)); i++; continue;
+                case ']': AddToken(new QueryToken(QueryTokenType.CloseSquare, "]", i, EndOffset: i + 1)); i++; continue;
+                case '{': AddToken(new QueryToken(QueryTokenType.OpenCurly, "{", i, EndOffset: i + 1)); i++; continue;
+                case '}': AddToken(new QueryToken(QueryTokenType.CloseCurly, "}", i, EndOffset: i + 1)); i++; continue;
             }
 
             if (c == '/')
@@ -114,7 +118,13 @@ internal sealed class QueryLexer
                 if (!closed)
                     throw new QueryParseException("Unmatched regular expression delimiter.", slashOffset);
                 string rawPattern = input[rawPatternStart..rawPatternEnd];
-                AddToken(new QueryToken(QueryTokenType.Regex, pattern.ToString(), slashOffset, rawPattern, HasEscapes: ContainsEscape(rawPattern)));
+                AddToken(new QueryToken(
+                    QueryTokenType.Regex,
+                    pattern.ToString(),
+                    slashOffset,
+                    rawPattern,
+                    HasEscapes: ContainsEscape(rawPattern),
+                    EndOffset: i));
                 continue;
             }
 
@@ -140,7 +150,13 @@ internal sealed class QueryLexer
                         "Unmatched quote in query string.", quoteOffset);
                 }
                 string phraseRaw = input[start..i];
-                AddToken(new QueryToken(QueryTokenType.Phrase, Unescape(phraseRaw), quoteOffset, phraseRaw, HasEscapes: ContainsEscape(phraseRaw)));
+                AddToken(new QueryToken(
+                    QueryTokenType.Phrase,
+                    Unescape(phraseRaw),
+                    quoteOffset,
+                    phraseRaw,
+                    HasEscapes: ContainsEscape(phraseRaw),
+                    EndOffset: i + 1));
                 i++; // skip closing quote
                 continue;
             }
@@ -184,7 +200,7 @@ internal sealed class QueryLexer
                 string raw = rawSpan.ToString();
                 string termValue = hasEscapes ? Unescape(raw.AsSpan()) : raw;
                 var type = !hasEscapes ? GetKeywordType(termValue) : QueryTokenType.Term;
-                AddToken(new QueryToken(type, termValue, start, raw, hasUnescapedWildcard, hasEscapes));
+                AddToken(new QueryToken(type, termValue, start, raw, hasUnescapedWildcard, hasEscapes, EndOffset: i));
             }
         }
 
@@ -265,7 +281,9 @@ internal readonly record struct QueryToken(
     int Offset,
     string? RawValue = null,
     bool HasUnescapedWildcard = false,
-    bool HasEscapes = false)
+    bool HasEscapes = false,
+    int EndOffset = -1)
 {
     public string Raw => RawValue ?? Value;
+    public QuerySourceSpan SourceSpan => new(Offset, EndOffset < Offset ? Offset : EndOffset);
 }

@@ -37,7 +37,7 @@ internal sealed class QuerySyntaxParser
         {
             QueryToken token = tokens[pos];
             throw new QueryParseException(
-                $"Unexpected token '{token.Value}' at position {pos}.", token.Offset);
+                $"Unexpected token '{token.Value}' at UTF-16 offset {token.Offset}.", token.Offset);
         }
 
         return parsed.Query ?? new EmptyQuerySyntax();
@@ -49,14 +49,20 @@ internal sealed class QuerySyntaxParser
     private T CreateSyntaxNode<T>(T syntax) where T : QuerySyntax =>
         _syntaxBudget.CreateSyntaxNode(syntax);
 
+    private T CreateSyntaxNode<T>(T syntax, QuerySourceSpan sourceSpan) where T : QuerySyntax =>
+        _syntaxBudget.CreateSyntaxNode((T)syntax.WithSourceSpan(sourceSpan));
+
     private ParsedSyntaxClause ParseExpression(List<QueryToken> tokens, ref int pos)
     {
         if (++_depth > _maxDepth)
         {
             _depth--;
             string message = $"Query nesting depth exceeds the maximum of {_maxDepth}. Simplify the query by reducing nested parentheses.";
+            int? offset = pos < tokens.Count ? tokens[pos].Offset : null;
             if (_parseLimitsAreComplexity)
-                throw new QueryParseLimitException(message);
+                throw new QueryParseLimitException(message, offset);
+            if (offset is int value)
+                throw new QueryParseException(message, value);
             throw new QueryParseException(message);
         }
 
@@ -67,7 +73,11 @@ internal sealed class QuerySyntaxParser
                 return new ParsedSyntaxClause(new EmptyQuerySyntax(), Occur.Should);
             if (parsed.Occur == Occur.Should)
                 return parsed;
-            return new ParsedSyntaxClause(CreateSyntaxNode(new BooleanQuerySyntax([new QuerySyntaxClause(parsed.Query, parsed.Occur)])), Occur.Should);
+            return new ParsedSyntaxClause(
+                CreateSyntaxNode(
+                    new BooleanQuerySyntax([new QuerySyntaxClause(parsed.Query, parsed.Occur)]),
+                    parsed.Query.SourceSpan),
+                Occur.Should);
         }
         finally
         {
@@ -116,13 +126,19 @@ internal sealed class QuerySyntaxParser
         if (operators.Count > 0 && operators.All(static op => op == QueryTokenType.Pipe)
             && clauses.All(static clause => clause.Occur == Occur.Should))
         {
+            QuerySourceSpan sourceSpan = QuerySourceSpan.Cover(
+                clauses[0].Query!.SourceSpan,
+                clauses[^1].Query!.SourceSpan);
             return new ParsedSyntaxClause(
-                CreateSyntaxNode(new DisjunctionMaxQuerySyntax(clauses.Select(static clause => clause.Query!).ToArray())),
+                CreateSyntaxNode(new DisjunctionMaxQuerySyntax(clauses.Select(static clause => clause.Query!).ToArray()), sourceSpan),
                 Occur.Should);
         }
 
+        QuerySourceSpan booleanSpan = QuerySourceSpan.Cover(
+            clauses[0].Query!.SourceSpan,
+            clauses[^1].Query!.SourceSpan);
         return new ParsedSyntaxClause(
-            CreateSyntaxNode(new BooleanQuerySyntax(clauses.Select(static clause => new QuerySyntaxClause(clause.Query!, clause.Occur)).ToArray())),
+            CreateSyntaxNode(new BooleanQuerySyntax(clauses.Select(static clause => new QuerySyntaxClause(clause.Query!, clause.Occur)).ToArray()), booleanSpan),
             Occur.Should);
     }
 
@@ -138,6 +154,12 @@ internal sealed class QuerySyntaxParser
             var op = tokens[pos].Type;
             int operatorOffset = tokens[pos].Offset;
             pos++;
+            if (pos >= tokens.Count || tokens[pos].Type == QueryTokenType.RParen)
+            {
+                throw new QueryParseException(
+                    $"A boolean operator at UTF-16 offset {operatorOffset} must be followed by a query clause.",
+                    operatorOffset);
+            }
             var next = ParseUnary(tokens, ref pos);
             if (next.Query is null || next.State is QueryClauseState.SyntaxMissing or QueryClauseState.RecoveredError)
             {
@@ -155,8 +177,11 @@ internal sealed class QuerySyntaxParser
         if (clauses is null)
             return first;
 
+        QuerySourceSpan sourceSpan = QuerySourceSpan.Cover(
+            first.Query.SourceSpan,
+            clauses[^1].Query!.SourceSpan);
         return new ParsedSyntaxClause(
-            CreateSyntaxNode(new BooleanQuerySyntax(clauses.Select(static clause => new QuerySyntaxClause(clause.Query!, clause.Occur)).ToArray())),
+            CreateSyntaxNode(new BooleanQuerySyntax(clauses.Select(static clause => new QuerySyntaxClause(clause.Query!, clause.Occur)).ToArray()), sourceSpan),
             Occur.Should);
     }
 
@@ -208,14 +233,16 @@ internal sealed class QuerySyntaxParser
         // Parenthetical grouping
         if (tokens[pos].Type == QueryTokenType.LParen)
         {
-            int openOffset = tokens[pos].Offset;
+            QueryToken openToken = tokens[pos];
             pos++; // consume '('
             var inner = ParseExpression(tokens, ref pos);
+            QueryToken closeToken;
             if (pos < tokens.Count && tokens[pos].Type == QueryTokenType.RParen)
-                pos++; // consume ')'
+                closeToken = tokens[pos++]; // consume ')'
             else
-                throw new QueryParseException("Unmatched opening parenthesis.", openOffset);
-            return ApplyBoost(new GroupQuerySyntax(inner.Query!), tokens, ref pos);
+                throw new QueryParseException("Unmatched opening parenthesis.", openToken.Offset);
+            QuerySourceSpan groupSpan = QuerySourceSpan.Cover(openToken.SourceSpan, closeToken.SourceSpan);
+            return ApplyBoost(CreateSyntaxNode(new GroupQuerySyntax(inner.Query!), groupSpan), tokens, ref pos);
         }
 
         // Quoted phrase
@@ -228,14 +255,15 @@ internal sealed class QuerySyntaxParser
 
             int slop = ReadSlop(tokens, ref pos);
             return ApplyBoost(
-                CreateSyntaxNode(new PhraseQuerySyntax(field, phrase, slop, RawText: phraseToken.Raw)),
+                CreateSyntaxNode(new PhraseQuerySyntax(field, phrase, slop, RawText: phraseToken.Raw), phraseToken.SourceSpan),
                 tokens,
                 ref pos);
         }
 
         if (tokens[pos].Type == QueryTokenType.Regex)
         {
-            var query = CreateSyntaxNode(new RegexpQuerySyntax(_defaultField, tokens[pos].Value));
+            var token = tokens[pos];
+            var query = CreateSyntaxNode(new RegexpQuerySyntax(_defaultField, token.Value), token.SourceSpan);
             pos++;
             return ApplyBoost(query, tokens, ref pos);
         }
@@ -261,7 +289,9 @@ internal sealed class QuerySyntaxParser
                 {
                     if (pos < tokens.Count && tokens[pos].Type == QueryTokenType.Term)
                     {
-                        var exists = CreateSyntaxNode(new FieldExistsQuerySyntax(tokens[pos].Value));
+                        QueryToken fieldToken = tokens[pos];
+                        var exists = CreateSyntaxNode(new FieldExistsQuerySyntax(fieldToken.Value),
+                            QuerySourceSpan.Cover(termToken.SourceSpan, fieldToken.SourceSpan));
                         pos++;
                         return ApplyBoost(exists, tokens, ref pos);
                     }
@@ -280,12 +310,13 @@ internal sealed class QuerySyntaxParser
                         pos++;
                         int slop = ReadSlop(tokens, ref pos);
                         var pq = CreateSyntaxNode(
-                            new PhraseQuerySyntax(field, phrase, slop, RawText: phraseToken.Raw));
+                            new PhraseQuerySyntax(field, phrase, slop, RawText: phraseToken.Raw), phraseToken.SourceSpan);
                         return ApplyBoost(pq, tokens, ref pos);
                     }
                     else if (tokens[pos].Type == QueryTokenType.Regex)
                     {
-                        var regex = CreateSyntaxNode(new RegexpQuerySyntax(field, tokens[pos].Value));
+                        QueryToken regexToken = tokens[pos];
+                        var regex = CreateSyntaxNode(new RegexpQuerySyntax(field, regexToken.Value), regexToken.SourceSpan);
                         pos++;
                         return ApplyBoost(regex, tokens, ref pos);
                     }
@@ -317,7 +348,7 @@ internal sealed class QuerySyntaxParser
             // Check for wildcard/prefix/fuzzy suffixes
             if (termToken.HasUnescapedWildcard)
             {
-                var multiTerm = CreateSyntaxNode(new MultiTermQuerySyntax(field, termToken.Raw, term));
+                var multiTerm = CreateSyntaxNode(new MultiTermQuerySyntax(field, termToken.Raw, term), termToken.SourceSpan);
                 return ApplyBoost(multiTerm, tokens, ref pos);
             }
 
@@ -348,17 +379,18 @@ internal sealed class QuerySyntaxParser
                 }
 
                 pos = suffixPosition + 1;
-                var fuzzy = CreateSyntaxNode(new UnanalysedFuzzyQuerySyntax(field, term, maxEdits, modifierOffset));
+                QuerySourceSpan fuzzySpan = QuerySourceSpan.Cover(termToken.SourceSpan, tokens[suffixPosition].SourceSpan);
+                var fuzzy = CreateSyntaxNode(new UnanalysedFuzzyQuerySyntax(field, term, maxEdits, modifierOffset), fuzzySpan);
                 return ApplyBoost(fuzzy, tokens, ref pos);
             }
 
             // Recognise the term now; analysis lowering runs after the complete syntax tree exists.
-            var unanalysedTerm = CreateSyntaxNode(new UnanalysedTermQuerySyntax(field, term));
+            var unanalysedTerm = CreateSyntaxNode(new UnanalysedTermQuerySyntax(field, term), termToken.SourceSpan);
             return ApplyBoost(unanalysedTerm, tokens, ref pos);
         }
 
         throw new QueryParseException(
-            $"Unexpected token '{tokens[pos].Value}' at position {pos}.", tokens[pos].Offset);
+            $"Unexpected token '{tokens[pos].Value}' at UTF-16 offset {tokens[pos].Offset}.", tokens[pos].Offset);
     }
 
     private QuerySyntax ParseRange(string field, List<QueryToken> tokens, ref int pos)
@@ -378,6 +410,7 @@ internal sealed class QuerySyntaxParser
             throw new QueryParseException("A range query must end with ']' or '}'.", opening.Offset);
 
         bool includeUpper = tokens[pos].Type == QueryTokenType.CloseSquare;
+        QueryToken closing = tokens[pos];
         pos++;
         string? lowerTerm = IsUnboundedRangeMarker(lower) ? null : lower.Value;
         string? upperTerm = IsUnboundedRangeMarker(upper) ? null : upper.Value;
@@ -386,7 +419,7 @@ internal sealed class QuerySyntaxParser
             lowerTerm,
             upperTerm,
             includeLower,
-            includeUpper));
+            includeUpper), QuerySourceSpan.Cover(opening.SourceSpan, closing.SourceSpan));
     }
 
     private static bool TryReadRangeBound(List<QueryToken> tokens, ref int pos, out QueryToken value)
@@ -459,7 +492,8 @@ internal sealed class QuerySyntaxParser
         }
 
         pos = suffixPosition + 1;
-        BoostQuerySyntax syntax = new(query, boost, constantScore);
+        QuerySourceSpan boostSpan = QuerySourceSpan.Cover(query.SourceSpan, tokens[suffixPosition].SourceSpan);
+        QuerySyntax syntax = new BoostQuerySyntax(query, boost, constantScore).WithSourceSpan(boostSpan);
         return constantScore ? CreateSyntaxNode(syntax) : syntax;
     }
 
@@ -484,22 +518,23 @@ internal sealed class QuerySyntaxBudget(QueryParserOptions options, bool limitsA
     {
         if (_syntaxNodeCount >= options.MaxSyntaxNodes)
             ThrowQueryParseLimitExceeded(
-                $"The query exceeds the configured syntax-node limit of {options.MaxSyntaxNodes}.");
+                $"The query exceeds the configured syntax-node limit of {options.MaxSyntaxNodes}.",
+                syntax.SourceSpan.Length == 0 ? null : syntax.SourceSpan.Start);
         _syntaxNodeCount++;
 
         if (_countQueryClauses && IsQueryClauseNode(syntax))
-            ConsumeQueryClauses(1);
+            ConsumeQueryClauses(1, syntax.SourceSpan.Length == 0 ? null : syntax.SourceSpan.Start);
 
         return syntax;
     }
 
-    internal void ConsumeQueryClauses(int count)
+    internal void ConsumeQueryClauses(int count, int? offset = null)
     {
         if (count < 0)
             throw new ArgumentOutOfRangeException(nameof(count));
         if (count > options.MaxQueryClauses - _queryClauseCount)
             ThrowQueryParseLimitExceeded(
-                $"The query exceeds the configured query-clause limit of {options.MaxQueryClauses}.");
+                $"The query exceeds the configured query-clause limit of {options.MaxQueryClauses}.", offset);
 
         _queryClauseCount += count;
     }
@@ -507,7 +542,7 @@ internal sealed class QuerySyntaxBudget(QueryParserOptions options, bool limitsA
     internal void ThrowQueryParseLimitExceeded(string message, int? offset = null)
     {
         if (limitsAreComplexity)
-            throw new QueryParseLimitException(message);
+            throw new QueryParseLimitException(message, offset);
 
         if (offset is int value)
             throw new QueryParseException(message, value);
