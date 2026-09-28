@@ -21,11 +21,11 @@ public sealed class AdvancedAnalysisIntegrationTests : IClassFixture<TestDirecto
         _fixture = fixture;
     }
 
-    [Fact(DisplayName = "UAX29 URL Email Tokeniser: Indexes URLs And Email Addresses")]
-    public void Uax29UrlEmailTokeniser_IndexesUrlsAndEmailAddresses()
+    [Fact(DisplayName = "URL/email tokeniser: Indexes URLs And Email Addresses")]
+    public void UrlEmailTokeniser_IndexesUrlsAndEmailAddresses()
     {
         using var directory = new MMapDirectory(SubDir("uax29_special_terms"));
-        var analyser = new Analyser(new Uax29UrlEmailTokeniser(), new LowercaseFilter());
+        var analyser = new Analyser(new UrlEmailTokeniser(), new LowercaseFilter());
 
         using (var writer = new IndexWriter(directory, new IndexWriterConfig { DefaultAnalyser = analyser }))
         {

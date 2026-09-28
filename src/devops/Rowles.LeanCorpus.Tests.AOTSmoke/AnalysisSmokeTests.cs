@@ -217,90 +217,90 @@ public class AnalysisSmokeTests
     }
 
     [Fact]
-    public void Uax29UrlEmailTokeniser_Url()
+    public void UrlEmailTokeniser_Url()
     {
-        var tokeniser = new Uax29UrlEmailTokeniser();
+        var tokeniser = new UrlEmailTokeniser();
         var sink = new MaterialisingTokenSink();
         tokeniser.Tokenise("https://example.com/path", sink);
         Assert.True(sink.Tokens.Count == 1,
-            $"Uax29UrlEmailTokeniser URL expected 1 token, got {sink.Tokens.Count}");
-        Assert.True(sink.Tokens[0].Type == Uax29UrlEmailTokeniser.UrlType,
-            $"Uax29UrlEmailTokeniser URL expected type '{Uax29UrlEmailTokeniser.UrlType}', got '{sink.Tokens[0].Type}'");
+            $"UrlEmailTokeniser URL expected 1 token, got {sink.Tokens.Count}");
+        Assert.True(sink.Tokens[0].Type == UrlEmailTokeniser.UrlType,
+            $"UrlEmailTokeniser URL expected type '{UrlEmailTokeniser.UrlType}', got '{sink.Tokens[0].Type}'");
     }
 
     [Fact]
-    public void Uax29UrlEmailTokeniser_Email()
+    public void UrlEmailTokeniser_Email()
     {
-        var tokeniser = new Uax29UrlEmailTokeniser();
+        var tokeniser = new UrlEmailTokeniser();
         var sink = new MaterialisingTokenSink();
         tokeniser.Tokenise("user@example.com", sink);
         Assert.True(sink.Tokens.Count == 1,
-            $"Uax29UrlEmailTokeniser email expected 1 token, got {sink.Tokens.Count}");
-        Assert.True(sink.Tokens[0].Type == Uax29UrlEmailTokeniser.EmailType,
-            $"Uax29UrlEmailTokeniser email expected type '{Uax29UrlEmailTokeniser.EmailType}', got '{sink.Tokens[0].Type}'");
+            $"UrlEmailTokeniser email expected 1 token, got {sink.Tokens.Count}");
+        Assert.True(sink.Tokens[0].Type == UrlEmailTokeniser.EmailType,
+            $"UrlEmailTokeniser email expected type '{UrlEmailTokeniser.EmailType}', got '{sink.Tokens[0].Type}'");
     }
 
     [Fact]
-    public void Uax29UrlEmailTokeniser_Hashtag()
+    public void UrlEmailTokeniser_Hashtag()
     {
-        var tokeniser = new Uax29UrlEmailTokeniser();
+        var tokeniser = new UrlEmailTokeniser();
         var sink = new MaterialisingTokenSink();
         tokeniser.Tokenise("#hello", sink);
         Assert.True(sink.Tokens.Count == 1,
-            $"Uax29UrlEmailTokeniser hashtag expected 1 token, got {sink.Tokens.Count}");
-        Assert.True(sink.Tokens[0].Type == Uax29UrlEmailTokeniser.HashtagType,
-            $"Uax29UrlEmailTokeniser hashtag expected type '{Uax29UrlEmailTokeniser.HashtagType}', got '{sink.Tokens[0].Type}'");
+            $"UrlEmailTokeniser hashtag expected 1 token, got {sink.Tokens.Count}");
+        Assert.True(sink.Tokens[0].Type == UrlEmailTokeniser.HashtagType,
+            $"UrlEmailTokeniser hashtag expected type '{UrlEmailTokeniser.HashtagType}', got '{sink.Tokens[0].Type}'");
     }
 
     [Fact]
-    public void Uax29UrlEmailTokeniser_Mention()
+    public void UrlEmailTokeniser_Mention()
     {
-        var tokeniser = new Uax29UrlEmailTokeniser();
+        var tokeniser = new UrlEmailTokeniser();
         var sink = new MaterialisingTokenSink();
         tokeniser.Tokenise("@user", sink);
         Assert.True(sink.Tokens.Count == 1,
-            $"Uax29UrlEmailTokeniser mention expected 1 token, got {sink.Tokens.Count}");
-        Assert.True(sink.Tokens[0].Type == Uax29UrlEmailTokeniser.MentionType,
-            $"Uax29UrlEmailTokeniser mention expected type '{Uax29UrlEmailTokeniser.MentionType}', got '{sink.Tokens[0].Type}'");
+            $"UrlEmailTokeniser mention expected 1 token, got {sink.Tokens.Count}");
+        Assert.True(sink.Tokens[0].Type == UrlEmailTokeniser.MentionType,
+            $"UrlEmailTokeniser mention expected type '{UrlEmailTokeniser.MentionType}', got '{sink.Tokens[0].Type}'");
     }
 
     [Fact]
-    public void Uax29UrlEmailTokeniser_MixedContent()
+    public void UrlEmailTokeniser_MixedContent()
     {
-        var tokeniser = new Uax29UrlEmailTokeniser();
+        var tokeniser = new UrlEmailTokeniser();
         var sink = new MaterialisingTokenSink();
         tokeniser.Tokenise("visit https://a.com or email x@y.com #tag", sink);
         Assert.True(sink.Tokens.Count >= 3,
-            $"Uax29UrlEmailTokeniser mixed expected >=3 tokens, got {sink.Tokens.Count}");
+            $"UrlEmailTokeniser mixed expected >=3 tokens, got {sink.Tokens.Count}");
         var types = sink.Tokens.Select(t => t.Type).ToHashSet();
-        Assert.True(types.Contains(Uax29UrlEmailTokeniser.UrlType),
-            "Uax29UrlEmailTokeniser mixed missing URL type");
-        Assert.True(types.Contains(Uax29UrlEmailTokeniser.EmailType),
-            "Uax29UrlEmailTokeniser mixed missing email type");
-        Assert.True(types.Contains(Uax29UrlEmailTokeniser.HashtagType),
-            "Uax29UrlEmailTokeniser mixed missing hashtag type");
+        Assert.True(types.Contains(UrlEmailTokeniser.UrlType),
+            "UrlEmailTokeniser mixed missing URL type");
+        Assert.True(types.Contains(UrlEmailTokeniser.EmailType),
+            "UrlEmailTokeniser mixed missing email type");
+        Assert.True(types.Contains(UrlEmailTokeniser.HashtagType),
+            "UrlEmailTokeniser mixed missing hashtag type");
     }
 
     [Fact]
-    public void Uax29UrlEmailTokeniser_EmptyInput()
+    public void UrlEmailTokeniser_EmptyInput()
     {
-        var tokeniser = new Uax29UrlEmailTokeniser();
+        var tokeniser = new UrlEmailTokeniser();
         var sink = new CountingTokenSink();
         tokeniser.Tokenise("", sink);
         Assert.True(sink.Count == 0,
-            $"Uax29UrlEmailTokeniser empty input expected 0 tokens, got {sink.Count}");
+            $"UrlEmailTokeniser empty input expected 0 tokens, got {sink.Count}");
     }
 
     [Fact]
-    public void Uax29UrlEmailTokeniser_WithThaiTokeniser()
+    public void UrlEmailTokeniser_WithThaiTokeniser()
     {
         var thaiLexicon = new[] { "กาแฟ" };
         var thaiTokeniser = new ThaiTokeniser(thaiLexicon);
-        var tokeniser = new Uax29UrlEmailTokeniser(thaiTokeniser);
+        var tokeniser = new UrlEmailTokeniser(thaiTokeniser);
         var sink = new CountingTokenSink();
         tokeniser.Tokenise("https://a.com กาแฟ", sink);
         Assert.True(sink.Count >= 2,
-            $"Uax29UrlEmailTokeniser + ThaiTokeniser expected >=2 tokens, got {sink.Count}");
+            $"UrlEmailTokeniser + ThaiTokeniser expected >=2 tokens, got {sink.Count}");
     }
 
     [Fact]

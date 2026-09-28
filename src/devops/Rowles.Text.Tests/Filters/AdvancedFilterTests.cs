@@ -42,7 +42,7 @@ public sealed class AdvancedFilterTests
         var tokens = new List<Token>
         {
             new("search", 0, 6, MediaWikiTokeniser.CategoryType),
-            new("example.com", 7, 18, Uax29UrlEmailTokeniser.UrlType),
+            new("example.com", 7, 18, UrlEmailTokeniser.UrlType),
             new("engine", 19, 25, MediaWikiTokeniser.InternalLinkType)
         };
         var filter = new TypeTokenFilter([MediaWikiTokeniser.CategoryType, MediaWikiTokeniser.InternalLinkType]);

@@ -36,7 +36,7 @@ FLAG long
     public void AnalysisExpansion_TokenBudget_RejectsRunawayAlternates()
     {
         var analyser = new Analyser(
-            new Uax29UrlEmailTokeniser(),
+            new UrlEmailTokeniser(),
             new LowercaseFilter(),
             new MetaphoneFilter(),
             new PhoneticAlternatesFilter(),
