@@ -38,14 +38,17 @@
     'core-reader-cache-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/SegmentReaderCacheBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/SegmentReaderResourceCacheBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Program.cs'); Targets = @('core:Search') }
     'core-term-cache-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/QualifiedTermCacheBenchmarks.cs'); Targets = @('core:Index', 'core:Search') }
     'core-search-docs' = @{ Globs = @('docs/articles/vs-lucene.md', 'docs/articles/ADRs/ADR011-lazy-segment-reader-lifetimes.md', 'docs/articles/ADRs/ADR038-bounded-query-string-compilation.md', 'docs/searching/03-phrase-and-proximity.md', 'docs/searching/04-query-parser.md'); Targets = @('core:Search') }
+    'release-adr-version-metadata' = @{ Globs = @('docs/articles/ADRs/ADR031-dwpt-postings-arena.md', 'docs/articles/ADRs/ADR033-spatial-geometry-packed-bkd.md', 'docs/articles/ADRs/ADR034-shape-indexing-and-spatial-relations.md', 'docs/articles/ADRs/ADR035-shape-docvalues-and-spatial-aggregations.md'); Targets = @() }
     'core-index-snapshot-docs' = @{ Globs = @('docs/concurrency/03-snapshots-and-policies.md'); Targets = @('core:Index') }
     'core-configuration-docs' = @{ Globs = @('docs/getting-started/05-configuration-reference.md'); Targets = @('core:Foundation', 'core:Search') }
     'core-compression-docs' = @{ Globs = @('docs/getting-started/01-installation.md', 'docs/getting-started/03-configuration.md', 'docs/tips/01-compression.md'); Targets = @('core:CodecKit') }
     'text-analysis-docs' = @{ Globs = @('docs/analysis/**'); Targets = @('text:Analysers') }
-    'text-tokeniser-docs' = @{ Globs = @('docs/analysis/02-tokenisers.md', 'docs/analysis/index.md', 'docs/articles/features/analysis.md', 'docs/articles/vs-lucene.md'); Targets = @('text:Tokenisers', 'core:TextIntegration') }
+    'text-tokeniser-docs' = @{ Globs = @('docs/analysis/02-tokenisers.md', 'docs/analysis/index.md', 'docs/articles/features/analysis.md', 'docs/articles/vs-lucene.md', 'lexicons/README.md'); Targets = @('text:Tokenisers', 'core:TextIntegration') }
     'aot-search-smoke-test' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/IndexSmokeTests.cs'); Targets = @('aot:Search') }
     'aot-analysis-smoke-test' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/AnalysisSmokeTests.cs'); Targets = @('aot:Search') }
+    'aot-tokeniser-smoke-test' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/TokeniserSmokeTests.cs'); Targets = @('aot:Search') }
     'text-analyser-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Analysers/**'); Targets = @('text:Analysers') }
+    'text-standalone-package-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/StandalonePackageTests.cs'); Targets = @('text:Tokenisers') }
     'text-filter-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Filters/**'); Targets = @('text:Filters') }
     'text-filter-benchmarks' = @{
         Globs = @('src/devops/Rowles.Text.Benchmarks/CachingGraphEdgeBenchmarks.cs')

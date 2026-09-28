@@ -7,7 +7,7 @@ using Rowles.LeanCorpus.Search.Queries;
 namespace Rowles.LeanCorpus.Tests.Core.Search;
 
 /// <summary>Verifies concurrent parser ownership and invocation isolation.</summary>
-[Category(TestCategory.Integration)]
+[Category(TestCategory.Unit)]
 [Area(TestArea.Search)]
 public sealed class QueryParserConcurrencyTests
 {

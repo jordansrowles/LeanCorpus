@@ -6,7 +6,7 @@ using Rowles.LeanCorpus.Search.Parsing;
 
 namespace Rowles.LeanCorpus.Tests.Core.Search;
 
-[Category(TestCategory.Integration)]
+[Category(TestCategory.Unit)]
 [Area(TestArea.Search)]
 public sealed class QueryParserAdversarialTests
 {
