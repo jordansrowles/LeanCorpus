@@ -6,6 +6,14 @@
 public static class AnalyserFactory
 {
     /// <summary>
+    /// Creates an explicitly disposable Japanese analyser that owns a custom dictionary.
+    /// </summary>
+    /// <param name="dictionaryPath">Path to a versioned <c>.jlc</c> file.</param>
+    /// <returns>An analyser and owner that should be disposed after all its calls complete.</returns>
+    public static OwnedJapaneseAnalyser CreateOwnedJapaneseAnalyser(string dictionaryPath)
+        => new(dictionaryPath);
+
+    /// <summary>
     /// Creates an analyser configured for the specified language.
     /// </summary>
     /// <param name="languageCode">

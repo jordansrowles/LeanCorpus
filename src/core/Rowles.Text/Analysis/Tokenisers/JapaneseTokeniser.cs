@@ -12,10 +12,11 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// </summary>
 /// <remarks>
 /// Dictionary data is loaded lazily from a LeanCorpus <c>.jlc</c> file. The
-/// default dictionary is shared for the process lifetime. Instances created
-/// with a custom dictionary path own that mapping and should be disposed.
+/// default dictionary is shared for the process lifetime. For a custom
+/// dictionary, pass a <see cref="JapaneseDictionary"/> and keep its
+/// owner alive until all tokenisation has finished.
 /// </remarks>
-public sealed class JapaneseTokeniser : IThreadLocalSpanTokeniser, IDisposable
+public sealed class JapaneseTokeniser : IThreadLocalSpanTokeniser
 {
     /// <summary>Token type emitted for Japanese dictionary tokens.</summary>
     public const string JapaneseType = "japanese";
@@ -24,10 +25,9 @@ public sealed class JapaneseTokeniser : IThreadLocalSpanTokeniser, IDisposable
         static () => new JapaneseDictionary(DefaultDictionaryPath),
         LazyThreadSafetyMode.ExecutionAndPublication);
 
-    private readonly Lazy<JapaneseDictionary> _dictionary;
-    private readonly bool _ownsDictionary;
-    private readonly string? _dictionaryPath;
-    private bool _disposed;
+    private readonly JapaneseDictionary? _dictionary;
+
+    internal JapaneseDictionary Dictionary => _dictionary ?? SharedDictionary.Value;
 
     /// <summary>Default path for the Japanese language codec.</summary>
     public static string DefaultDictionaryPath => FindDictionaryPath();
@@ -41,51 +41,45 @@ public sealed class JapaneseTokeniser : IThreadLocalSpanTokeniser, IDisposable
         if (!FileExists(path))
             throw new FileNotFoundException($"Japanese language codec not found at '{path}'.", path);
 
-        _dictionary = SharedDictionary;
+        _dictionary = null;
     }
 
     /// <summary>
-    /// Initialises a tokeniser using a custom Japanese language codec.
+    /// Initialises a non-owning tokeniser over an application-owned dictionary.
     /// </summary>
-    /// <param name="dictionaryPath">Path to a versioned <c>.jlc</c> file.</param>
-    public JapaneseTokeniser(string dictionaryPath)
+    /// <param name="dictionary">The dictionary resource used for tokenisation.</param>
+    /// <remarks>
+    /// This tokeniser and its thread-local copies do not dispose
+    /// <paramref name="dictionary"/>. The caller retains ownership.
+    /// </remarks>
+    public JapaneseTokeniser(JapaneseDictionary dictionary)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(dictionaryPath);
-        string fullPath = Path.GetFullPath(dictionaryPath);
-        if (!FileExists(fullPath))
-            throw new FileNotFoundException($"Japanese language codec not found at '{fullPath}'.", fullPath);
-
-        _dictionary = new Lazy<JapaneseDictionary>(
-            () => new JapaneseDictionary(fullPath),
-            LazyThreadSafetyMode.ExecutionAndPublication);
-        _ownsDictionary = true;
-        _dictionaryPath = fullPath;
+        _dictionary = dictionary ?? throw new ArgumentNullException(nameof(dictionary));
     }
 
     /// <inheritdoc/>
     public ISpanTokeniser CreateThreadLocalTokeniser()
-        => _dictionaryPath is null ? new JapaneseTokeniser() : new JapaneseTokeniser(_dictionaryPath);
+        => _dictionary is null ? new JapaneseTokeniser() : new JapaneseTokeniser(_dictionary);
 
     /// <inheritdoc/>
     public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(sink);
+
+        if (_dictionary is null)
+        {
+            if (input.IsEmpty)
+                return;
+
+            JapaneseViterbi.Tokenise(input, SharedDictionary.Value, sink);
+            return;
+        }
+
+        using var use = _dictionary.EnterUse();
         if (input.IsEmpty)
             return;
 
-        JapaneseViterbi.Tokenise(input, _dictionary.Value, sink);
-    }
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        if (_disposed)
-            return;
-
-        _disposed = true;
-        if (_ownsDictionary && _dictionary.IsValueCreated)
-            _dictionary.Value.Dispose();
+        JapaneseViterbi.Tokenise(input, _dictionary, sink);
     }
 
     private static string FindDictionaryPath()

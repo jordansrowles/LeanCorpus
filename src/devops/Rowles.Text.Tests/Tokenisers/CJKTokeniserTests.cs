@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
+using Rowles.LeanCorpus.Analysis.Tokenisers.Japanese;
 using Rowles.LeanCorpus.Tests.Shared.Infrastructure;
 
 using Xunit;
@@ -367,10 +368,132 @@ public sealed class CJKTokeniserTests
 
     #region Japanese tokeniser
 
+    [Fact(DisplayName = "JapaneseDictionary: Is the explicit disposable resource owner")]
+    public void JapaneseDictionary_ExplicitlyOwnsCustomResource()
+    {
+        Assert.True(typeof(JapaneseDictionary).IsPublic);
+        Assert.True(typeof(IDisposable).IsAssignableFrom(typeof(JapaneseDictionary)));
+        Assert.False(typeof(IDisposable).IsAssignableFrom(typeof(JapaneseTokeniser)));
+        Assert.False(typeof(IDisposable).IsAssignableFrom(typeof(Analyser)));
+        Assert.False(typeof(IDisposable).IsAssignableFrom(typeof(LanguageAnalyser)));
+    }
+
+    [Fact(DisplayName = "JapaneseDictionary: Disposal closes the owner and invalidates borrowers")]
+    public void JapaneseDictionary_Dispose_ClosesCustomResource()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"japanese_owner_{Guid.NewGuid():N}.jlc");
+        File.Copy(JapaneseTokeniser.DefaultDictionaryPath, path);
+
+        try
+        {
+            using var dictionary = new JapaneseDictionary(path);
+            var tokeniser = new JapaneseTokeniser(dictionary);
+            var sink = new MaterialisingTokenSink();
+            const string input = "\u79C1\u306F\u5B66\u751F\u3067\u3059";
+
+            tokeniser.Tokenise(input, sink);
+
+            Assert.Equal(
+                new[]
+                {
+                    ("\u79C1", 0, 1, 1, 1, JapaneseTokeniser.JapaneseType),
+                    ("\u306F", 1, 2, 1, 1, JapaneseTokeniser.JapaneseType),
+                    ("\u5B66\u751F", 2, 4, 1, 1, JapaneseTokeniser.JapaneseType),
+                    ("\u3067\u3059", 4, 6, 1, 1, JapaneseTokeniser.JapaneseType)
+                },
+                sink.Tokens.Select(static token =>
+                    (token.Text, token.StartOffset, token.EndOffset, token.PositionIncrement, token.PositionLength, token.Type)));
+
+            dictionary.Dispose();
+            Assert.Throws<ObjectDisposedException>(() => tokeniser.Tokenise("\u79C1", new MaterialisingTokenSink()));
+            dictionary.Dispose();
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact(DisplayName = "JapaneseTokeniser: Thread-local instances share the process dictionary")]
+    public void JapaneseTokeniser_ThreadLocalDefault_SharesProcessDictionary()
+    {
+        var original = new JapaneseTokeniser();
+        var clone = Assert.IsType<JapaneseTokeniser>(original.CreateThreadLocalTokeniser());
+
+        Assert.Same(original.Dictionary, clone.Dictionary);
+    }
+
+    [Fact(DisplayName = "LanguageAnalyser: Caller retains custom dictionary ownership")]
+    public void LanguageAnalyser_CustomDictionary_RemainsCallerOwned()
+    {
+        using var dictionary = new JapaneseDictionary(JapaneseTokeniser.DefaultDictionaryPath);
+        var analyser = new LanguageAnalyser(
+            new JapaneseTokeniser(dictionary),
+            StopWords.Japanese,
+            stemmer: null);
+        IAnalyser worker = analyser.CreateThreadLocalAnalyser();
+        var sink = new MaterialisingTokenSink();
+
+        worker.Analyse("\u79C1\u306F\u5B66\u751F\u3067\u3059", sink);
+
+        Assert.Equal(new[] { "\u5B66\u751F" }, sink.Tokens.Select(static token => token.Text));
+        dictionary.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => analyser.Analyse("\u79C1", new MaterialisingTokenSink()));
+        Assert.Throws<ObjectDisposedException>(() => worker.Analyse("\u79C1", new MaterialisingTokenSink()));
+    }
+
+    [Fact(DisplayName = "AnalyserFactory: Owned Japanese analyser disposes its custom dictionary")]
+    public void AnalyserFactory_CreateOwnedJapaneseAnalyser_OwnsDictionary()
+    {
+        using var analyser = AnalyserFactory.CreateOwnedJapaneseAnalyser(JapaneseTokeniser.DefaultDictionaryPath);
+        IAnalyser worker = analyser.CreateThreadLocalAnalyser();
+        var sink = new MaterialisingTokenSink();
+
+        worker.Analyse("\u79C1\u306F\u5B66\u751F\u3067\u3059", sink);
+
+        Assert.Equal(new[] { "\u5B66\u751F" }, sink.Tokens.Select(static token => token.Text));
+        analyser.Dispose();
+        Assert.Throws<ObjectDisposedException>(() => analyser.Analyse("\u79C1", new MaterialisingTokenSink()));
+        Assert.Throws<ObjectDisposedException>(() => worker.Analyse("\u79C1", new MaterialisingTokenSink()));
+    }
+
+    [Fact(DisplayName = "JapaneseDictionary: Disposal waits for active tokenisation")]
+    public async Task JapaneseDictionary_Dispose_WaitsForActiveTokenisation()
+    {
+        using var dictionary = new JapaneseDictionary(JapaneseTokeniser.DefaultDictionaryPath);
+        var tokeniser = new JapaneseTokeniser(dictionary);
+        var enteredSink = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseSink = new ManualResetEventSlim();
+        var disposeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sink = new BlockingTokenSink(enteredSink, releaseSink);
+        Task tokenise = Task.Run(() => tokeniser.Tokenise("\u79C1", sink), TestContext.Current.CancellationToken);
+        Task dispose = Task.CompletedTask;
+
+        try
+        {
+            await enteredSink.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            dispose = Task.Run(() =>
+            {
+                disposeStarted.TrySetResult();
+                dictionary.Dispose();
+            }, TestContext.Current.CancellationToken);
+            await disposeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Task completed = await Task.WhenAny(dispose, Task.Delay(100, TestContext.Current.CancellationToken));
+            Assert.True(!ReferenceEquals(dispose, completed), "Disposal must wait for the active tokenisation call.");
+        }
+        finally
+        {
+            releaseSink.Set();
+        }
+
+        await Task.WhenAll(tokenise, dispose).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Throws<ObjectDisposedException>(() => tokeniser.Tokenise("\u79C1", new MaterialisingTokenSink()));
+    }
+
     [Fact(DisplayName = "JapaneseTokeniser: Simple sentence segments")]
     public void JapaneseTokeniser_SimpleSentence_Segments()
     {
-        using var tokeniser = new JapaneseTokeniser();
+        var tokeniser = new JapaneseTokeniser();
         var sink = new MaterialisingTokenSink();
         var input = "\u79C1\u306F\u5B66\u751F\u3067\u3059"; // 私は学生です
 
@@ -386,7 +509,7 @@ public sealed class CJKTokeniserTests
     [Fact(DisplayName = "JapaneseTokeniser: Known word produces output")]
     public void JapaneseTokeniser_KnownWord_ProducesSingleToken()
     {
-        using var tokeniser = new JapaneseTokeniser();
+        var tokeniser = new JapaneseTokeniser();
         var sink = new MaterialisingTokenSink();
         tokeniser.Tokenise("\u98DF\u3079\u308B", sink); // 食べる
         Assert.Equal(new[] { "\u98DF\u3079\u308B" }, sink.Tokens.Select(static token => token.Text));
@@ -395,7 +518,7 @@ public sealed class CJKTokeniserTests
     [Fact(DisplayName = "JapaneseTokeniser: Empty string produces no tokens")]
     public void JapaneseTokeniser_EmptyString_NoTokens()
     {
-        using var tokeniser = new JapaneseTokeniser();
+        var tokeniser = new JapaneseTokeniser();
         var sink = new MaterialisingTokenSink();
         tokeniser.Tokenise("", sink);
         Assert.Empty(sink.Tokens);
@@ -404,7 +527,7 @@ public sealed class CJKTokeniserTests
     [Fact(DisplayName = "JapaneseTokeniser: ASCII path unaffected")]
     public void JapaneseTokeniser_AsciiOnly_StandardTokenisation()
     {
-        using var tokeniser = new JapaneseTokeniser();
+        var tokeniser = new JapaneseTokeniser();
         var sink = new MaterialisingTokenSink();
         tokeniser.Tokenise("hello world", sink);
         Assert.Equal(2, sink.Tokens.Count);
@@ -416,7 +539,7 @@ public sealed class CJKTokeniserTests
     public void JapaneseTokeniser_MissingDictionary_ThrowsFileNotFoundException()
     {
         var nonExistentPath = Path.Combine(Path.GetTempPath(), $"kuromoji_nonexistent_{Guid.NewGuid():N}");
-        Assert.Throws<FileNotFoundException>(() => new JapaneseTokeniser(nonExistentPath));
+        Assert.Throws<FileNotFoundException>(() => new JapaneseDictionary(nonExistentPath));
     }
 
     [Fact(DisplayName = "JapaneseTokeniser: Corrupt codec section is rejected")]
@@ -434,9 +557,7 @@ public sealed class CJKTokeniserTests
                 stream.WriteByte((byte)(value ^ 0xFF));
             }
 
-            using var tokeniser = new JapaneseTokeniser(path);
-            var sink = new MaterialisingTokenSink();
-            Assert.Throws<InvalidDataException>(() => tokeniser.Tokenise("\u79C1", sink));
+            Assert.Throws<InvalidDataException>(() => new JapaneseDictionary(path));
         }
         finally
         {
@@ -451,9 +572,7 @@ public sealed class CJKTokeniserTests
         try
         {
             File.WriteAllBytes(path, "JLC1"u8.ToArray());
-            using var tokeniser = new JapaneseTokeniser(path);
-            var sink = new MaterialisingTokenSink();
-            Assert.Throws<InvalidDataException>(() => tokeniser.Tokenise("\u79C1", sink));
+            Assert.Throws<InvalidDataException>(() => new JapaneseDictionary(path));
         }
         finally
         {
@@ -464,7 +583,7 @@ public sealed class CJKTokeniserTests
     [Fact(DisplayName = "JapaneseTokeniser: Warm tokenisation does not allocate")]
     public void JapaneseTokeniser_WarmPath_ZeroAllocation()
     {
-        using var tokeniser = new JapaneseTokeniser();
+        var tokeniser = new JapaneseTokeniser();
         var sink = new CountingTokenSink();
         const string Input = "\u79C1\u306F\u5B66\u751F\u3067\u3059";
 
@@ -484,7 +603,7 @@ public sealed class CJKTokeniserTests
     [Fact(DisplayName = "JapaneseTokeniser: Concurrent calls remain independent")]
     public void JapaneseTokeniser_ConcurrentCalls_AreIndependent()
     {
-        using var tokeniser = new JapaneseTokeniser();
+        var tokeniser = new JapaneseTokeniser();
         var results = new string[16][];
 
         Parallel.For(0, results.Length, i =>
@@ -559,5 +678,21 @@ public sealed class CJKTokeniserTests
         }
 
         internal void Reset() => Count = 0;
+    }
+
+    private sealed class BlockingTokenSink(TaskCompletionSource entered, ManualResetEventSlim release) : ISpanTokenSink
+    {
+        public void Add(
+            ReadOnlySpan<char> text,
+            int startOffset,
+            int endOffset,
+            string type = Token.DefaultType,
+            int positionIncrement = 1,
+            byte[]? payload = null)
+        {
+            entered.TrySetResult();
+            if (!release.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("The test did not release the Japanese token sink.");
+        }
     }
 }

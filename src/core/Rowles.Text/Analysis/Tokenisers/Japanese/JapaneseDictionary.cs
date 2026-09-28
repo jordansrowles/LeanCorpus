@@ -3,11 +3,20 @@ using System.Runtime.CompilerServices;
 
 #if !ROWLES_TEXT
 using Rowles.LeanCorpus.Codecs.Fst;
+using Rowles.LeanCorpus.Store;
 #endif
 
 namespace Rowles.LeanCorpus.Analysis.Tokenisers.Japanese;
 
-internal sealed class JapaneseDictionary : IDisposable
+/// <summary>
+/// Owns an opened Japanese language codec used by one or more tokenisers.
+/// </summary>
+/// <remarks>
+/// Dispose the dictionary after every tokeniser and analyser that uses it has
+/// finished. Disposal waits for active tokenisation calls; later calls through
+/// those tokenisers throw <see cref="ObjectDisposedException"/>.
+/// </remarks>
+public sealed class JapaneseDictionary : IDisposable
 {
     private const int EntrySize = 4;
 
@@ -23,10 +32,29 @@ internal sealed class JapaneseDictionary : IDisposable
     private readonly int _unknownEntryCount;
     private readonly int _forwardCount;
     private readonly int _backwardCount;
+    private readonly ReaderWriterLockSlim _lifetime = new(LockRecursionPolicy.NoRecursion);
+    private bool _disposed;
 
-    internal JapaneseDictionary(string path)
+    /// <summary>
+    /// Opens and validates a Japanese language codec from a versioned <c>.jlc</c> file.
+    /// </summary>
+    /// <param name="path">Path to the Japanese language codec.</param>
+    /// <exception cref="ArgumentException">The path is null, empty or whitespace.</exception>
+    /// <exception cref="FileNotFoundException">The codec file does not exist.</exception>
+    /// <exception cref="InvalidDataException">The codec is malformed or unsupported.</exception>
+    public JapaneseDictionary(string path)
     {
-        _codec = JapaneseLanguageCodec.Open(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        string fullPath = Path.GetFullPath(path);
+#if ROWLES_TEXT
+        bool exists = File.Exists(fullPath);
+#else
+        bool exists = FileOpenRetry.FileExists(fullPath);
+#endif
+        if (!exists)
+            throw new FileNotFoundException($"Japanese language codec not found at '{fullPath}'.", fullPath);
+
+        _codec = JapaneseLanguageCodec.Open(fullPath);
         try
         {
 #if ROWLES_TEXT
@@ -130,7 +158,46 @@ internal sealed class JapaneseDictionary : IDisposable
         return BinaryPrimitives.ReadInt16LittleEndian(section[offset..]);
     }
 
-    public void Dispose() => _codec.Dispose();
+    internal UseLease EnterUse()
+    {
+        _lifetime.EnterReadLock();
+        if (_disposed)
+        {
+            _lifetime.ExitReadLock();
+            throw new ObjectDisposedException(nameof(JapaneseDictionary));
+        }
+
+        return new UseLease(this);
+    }
+
+    /// <summary>
+    /// Waits for active tokenisation calls to finish and closes the codec resource.
+    /// </summary>
+    public void Dispose()
+    {
+        _lifetime.EnterWriteLock();
+        try
+        {
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            _codec.Dispose();
+        }
+        finally
+        {
+            _lifetime.ExitWriteLock();
+        }
+    }
+
+    internal readonly struct UseLease : IDisposable
+    {
+        private readonly JapaneseDictionary _owner;
+
+        internal UseLease(JapaneseDictionary owner) => _owner = owner;
+
+        public void Dispose() => _owner._lifetime.ExitReadLock();
+    }
 
     private int ValidateEntries(JapaneseCodecSection sectionId)
     {

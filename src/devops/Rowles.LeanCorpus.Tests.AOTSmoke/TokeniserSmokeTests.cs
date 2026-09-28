@@ -2,6 +2,7 @@ using Xunit;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
+using Rowles.LeanCorpus.Analysis.Tokenisers.Japanese;
 
 namespace Rowles.LeanCorpus.Tests.AOTSmoke;
 
@@ -40,9 +41,21 @@ public class TokeniserSmokeTests
     [Fact]
     public void JapaneseTokeniser_UsesLanguageCodec()
     {
-        using var tokeniser = new JapaneseTokeniser();
+        var tokeniser = new JapaneseTokeniser();
         var sink = new CountingTokenSink();
         tokeniser.Tokenise("\u79C1\u306F\u5B66\u751F\u3067\u3059", sink);
+        Assert.Equal(4, sink.Count);
+    }
+
+    [Fact]
+    public void JapaneseDictionary_ExplicitOwner_UsesLanguageCodec()
+    {
+        using var dictionary = new JapaneseDictionary(JapaneseTokeniser.DefaultDictionaryPath);
+        var tokeniser = new JapaneseTokeniser(dictionary);
+        var sink = new CountingTokenSink();
+
+        tokeniser.Tokenise("\u79C1\u306F\u5B66\u751F\u3067\u3059", sink);
+
         Assert.Equal(4, sink.Count);
     }
 

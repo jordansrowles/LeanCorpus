@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
+using Rowles.LeanCorpus.Analysis.Tokenisers.Japanese;
 using Rowles.LeanCorpus.Tests.Metadata;
 using Xunit;
 
@@ -34,7 +35,8 @@ public sealed class StandalonePackageTests
     public void JapaneseTokeniser_ReadsStandaloneCodec()
     {
         string dictionaryPath = Path.Combine(AppContext.BaseDirectory, "lexicons", "japanese.jlc");
-        using var tokeniser = new JapaneseTokeniser(dictionaryPath);
+        using var dictionary = new JapaneseDictionary(dictionaryPath);
+        var tokeniser = new JapaneseTokeniser(dictionary);
         var sink = new MaterialisingSink();
 
         tokeniser.Tokenise("私は学生です", sink);
