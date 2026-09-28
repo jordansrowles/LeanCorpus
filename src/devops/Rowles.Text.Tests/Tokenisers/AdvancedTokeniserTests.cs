@@ -7,6 +7,21 @@ namespace Rowles.Text.Tests;
 [Area(TestArea.Tokenisers)]
 public sealed class AdvancedTokeniserTests
 {
+    [Fact(DisplayName = "URL/email tokeniser: legacy UAX #29 name advertises its compatibility status")]
+    public void Uax29UrlEmailTokeniser_IsObsoleteCompatibilityWrapper()
+    {
+#pragma warning disable CS0618
+        Type legacyType = typeof(Uax29UrlEmailTokeniser);
+#pragma warning restore CS0618
+        var obsolete = (ObsoleteAttribute?)Attribute.GetCustomAttribute(legacyType, typeof(ObsoleteAttribute));
+
+        Assert.NotNull(obsolete);
+        Assert.False(obsolete!.IsError);
+        Assert.Contains("UrlEmailTokeniser", obsolete.Message, StringComparison.Ordinal);
+        Assert.Contains("does not implement UAX #29", obsolete.Message, StringComparison.Ordinal);
+        Assert.NotNull(legacyType.Assembly.GetType("Rowles.LeanCorpus.Analysis.Tokenisers.UrlEmailTokeniser"));
+    }
+
     [Fact(DisplayName = "ICU Tokeniser: Unicode Terms Preserve Offsets")]
     public void IcuTokeniser_UnicodeTerms_PreserveOffsets()
     {
@@ -53,28 +68,34 @@ public sealed class AdvancedTokeniserTests
         Assert.Equal([6, 11, 16, 19], tokens.Select(static token => token.EndOffset));
     }
 
-    [Fact(DisplayName = "UAX29 URL Email Tokeniser: Preserves Special Token Types")]
-    public void Uax29UrlEmailTokeniser_PreservesSpecialTokenTypes()
+    [Fact(DisplayName = "URL/email tokeniser: Preserves Heuristic Token Types")]
+    public void UrlEmailTokeniser_PreservesHeuristicTokenTypes()
     {
-        var tokeniser = new Uax29UrlEmailTokeniser();
+        var tokeniser = new UrlEmailTokeniser();
 
         var matSink = new MaterialisingTokenSink();
         tokeniser.Tokenise("Mail dev@example.com https://example.com/docs #LeanCorpus @jordansrowles", matSink);
         var tokens = matSink.Tokens;
 
-        Assert.Contains(tokens, static token => token.Text == "dev@example.com" && token.Type == Uax29UrlEmailTokeniser.EmailType);
-        Assert.Contains(tokens, static token => token.Text == "https://example.com/docs" && token.Type == Uax29UrlEmailTokeniser.UrlType);
-        Assert.Contains(tokens, static token => token.Text == "#LeanCorpus" && token.Type == Uax29UrlEmailTokeniser.HashtagType);
-        Assert.Contains(tokens, static token => token.Text == "@jordansrowles" && token.Type == Uax29UrlEmailTokeniser.MentionType);
+        Assert.Equal(
+        [
+            ("Mail", 0, 4, Token.DefaultType, 1, 1),
+            ("dev@example.com", 5, 20, UrlEmailTokeniser.EmailType, 1, 1),
+            ("https://example.com/docs", 21, 45, UrlEmailTokeniser.UrlType, 1, 1),
+            ("#LeanCorpus", 46, 57, UrlEmailTokeniser.HashtagType, 1, 1),
+            ("@jordansrowles", 58, 72, UrlEmailTokeniser.MentionType, 1, 1)
+        ],
+            tokens.Select(static token =>
+                (token.Text, token.StartOffset, token.EndOffset, token.Type, token.PositionIncrement, token.PositionLength)));
     }
 
-    [Fact(DisplayName = "UAX29 URL Email Tokeniser: Supplementary Words Stay In Hashtags And Emails")]
-    public void Uax29UrlEmailTokeniser_SupplementaryWords_StaysInHashtagsAndEmails()
+    [Fact(DisplayName = "URL/email tokeniser: Supplementary Words Stay In Hashtags And Emails")]
+    public void UrlEmailTokeniser_SupplementaryWords_StaysInHashtagsAndEmails()
     {
         const string tag = "#A\U00010400B";
         const string email = "dev\U00010400@example.com";
         string input = $"{tag} {email}";
-        var tokeniser = new Uax29UrlEmailTokeniser();
+        var tokeniser = new UrlEmailTokeniser();
 
         var matSink = new MaterialisingTokenSink();
         tokeniser.Tokenise(input, matSink);
@@ -84,11 +105,45 @@ public sealed class AdvancedTokeniserTests
         Assert.Equal(tag, tokens[0].Text);
         Assert.Equal(0, tokens[0].StartOffset);
         Assert.Equal(tag.Length, tokens[0].EndOffset);
-        Assert.Equal(Uax29UrlEmailTokeniser.HashtagType, tokens[0].Type);
+        Assert.Equal(UrlEmailTokeniser.HashtagType, tokens[0].Type);
         Assert.Equal(email, tokens[1].Text);
         Assert.Equal(tag.Length + 1, tokens[1].StartOffset);
         Assert.Equal(input.Length, tokens[1].EndOffset);
-        Assert.Equal(Uax29UrlEmailTokeniser.EmailType, tokens[1].Type);
+        Assert.Equal(UrlEmailTokeniser.EmailType, tokens[1].Type);
+    }
+
+    [Fact(DisplayName = "URL/email tokeniser: Legacy wrapper forwards equivalent tokens and thread-local instances")]
+    public void Uax29UrlEmailTokeniser_ForwardsToUrlEmailTokeniser()
+    {
+#pragma warning disable CS0618
+        var legacy = new Uax29UrlEmailTokeniser();
+        ISpanTokeniser threadLocalLegacy = legacy.CreateThreadLocalTokeniser();
+#pragma warning restore CS0618
+        const string input = "Mail dev@example.com https://example.com/docs #LeanCorpus @jordansrowles";
+
+        static (string Text, int StartOffset, int EndOffset, string Type, int PositionIncrement, int PositionLength)[]
+            Capture(ISpanTokeniser tokeniser, string value)
+        {
+            var sink = new MaterialisingTokenSink();
+            tokeniser.Tokenise(value, sink);
+            return sink.Tokens.Select(static token =>
+                (token.Text, token.StartOffset, token.EndOffset, token.Type, token.PositionIncrement, token.PositionLength)).ToArray();
+        }
+
+        var expected = Capture(new UrlEmailTokeniser(), input);
+        Assert.Equal(expected, Capture(legacy, input));
+        Assert.Equal(expected, Capture(threadLocalLegacy, input));
+
+        const string thaiInput = "ภาษาไทย dev@example.com";
+        var expectedThai = Capture(new UrlEmailTokeniser(new ThaiTokeniser(["ภาษา", "ไทย"])), thaiInput);
+#pragma warning disable CS0618
+        var legacyThai = new Uax29UrlEmailTokeniser(new ThaiTokeniser(["ภาษา", "ไทย"]));
+        ISpanTokeniser threadLocalLegacyThai = legacyThai.CreateThreadLocalTokeniser();
+#pragma warning restore CS0618
+
+        Assert.Equal(["ภาษา", "ไทย", "dev@example.com"], expectedThai.Select(static token => token.Text));
+        Assert.Equal(expectedThai, Capture(legacyThai, thaiInput));
+        Assert.Equal(expectedThai, Capture(threadLocalLegacyThai, thaiInput));
     }
 
     [Fact(DisplayName = "Thai Tokeniser: Supplementary Non-Thai Letters Use Scalar Boundaries")]

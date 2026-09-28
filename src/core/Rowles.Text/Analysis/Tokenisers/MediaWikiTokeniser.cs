@@ -21,7 +21,7 @@ public sealed class MediaWikiTokeniser : IShareableSpanTokeniser
     /// <summary>Token type emitted for MediaWiki citations.</summary>
     public const string CitationType = "mediawiki.citation";
 
-    private readonly Uax29UrlEmailTokeniser _plainTokeniser;
+    private readonly ISpanTokeniser _plainTokeniser;
     private readonly IcuTokeniser _icuTokeniser;
 
     /// <summary>
@@ -32,16 +32,20 @@ public sealed class MediaWikiTokeniser : IShareableSpanTokeniser
     /// When null, a default parameterless <see cref="IcuTokeniser"/> is used.
     /// </param>
     /// <param name="plainTokeniser">
-    /// Optional tokeniser used for body text between markup blocks.
-    /// When null, a default parameterless <see cref="Uax29UrlEmailTokeniser"/> is used.
+    /// Optional legacy compatibility wrapper used for body text between markup blocks.
+    /// It does not implement UAX #29. When null, <see cref="UrlEmailTokeniser"/> is used.
     /// </param>
+#pragma warning disable CS0618 // Retain the published constructor signature for compatibility.
     public MediaWikiTokeniser(
         IcuTokeniser? icuTokeniser = null,
         Uax29UrlEmailTokeniser? plainTokeniser = null)
     {
-        _plainTokeniser = plainTokeniser ?? new Uax29UrlEmailTokeniser();
+        _plainTokeniser = plainTokeniser is null
+            ? (ISpanTokeniser)new UrlEmailTokeniser()
+            : plainTokeniser;
         _icuTokeniser = icuTokeniser ?? new IcuTokeniser();
     }
+#pragma warning restore CS0618
 
     /// <inheritdoc/>
     public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)

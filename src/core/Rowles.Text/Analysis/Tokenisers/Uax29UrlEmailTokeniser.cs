@@ -1,99 +1,50 @@
 namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 
 /// <summary>
-/// Unicode-aware tokeniser that preserves URLs, email addresses, hashtags, and mentions
-/// as single tokens. Thai segmentation is opt-in via the constructor.
+/// Compatibility wrapper for the historical URL/email tokeniser name.
 /// </summary>
+/// <remarks>
+/// This type forwards to <see cref="UrlEmailTokeniser"/> and does not implement UAX #29.
+/// It is retained for one compatibility window; new code should use
+/// <see cref="UrlEmailTokeniser"/>.
+/// </remarks>
+[Obsolete("This compatibility type does not implement UAX #29. Use UrlEmailTokeniser instead.")]
 public sealed class Uax29UrlEmailTokeniser : IThreadLocalSpanTokeniser
 {
     /// <summary>Token type emitted for URLs.</summary>
-    public const string UrlType = "url";
+    public const string UrlType = UrlEmailTokeniser.UrlType;
     /// <summary>Token type emitted for email addresses.</summary>
-    public const string EmailType = "email";
+    public const string EmailType = UrlEmailTokeniser.EmailType;
     /// <summary>Token type emitted for hashtags.</summary>
-    public const string HashtagType = "hashtag";
+    public const string HashtagType = UrlEmailTokeniser.HashtagType;
     /// <summary>Token type emitted for at-mentions.</summary>
-    public const string MentionType = "mention";
+    public const string MentionType = UrlEmailTokeniser.MentionType;
 
-    private readonly ISpanTokeniser? _thaiTokeniser;
+    private readonly UrlEmailTokeniser _implementation;
 
-    /// <summary>
-    /// Initialises a new <see cref="Uax29UrlEmailTokeniser"/> without Thai segmentation.
-    /// Thai characters are treated as regular word characters.
-    /// </summary>
+    /// <summary>Initialises the compatibility wrapper without Thai segmentation.</summary>
     public Uax29UrlEmailTokeniser()
+        : this(new UrlEmailTokeniser())
     {
     }
 
-    /// <summary>
-    /// Initialises a new <see cref="Uax29UrlEmailTokeniser"/> with an optional Thai tokeniser.
-    /// When supplied, contiguous Thai runs are delegated to <paramref name="thaiTokeniser"/>.
-    /// </summary>
-    /// <param name="thaiTokeniser">A tokeniser used for Thai text, or null to skip Thai segmentation.</param>
+    /// <summary>Initialises the compatibility wrapper with an optional Thai tokeniser.</summary>
+    /// <param name="thaiTokeniser">The tokeniser used for Thai runs, or null to use the built-in word heuristics.</param>
     public Uax29UrlEmailTokeniser(ISpanTokeniser? thaiTokeniser)
+        : this(new UrlEmailTokeniser(thaiTokeniser))
     {
-        _thaiTokeniser = thaiTokeniser;
+    }
+
+    private Uax29UrlEmailTokeniser(UrlEmailTokeniser implementation)
+    {
+        _implementation = implementation;
     }
 
     /// <inheritdoc/>
     public void Tokenise(ReadOnlySpan<char> input, ISpanTokenSink sink)
-    {
-        int i = 0;
-
-        while (i < input.Length)
-        {
-            if (_thaiTokeniser is not null && UnicodeTokenisation.IsThai(input[i]))
-            {
-                int runStart = i;
-                while (i < input.Length && UnicodeTokenisation.IsThai(input[i]))
-                    i++;
-
-                var thaiSink = new OffsetAdjustingSink(sink, runStart);
-                _thaiTokeniser.Tokenise(input[runStart..i], thaiSink);
-                continue;
-            }
-
-            if (UnicodeTokenisation.TryReadUrl(input, i, out int urlEnd))
-            {
-                sink.Add(input[i..urlEnd], i, urlEnd, UrlType);
-                i = urlEnd;
-                continue;
-            }
-
-            if (UnicodeTokenisation.IsWordStart(input, i, out _) && UnicodeTokenisation.TryReadEmail(input, i, out int emailEnd))
-            {
-                sink.Add(input[i..emailEnd], i, emailEnd, EmailType);
-                i = emailEnd;
-                continue;
-            }
-
-            if ((input[i] == '#' || input[i] == '@')
-                && i + 1 < input.Length
-                && UnicodeTokenisation.IsWordStart(input, i + 1, out _))
-            {
-                int start = i;
-                i = UnicodeTokenisation.ConsumeWord(input, i + 1, allowUnderscore: true, allowHyphen: false);
-                sink.Add(
-                    input[start..i],
-                    start,
-                    i,
-                    input[start] == '#' ? HashtagType : MentionType);
-                continue;
-            }
-
-            UnicodeTokenisation.TokeniseNonThaiSpan(input, sink, ref i);
-        }
-    }
+        => _implementation.Tokenise(input, sink);
 
     /// <inheritdoc/>
     public ISpanTokeniser CreateThreadLocalTokeniser()
-        => new Uax29UrlEmailTokeniser(_thaiTokeniser switch
-        {
-            null => null,
-            IThreadLocalSpanTokeniser owned => owned.CreateThreadLocalTokeniser(),
-            IShareableSpanTokeniser => _thaiTokeniser,
-            _ => throw new InvalidOperationException(
-                $"Nested tokeniser '{_thaiTokeniser.GetType().FullName}' has no explicit concurrent ownership contract.")
-        });
-
+        => new Uax29UrlEmailTokeniser((UrlEmailTokeniser)_implementation.CreateThreadLocalTokeniser());
 }
