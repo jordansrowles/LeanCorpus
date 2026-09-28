@@ -162,6 +162,13 @@ Codec consumers operate on logical files through an abstraction such as
 the existing bounded memory-mapped slice described by ADR024. Body readers do not
 know which physical source supplied the logical input.
 
+Reader construction and committed-index recovery share a cheap structural check
+over `ISegmentFileSource`. It checks required core members and metadata-declared
+vector and HNSW members with the same semantics for loose files and compound
+members. This presence check does not replace catalogue-driven frame and body
+validation: those checks remain with component loading and recovery's deeper
+validation pass.
+
 Inventory, inspection, compatibility, validation and migration enumerate the
 members of `.cfs` as logical files. The container's own magic, version and
 directory are validated separately. Compatibility decisions use member frame and
