@@ -40,6 +40,11 @@ violations throw `QueryParseException`; parser instances remain reusable after
 a rejected input. The existing constructors do not apply the default options,
 so applications that accept untrusted text should pass an options object.
 
+`QueryParseException.Offset` is the zero-based UTF-16 code-unit offset in the
+original query string. It includes field prefixes and phrase quotes, and errors
+from analysis or complex-phrase parsing retain their position in that full
+string.
+
 ## Grammar
 
 | Construct | Meaning |
