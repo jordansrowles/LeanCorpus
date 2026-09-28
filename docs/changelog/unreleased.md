@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Expand DocValues benchmarks to large dense, sparse, high-cardinality and multi-valued workloads with explicit `.dvn` reads, and measure concurrent random stored-field reads across shared and separate blocks.
 - Capture stored-field compression implementations in immutable `CodecCatalog` snapshots, reject duplicate policy registrations, and close process bootstrap registration when an index opens.
 - Map optional compression package and compression guide changes to the Core CodecKit area in affected-test selection.
 - Weight the heavy segment-reader LRU by retained-resource estimates as well as entry count, evicting oversized states after active operation and cursor leases end instead of pinning every warmed state below the entry-count threshold.
