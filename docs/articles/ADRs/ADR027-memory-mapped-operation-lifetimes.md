@@ -38,11 +38,14 @@ acquired pointer, mapped view and file-lifetime callback. Input registration and
 directory disposal are ordered by the same directory operation lifetime.
 
 Resident segment state retains a detached cache lease until its reader has drained.
-Unpinned facade calls acquire a reader operation lease, while nested calls reuse the
-top-level query pin. Returned `PostingsEnum` instances retain segment-state and
-input-mapping leases until their shared disposal guard drains. This lets searcher
-retirement defer an idle cursor's state reclamation without treating the cursor's
-whole lifetime as an executing reader operation.
+Facade calls reuse a reader state only while a scoped token for that reader is
+present on the current thread's query stack. Query tokens unwind in last-in,
+first-out order and reject disposal from another thread. Calls without a matching
+token acquire their own reader operation and cache lease. Returned `PostingsEnum`
+instances retain segment-state and input-mapping leases until their shared disposal
+guard drains. This lets searcher retirement defer an idle cursor's state
+reclamation without treating the cursor's whole lifetime as an executing reader
+operation.
 
 Public `IndexInput.ReadSpan` methods return stable copied data. Internal codecs use
 explicit borrowed spans only while a containing input, segment or query lifetime is
@@ -69,6 +72,7 @@ files should not serialise their reads.
 - Disposal may block until active operations or retained cursors finish.
 - Active reads cannot observe an unmapped pointer.
 - Resident state remains cache-pinned until its reader drains.
+- Query scopes are thread-affine and must be disposed in reverse acquisition order.
 - Public `ReadSpan` calls allocate; internal borrowed spans remain zero-copy.
 - Hot internal decoders amortise drain synchronisation over a bounded decoding
   operation rather than acquiring it for every primitive value.
