@@ -122,10 +122,6 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
             || request.Operations.Any(static operation => operation.Kind is not (DocumentOperationKind.Index or DocumentOperationKind.Update)))
             return false;
 
-        using SearcherLease visible = runtime.Searchers.AcquireLease();
-        if (visible.CommitGeneration != runtime.Writer.CurrentCommitGeneration || visible.Searcher.Stats.LiveDocCount != 0)
-            return false;
-
         HashSet<string> ids = new(StringComparer.Ordinal);
         List<LeanDocument> mappedDocuments = new(request.Operations.Count);
         foreach (BulkDocumentOperation operation in request.Operations)
@@ -136,6 +132,22 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
                 || !ServerDocumentMapper.TryMap(operation.DocumentId, document, runtime.Schema, _options.MaximumDocumentBytes, out LeanDocument? mapped, out _, out _))
                 return false;
             mappedDocuments.Add(mapped!);
+        }
+
+        using SearcherLease visible = runtime.Searchers.AcquireLease();
+        if (visible.CommitGeneration != runtime.Writer.CurrentCommitGeneration)
+            return false;
+
+        if (visible.Searcher.Stats.LiveDocCount > 0)
+        {
+            if (ids.Count > TermInSetQuery.MaxTermCount)
+                return false;
+
+            TopDocs existingIds = visible.Searcher.Search(
+                new TermInSetQuery(ServerDocumentMapper.DocumentIdField, ids),
+                topN: 1);
+            if (existingIds.TotalHits > 0)
+                return false;
         }
 
         documents = mappedDocuments.ToArray();

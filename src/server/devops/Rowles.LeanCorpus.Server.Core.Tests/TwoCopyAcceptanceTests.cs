@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Search;
@@ -14,6 +15,10 @@ namespace Rowles.LeanCorpus.Server.Core.Tests;
 [Trait("Area", "Server")]
 public sealed class TwoCopyAcceptanceTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public TwoCopyAcceptanceTests(ITestOutputHelper output) => _output = output;
+
     [Fact]
     public async Task TenThousandDocumentCopySupportsEquivalentLexicalAndFilteredQueries()
     {
@@ -61,7 +66,13 @@ public sealed class TwoCopyAcceptanceTests
 
             await using CommitSnapshotLease pinned = await source.AcquireCommitSnapshotAsync();
             foreach (int batch in Enumerable.Range(1, 5))
+            {
+                Stopwatch stopwatch = Stopwatch.StartNew();
                 await WriteBatchAsync(executor, source, batch * 100, 100);
+                stopwatch.Stop();
+                using SearcherLease visible = source.Runtime.Searchers.AcquireLease();
+                _output.WriteLine($"Pinned snapshot batch {batch}: 100 documents in {stopwatch.Elapsed.TotalSeconds:F3}s; published segments {visible.Searcher.GetIndexSize().SegmentCount}.");
+            }
 
             source.Runtime.Writer.ForceMerge(1);
             foreach (IndexBackupFileEntry entry in pinned.Manifest.Files.Where(static entry => entry.PresentInBackup))

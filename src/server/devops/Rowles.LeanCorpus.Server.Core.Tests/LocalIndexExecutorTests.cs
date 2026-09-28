@@ -11,6 +11,10 @@ namespace Rowles.LeanCorpus.Server.Core.Tests;
 [Trait("Area", "Server")]
 public sealed class LocalIndexExecutorTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public LocalIndexExecutorTests(ITestOutputHelper output) => _output = output;
+
     [Fact]
     public async Task MemoryBackedPayloadUsesReadOnlyStreamWithoutAnIntermediateCopy()
     {
@@ -149,6 +153,211 @@ public sealed class LocalIndexExecutorTests
             if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
+
+    [Fact]
+    public async Task NonEmptyIndexUsesOneSegmentForAnAppendOnlyHundredDocumentBatch()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-append-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
+            LocalIndexDescriptor descriptor = new(
+                PhysicalIndexId.New(),
+                new IndexSchema([new IndexFieldDefinition("content", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
+                "bulk-append-schema",
+                new MutableIndexSettings(null, null, "content", null),
+                new IndexTopologySettings(1, 0));
+            await using LocalIndexHandle handle = await store.CreateAsync(descriptor);
+            LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root, MaximumSearchResults = 250 });
+            OperationContext context = new("bulk-append", OperationKind.WriteDocuments, CallerIdentity.Anonymous, DateTimeOffset.UtcNow);
+
+            BulkDocumentOperation[] firstBatch = CreateBatch(0, DocumentOperationKind.Index);
+            LocalWriteResult first = await executor.WriteAsync(context, handle,
+                new BulkDocumentsRequest("books", firstBatch, Refresh: true, Durability: RequestedWriteDurability.Memory));
+            Assert.Equal(100, first.AcceptedOperations);
+            int segmentsBeforeAppend = handle.Runtime.Writer.GetNrtSegments().Count;
+
+            BulkDocumentOperation[] secondBatch = Enumerable.Range(100, 100)
+                .Select(static id => new BulkDocumentOperation(
+                    id % 2 == 0 ? DocumentOperationKind.Index : DocumentOperationKind.Update,
+                    $"doc-{id}",
+                    JsonSerializer.SerializeToElement(new { content = $"searchable doc-{id}" })))
+                .ToArray();
+            LocalWriteResult second = await executor.WriteAsync(context, handle,
+                new BulkDocumentsRequest("books", secondBatch, Durability: RequestedWriteDurability.Memory));
+            Assert.Equal(100, second.AcceptedOperations);
+
+            int segmentsAfterAppend = handle.Runtime.Writer.GetNrtSegments().Count;
+            int segmentGrowth = segmentsAfterAppend - segmentsBeforeAppend;
+            _output.WriteLine($"Append batch: 100 documents, segments {segmentsBeforeAppend} -> {segmentsAfterAppend} (+{segmentGrowth}).");
+            Assert.True(segmentGrowth <= 2,
+                $"An append-only batch of 100 documents should add at most two segments, but added {segmentGrowth} ({segmentsBeforeAppend} to {segmentsAfterAppend}).");
+
+            Assert.True(handle.Runtime.Commits.Commit(refresh: true) is CommitPublished);
+            SearchResponse search = await executor.SearchAsync(context with { Operation = OperationKind.Search }, handle,
+                new SearchRequest(new TermQueryDefinition("content", "searchable"), Size: 250));
+            Assert.Equal(200, search.TotalHits);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task MixedBatchWithExistingIdsPreservesIndexAndUpdateReplacementSemantics()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-replace-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
+            await using LocalIndexHandle handle = await store.CreateAsync(CreateDescriptor("bulk-replace-schema"));
+            LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root, MaximumSearchResults = 250 });
+            OperationContext context = CreateContext("bulk-replace");
+
+            await executor.WriteAsync(context, handle, new BulkDocumentsRequest("books", [
+                CreateOperation(DocumentOperationKind.Index, "doc-a", "originalalpha"),
+                CreateOperation(DocumentOperationKind.Index, "doc-b", "originalbeta")
+            ], Refresh: true, Durability: RequestedWriteDurability.Memory));
+
+            LocalWriteResult replacement = await executor.WriteAsync(context, handle, new BulkDocumentsRequest("books", [
+                CreateOperation(DocumentOperationKind.Index, "doc-a", "replacementalpha"),
+                CreateOperation(DocumentOperationKind.Update, "doc-b", "replacementbeta"),
+                CreateOperation(DocumentOperationKind.Index, "doc-c", "newdocument")
+            ], Refresh: true, Durability: RequestedWriteDurability.Memory));
+
+            Assert.Equal(3, replacement.AcceptedOperations);
+            Assert.Equal(1, (await SearchAsync(executor, handle, "_id", "doc-a")).TotalHits);
+            Assert.Equal(1, (await SearchAsync(executor, handle, "_id", "doc-b")).TotalHits);
+            Assert.Equal(1, (await SearchAsync(executor, handle, "_id", "doc-c")).TotalHits);
+            Assert.Equal(0, (await SearchAsync(executor, handle, "content", "originalalpha")).TotalHits);
+            Assert.Equal(0, (await SearchAsync(executor, handle, "content", "originalbeta")).TotalHits);
+            Assert.Equal(1, (await SearchAsync(executor, handle, "content", "replacementalpha")).TotalHits);
+            Assert.Equal(1, (await SearchAsync(executor, handle, "content", "replacementbeta")).TotalHits);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task DuplicateIdsWithinOneRequestKeepTheLastCallerOrderedReplacement()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-duplicate-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
+            await using LocalIndexHandle handle = await store.CreateAsync(CreateDescriptor("bulk-duplicate-schema"));
+            LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root, MaximumSearchResults = 250 });
+
+            LocalWriteResult write = await executor.WriteAsync(CreateContext("bulk-duplicate"), handle,
+                new BulkDocumentsRequest("books", [
+                    CreateOperation(DocumentOperationKind.Index, "doc-duplicate", "firstvalue"),
+                    CreateOperation(DocumentOperationKind.Update, "doc-duplicate", "lastvalue")
+                ], Refresh: true, Durability: RequestedWriteDurability.Memory));
+
+            Assert.Equal(2, write.AcceptedOperations);
+            Assert.Equal(1, (await SearchAsync(executor, handle, "_id", "doc-duplicate")).TotalHits);
+            Assert.Equal(0, (await SearchAsync(executor, handle, "content", "firstvalue")).TotalHits);
+            Assert.Equal(1, (await SearchAsync(executor, handle, "content", "lastvalue")).TotalHits);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task StaleVisibleGenerationCannotMakeAnExistingIdLookAppendOnly()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-stale-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
+            await using LocalIndexHandle handle = await store.CreateAsync(CreateDescriptor("bulk-stale-schema"));
+            LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root, MaximumSearchResults = 250 });
+            OperationContext context = CreateContext("bulk-stale");
+
+            await executor.WriteAsync(context, handle,
+                new BulkDocumentsRequest("books", [CreateOperation(DocumentOperationKind.Index, "doc-stale", "oldversion")],
+                    Durability: RequestedWriteDurability.Memory));
+            Assert.True(handle.Runtime.Commits.Commit(refresh: false) is CommitPublished);
+            using (var visible = handle.Runtime.Searchers.AcquireLease())
+                Assert.NotEqual(handle.Runtime.Writer.CurrentCommitGeneration, visible.CommitGeneration);
+
+            LocalWriteResult replacement = await executor.WriteAsync(context, handle,
+                new BulkDocumentsRequest("books", [CreateOperation(DocumentOperationKind.Update, "doc-stale", "newversion")],
+                    Refresh: true, Durability: RequestedWriteDurability.Memory));
+
+            Assert.Equal(1, replacement.AcceptedOperations);
+            Assert.Equal(1, (await SearchAsync(executor, handle, "_id", "doc-stale")).TotalHits);
+            Assert.Equal(0, (await SearchAsync(executor, handle, "content", "oldversion")).TotalHits);
+            Assert.Equal(1, (await SearchAsync(executor, handle, "content", "newversion")).TotalHits);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task MappingAndValidationFailuresRetainPerOperationResults()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-validation-{Guid.NewGuid():N}");
+        using JsonDocument invalidShape = JsonDocument.Parse("[]");
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
+            await using LocalIndexHandle handle = await store.CreateAsync(CreateDescriptor("bulk-validation-schema"));
+            LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root, MaximumSearchResults = 250 });
+
+            LocalWriteResult write = await executor.WriteAsync(CreateContext("bulk-validation"), handle,
+                new BulkDocumentsRequest("books", [
+                    CreateOperation(DocumentOperationKind.Index, "valid", "validcontent"),
+                    new BulkDocumentOperation(DocumentOperationKind.Index, "unknown-field", JsonSerializer.SerializeToElement(new { missing = "value" })),
+                    new BulkDocumentOperation(DocumentOperationKind.Update, "invalid-shape", invalidShape.RootElement.Clone()),
+                    CreateOperation(DocumentOperationKind.Index, "", "invalidid")
+                ], Refresh: true, Durability: RequestedWriteDurability.Memory));
+
+            Assert.Equal(1, write.AcceptedOperations);
+            Assert.Collection(write.Items,
+                static result => Assert.True(result.Accepted),
+                static result => Assert.Equal("unknown_field", result.Failure?.Code),
+                static result => Assert.Equal("invalid_document", result.Failure?.Code),
+                static result => Assert.Equal("invalid_document_id", result.Failure?.Code));
+            Assert.Equal(1, (await SearchAsync(executor, handle, "_id", "valid")).TotalHits);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static BulkDocumentOperation[] CreateBatch(int start, DocumentOperationKind kind) =>
+        Enumerable.Range(start, 100)
+            .Select(id => new BulkDocumentOperation(
+                kind,
+                $"doc-{id}",
+                JsonSerializer.SerializeToElement(new { content = $"searchable doc-{id}" })))
+            .ToArray();
+
+    private static LocalIndexDescriptor CreateDescriptor(string schemaHash) => new(
+        PhysicalIndexId.New(),
+        new IndexSchema([new IndexFieldDefinition("content", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
+        schemaHash,
+        new MutableIndexSettings(null, null, "content", null),
+        new IndexTopologySettings(1, 0));
+
+    private static OperationContext CreateContext(string operationId) =>
+        new(operationId, OperationKind.WriteDocuments, CallerIdentity.Anonymous, DateTimeOffset.UtcNow);
+
+    private static BulkDocumentOperation CreateOperation(DocumentOperationKind kind, string id, string content) =>
+        new(kind, id, JsonSerializer.SerializeToElement(new { content }));
+
+    private static Task<SearchResponse> SearchAsync(LocalIndexExecutor executor, LocalIndexHandle handle, string field, string term) =>
+        executor.SearchAsync(new OperationContext("bulk-write-search", OperationKind.Search, CallerIdentity.Anonymous, DateTimeOffset.UtcNow),
+            handle, new SearchRequest(new TermQueryDefinition(field, term), Size: 250, IncludeDocuments: false)).AsTask();
 
     private sealed class RecordingObserver : ILocalCommitObserver
     {
