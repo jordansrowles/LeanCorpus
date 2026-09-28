@@ -34,6 +34,6 @@
         Benchmarks = @('CachingGraphEdgeBenchmarks')
     }
     'Stemmers'      = @{ Area = 'Stemmers';      Globs = @('src/core/Rowles.Text/Analysis/Stemmers/**');           Project = 'text'; Benchmarks = @('StemmerParityBenchmarks', 'HunspellBenchmarks') }
-    'Tokenisers'    = @{ Area = 'Tokenisers';    Globs = @('src/core/Rowles.Text/Analysis/Tokenisers/**');         Project = 'text'; Benchmarks = @('NGramTokeniserBenchmarks', 'PatternTokeniserBenchmarks') }
+    'Tokenisers'    = @{ Area = 'Tokenisers';    Globs = @('src/core/Rowles.Text/Analysis/Tokenisers/**', 'src/devops/Rowles.Text.Benchmarks/LexiconPrefixBenchmarks.cs'); Project = 'text'; Benchmarks = @('NGramTokeniserBenchmarks', 'PatternTokeniserBenchmarks', 'LexiconPrefixBenchmarks') }
     'TextIntegration'= @{ Area = 'TextIntegration'; Globs = @('src/core/Rowles.Text/**');                         Project = 'core'; Benchmarks = @('TokenBudgetBenchmarks', 'LanguageAnalysisIndexingBenchmarks') }
 }

@@ -55,6 +55,7 @@
         Targets = @('text:Filters', 'core:TextIntegration')
     }
     'text-tokeniser-tests' = @{ Globs = @('src/devops/Rowles.Text.Tests/Tokenisers/**'); Targets = @('text:Tokenisers') }
+    'text-tokeniser-benchmarks' = @{ Globs = @('src/devops/Rowles.Text.Benchmarks/LexiconPrefixBenchmarks.cs'); Targets = @('text:Tokenisers', 'core:TextIntegration') }
     'core-textintegration-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/TextIntegration/**'); Targets = @('core:TextIntegration') }
     'core-index-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Index/**', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/BoundedLruCacheFailureBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Program.cs'); Targets = @('core:Index') }
     'core-docvalues-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/DocValuesReadBenchmarks.cs'); Targets = @('core:Index') }
