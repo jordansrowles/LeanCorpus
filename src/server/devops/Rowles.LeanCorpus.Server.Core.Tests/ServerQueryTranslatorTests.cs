@@ -176,6 +176,7 @@ public sealed class ServerQueryTranslatorTests
 
         Assert.Equal("guide", term.Term);
         Assert.Equal(new[] { "guide", "search" }, phrase.Terms);
+        Assert.Equal(new[] { 0, 1 }, phrase.Positions);
         Assert.Equal("guide", prefix.Prefix);
         Assert.Equal("gu?de", wildcard.Pattern);
         Assert.Equal("guide", range.LowerTerm);
