@@ -53,11 +53,11 @@ Execution finds matching child document IDs, skips any match that is itself a pa
 `BlockJoinQuery` has only a child query. To apply a parent-level condition, combine the join with another clause:
 
 ```csharp
-var query = new BooleanQueryBuilder()
-    .Must(new BlockJoinQuery(
-        new TermQuery("comment", "battery")))
-    .Must(new TermQuery("docType", "review"))
-    .Must(new TermQuery("status", "published"))
+var query = new BooleanQuery.Builder()
+    .Add(new BlockJoinQuery(
+        new TermQuery("comment", "battery")), Occur.Must)
+    .Add(new TermQuery("docType", "review"), Occur.Must)
+    .Add(new TermQuery("status", "published"), Occur.Must)
     .Build();
 ```
 

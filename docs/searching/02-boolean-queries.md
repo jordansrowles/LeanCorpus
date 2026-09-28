@@ -18,14 +18,15 @@ var query = new BooleanQuery.Builder()
     .Build();
 ```
 
-## Fluent builder
+## Callback helper
+
+`QueryBuilder.Bool` configures the same public `BooleanQuery.Builder` and builds the result:
 
 ```csharp
-var query = new BooleanQueryBuilder()
-    .Must(new TermQuery("title", "fox"))
-    .Should(new TermQuery("title", "quick"))
-    .MustNot(new TermQuery("title", "lazy"))
-    .Build();
+var query = QueryBuilder.Bool(builder => builder
+    .Add(new TermQuery("title", "fox"), Occur.Must)
+    .Add(new TermQuery("title", "quick"), Occur.Should)
+    .Add(new TermQuery("title", "lazy"), Occur.MustNot));
 ```
 
 ## Pure filter mode
@@ -43,4 +44,4 @@ var filter = new ConstantScoreQuery(
 ## See also
 
 - <xref:Rowles.LeanCorpus.Search.Queries.BooleanQuery>
-- <xref:Rowles.LeanCorpus.Search.Parsing.BooleanQueryBuilder>
+- <xref:Rowles.LeanCorpus.Search.Parsing.QueryBuilder>

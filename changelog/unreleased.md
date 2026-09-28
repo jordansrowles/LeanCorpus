@@ -150,6 +150,7 @@
 
 ### Removed
 
+- Remove the redundant public `BooleanQueryBuilder`; `QueryBuilder.Bool` now configures the existing `BooleanQuery.Builder` directly.
 - Removed lenient query parsing until deterministic clause-boundary recovery is defined; the existing constructor flag remains for compatibility and throws when set to `true`.
 - Removed the disconnected `DocumentBufferState` field-processing and live-DWPT flush paths. All production indexing now detaches owned DWPT batches before segment construction.
 - Removed the legacy per-term posting accumulator and `ByteBlockPool`/`IntBlockPool` production paths.

@@ -3,9 +3,9 @@
 `VectorQuery` accepts a filter for tenant, category, visibility, date, or another document constraint. The filter is evaluated per segment, then LeanCorpus chooses a vector strategy from the segment's graph and filter selectivity.
 
 ```csharp
-var filter = new BooleanQueryBuilder()
-    .Must(new TermQuery("tenant", tenantId))
-    .Must(new TermQuery("status", "published"))
+var filter = new BooleanQuery.Builder()
+    .Add(new TermQuery("tenant", tenantId), Occur.Must)
+    .Add(new TermQuery("status", "published"), Occur.Must)
     .Build();
 
 var query = new VectorQuery(

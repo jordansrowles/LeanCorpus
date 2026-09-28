@@ -245,7 +245,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Feature | In LeanCorpus | In Lucene.NET | In Lucene (Java) | Notes |
 |---|---|---|---|---|
 | Lucene classic query parser | ✔   `QueryParser` | ✔ | ✔ | `field:term`, phrases, proximity, fuzzy, prefix, boost |
-| Programmatic query builder | ✔   `BooleanQueryBuilder` | ✔ | ✔ | |
+| Programmatic query builder | ✔   `BooleanQuery.Builder` / `QueryBuilder.Bool` | ✔ | ✔ | |
 | Query extensions / helpers | ✔   `QueryExtensions` | ✔ | ✔ | |
 | Typed LINQ query provider | ✔   `LeanQueryable<T>` / `LeanQueryProvider<T>` / `LeanExpressionVisitor` | ❌ | ❌ | Translates strongly typed LINQ expressions through source-generated document mappings. |
 | `+`/`-` required/excluded syntax | ✔   `QueryParser` | ✔ | ✔ | |
