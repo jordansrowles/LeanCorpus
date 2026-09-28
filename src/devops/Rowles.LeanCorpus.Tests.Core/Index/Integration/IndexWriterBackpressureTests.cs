@@ -4,6 +4,8 @@ using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
@@ -40,6 +42,45 @@ public sealed class IndexWriterBackpressureTests : IClassFixture<TestDirectoryFi
         var doc = new LeanDocument();
         doc.Add(new TextField("body", body));
         return doc;
+    }
+
+    private static LeanDocument MakeIdentifiedDoc(string id, string body)
+    {
+        var doc = new LeanDocument();
+        doc.Add(new StringField("id", id));
+        doc.Add(new TextField("body", body));
+        return doc;
+    }
+
+    [Fact(DisplayName = "Update Documents: Token Rejection Leaves Every Existing Version Intact")]
+    public void UpdateDocuments_TokenRejection_LeavesExistingVersionsIntact()
+    {
+        var dir = new MMapDirectory(SubDir("c7_update_batch_rejects_before_delete"));
+        using var writer = new IndexWriter(dir, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 100,
+            MaxTokensPerDocument = 3,
+            TokenBudgetPolicy = TokenBudgetPolicy.Reject,
+            MergeThreshold = 100,
+        });
+        writer.AddDocuments([
+            MakeIdentifiedDoc("doc-1", "original one"),
+            MakeIdentifiedDoc("doc-2", "original two"),
+        ]);
+        writer.Commit();
+
+        (string Term, LeanDocument Replacement)[] replacements =
+        [
+            ("doc-1", MakeIdentifiedDoc("doc-1", "replacement one")),
+            ("doc-2", MakeIdentifiedDoc("doc-2", "one two three four")),
+        ];
+        Assert.Throws<TokenBudgetExceededException>(() => writer.UpdateDocuments("id", replacements));
+
+        writer.Commit();
+        using var searcher = new IndexSearcher(dir);
+        Assert.Equal(2, searcher.Search(new TermQuery("body", "original"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "replacement"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(2, searcher.Stats.LiveDocCount);
     }
 
     /// <summary>

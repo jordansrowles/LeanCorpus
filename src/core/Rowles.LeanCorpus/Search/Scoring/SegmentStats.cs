@@ -174,4 +174,20 @@ internal sealed class SegmentStats
 
     internal static string GetStatsPath(string directoryPath, string segmentId)
         => Path.Combine(directoryPath, $"{segmentId}.stats.json");
+
+    internal static string GetStatsPath(string directoryPath, string segmentId, int? deletionGeneration)
+        => deletionGeneration is int generation
+            ? Path.Combine(directoryPath, $"{segmentId}_gen_{generation}.stats.json")
+            : GetStatsPath(directoryPath, segmentId);
+
+    internal static string GetStatsPathForRead(string directoryPath, string segmentId, int? deletionGeneration)
+    {
+        if (deletionGeneration is not int generation)
+            return GetStatsPath(directoryPath, segmentId);
+
+        string generationPath = GetStatsPath(directoryPath, segmentId, generation);
+        return FileOpenRetry.FileExists(generationPath)
+            ? generationPath
+            : GetStatsPath(directoryPath, segmentId);
+    }
 }

@@ -137,7 +137,8 @@ internal static class DeletionApplier
         SegmentReader reader,
         LiveDocs liveDocs)
     {
-        var statsPath = SegmentStats.GetStatsPath(Path.GetDirectoryName(basePath)!, segment.SegmentId);
+        var statsPath = SegmentStats.GetStatsPath(
+            Path.GetDirectoryName(basePath)!, segment.SegmentId, segment.DelGeneration);
         SegmentStats.FromSegmentReader(reader, liveDocs.IsLive).WriteTo(statsPath);
     }
 }

@@ -217,7 +217,8 @@ internal static class CommitManager
 
         foreach (var seg in writer.CommittedSegments)
         {
-            var segmentStats = SegmentStats.TryLoadFrom(SegmentStats.GetStatsPath(dirPath, seg.SegmentId));
+            var segmentStats = SegmentStats.TryLoadFrom(
+                SegmentStats.GetStatsPathForRead(dirPath, seg.SegmentId, seg.DelGeneration));
             if (segmentStats is not null &&
                 segmentStats.TotalDocCount == seg.DocCount &&
                 segmentStats.LiveDocCount == seg.LiveDocCount)
@@ -226,7 +227,7 @@ internal static class CommitManager
             }
             else if (AccumulateSegmentStatsByScan(seg, writer.Directory, writer.Config.CodecCatalog) is { } scannedStats)
             {
-                scannedStats.WriteTo(SegmentStats.GetStatsPath(dirPath, seg.SegmentId));
+                scannedStats.WriteTo(SegmentStats.GetStatsPath(dirPath, seg.SegmentId, seg.DelGeneration));
                 segmentStatsForCommit.Add(scannedStats);
             }
         }

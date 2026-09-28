@@ -33,6 +33,24 @@ internal static class DwptManager
         finally { writer.ExitIndexingOperation(); }
     }
 
+    internal static void ValidateDocumentBatch(IndexWriter writer, IReadOnlyList<LeanDocument> documents)
+    {
+        ArgumentNullException.ThrowIfNull(documents);
+        if (documents.Count == 0)
+            return;
+
+        var pool = writer.DwptPool ?? throw new InvalidOperationException("DWPT pool is not initialised.");
+        var dwpt = EnterDwpt(writer, pool);
+        try
+        {
+            dwpt.ValidateDocumentBlock(documents);
+        }
+        finally
+        {
+            Monitor.Exit(dwpt);
+        }
+    }
+
     private static void AddDocumentCore(
         IndexWriter writer,
         LeanDocument doc,

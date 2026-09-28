@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
@@ -28,8 +29,10 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         Assert.True(SegmentFileSet.IsOwnedByAnySegment("seg_1.seg", segmentIds));
         Assert.True(SegmentFileSet.IsOwnedByAnySegment("seg_1_v_embedding.hnsw", segmentIds));
         Assert.True(SegmentFileSet.IsOwnedByAnySegment("seg_1_gen_4.del", segmentIds));
+        Assert.True(SegmentFileSet.IsOwnedByAnySegment("seg_1_gen_4.stats.json", segmentIds));
         Assert.False(SegmentFileSet.IsOwnedByAnySegment("seg_10.seg", segmentIds));
         Assert.False(SegmentFileSet.IsOwnedByAnySegment("seg_1_extra.seg", segmentIds));
+        Assert.Equal(["seg_1"], SegmentFileSet.FindSegmentIds(["seg_1_gen_4.stats.json"]));
     }
 
     [Fact(DisplayName = "Searcher Snapshot: Does Not Retain Catalogue-Declared Temporary Segment Files")]
@@ -231,10 +234,18 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         Assert.NotNull(Assert.Single(snapshot.Segments).DelGeneration);
         int protectedGeneration = snapshot.Segments[0].DelGeneration!.Value;
         string protectedFile = Path.Combine(path, $"{snapshot.Segments[0].SegmentId}_gen_{protectedGeneration}.del");
+        string protectedStatsFile = SegmentStats.GetStatsPath(path, snapshot.Segments[0].SegmentId, protectedGeneration);
+        byte[] protectedStats = File.ReadAllBytes(protectedStatsFile);
 
         writer.DeleteDocuments(new TermQuery("id", "second"));
         writer.Commit();
         Assert.True(File.Exists(protectedFile));
+        Assert.True(File.Exists(protectedStatsFile));
+        Assert.Equal(protectedStats, File.ReadAllBytes(protectedStatsFile));
+        SegmentInfo currentSegment = ReadOnlySegment(path);
+        string currentStatsFile = SegmentStats.GetStatsPath(path, currentSegment.SegmentId, currentSegment.DelGeneration);
+        Assert.NotEqual(protectedStatsFile, currentStatsFile);
+        Assert.True(File.Exists(currentStatsFile));
 
         using (var snapshotSearcher = new IndexSearcher(directory, snapshot.Segments))
         {
@@ -247,7 +258,8 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         writer.ReleaseSnapshot(snapshot);
         writer.Commit();
         Assert.False(File.Exists(protectedFile));
-        SegmentInfo currentSegment = ReadOnlySegment(path);
+        Assert.False(File.Exists(protectedStatsFile));
+        currentSegment = ReadOnlySegment(path);
         Assert.Equal([$"{currentSegment.SegmentId}_gen_{currentSegment.DelGeneration}.del"],
             GetDeletionGenerationPaths(path, currentSegment.SegmentId).Select(Path.GetFileName));
     }

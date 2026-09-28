@@ -43,10 +43,22 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
         IndexRuntime runtime = index.Runtime;
         lock (runtime.WriteLock)
         {
-            if (TryPrepareBulkAdd(runtime, request, out LeanDocument[] bulkDocuments))
+            BulkWritePreparation preparation = PrepareBulkWrite(runtime, request, out LeanDocument[] bulkDocuments);
+            if (preparation != BulkWritePreparation.Ineligible)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                runtime.Writer.AddDocuments(bulkDocuments);
+                if (preparation == BulkWritePreparation.AppendOnly)
+                {
+                    runtime.Writer.AddDocuments(bulkDocuments);
+                }
+                else
+                {
+                    List<(string Term, LeanDocument Replacement)> replacements = new(bulkDocuments.Length);
+                    for (int i = 0; i < bulkDocuments.Length; i++)
+                        replacements.Add((request.Operations[i].DocumentId, bulkDocuments[i]));
+                    runtime.Writer.UpdateDocuments(ServerDocumentMapper.DocumentIdField, replacements);
+                }
+
                 foreach (BulkDocumentOperation operation in request.Operations)
                 {
                     lastSequence = runtime.MarkWrite();
@@ -56,11 +68,40 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
             }
             else
             {
-                foreach (BulkDocumentOperation operation in request.Operations)
+                List<(string Id, LeanDocument Document)> pendingReplacements = new(request.Operations.Count);
+                HashSet<string> pendingReplacementIds = new(StringComparer.Ordinal);
+
+                void FlushPendingReplacements()
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    if (pendingReplacements.Count == 0)
+                        return;
+
+                    List<(string Term, LeanDocument Replacement)> replacements = new(pendingReplacements.Count);
+                    foreach ((string id, LeanDocument document) in pendingReplacements)
+                        replacements.Add((id, document));
+                    runtime.Writer.UpdateDocuments(ServerDocumentMapper.DocumentIdField, replacements);
+                    foreach ((string id, _) in pendingReplacements)
+                    {
+                        lastSequence = runtime.MarkWrite();
+                        accepted++;
+                        results.Add(new BulkDocumentResult(id, true));
+                    }
+                    pendingReplacements.Clear();
+                    pendingReplacementIds.Clear();
+                }
+
+                for (int operationIndex = 0; operationIndex < request.Operations.Count; operationIndex++)
+                {
+                    BulkDocumentOperation operation = request.Operations[operationIndex];
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        FlushPendingReplacements();
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
+
                     if (string.IsNullOrWhiteSpace(operation.DocumentId))
                     {
+                        FlushPendingReplacements();
                         results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_document_id", "Document IDs are required.")));
                         continue;
                     }
@@ -71,30 +112,44 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
                         case DocumentOperationKind.Update:
                             if (operation.Document is not { ValueKind: System.Text.Json.JsonValueKind.Object } document)
                             {
+                                FlushPendingReplacements();
                                 results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_document", "Index and update operations require a JSON object.")));
                                 continue;
                             }
                             if (!ServerDocumentMapper.TryMap(operation.DocumentId, document, runtime.Schema, _options.MaximumDocumentBytes, out LeanDocument? mapped, out string code, out string message))
                             {
+                                FlushPendingReplacements();
                                 results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure(code, message)));
                                 continue;
                             }
-                            runtime.Writer.UpdateDocument(ServerDocumentMapper.DocumentIdField, operation.DocumentId, mapped!);
-                            lastSequence = runtime.MarkWrite();
-                            accepted++;
-                            results.Add(new BulkDocumentResult(operation.DocumentId, true));
+
+                            if (!pendingReplacementIds.Add(operation.DocumentId))
+                            {
+                                FlushPendingReplacements();
+                                runtime.Writer.UpdateDocument(ServerDocumentMapper.DocumentIdField, operation.DocumentId, mapped!);
+                                lastSequence = runtime.MarkWrite();
+                                accepted++;
+                                results.Add(new BulkDocumentResult(operation.DocumentId, true));
+                                break;
+                            }
+
+                            pendingReplacements.Add((operation.DocumentId, mapped!));
                             break;
                         case DocumentOperationKind.Delete:
+                            FlushPendingReplacements();
                             runtime.Writer.DeleteDocuments(new TermQuery(ServerDocumentMapper.DocumentIdField, operation.DocumentId));
                             lastSequence = runtime.MarkWrite();
                             accepted++;
                             results.Add(new BulkDocumentResult(operation.DocumentId, true));
                             break;
                         default:
+                            FlushPendingReplacements();
                             results.Add(new BulkDocumentResult(operation.DocumentId, false, new ApiFailure("invalid_operation", "The document operation is not recognised.")));
                             break;
                     }
                 }
+
+                FlushPendingReplacements();
             }
 
             if (accepted > 0 && (request.Refresh || request.Durability == RequestedWriteDurability.LocalFsync || runtime.PendingOperations >= _options.MaximumUncommittedOperations))
@@ -114,13 +169,19 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
         return new LocalWriteResult(results, accepted, committed, receipt, lastSequence, visible.CommitGeneration);
     }
 
-    private bool TryPrepareBulkAdd(IndexRuntime runtime, BulkDocumentsRequest request, out LeanDocument[] documents)
+    private enum BulkWritePreparation
+    {
+        Ineligible,
+        AppendOnly,
+        ReplacementBatch
+    }
+
+    private BulkWritePreparation PrepareBulkWrite(IndexRuntime runtime, BulkDocumentsRequest request, out LeanDocument[] documents)
     {
         documents = [];
         if (request.Operations.Count == 0
-            || runtime.PendingOperations != 0
             || request.Operations.Any(static operation => operation.Kind is not (DocumentOperationKind.Index or DocumentOperationKind.Update)))
-            return false;
+            return BulkWritePreparation.Ineligible;
 
         HashSet<string> ids = new(StringComparer.Ordinal);
         List<LeanDocument> mappedDocuments = new(request.Operations.Count);
@@ -130,28 +191,32 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
                 || !ids.Add(operation.DocumentId)
                 || operation.Document is not { ValueKind: System.Text.Json.JsonValueKind.Object } document
                 || !ServerDocumentMapper.TryMap(operation.DocumentId, document, runtime.Schema, _options.MaximumDocumentBytes, out LeanDocument? mapped, out _, out _))
-                return false;
+                return BulkWritePreparation.Ineligible;
             mappedDocuments.Add(mapped!);
         }
 
+        documents = mappedDocuments.ToArray();
+        if (runtime.PendingOperations != 0)
+            return BulkWritePreparation.ReplacementBatch;
+
         using SearcherLease visible = runtime.Searchers.AcquireLease();
         if (visible.CommitGeneration != runtime.Writer.CurrentCommitGeneration)
-            return false;
+            return BulkWritePreparation.ReplacementBatch;
 
-        if (visible.Searcher.Stats.LiveDocCount > 0)
+        if (visible.Searcher.Stats.LiveDocCount == 0)
+            return BulkWritePreparation.AppendOnly;
+
+        if (ids.Count <= TermInSetQuery.MaxTermCount)
         {
-            if (ids.Count > TermInSetQuery.MaxTermCount)
-                return false;
-
             TopDocs existingIds = visible.Searcher.Search(
                 new TermInSetQuery(ServerDocumentMapper.DocumentIdField, ids),
                 topN: 1);
             if (existingIds.TotalHits > 0)
-                return false;
+                return BulkWritePreparation.ReplacementBatch;
+            return BulkWritePreparation.AppendOnly;
         }
 
-        documents = mappedDocuments.ToArray();
-        return true;
+        return BulkWritePreparation.ReplacementBatch;
     }
 
     /// <inheritdoc />

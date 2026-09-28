@@ -94,6 +94,70 @@ public sealed class TwoCopyAcceptanceTests
     }
 
     [Fact]
+    public async Task PinnedSnapshotSurvivesReplacementBatchesAndForceMerge()
+    {
+        string root = NewRoot("two-copy-pinned-replacements");
+        try
+        {
+            await using LocalIndexStore store = NewStore(root);
+            LocalIndexDescriptor sourceDescriptor = Descriptor(PhysicalIndexId.New());
+            await using LocalIndexHandle source = await store.CreateAsync(sourceDescriptor);
+            LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root, MaximumSearchResults = 100 });
+            await WriteBatchAsync(executor, source, 0, 100);
+
+            await using CommitSnapshotLease pinned = await source.AcquireCommitSnapshotAsync();
+            foreach (int batch in Enumerable.Range(1, 5))
+            {
+                List<BulkDocumentOperation> operations = new(100);
+                for (int id = 0; id < 100; id++)
+                {
+                    JsonElement document = JsonSerializer.SerializeToElement(new
+                    {
+                        content = $"replacement batch-{batch} doc-{id}",
+                        group = id % 2 == 0 ? "even" : "odd",
+                        rank = (long)(batch * 100 + id),
+                        ratio = batch * 100 + id + 0.5
+                    });
+                    operations.Add(new BulkDocumentOperation(
+                        id % 2 == 0 ? DocumentOperationKind.Index : DocumentOperationKind.Update,
+                        $"doc-{id}",
+                        document));
+                }
+
+                LocalWriteResult write = await executor.WriteAsync(
+                    new OperationContext("two-copy-replacement-write", OperationKind.WriteDocuments, CallerIdentity.Anonymous, DateTimeOffset.UtcNow),
+                    source,
+                    new BulkDocumentsRequest("two-copy-replacements", operations, Refresh: true, Durability: RequestedWriteDurability.LocalFsync));
+                Assert.Equal(100, write.AcceptedOperations);
+                Assert.True(write.Committed);
+                Assert.NotNull(write.Receipt);
+            }
+
+            source.Runtime.Writer.ForceMerge(1);
+            source.Runtime.Searchers.MaybeRefresh();
+            Assert.Equal(0, (await SearchAsync(executor, source, new TermQueryDefinition("content", "searchable"))).TotalHits);
+            Assert.Equal(100, (await SearchAsync(executor, source, new TermQueryDefinition("content", "replacement"))).TotalHits);
+
+            foreach (IndexBackupFileEntry entry in pinned.Manifest.Files.Where(static entry => entry.PresentInBackup))
+            {
+                using Stream stream = pinned.OpenRead(entry.FileName);
+                Assert.True(entry.Length == stream.Length,
+                    $"Pinned snapshot file '{entry.FileName}' changed length from {entry.Length} to {stream.Length}.");
+            }
+
+            LocalIndexDescriptor targetDescriptor = sourceDescriptor with { Id = PhysicalIndexId.New() };
+            await using LocalIndexHandle target = await store.CreateAsync(targetDescriptor, LocalIndexOpenMode.ReadOnly);
+            Assert.True(await target.InstallCommitAsync(pinned) is CommitInstalled);
+            Assert.Equal(100, (await SearchAsync(executor, target, new TermQueryDefinition("content", "searchable"))).TotalHits);
+            Assert.Equal(0, (await SearchAsync(executor, target, new TermQueryDefinition("content", "replacement"))).TotalHits);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [Fact]
     public async Task CorruptOrIncompleteTransferPreservesTheOldTargetGeneration()
     {
         string root = NewRoot("two-copy-corrupt");

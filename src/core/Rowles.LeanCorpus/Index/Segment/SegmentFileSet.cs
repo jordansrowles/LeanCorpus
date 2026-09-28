@@ -191,6 +191,13 @@ internal sealed class SegmentFileSet
             return true;
         }
 
+        if (descriptor.FormatId == SegmentStatisticsFormatId
+            && TryGetStatisticsGeneration(fileName, out _, out int statisticsGenerationMarker))
+        {
+            segmentId = fileName[..statisticsGenerationMarker];
+            return segmentId.Length > 0;
+        }
+
         if (descriptor.FormatId == LiveDocsFormatId)
         {
             if (fileName.EndsWith(".del", StringComparison.OrdinalIgnoreCase))
@@ -220,7 +227,7 @@ internal sealed class SegmentFileSet
             TryDelete(directory, file.FileName, operation);
     }
 
-    /// <summary>Deletes deletion files not selected by any active commit or held snapshot state.</summary>
+    /// <summary>Deletes deletion generations and statistics caches not selected by active commits or held snapshots.</summary>
     internal void PruneDeletionFiles(
         LeanDirectory directory,
         IReadOnlySet<int?> protectedGenerations,
@@ -234,7 +241,9 @@ internal sealed class SegmentFileSet
                 && !protectedGenerations.Contains(file.DeletionGeneration);
             bool unprotectedLegacy = file.Kind == SegmentFileKind.LegacyDeletionFile
                 && !protectedGenerations.Contains(null);
-            if (unprotectedGeneration || unprotectedLegacy)
+            bool unprotectedStatistics = file.Kind == SegmentFileKind.Statistics
+                && !protectedGenerations.Contains(file.DeletionGeneration);
+            if (unprotectedGeneration || unprotectedLegacy || unprotectedStatistics)
                 TryDelete(directory, file.FileName, operation);
         }
     }
@@ -267,7 +276,12 @@ internal sealed class SegmentFileSet
         if (descriptor.FormatId == SegmentMetadataFormatId)
             return new SegmentFileEntry(fileName, descriptor, SegmentFileKind.Metadata, null);
         if (descriptor.FormatId == SegmentStatisticsFormatId)
-            return new SegmentFileEntry(fileName, descriptor, SegmentFileKind.Statistics, null);
+        {
+            int? generation = TryGetStatisticsGeneration(fileName, segmentId, out int parsedGeneration)
+                ? parsedGeneration
+                : null;
+            return new SegmentFileEntry(fileName, descriptor, SegmentFileKind.Statistics, generation);
+        }
         if (descriptor.FormatId == CompoundSegmentFormatId)
             return new SegmentFileEntry(fileName, descriptor, SegmentFileKind.CompoundContainer, null);
         if (descriptor.FormatId == ParentBitSetFormatId)
@@ -288,6 +302,31 @@ internal sealed class SegmentFileSet
             return false;
 
         ReadOnlySpan<char> value = fileName.AsSpan(prefix.Length, fileName.Length - prefix.Length - ".del".Length);
+        return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out generation);
+    }
+
+    private static bool TryGetStatisticsGeneration(string fileName, out int generation, out int marker)
+    {
+        marker = fileName.IndexOf("_gen_", StringComparison.Ordinal);
+        if (marker <= 0)
+        {
+            generation = 0;
+            return false;
+        }
+
+        return TryGetStatisticsGeneration(fileName, fileName[..marker], out generation);
+    }
+
+    private static bool TryGetStatisticsGeneration(string fileName, string segmentId, out int generation)
+    {
+        generation = 0;
+        string prefix = segmentId + "_gen_";
+        const string suffix = ".stats.json";
+        if (!fileName.StartsWith(prefix, StringComparison.Ordinal)
+            || !fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        ReadOnlySpan<char> value = fileName.AsSpan(prefix.Length, fileName.Length - prefix.Length - suffix.Length);
         return int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out generation);
     }
 
