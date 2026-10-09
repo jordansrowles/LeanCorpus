@@ -11,6 +11,8 @@
     'compression-packages' = @{ Globs = @('src/core/Rowles.LeanCorpus.Compression.LZ4/**', 'src/core/Rowles.LeanCorpus.Compression.Snappy/**', 'src/core/Rowles.LeanCorpus.Compression.Zstandard/**', 'src/core/OptionalCompression.Pack.targets'); Targets = @('core:CodecKit') }
     'diagnostics'    = @{ Globs = @('src/core/Rowles.LeanCorpus/Diagnostics/**');                    Targets = @('core:Diagnostics') }
     'document'       = @{ Globs = @('src/core/Rowles.LeanCorpus/Document/**');                       Targets = @('core:Document') }
+    'index-segment-merge' = @{ Globs = @('src/core/Rowles.LeanCorpus/Index/Segment/SegmentMerger.cs', 'src/core/Rowles.LeanCorpus/Index/Segment/Merging/**'); Targets = @('core:Index', 'core:CodecKit', 'core:Search') }
+    'merge-ownership-test' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Architecture/MergeOwnershipTests.cs'); Targets = @('architecture:Architecture') }
     'index'          = @{ Globs = @('src/core/Rowles.LeanCorpus/Index/**');                          Targets = @('core:Index') }
     'index-backup'   = @{ Globs = @('src/core/Rowles.LeanCorpus/Index/Backup/**');                   Targets = @('server-core:Server', 'server-integration:Server') }
     'index-segment'  = @{ Globs = @('src/core/Rowles.LeanCorpus/Index/Segment/**');                  Targets = @('server-core:Server', 'server-integration:Server') }

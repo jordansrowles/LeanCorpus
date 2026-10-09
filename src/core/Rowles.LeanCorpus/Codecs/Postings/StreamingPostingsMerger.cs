@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Codecs.CodecKit;
+﻿using Rowles.LeanCorpus.Codecs.CodecKit;
 using System.Buffers;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Store;
@@ -29,7 +29,7 @@ internal static class StreamingPostingsMerger
         internal required int[] DocIdMap { get; init; }
     }
 
-    internal static Result Merge(IReadOnlyList<Source> sources, string posOutputPath, string dicOutputPath)
+    internal static Result Merge(IReadOnlyList<Source> sources, string posOutputPath, string dicOutputPath, CodecCatalog? catalog = null)
     {
         var cursors = new List<Cursor>(sources.Count);
         var cursorNorms = new List<NormsData>(sources.Count);
@@ -51,7 +51,7 @@ internal static class StreamingPostingsMerger
 
             // Write the current streaming header and sequential v4 term records.
             using var posOutput = new IndexOutput(posOutputPath, dropPageCache: true);
-            var descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
+            var descriptor = (catalog ?? CodecCatalog.Default).GetFile("leancorpus.postings.data");
             using var frame = CodecFileWriter.Begin(posOutput, descriptor);
             var bodyOutput = frame.Output;
             using var blockWriter = new BlockPostingsWriter(bodyOutput);
@@ -179,7 +179,7 @@ internal static class StreamingPostingsMerger
 
             frame.Complete();
             // Metadata offsets are absolute file positions, so no rekeying is needed.
-            TermDictionaryWriter.Write(dicOutputPath, sortedTerms, offsets, dropPageCache: true);
+            TermDictionaryWriter.Write(dicOutputPath, sortedTerms, offsets, dropPageCache: true, catalog: catalog);
             return new Result(sortedTerms, offsets);
         }
         finally

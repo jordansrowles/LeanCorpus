@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Store;
@@ -14,18 +14,18 @@ namespace Rowles.LeanCorpus.Codecs.TermDictionary;
 internal static class TermDictionaryWriter
 {
     internal static void Write(string filePath, List<string> sortedTerms, Dictionary<string, long> postingsOffsets,
-        bool durable = false, bool dropPageCache = false)
+        bool durable = false, bool dropPageCache = false, CodecCatalog? catalog = null)
     {
         var blob = BuildFst(sortedTerms, postingsOffsets);
-        WriteBlob(filePath, blob, durable, dropPageCache);
+        WriteBlob(filePath, blob, durable, dropPageCache, catalog);
     }
 
     /// <summary>
     /// Writes a pre-built FST blob to a dictionary file.
     /// </summary>
-    internal static void WriteBlob(string filePath, byte[] fstBlob, bool durable = false, bool dropPageCache = false)
+    internal static void WriteBlob(string filePath, byte[] fstBlob, bool durable = false, bool dropPageCache = false, CodecCatalog? catalog = null)
     {
-        var descriptor = CodecCatalog.Default.GetFile("leancorpus.term-dictionary.data");
+        var descriptor = (catalog ?? CodecCatalog.Default).GetFile("leancorpus.term-dictionary.data");
         CodecFileWriter.WriteAtomically(
             filePath,
             descriptor,
