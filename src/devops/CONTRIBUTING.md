@@ -74,8 +74,17 @@ Update `scripts/devops/config/code-areas.psd1` when adding or moving a productio
 ### 7. Run affected tests
 
 ```bash
-./devops test -Suite affected
+./devops test affected
+./devops test affected -Commit HEAD
+./devops test affected -Commit caf4bd5
+./devops test affected -Range HEAD~3..HEAD
 ```
+
+Plain `affected` selects modified, staged and untracked non-ignored files only.
+`-Commit` and `-Range` select only the named commit or explicit range, ignoring
+unrelated dirty state; they are mutually exclusive and require `affected`.
+Invalid revisions, unmapped paths and zero targets are hard failures. Selection
+provenance is retained in the normal test `run.json` when artefacts are enabled.
 
 If the test accompanies a user-visible feature or fix, make sure the underlying change is represented in the current release changelog.
 
@@ -172,7 +181,7 @@ For a new top-level command:
 4. Add concise top-level help and one useful example.
 5. Put generic helpers and declarative data in their owning directories.
 6. Exercise the command directly.
-7. Run `./devops test -Suite affected`.
+7. Run `./devops test affected`.
 8. Update contributor documentation and the changelog when behaviour is visible.
 
 Keep the root `devops` and `devops.ps1` wrappers small.

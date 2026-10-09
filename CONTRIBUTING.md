@@ -91,8 +91,17 @@ Keep the change coherent:
 Before handing the change over:
 
 ```bash
-./devops test -Suite affected
+./devops test affected
+./devops test affected -Commit HEAD
+./devops test affected -Commit caf4bd5
+./devops test affected -Range HEAD~3..HEAD
 ```
+
+Plain `affected` uses only modified, staged and untracked non-ignored files.
+`-Commit` uses only the chosen commit (first parent, or the empty tree for a root
+commit); `-Range` uses only the explicit range. Both ignore unrelated dirty state.
+The options are mutually exclusive. Invalid revisions, unmapped paths and zero
+targets remain hard failures.
 
 Affected selection maps changed production paths through `scripts/devops/config/code-areas.psd1` and runs tests carrying the matching `Area` traits.
 
@@ -151,7 +160,7 @@ The detailed rules live in the [DevOps and tests guide](src/devops/CONTRIBUTING.
 
 - [ ] The change solves one coherent problem.
 - [ ] Tests protect observable behaviour.
-- [ ] `./devops test -Suite affected` has been run.
+- [ ] `./devops test affected` has been run.
 - [ ] Compatibility and platform claims have matching evidence.
 - [ ] Public documentation and examples remain accurate.
 - [ ] The changelog was updated when users should know.

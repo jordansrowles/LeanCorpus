@@ -14,7 +14,7 @@ function Show-TestSuites {
         Write-Host ("    {0,-20} {1} ({2}; {3})" -f $key, $suite.Name, $runner, ($frameworks -join ', '))
     }
     Write-Host '    all                  All test suites'
-    Write-Host '    affected             Test suites for dirty source areas'
+    Write-Host '    affected             Test suites for selected source areas'
     Write-Host ''
 }
 
@@ -34,6 +34,20 @@ function Invoke-DevOpsTest {
             $suite = 'all'
         }
         $suite = ([string]$suite).ToLowerInvariant()
+
+        $commit = ''
+        $range = ''
+        if ($parsed.Has('Commit') -and $parsed.Has('Range')) { throw '-Commit and -Range are mutually exclusive.' }
+        foreach ($option in @('Commit', 'Range')) {
+            if ($parsed.Has($option)) {
+                if ($suite -ne 'affected') { throw "-$option is valid only for the affected suite." }
+                $value = $parsed.Get($option, '')
+                if ($value -is [bool] -or [string]::IsNullOrWhiteSpace([string]$value)) {
+                    throw "-$option requires a value."
+                }
+                if ($option -eq 'Commit') { $commit = [string]$value } else { $range = [string]$value }
+            }
+        }
 
         if ($parsed.Has('List')) {
             Show-TestSuites -TestSuites $testSuites
@@ -88,16 +102,25 @@ function Invoke-DevOpsTest {
         $verbosity = [string]$parsed.Get('Verbosity', '')
         $artifactsEnabled = $count -gt 1 -or $flaky -or $diagnostics -or $ci -or $collectCoverage
 
+        $affectedSelection = $null
         $resolutionStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         $targets = @(
             Resolve-TestTargets -Suite $suite -Framework $framework -FrameworkExplicit $frameworkWasSpecified `
                 -Configuration $configuration -RuntimeIdentifier $runtimeIdentifier -Area $area `
                 -Category $category -Filter $filter -Ci $ci -CollectCoverage $collectCoverage `
+                -Commit $commit -Range $range -AffectedSelection ([ref]$affectedSelection) `
                 -AdditionalArguments @($parsed.PassThrough) -RepoRoot $repoRoot -TestSuites $testSuites
         )
         $resolutionStopwatch.Stop()
+        if ($null -ne $affectedSelection) {
+            $sourceValue = "$($affectedSelection.suppliedCommit)$($affectedSelection.suppliedRange)".Trim()
+            Write-Info "Affected source: $($affectedSelection.mode) $sourceValue"
+            Write-Info "Changed files: $($affectedSelection.paths.Count)"
+            Write-Info "Targets: $($affectedSelection.targets -join ', ')"
+        }
 
         $options = [pscustomobject]@{
+            AffectedSelection = $affectedSelection
             Count = $count
             Flaky = $flaky
             FailFast = $failFast

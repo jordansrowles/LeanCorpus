@@ -182,3 +182,33 @@ status and the consumer evidence path. The scoped pack manifest lists only the
 current Core and optional packages, preserving older local artefacts separately. Packing and validation do not publish any
 package. Run focused compression/registration tests, the architecture suite,
 the full build, docs build and `git diff --check` before release.
+
+## Select affected tests
+
+```powershell
+./devops test affected
+./devops test affected -Commit HEAD
+./devops test affected -Commit caf4bd5
+./devops test affected -Range HEAD~3..HEAD
+```
+
+Plain `affected` selects only modified tracked, staged and untracked non-ignored
+files. `-Commit` selects only the chosen commit's changes against its first
+parent, or the empty tree for a root commit. Abbreviated SHAs and normal Git
+commit-ish values are supported. `-Range` selects only the supplied explicit
+Git revision range. Both history modes ignore unrelated dirty state. DevOps
+neither infers a branch base nor fetches remote revisions.
+
+`-Commit` and `-Range` are mutually exclusive and valid only with `affected`.
+Invalid revisions, unmapped paths and selections producing zero test targets
+are hard failures. Selection paths are normalised, de-duplicated and sorted
+before the existing code-area mapper runs. The console shows the source,
+changed-file count and targets. Runs producing artefacts retain the source,
+supplied revision, resolved commit and first parent where applicable, current
+HEAD, selected paths and targets in `run.json` under `affectedSelection`.
+
+The tooling regressions use real temporary Git repositories. Run them with
+`pwsh ./scripts/devops/validation/affected-selection-smoke.ps1`; the build
+workflow also runs this smoke. The DevOps test command currently registers .NET
+suites only, so this PowerShell validation script follows the existing artefact
+smoke route. A future tooling suite could expose both through `./devops test`.

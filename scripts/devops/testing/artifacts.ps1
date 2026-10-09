@@ -176,6 +176,7 @@ function New-TestRunContext {
                 diagnostics = [bool]$Options.Diagnostics
                 failFast = [bool]$Options.FailFast
                 noRestore = $null -ne $Options.PSObject.Properties['NoRestore'] -and [bool]$Options.NoRestore
+                affectedSelection = if ($Options.PSObject.Properties['AffectedSelection']) { $Options.AffectedSelection } else { $null }
                 selectedTargets = @($Targets | ForEach-Object { ConvertTo-TestTargetDocument $_ })
                 artifactPaths = [ordered]@{
                     environment = 'environment.json'

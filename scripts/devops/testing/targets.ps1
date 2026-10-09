@@ -201,18 +201,21 @@ function Get-AffectedTestIntent {
     param(
         [string]$RepoRoot,
         [hashtable]$TestSuites = (Get-TestSuiteRegistry),
-        [hashtable]$CodeAreas = $null
+        [hashtable]$CodeAreas = $null,
+        [string]$Commit = '',
+        [string]$Range = ''
     )
 
     if ($null -eq $CodeAreas) {
         $CodeAreas = Import-PowerShellDataFile (Join-Path $PSScriptRoot '../config/code-areas.psd1')
     }
 
-    $dirty = @(Get-DirtyFiles -RepoRoot $RepoRoot)
+    $selection = Get-AffectedFileSelection -RepoRoot $RepoRoot -Commit $Commit -Range $Range
+    $changedFiles = @($selection.paths)
     $areasBySuite = @{}
     $matchedFiles = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 
-    foreach ($file in $dirty) {
+    foreach ($file in $changedFiles) {
         $normalised = ([string]$file).Replace('\', '/')
         foreach ($entryName in $CodeAreas.Keys) {
             $entry = $CodeAreas[$entryName]
@@ -236,17 +239,17 @@ function Get-AffectedTestIntent {
         }
     }
 
-    if ($matchedFiles.Count -ne $dirty.Count) {
-        $unmapped = @($dirty | Where-Object {
+    if ($matchedFiles.Count -ne $changedFiles.Count) {
+        $unmapped = @($changedFiles | Where-Object {
             -not $matchedFiles.Contains(([string]$_).Replace('\', '/'))
         })
         if ($unmapped.Count -gt 0) {
-            throw "Dirty files have no code-area mapping. Refusing to run zero tests: $($unmapped -join ', ')"
+            throw "Selected files have no code-area mapping. Refusing to run zero tests: $($unmapped -join ', ')"
         }
     }
 
     if ($areasBySuite.Count -eq 0) {
-        throw 'No code-area mapping matched the dirty files. Refusing to run zero tests.'
+        throw 'No code-area mapping matched the selected files. Refusing to run zero tests.'
     }
 
     $normalisedAreas = @{}
@@ -254,9 +257,15 @@ function Get-AffectedTestIntent {
         $normalisedAreas[$suiteKey] = @($areasBySuite[$suiteKey] | ForEach-Object { [string]$_ } | Sort-Object -Unique)
     }
 
+    $selection.targets = @(
+        foreach ($suiteKey in @($normalisedAreas.Keys | Sort-Object)) {
+            foreach ($areaName in $normalisedAreas[$suiteKey]) { "$suiteKey`:$areaName" }
+        }
+    )
     return [pscustomobject]@{
-        DirtyFiles = $dirty
+        DirtyFiles = $changedFiles
         AreasBySuite = $normalisedAreas
+        Selection = $selection
     }
 }
 
@@ -274,13 +283,20 @@ function Resolve-TestTargets {
         [bool]$CollectCoverage = $false,
         [string[]]$AdditionalArguments = @(),
         [string[]]$AffectedAreas = @(),
+        [string]$Commit = '',
+        [string]$Range = '',
+        [ref]$AffectedSelection,
         [string]$RepoRoot = (Get-RepoRoot),
         [hashtable]$TestSuites = (Get-TestSuiteRegistry)
     )
 
     $requestedSuite = if ($Suite) { $Suite.ToLowerInvariant() } else { 'all' }
+    if (($Commit -or $Range) -and $requestedSuite -ne 'affected') {
+        throw '-Commit and -Range are valid only for the affected suite.'
+    }
     if ($requestedSuite -eq 'affected') {
-        $affected = Get-AffectedTestIntent -RepoRoot $RepoRoot -TestSuites $TestSuites
+        $affected = Get-AffectedTestIntent -RepoRoot $RepoRoot -TestSuites $TestSuites -Commit $Commit -Range $Range
+        if ($null -ne $AffectedSelection) { $AffectedSelection.Value = $affected.Selection }
         $resolved = [System.Collections.Generic.List[object]]::new()
         foreach ($suiteKey in @($affected.AreasBySuite.Keys | Sort-Object)) {
             $suiteTargets = Resolve-TestTargets -Suite $suiteKey -Framework $Framework `
@@ -391,21 +407,122 @@ function Get-CoverageSuiteKeys {
     })
 }
 
+# Git paths use NUL delimiters so quoted names, spaces and newlines remain paths.
+function Invoke-AffectedGit {
+    param([string]$RepoRoot, [string[]]$Arguments, [string]$Description)
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new('git')
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.ArgumentList.Add('-C')
+    $startInfo.ArgumentList.Add($RepoRoot)
+    foreach ($argument in $Arguments) { $startInfo.ArgumentList.Add($argument) }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        [void]$process.Start()
+        $outputTask = $process.StandardOutput.ReadToEndAsync()
+        $errorTask = $process.StandardError.ReadToEndAsync()
+        $process.WaitForExit()
+        $output = $outputTask.GetAwaiter().GetResult()
+        $errorText = $errorTask.GetAwaiter().GetResult()
+        if ($process.ExitCode -ne 0) {
+            throw "Unable to resolve $Description`: $($errorText.Trim())"
+        }
+        return $output
+    } finally {
+        $process.Dispose()
+    }
+}
+
+function ConvertTo-AffectedPaths {
+    param([string[]]$Paths)
+
+    $unique = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in $Paths) {
+        if ($path) { [void]$unique.Add($path.Replace('\', '/')) }
+    }
+    $ordered = [string[]]@($unique)
+    [Array]::Sort($ordered, [StringComparer]::OrdinalIgnoreCase)
+    return $ordered
+}
+
 function Get-DirtyFiles {
     param([string]$RepoRoot)
 
-    $files = [System.Collections.Generic.List[string]]::new()
-    foreach ($line in @(& git -C $RepoRoot diff --name-only 2>$null)) {
-        if ($line) { [void]$files.Add([string]$line) }
-    }
-    foreach ($line in @(& git -C $RepoRoot diff --cached --name-only 2>$null)) {
-        if ($line) { [void]$files.Add([string]$line) }
-    }
-    foreach ($line in @(& git -C $RepoRoot ls-files --others --exclude-standard 2>$null)) {
-        if ($line) { [void]$files.Add([string]$line) }
-    }
+    $files = @(
+        foreach ($arguments in @(
+            @('diff', '--name-only', '-z', '--'),
+            @('diff', '--cached', '--name-only', '-z', '--'),
+            @('ls-files', '--others', '--exclude-standard', '-z')
+        )) {
+            (Invoke-AffectedGit -RepoRoot $RepoRoot -Arguments $arguments -Description 'dirty working tree') -split "`0"
+        }
+    )
+    return ConvertTo-AffectedPaths $files
+}
 
-    return @($files | Sort-Object -Unique)
+function Get-CommitChangedFiles {
+    param([string]$RepoRoot, [string]$Commit)
+
+    $description = "commit '$Commit'"
+    $sha = (Invoke-AffectedGit $RepoRoot @('rev-parse', '--verify', '--end-of-options', "$Commit^{commit}") $description).Trim()
+    $ancestry = (Invoke-AffectedGit $RepoRoot @('rev-list', '--parents', '-n', '1', $sha, '--') $description).Trim() -split ' '
+    $parent = if ($ancestry.Count -gt 1) { $ancestry[1] } else { '' }
+    $arguments = if ($parent) {
+        @('diff', '--name-only', '-z', $parent, $sha, '--')
+    } else {
+        # --root compares a root commit with the empty tree, including SHA-256 repositories.
+        @('diff-tree', '--root', '--no-commit-id', '-r', '--name-only', '-z', $sha, '--')
+    }
+    return [pscustomobject]@{
+        sha = $sha
+        parent = $parent
+        paths = @(ConvertTo-AffectedPaths ((Invoke-AffectedGit $RepoRoot $arguments $description) -split "`0"))
+    }
+}
+
+function Get-CommitRangeChangedFiles {
+    param([string]$RepoRoot, [string]$Range)
+
+    # A lone revision would include dirty files in git diff, violating isolation.
+    if ($Range -notmatch '^.+\.\..+$' -or $Range.StartsWith('-')) {
+        throw "Invalid range '$Range': supply an explicit revision range such as A..B."
+    }
+    return ConvertTo-AffectedPaths ((Invoke-AffectedGit $RepoRoot @('diff', '--name-only', '-z', $Range, '--') "range '$Range'") -split "`0")
+}
+
+function Get-AffectedFileSelection {
+    param([string]$RepoRoot, [string]$Commit = '', [string]$Range = '')
+
+    if ($Commit -and $Range) { throw '-Commit and -Range are mutually exclusive.' }
+    $mode = 'dirty'
+    $sha = ''
+    $parent = ''
+    if ($Commit) {
+        $mode = 'commit'
+        $result = Get-CommitChangedFiles -RepoRoot $RepoRoot -Commit $Commit
+        $sha = $result.sha
+        $parent = $result.parent
+        $paths = @($result.paths)
+    } elseif ($Range) {
+        $mode = 'range'
+        $paths = @(Get-CommitRangeChangedFiles -RepoRoot $RepoRoot -Range $Range)
+    } else {
+        $paths = @(Get-DirtyFiles -RepoRoot $RepoRoot)
+    }
+    if ($paths.Count -eq 0) { throw "Affected source $mode '$Commit$Range' selected no changed files. Refusing to run zero tests." }
+    return [pscustomobject][ordered]@{
+        mode = $mode
+        suppliedCommit = $Commit
+        suppliedRange = $Range
+        resolvedCommit = $sha
+        firstParent = $parent
+        head = (Invoke-AffectedGit $RepoRoot @('rev-parse', '--verify', 'HEAD') 'current HEAD').Trim()
+        paths = $paths
+        targets = @()
+    }
 }
 
 function Test-GlobMatch {

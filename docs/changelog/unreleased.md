@@ -2,6 +2,8 @@
 
 ## Added
 
+- Select affected tests from an isolated commit or explicit Git range with `-Commit` and `-Range`, retaining dirty-state selection by default and recording selection provenance in test artefacts.
+
 - Expose ordered multi-document replacement on `IndexWriter` for integrations that need one delete pass per batch.
 - Add frozen, hash-verified LeanCorpus 3.1.1 release migration acceptance for loose and compound indexes, including sparse vectors, committed deletions, merge and publication recovery, with a pinned fixture regeneration command.
 - Add construction-time `IndexingConcurrency` configuration and explicit concurrent async bulk ingestion for the Core writer, and make concurrent bulk ingestion use bounded producers through the normal DWPT pipeline. ([3c43b0726](https://github.com/jordansrowles/LeanCorpus/commit/3c43b0726976b2842dfe6512860f17a7d5929845), [4d0432e27](https://github.com/jordansrowles/LeanCorpus/commit/4d0432e27fb3027e6987009cde2fad5b41e2c1f0))
