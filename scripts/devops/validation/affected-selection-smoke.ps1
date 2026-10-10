@@ -49,11 +49,32 @@ try {
         $rootCommit = Commit-Files 'Root'
         Assert-Paths (Intent $rootCommit).Selection.paths @('.gitignore', 'src/a.cs') 'Root empty-tree paths'
         Assert-Selection ((Intent $rootCommit).Selection.firstParent -eq '') 'Root has no parent'
+
+        # Isolate each dirty source so another source cannot mask a missing path.
+        Write-File 'src/a.cs' 'unstaged only'
+        Assert-Paths (Get-DirtyFiles $Root) @('src/a.cs') 'Unstaged-only tracked modification'
+        Assert-Paths (Intent).Selection.paths @('src/a.cs') 'Unstaged-only selection paths'
+        Write-File 'src/a.cs' 'root'
+
+        Write-File 'src/a.cs' 'staged only'
+        Invoke-TestGit @('add', 'src/a.cs') | Out-Null
+        Assert-Paths (Get-DirtyFiles $Root) @('src/a.cs') 'Staged-only tracked modification'
+        Assert-Paths (Intent).Selection.paths @('src/a.cs') 'Staged-only selection paths'
+        Write-File 'src/a.cs' 'root'
+        Invoke-TestGit @('add', 'src/a.cs') | Out-Null
+
+        Write-File 'src/b.cs' 'untracked'
+        Write-File 'hidden.ignored' 'ignored'
+        Assert-Paths (Get-DirtyFiles $Root) @('src/b.cs') 'Untracked non-ignored file only'
+        Assert-Paths (Intent).Selection.paths @('src/b.cs') 'Untracked-only selection paths'
+        Remove-Item -LiteralPath (Join-Path $Root 'src/b.cs')
+
         Write-File 'src/a.cs' 'staged'
         Invoke-TestGit @('add', 'src/a.cs') | Out-Null
         Write-File 'src/a.cs' 'unstaged'
+        Assert-Paths (Get-DirtyFiles $Root) @('src/a.cs') 'Same-file staged/unstaged de-duplication'
+        Assert-Paths (Intent).Selection.paths @('src/a.cs') 'Same-file selection de-duplicates paths'
         Write-File 'src/b.cs' 'untracked'
-        Write-File 'hidden.ignored' 'ignored'
         Assert-Paths (Get-DirtyFiles $Root) @('src/a.cs', 'src/b.cs') 'Staged/modified/untracked deduplication and ignore'
         $dirtyTargets = (Intent).Selection.targets
         $first = Commit-Files 'First production change'
