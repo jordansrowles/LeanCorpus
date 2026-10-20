@@ -17,7 +17,7 @@ Health is degraded after a commit or installation failure while the last committ
 
 Successful writes return a versioned local write token. A search can request ReadYourWrites with that token, which waits for the token's local commit and refreshes the readable generation. Primary maps to Community's sole local copy. Refresh remains an independent visibility choice.
 
-The reference host enables .NET 11 request decompression and response compression, including zstd where negotiated. Compression does not bypass body, bulk or document limits.
+The reference host enables request decompression and response compression. On .NET 10 it offers Brotli and gzip response compression; on .NET 11 it offers zstd where negotiated. Compression does not bypass body, bulk or document limits.
 
 ## Wildcard and regular-expression admission
 

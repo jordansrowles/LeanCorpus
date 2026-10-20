@@ -43,7 +43,7 @@
         Name = 'Server Abstractions'
         Project = 'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'
         Runner = 'Mtp'
-        Frameworks = @('net11.0')
+        Frameworks = @('net10.0', 'net11.0')
         DefaultFramework = 'net11.0'
         Coverage = $false
         Capabilities = @('Trx', 'HangDump', 'CrashDump')
@@ -52,7 +52,7 @@
         Name = 'Server Core'
         Project = 'src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj'
         Runner = 'Mtp'
-        Frameworks = @('net11.0')
+        Frameworks = @('net10.0', 'net11.0')
         DefaultFramework = 'net11.0'
         Coverage = $false
         Capabilities = @('Trx', 'HangDump', 'CrashDump')
@@ -61,7 +61,7 @@
         Name = 'Server Integration'
         Project = 'src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj'
         Runner = 'Mtp'
-        Frameworks = @('net11.0')
+        Frameworks = @('net10.0', 'net11.0')
         DefaultFramework = 'net11.0'
         Coverage = $false
         Capabilities = @('Trx', 'HangDump', 'CrashDump')
@@ -70,7 +70,7 @@
         Name = 'Orchard Provider'
         Project = 'src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.Tests/Rowles.LeanCorpus.OrchardCore.Search.Tests.csproj'
         Runner = 'Mtp'
-        Frameworks = @('net11.0')
+        Frameworks = @('net10.0', 'net11.0')
         DefaultFramework = 'net11.0'
         Coverage = $false
         Capabilities = @('Trx', 'HangDump', 'CrashDump')
@@ -79,14 +79,11 @@
         Name = 'Orchard Provider Functional'
         Project = 'src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj'
         Runner = 'Mtp'
-        Frameworks = @('net11.0')
+        Frameworks = @('net10.0', 'net11.0')
         DefaultFramework = 'net11.0'
         Coverage = $false
         Capabilities = @('Trx', 'HangDump', 'CrashDump')
-        AdditionalArguments = @(
-            '--filter-not-class'
-            'Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.ProviderPerformanceTests'
-        )
+        DefaultFilter = 'FullyQualifiedName!~Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.ProviderPerformanceTests.'
     }
     aot = @{
         Name = 'AOT'

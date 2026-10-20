@@ -24,6 +24,9 @@ public sealed class SearcherManagerConfig
     private static T Effective<T>(DefaultOverride<T> value, T builtIn)
         => value.IsSet ? value.Value : builtIn;
 
+    /// <summary>Test-only barrier before a refresh inspects the current commit.</summary>
+    internal Action? RefreshStarting { get; set; }
+
     internal void Validate()
     {
         if (RefreshInterval <= TimeSpan.Zero)

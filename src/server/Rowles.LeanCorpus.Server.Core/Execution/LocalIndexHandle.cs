@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Index.Backup;
+﻿using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
@@ -16,9 +16,11 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
     private readonly ICommitInstallOperations _installOperations;
     private readonly SemaphoreSlim _transition = new(1, 1);
     private readonly SemaphoreSlim _operationGate = new(1, 1);
+    private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private IndexRuntime _runtime;
     private int _disposed;
     private int _installing;
+    private int _activeSnapshots;
     private int _unusable;
     private string? _lastInstallError;
 
@@ -47,6 +49,14 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
 
     /// <summary>Gets the runtime for the internal Community composition boundary.</summary>
     internal IndexRuntime Runtime => _runtime;
+
+    internal LocalIndexLifecycleDiagnostics GetLifecycleDiagnostics()
+    {
+        IndexRuntime runtime = _runtime;
+        var physical = runtime.GetPhysicalDiagnostics();
+        return new(Descriptor.Id.Value, physical.RuntimeId, runtime.Mode, runtime.CurrentServerSequence,
+            Volatile.Read(ref _activeSnapshots), physical);
+    }
 
     /// <summary>Gets the current access mode.</summary>
     public LocalIndexOpenMode Mode => _runtime.Mode;
@@ -80,7 +90,7 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
                 _runtime.Commits.LastSuccessfulCommitUtc,
                 _runtime.Commits.LastFailure?.Message,
                 _runtime.Commits.ConsecutiveFailures,
-                0,
+                Volatile.Read(ref _activeSnapshots),
                 Volatile.Read(ref _installing) != 0,
                 IsUsable,
                 _runtime.IsDegraded || !IsUsable || Volatile.Read(ref _lastInstallError) is not null,
@@ -89,14 +99,16 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
     }
 
     /// <summary>Gets whether this handle still has a readable local runtime.</summary>
-    internal bool IsUsable => Volatile.Read(ref _unusable) == 0;
+    internal bool IsUsable => Volatile.Read(ref _unusable) == 0 && Volatile.Read(ref _disposed) == 0 && _runtime.SearchesAllowed;
 
     /// <summary>Commits pending writes when this handle is writable.</summary>
     public async ValueTask<CommitResult> CommitAsync(bool refresh = false, CancellationToken cancellationToken = default)
     {
+        ThrowIfClosing();
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ThrowIfClosing();
             return _runtime.Commits.Commit(refresh);
         }
         finally
@@ -112,9 +124,11 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
     /// <summary>Refreshes the local readable generation.</summary>
     public async ValueTask RefreshAsync(CancellationToken cancellationToken = default)
     {
+        ThrowIfClosing();
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ThrowIfClosing();
             _runtime.Refresh();
         }
         finally
@@ -124,20 +138,35 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
     }
 
     /// <summary>Acquires a lease that pins one committed generation and its files.</summary>
-    public ValueTask<CommitSnapshotLease> AcquireCommitSnapshotAsync(CancellationToken cancellationToken = default)
+    public async ValueTask<CommitSnapshotLease> AcquireCommitSnapshotAsync(CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+        using var operation = await EnterOperationAsync(cancellationToken).ConfigureAwait(false);
         if (Mode != LocalIndexOpenMode.ReadWrite)
             throw new InvalidOperationException("A read-only local copy cannot create a writer snapshot.");
-        IndexSnapshot snapshot = _runtime.Writer.CreateSnapshot();
-        IndexBackupManifest manifest = _runtime.Writer.CreateBackupManifest(snapshot);
-        return ValueTask.FromResult<CommitSnapshotLease>(new RuntimeCommitSnapshotLease(_runtime, snapshot, manifest, Descriptor.SchemaHash));
+        IndexRuntime runtime = _runtime;
+        IDisposable pin = runtime.EnterPhysicalOperation();
+        IndexSnapshot? snapshot = null;
+        try
+        {
+            snapshot = runtime.Writer.CreateSnapshot();
+            IndexBackupManifest manifest = runtime.Writer.CreateBackupManifest(snapshot);
+            var lease = new RuntimeCommitSnapshotLease(runtime, snapshot, manifest, Descriptor.SchemaHash, pin, this);
+            Interlocked.Increment(ref _activeSnapshots);
+            return lease;
+        }
+        catch
+        {
+            try { if (snapshot is not null) runtime.Writer.ReleaseSnapshot(snapshot); }
+            finally { pin.Dispose(); }
+            throw;
+        }
     }
 
     /// <summary>Atomically installs a pinned commit into this read-only local copy.</summary>
     public async ValueTask<CommitInstallResult> InstallCommitAsync(CommitSnapshotLease lease, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(lease);
+        ThrowIfClosing();
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -150,6 +179,7 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
         }
         try
         {
+            ThrowIfClosing();
             if (!IsUsable)
                 return new CommitRejected("The local index is unusable after a previous installation failure.");
             if (Mode != LocalIndexOpenMode.ReadOnly)
@@ -190,7 +220,7 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
                 // publication sequence must either finish or execute rollback.
                 publicationStarted = true;
                 _runtime = oldRuntime;
-                oldRuntime.Dispose();
+                await oldRuntime.DisposeAsync().ConfigureAwait(false);
                 _installOperations.MoveDirectory(_path, previous);
                 oldRootMoved = true;
                 _installOperations.MoveDirectory(materialised, _path);
@@ -300,6 +330,7 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
 
     private async ValueTask TransitionAsync(LocalIndexOpenMode mode, CancellationToken cancellationToken)
     {
+        ThrowIfClosing();
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -312,10 +343,11 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
         }
         try
         {
+            ThrowIfClosing();
             if (Mode == mode) return;
             if (Mode == LocalIndexOpenMode.ReadWrite)
                 _ = _runtime.Commits.Commit(refresh: true);
-            _runtime.Dispose();
+            await _runtime.DisposeAsync().ConfigureAwait(false);
             _runtime = CreateRuntime(mode);
         }
         finally
@@ -326,39 +358,52 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
     }
 
     /// <inheritdoc />
-    public void Dispose()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        _operationGate.Wait();
-        try
-        {
-            _runtime.Dispose();
-        }
-        finally
-        {
-            _operationGate.Release();
-            _operationGate.Dispose();
-            _transition.Dispose();
-        }
-    }
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
     internal async ValueTask<IDisposable> EnterOperationAsync(CancellationToken cancellationToken)
     {
+        ThrowIfClosing();
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        if (!IsUsable)
+        try
+        {
+            ThrowIfClosing();
+            if (!IsUsable)
+                throw new LocalExecutionException(new ApiFailure("index_unusable", "The local index is unusable after a committed-state installation failure."));
+            return new OperationLease(_operationGate, _runtime.EnterPhysicalOperation());
+        }
+        catch
         {
             _operationGate.Release();
-            throw new LocalExecutionException(new ApiFailure("index_unusable", "The local index is unusable after a committed-state installation failure."));
+            throw;
         }
-        return new OperationLease(_operationGate);
     }
 
     /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
-        Dispose();
-        return ValueTask.CompletedTask;
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            _ = CloseCoreAsync();
+        return new ValueTask(_closed.Task);
     }
+
+    private async Task CloseCoreAsync()
+    {
+        await _operationGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await _runtime.DisposeAsync().ConfigureAwait(false);
+            _closed.TrySetResult();
+        }
+        catch (Exception failure) { _closed.TrySetException(failure); }
+        finally
+        {
+            // Already queued callers must wake, observe closed admission and
+            // unwind before these managed gates become collectable.
+            _operationGate.Release();
+        }
+    }
+
+    private void ThrowIfClosing() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
 
     private IndexRuntime CreateRuntime(LocalIndexOpenMode mode) =>
         new(_path, CompiledIndexSchema.Create(Descriptor.Schema, Descriptor.Topology ?? new(1, 0), Descriptor.Settings), _commitInterval, _refreshInterval, mode,
@@ -377,36 +422,106 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
         }
     }
 
-    private sealed class OperationLease(SemaphoreSlim gate) : IDisposable
+    private sealed class OperationLease(SemaphoreSlim gate, IDisposable physicalOperation) : IDisposable
     {
         private int _released;
 
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _released, 1) == 0)
-                gate.Release();
+            {
+                try { physicalOperation.Dispose(); }
+                finally { gate.Release(); }
+            }
         }
     }
 
-    private sealed class RuntimeCommitSnapshotLease(IndexRuntime runtime, IndexSnapshot snapshot, IndexBackupManifest manifest, string schemaHash) : CommitSnapshotLease, ICommitSnapshotSource
+    private sealed class RuntimeCommitSnapshotLease(IndexRuntime runtime, IndexSnapshot snapshot, IndexBackupManifest manifest, string schemaHash, IDisposable physicalPin, LocalIndexHandle owner) : CommitSnapshotLease, ICommitSnapshotSource
     {
-        private int _disposed;
+        private readonly object _lifetimeGate = new();
+        private bool _disposeRequested;
+        private int _activeUses;
+        private int _released;
         internal string SchemaHash => schemaHash;
         public override long CommitGeneration => manifest.CommitGeneration;
         public override long ContentToken => manifest.ContentToken;
         public override IndexBackupManifest Manifest => manifest;
+
         public override Stream OpenRead(string fileName)
         {
-            if (manifest.Files.All(file => !string.Equals(file.FileName, fileName, StringComparison.Ordinal)))
-                throw new ArgumentException("The file is not part of this commit snapshot.", nameof(fileName));
-            return File.OpenRead(Path.Combine(runtime.Path, fileName));
+            AcquireUse();
+            try
+            {
+                if (manifest.Files.All(file => !string.Equals(file.FileName, fileName, StringComparison.Ordinal)))
+                    throw new ArgumentException("The file is not part of this commit snapshot.", nameof(fileName));
+                return new SnapshotReadStream(Path.Combine(runtime.Path, fileName), this);
+            }
+            catch { ReleaseUse(); throw; }
         }
-        public void CreateBackup(string path, CancellationToken cancellationToken) =>
-            runtime.Writer.BackupSnapshot(snapshot, path, new IndexBackupOptions { OverwriteBackupDirectory = true }, cancellationToken);
+
+        public void CreateBackup(string path, CancellationToken cancellationToken)
+        {
+            AcquireUse();
+            try { runtime.Writer.BackupSnapshot(snapshot, path, new IndexBackupOptions { OverwriteBackupDirectory = true }, cancellationToken); }
+            finally { ReleaseUse(); }
+        }
+
+        private void AcquireUse()
+        {
+            lock (_lifetimeGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposeRequested, this);
+                _activeUses++;
+            }
+        }
+
+        private void ReleaseUse()
+        {
+            bool release;
+            lock (_lifetimeGate) release = --_activeUses == 0 && _disposeRequested;
+            if (release) ReleaseSnapshot();
+        }
+
         public override void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0)
-                runtime.Writer.ReleaseSnapshot(snapshot);
+            bool release;
+            lock (_lifetimeGate)
+            {
+                if (_disposeRequested) return;
+                _disposeRequested = true;
+                release = _activeUses == 0;
+            }
+            if (release) ReleaseSnapshot();
+        }
+
+        private void ReleaseSnapshot()
+        {
+            if (Interlocked.Exchange(ref _released, 1) != 0) return;
+            try { runtime.Writer.ReleaseSnapshot(snapshot); }
+            finally
+            {
+                Interlocked.Decrement(ref owner._activeSnapshots);
+                physicalPin.Dispose();
+            }
+        }
+
+        private sealed class SnapshotReadStream(string path, RuntimeCommitSnapshotLease owner) : FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)
+        {
+            private int _released;
+            protected override void Dispose(bool disposing)
+            {
+                try { base.Dispose(disposing); }
+                finally { if (disposing) Release(); }
+            }
+            public override async ValueTask DisposeAsync()
+            {
+                try { await base.DisposeAsync().ConfigureAwait(false); }
+                finally { Release(); }
+            }
+            private void Release()
+            {
+                if (Interlocked.Exchange(ref _released, 1) == 0) owner.ReleaseUse();
+            }
         }
     }
 }

@@ -372,12 +372,14 @@ function Get-ConsumerScenarioDefinitions {
             @{ Name = 'server-local'; PackageId = 'Rowles.LeanCorpus.Server.Local'; PackageIds = @('Rowles.LeanCorpus.Server.Local'); ExactInternalIds = @(); Kind = 'server-local-launcher'; Sdk = 'Microsoft.NET.Sdk'; RuntimeKind = 'server-local'; ExternalReferences = @(); ExtraProperties = '' }
         )
         foreach ($scenario in $server) {
-            $scenarios.Add([pscustomobject]@{
-                Name = $scenario.Name; PackageId = $scenario.PackageId; PackageIds = $scenario.PackageIds
-                ExactInternalIds = $scenario.ExactInternalIds; Kind = $scenario.Kind; Framework = 'net11.0'
-                Sdk = $scenario.Sdk; RuntimeKind = $scenario.RuntimeKind; ExternalReferences = $scenario.ExternalReferences
-                ExtraProperties = $scenario.ExtraProperties
-            })
+            foreach ($framework in $frameworks) {
+                $scenarios.Add([pscustomobject]@{
+                    Name = $scenario.Name; PackageId = $scenario.PackageId; PackageIds = $scenario.PackageIds
+                    ExactInternalIds = $scenario.ExactInternalIds; Kind = $scenario.Kind; Framework = $framework
+                    Sdk = $scenario.Sdk; RuntimeKind = $scenario.RuntimeKind; ExternalReferences = $scenario.ExternalReferences
+                    ExtraProperties = $scenario.ExtraProperties
+                })
+            }
         }
     } else {
         foreach ($codec in @('LZ4', 'Snappy', 'Zstandard')) {
@@ -646,11 +648,11 @@ function Invoke-PackageConsumerScenario {
             'server-local' {
                 $local = Get-ConsumerPackageEntry -PackageIndex $PackageIndex -PackageId 'Rowles.LeanCorpus.Server.Local'
                 $localDirectory = Join-Path $cache (Join-Path $local.packageId.ToLowerInvariant() $local.version.ToLowerInvariant())
-                $applicationAssets = Join-Path $localDirectory 'lib/net11.0'
+                $applicationAssets = Join-Path $localDirectory "lib/$($Scenario.Framework)"
                 $localDll = Join-Path $applicationAssets 'Rowles.LeanCorpus.Server.Local.dll'
                 if (-not (Test-Path -LiteralPath $localDll -PathType Leaf)) { throw "Server.Local package assembly is missing from the isolated cache: $localDll" }
-                $deps = Join-Path $scenarioDirectory 'bin/Release/net11.0/Consumer.deps.json'
-                $runtimeConfig = Join-Path $scenarioDirectory 'bin/Release/net11.0/Consumer.runtimeconfig.json'
+                $deps = Join-Path $scenarioDirectory "bin/Release/$($Scenario.Framework)/Consumer.deps.json"
+                $runtimeConfig = Join-Path $scenarioDirectory "bin/Release/$($Scenario.Framework)/Consumer.runtimeconfig.json"
                 $dataRoot = Join-Path $scenarioDirectory 'server-local-data'
                 $arguments = @('exec', '--depsfile', $deps, '--runtimeconfig', $runtimeConfig, '--additionalprobingpath', $cache, $localDll,
                     '--urls', 'http://127.0.0.1:0', '--LeanCorpus:DataRoot', $dataRoot)

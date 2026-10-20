@@ -123,8 +123,9 @@ internal static class FileLifetimeRegistry
                     return;
                 }
 
-                TryDelete(filePath, "index file delete");
-                _files.Remove(filePath);
+                GetOrAdd(filePath).DeletePending = true;
+                if (TryDelete(filePath, "index file delete"))
+                    _files.Remove(filePath);
             }
         }
 
@@ -141,9 +142,8 @@ internal static class FileLifetimeRegistry
                 if (state.LeaseCount != 0)
                     return;
 
-                if (state.DeletePending)
-                    TryDelete(filePath, "deferred index file delete");
-                _files.Remove(filePath);
+                if (!state.DeletePending || TryDelete(filePath, "deferred index file delete"))
+                    _files.Remove(filePath);
             }
         }
 
@@ -189,8 +189,8 @@ internal static class FileLifetimeRegistry
                     !state.DeletePending)
                     return;
 
-                TryDelete(filePath, "finalised deferred index file delete");
-                _files.Remove(filePath);
+                if (TryDelete(filePath, "finalised deferred index file delete"))
+                    _files.Remove(filePath);
             }
         }
 
@@ -201,6 +201,30 @@ internal static class FileLifetimeRegistry
                 return paths.Where(path => _files.TryGetValue(path, out var state) && state.DeletePending)
                     .Select(Path.GetFileName).Where(static name => name is not null).Select(static name => name!).ToArray();
             }
+        }
+
+        internal (int FileLeases, int PendingDeletes) GetResourceSnapshot()
+        {
+            lock (_lock)
+                return (_files.Values.Sum(static state => state.LeaseCount),
+                    _files.Values.Count(static state => state.DeletePending));
+        }
+
+        internal void CompletePendingDeletes()
+        {
+            var failures = new List<Exception>();
+            lock (_lock)
+            {
+                foreach (var entry in _files.Where(static entry => entry.Value.DeletePending && entry.Value.LeaseCount == 0).ToArray())
+                {
+                    try { FileOpenRetry.Delete(entry.Key); _files.Remove(entry.Key); }
+                    catch (Exception failure) { failures.Add(failure); }
+                }
+            }
+            if (failures.Count == 1)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures.Count > 1)
+                throw new AggregateException("Deferred index cleanup failed.", failures);
         }
 
         private FileState GetOrAdd(string filePath)
@@ -215,10 +239,10 @@ internal static class FileLifetimeRegistry
 
         private string GetPath(string fileName) => Path.Combine(_directoryPath, fileName);
 
-        private static void TryDelete(string filePath, string operation)
+        private static bool TryDelete(string filePath, string operation)
         {
-            try { FileOpenRetry.Delete(filePath); }
-            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, operation); }
+            try { FileOpenRetry.Delete(filePath); return true; }
+            catch (Exception ex) { Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, operation); return false; }
         }
     }
 

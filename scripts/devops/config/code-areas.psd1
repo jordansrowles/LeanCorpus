@@ -35,6 +35,7 @@
     'core-foundation-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Foundation/**'); Targets = @('core:Foundation') }
     'core-index-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Index/**'); Targets = @('core:Index') }
     'core-codeckit-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/CodecKit/**'); Targets = @('core:CodecKit') }
+    'core-store-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Store/**'); Targets = @('core:Store') }
     'core-search-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/Search/**'); Targets = @('core:Search') }
     'core-search-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/QueryParserBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/PhraseQueryBenchmarks.cs'); Targets = @('core:Search') }
     'core-reader-cache-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/SegmentReaderCacheBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/SegmentReaderResourceCacheBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Program.cs'); Targets = @('core:Search') }
@@ -74,8 +75,16 @@
     # Release notes are recognised but do not independently select tests. A
     # change consisting only of these files still fails closed below.
     'release-notes' = @{ Globs = @('changelog/**', 'docs/changelog/**'); Targets = @() }
+    # Workflow-only changes are verified by the matching PowerShell smoke scripts.
+    # As with release notes, recognising them alone must not select unrelated tests.
+    'lifecycle-workflow' = @{ Globs = @('.github/workflows/build.yml', 'scripts/devops/commands/build.ps1', 'scripts/devops/commands/server.ps1', 'scripts/devops/testing/targets.ps1', 'scripts/devops/validation/artifacts-smoke.ps1', 'scripts/devops/validation/test-selection-smoke.ps1'); Targets = @() }
+    'server-running-docs' = @{ Globs = @('docs/server/01-running.md', 'src/server/README.md'); Targets = @() }
+    'architecture-docs' = @{ Globs = @('docs/articles/ADRs/**', 'docs/articles/physical-index-lifetimes.md', 'docs/articles/index.md'); Targets = @('architecture:Architecture') }
+    'package-policy' = @{ Globs = @('scripts/devops/packaging/package-policy.json', 'scripts/devops/packaging/validate-package-consumers.ps1'); Targets = @('architecture:Architecture', 'server-abstractions:Server', 'server-core:Server') }
+    'aot-physical-runtime-smoke' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/PhysicalIndexRuntimeSmokeTests.cs'); Targets = @('aot:Index') }
+    'physical-runtime' = @{ Globs = @('src/core/Rowles.LeanCorpus/Index/PhysicalIndexRuntime*.cs'); Targets = @('core:Index', 'server-core:Server', 'server-orchard:Orchard', 'server-orchard-functional:Functional', 'aot:Index') }
 
-    'server-abstractions' = @{ Globs = @('src/server/Rowles.LeanCorpus.Server.Abstractions/**'); Targets = @('server-abstractions:Server', 'server-integration:Server') }
+    'server-abstractions' = @{ Globs = @('src/server/Rowles.LeanCorpus.Server.Abstractions/**', 'src/server/Shared/**'); Targets = @('server-abstractions:Server', 'server-core:Server', 'server-integration:Server') }
     'server-core' = @{ Globs = @('src/server/Rowles.LeanCorpus.Server.Core/**'); Targets = @('server-core:Server', 'server-integration:Server') }
     'server-transport' = @{ Globs = @('src/server/Rowles.LeanCorpus.Server.AspNetCore/**', 'src/server/Rowles.LeanCorpus.Server.Grpc/**', 'src/server/Rowles.LeanCorpus.Server.Local/**', 'src/server/Rowles.LeanCorpus.Studio/**'); Targets = @('server-integration:Server') }
     'server-tests' = @{ Globs = @('src/server/**/*.Tests/**'); Targets = @('server-abstractions:Server', 'server-core:Server', 'server-integration:Server') }

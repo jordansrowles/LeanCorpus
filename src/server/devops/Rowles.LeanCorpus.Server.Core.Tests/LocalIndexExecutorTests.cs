@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Documents;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
@@ -19,12 +19,35 @@ public sealed class LocalIndexExecutorTests
     public async Task MemoryBackedPayloadUsesReadOnlyStreamWithoutAnIntermediateCopy()
     {
         byte[] payload = "snapshot-manifest"u8.ToArray();
-        await using Stream stream = LocalStreamAdapters.ReadOnly(payload);
-        byte[] read = new byte[payload.Length];
-        int count = await stream.ReadAsync(read);
-        Assert.Equal(payload.Length, count);
-        Assert.Equal(payload, read);
+        await using Stream stream = LocalStreamAdapters.ReadOnly(payload.AsMemory(1, payload.Length - 2));
+        payload[1] = (byte)'X';
+        byte[] read = new byte[payload.Length - 2];
+        int count = await stream.ReadAsync(read, TestContext.Current.CancellationToken);
+        Assert.Equal(payload.Length - 2, count);
+        Assert.Equal(payload[1..^1], read);
         Assert.False(stream.CanWrite);
+    }
+
+    [Fact]
+    public async Task MemoryBackedPayloadPreservesSeekingCancellationAndDisposal()
+    {
+        Stream stream = LocalStreamAdapters.ReadOnly("payload"u8.ToArray());
+        Assert.Equal(7, stream.Length);
+        Assert.Equal(5, stream.Seek(-2, SeekOrigin.End));
+        Assert.Equal((byte)'a', stream.ReadByte());
+        stream.Position = 100;
+        Assert.Equal(-1, stream.ReadByte());
+        stream.Position = 0;
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await stream.ReadAsync(new byte[1], cancelled.Token));
+        Assert.Equal(0, stream.Position);
+        Assert.Throws<NotSupportedException>(() => stream.WriteByte(1));
+        stream.Dispose();
+        Assert.False(stream.CanRead);
+        Assert.False(stream.CanSeek);
+        Assert.Throws<ObjectDisposedException>(() => stream.ReadByte());
     }
 
     [Fact]

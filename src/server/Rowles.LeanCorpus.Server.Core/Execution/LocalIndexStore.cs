@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
+﻿using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
 
 namespace Rowles.LeanCorpus.Server.Core.Execution;
 
@@ -11,6 +11,9 @@ public sealed class LocalIndexStore : ILocalIndexStore
     private readonly ILocalCommitObserver _observer;
     private readonly ICommitInstallOperations _installOperations;
     private readonly Dictionary<PhysicalIndexId, LocalIndexHandle> _handles = [];
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int _closing;
 
     /// <summary>Creates a physical store rooted at a server-owned directory.</summary>
     public LocalIndexStore(string root, TimeSpan commitInterval, TimeSpan refreshInterval, ILocalCommitObserver? observer = null)
@@ -35,16 +38,23 @@ public sealed class LocalIndexStore : ILocalIndexStore
     }
 
     /// <inheritdoc />
-    public ValueTask<LocalIndexHandle> CreateAsync(LocalIndexDescriptor descriptor, LocalIndexOpenMode mode = LocalIndexOpenMode.ReadWrite, CancellationToken cancellationToken = default)
+    public async ValueTask<LocalIndexHandle> CreateAsync(LocalIndexDescriptor descriptor, LocalIndexOpenMode mode = LocalIndexOpenMode.ReadWrite, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         cancellationToken.ThrowIfCancellationRequested();
-        if (Exists(descriptor.Id)) throw new InvalidOperationException("The physical index already exists.");
-        string path = PathFor(descriptor.Id);
-        Directory.CreateDirectory(path);
-        LocalIndexHandle handle = new(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer, _installOperations);
-        _handles.Add(descriptor.Id, handle);
-        return ValueTask.FromResult(handle);
+        ThrowIfClosing();
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfClosing();
+            if (Exists(descriptor.Id)) throw new InvalidOperationException("The physical index already exists.");
+            string path = PathFor(descriptor.Id);
+            Directory.CreateDirectory(path);
+            LocalIndexHandle handle = new(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer, _installOperations);
+            _handles.Add(descriptor.Id, handle);
+            return handle;
+        }
+        finally { _gate.Release(); }
     }
 
     /// <inheritdoc />
@@ -52,34 +62,51 @@ public sealed class LocalIndexStore : ILocalIndexStore
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         cancellationToken.ThrowIfCancellationRequested();
-        if (_handles.TryGetValue(descriptor.Id, out LocalIndexHandle? existing))
+        ThrowIfClosing();
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            if (!string.Equals(existing.Descriptor.SchemaHash, descriptor.SchemaHash, StringComparison.Ordinal))
-                throw new InvalidDataException("The physical index is already open with a different schema.");
-            if (existing.Mode != mode)
+            ThrowIfClosing();
+            if (_handles.TryGetValue(descriptor.Id, out LocalIndexHandle? existing))
             {
-                if (mode == LocalIndexOpenMode.ReadWrite)
-                    await existing.PromoteAsync(cancellationToken).ConfigureAwait(false);
-                else
-                    await existing.DemoteAsync(cancellationToken).ConfigureAwait(false);
+                if (!string.Equals(existing.Descriptor.SchemaHash, descriptor.SchemaHash, StringComparison.Ordinal))
+                    throw new InvalidDataException("The physical index is already open with a different schema.");
+                if (existing.Mode != mode)
+                {
+                    if (mode == LocalIndexOpenMode.ReadWrite)
+                        await existing.PromoteAsync(cancellationToken).ConfigureAwait(false);
+                    else
+                        await existing.DemoteAsync(cancellationToken).ConfigureAwait(false);
+                }
+                return existing;
             }
-            return existing;
+            string path = PathFor(descriptor.Id);
+            if (!Directory.Exists(path)) throw new DirectoryNotFoundException("The physical index does not exist.");
+            LocalIndexHandle handle = new(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer, _installOperations);
+            _handles.Add(descriptor.Id, handle);
+            return handle;
         }
-        string path = PathFor(descriptor.Id);
-        if (!Directory.Exists(path)) throw new DirectoryNotFoundException("The physical index does not exist.");
-        LocalIndexHandle handle = new(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer, _installOperations);
-        _handles.Add(descriptor.Id, handle);
-        return handle;
+        finally { _gate.Release(); }
     }
 
     /// <inheritdoc />
-    public ValueTask DeleteAsync(PhysicalIndexId id, CancellationToken cancellationToken = default)
+    public async ValueTask DeleteAsync(PhysicalIndexId id, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_handles.Remove(id, out LocalIndexHandle? handle)) handle.Dispose();
-        string path = PathFor(id);
-        if (Directory.Exists(path)) Directory.Delete(path, true);
-        return ValueTask.CompletedTask;
+        ThrowIfClosing();
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ThrowIfClosing();
+            if (_handles.TryGetValue(id, out LocalIndexHandle? handle))
+            {
+                await handle.DisposeAsync().ConfigureAwait(false);
+                _handles.Remove(id);
+            }
+            string path = PathFor(id);
+            if (Directory.Exists(path)) Directory.Delete(path, true);
+        }
+        finally { _gate.Release(); }
     }
 
     /// <inheritdoc />
@@ -144,5 +171,33 @@ public sealed class LocalIndexStore : ILocalIndexStore
         return true;
     }
     /// <inheritdoc />
-    public ValueTask DisposeAsync() { foreach (LocalIndexHandle handle in _handles.Values) handle.Dispose(); _handles.Clear(); return ValueTask.CompletedTask; }
+    public ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _closing, 1) == 0)
+            _ = CloseCoreAsync();
+        return new ValueTask(_closed.Task);
+    }
+
+    private async Task CloseCoreAsync()
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var closing = _handles.Select(pair => (pair.Key, Close: pair.Value.DisposeAsync().AsTask())).ToArray();
+            try { await Task.WhenAll(closing.Select(entry => entry.Close)).ConfigureAwait(false); }
+            catch { /* Collect every failed owner after all close attempts finish. */ }
+            var failures = new List<Exception>();
+            foreach (var entry in closing)
+            {
+                if (entry.Close.IsCompletedSuccessfully) _handles.Remove(entry.Key);
+                else if (entry.Close.Exception is { } failure) failures.Add(failure);
+            }
+            if (failures.Count == 0) _closed.TrySetResult();
+            else _closed.TrySetException(new AggregateException("Physical index store shutdown failed.", failures));
+        }
+        catch (Exception failure) { _closed.TrySetException(failure); }
+        finally { _gate.Release(); }
+    }
+
+    private void ThrowIfClosing() => ObjectDisposedException.ThrowIf(Volatile.Read(ref _closing) != 0, this);
 }

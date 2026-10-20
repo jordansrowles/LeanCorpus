@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Index.Segment;
+﻿using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Indexer;
@@ -81,6 +81,7 @@ internal static class MergeScheduler
             if (writer.MergeCts.IsCancellationRequested)
                 return;
 
+            writer.Config.MergeStarting?.Invoke();
             int nextOrdinal = outputOrdinal;
             var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy,
                 writer.Config.PostingsSkipInterval, writer.Config.SoftDeleteRetentionSeconds,

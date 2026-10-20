@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Store;
+﻿namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
 /// Primary directory implementation using memory-mapped files for reads
@@ -139,9 +139,32 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
                 if (weakRef.TryGetTarget(out var input))
                     input.Dispose();
             }
-            _trackedInputs.Clear();
+            _trackedInputs.RemoveAll(reference => !reference.TryGetTarget(out var input) || input.ResourcesReleased);
+            if (_trackedInputs.Count > 0)
+                throw new IOException("Mapped input cleanup has not completed.");
         }
     }
+
+    internal (int Inputs, int MappedViews) GetOwnedResourceSnapshot()
+    {
+        lock (_trackLock)
+        {
+            int inputs = 0, views = 0;
+            foreach (var reference in _trackedInputs)
+            {
+                if (reference.TryGetTarget(out var input) && !input.ResourcesReleased)
+                {
+                    inputs++;
+                    if (input.OwnsMappedView) views++;
+                }
+            }
+            return (inputs, views);
+        }
+    }
+
+    // Directory-wide file references can include independent embedded readers.
+    internal (int FileLeases, int PendingDeletes) GetFileResourceSnapshot() => _fileLifetimes.GetResourceSnapshot();
+    internal void CompletePendingDeletes() => _fileLifetimes.CompletePendingDeletes();
 
     internal LifetimeLease AcquireOperationLease() => _operations.Acquire(this);
 
@@ -153,7 +176,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
             if (_trackedInputs.Count > 0 && _trackedInputs.Count % 64 == 0)
                 _trackedInputs.RemoveAll(r => !r.TryGetTarget(out _));
 
-            _trackedInputs.Add(new WeakReference<IndexInput>(input));
+            _trackedInputs.Add(new WeakReference<IndexInput>(input, trackResurrection: true));
         }
     }
 

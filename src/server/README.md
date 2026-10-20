@@ -11,7 +11,7 @@ From the repository root:
 ./devops server start
 ```
 
-The reference host runs in the foreground on .NET 11 and binds to `127.0.0.1:5080` and `[::1]:5080`. It stores the registry and physical index data below `data/` by default. Use `LeanCorpus:DataRoot` in configuration or `--LeanCorpus:DataRoot=/path/to/data` to select another root.
+The reference host targets .NET 10 and .NET 11 and runs in the foreground and binds to `127.0.0.1:5080` and `[::1]:5080`. It stores the registry and physical index data below `data/` by default. Use `LeanCorpus:DataRoot` in configuration or `--LeanCorpus:DataRoot=/path/to/data` to select another root.
 
 For a trusted network only, use `./devops server start -External`. This binds `0.0.0.0:5080`, does not add TLS or authentication, and must be protected by the hosting environment.
 

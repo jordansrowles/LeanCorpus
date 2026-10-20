@@ -40,6 +40,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Added
 
+- Compose first-party physical indexes under an internal runtime with terminal close, operation and search leases, definitive health, and correlated resource diagnostics.
+
 - Add trace-correlated backup/restore filesystem measurements and a fixed-seed DevOps matrix; honour configured FsCheck iterations without reducing default coverage. Publish the completed diagnostic results and distinguish read-open timings from deletion.
 
 - Add a Spectre.Console CLI Workbench for interactive index browsing, search, analysis, Core-backed inspection, deterministic index creation, fingerprints and workload replay. ([49cfcd898](https://github.com/jordansrowles/LeanCorpus/commit/49cfcd8980793b428469c1df503196637cf1d834))
@@ -112,6 +114,13 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Return `CharFilterResult` from `ICharFilter` with public `OffsetCorrectionMap` support for composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the previous character-filter API in Rowles.Text and source-included Core analysis. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 
 ## Fixed
+
+- Report the definitive fatal writer failure after an earlier recoverable error, preserving terminal close failure provenance.
+
+- Retain failed deferred deletions for observable cleanup and require unleased pending cleanup to finish before composed physical close succeeds.
+
+- Keep copied reader leases safe to dispose repeatedly, and count outstanding leases on retired reader generations correctly.
+- Compose Orchard functional-test exclusions with explicit and affected test filters without mixing incompatible xUnit filter modes.
 
 - Publish the `LowercaseFilter` non-ASCII uppercase correction in standalone Rowles.Text; this fix was already included in LeanCorpus 3.1.1. ([a717abcce](https://github.com/jordansrowles/LeanCorpus/commit/a717abccea6c726c0862400c6f21aee35d52d36b))
 - Publish recoverable per-call token-budget accounting in standalone Rowles.Text so a rejected input does not poison later reuse of the same tokeniser; this fix was already included in LeanCorpus 3.1.1. ([2783e3720](https://github.com/jordansrowles/LeanCorpus/commit/2783e3720084117a2b283794159afe93f75f288f))

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OrchardCore.Indexing;
 using OrchardCore.Indexing.Models;
@@ -101,6 +101,7 @@ public sealed class LeanCorpusDocumentIndexManager : IDocumentIndexManager
 
                 _failures.Check(LeanCorpusFailurePoint.BeforeDocumentWrite);
                 LeanCorpusIndexHandle handle = entry.Open(createIfMissing: false, current);
+                using var runtimeOperation = handle.EnterOperation();
                 var updates = new (string Term, LeanDocument Replacement)[batchToMap.Length];
                 for (int index = 0; index < batchToMap.Length; index++)
                     updates[index] = (batchToMap[index].Id, mapped.Documents[index]);
@@ -140,6 +141,7 @@ public sealed class LeanCorpusDocumentIndexManager : IDocumentIndexManager
             {
                 _ = await LeanCorpusIndexingStateStore.ReadLastTaskIdAsync(paths.StatePath).ConfigureAwait(false);
                 LeanCorpusIndexHandle handle = entry.Open(createIfMissing: false);
+                using var runtimeOperation = handle.EnterOperation();
                 foreach (string id in ids)
                     handle.Writer.DeleteDocuments(new TermQuery(LeanCorpusDocumentMapper.DocumentIdField, id));
                 handle.CommitAndRefresh();
@@ -171,6 +173,7 @@ public sealed class LeanCorpusDocumentIndexManager : IDocumentIndexManager
             {
                 _ = await LeanCorpusIndexingStateStore.ReadLastTaskIdAsync(paths.StatePath).ConfigureAwait(false);
                 LeanCorpusIndexHandle handle = entry.Open(createIfMissing: false);
+                using var runtimeOperation = handle.EnterOperation();
                 DeleteAllDocuments(handle);
                 return true;
             }
@@ -198,6 +201,7 @@ public sealed class LeanCorpusDocumentIndexManager : IDocumentIndexManager
             {
                 _ = await LeanCorpusIndexingStateStore.ReadLastTaskIdAsync(paths.StatePath).ConfigureAwait(false);
                 LeanCorpusIndexHandle handle = entry.Open(createIfMissing: false);
+                using var runtimeOperation = handle.EnterOperation();
 
                 // Rewind before deleting. A crash from this point onwards makes Orchard replay tasks
                 // from zero, so the old documents can be safely replaced or deleted again.

@@ -2,7 +2,7 @@
 
 `Rowles.LeanCorpus.OrchardCore.Search` adds an embedded LeanCorpus indexing provider, Orchard's generic search service, and a native LeanCorpus query source. It stores each tenant's indexes locally and does not call an external service.
 
-The package is an optional Orchard Core module. It targets .NET 11 and is built against Orchard Core 3.0.1. The provider is released as `0.1.0-alpha.1`.
+The package is an optional Orchard Core module. It targets .NET 10 and .NET 11 and is built against Orchard Core 3.0.1. Building from source requires the .NET 11 SDK and preview C# compiler. The provider is released as `0.1.0-alpha.1`.
 
 The module uses Orchard's Indexing, Search, and Queries packages and depends on `Rowles.LeanCorpus` Core. Enabling the feature is optional; it does not replace or alter Orchard's Lucene provider. The Core change needed by the provider is the additive public `IndexWriter.UpdateDocuments` batch API, which applies deletes before replacements in an Orchard document batch.
 
@@ -42,11 +42,18 @@ Index data, schema manifests, and indexing cursors are kept below:
 
 Tenant and index keys are derived from the Orchard names using a readable prefix and hash, so raw names are not used as filesystem paths. Keep this tenant data with the rest of Orchard's persistent `App_Data` when backing up or moving a site.
 
-Replacement shells for the same tenant directory share index handles. The last
-shell to release that tenant's cache closes its writers and search snapshots;
-other tenants and isolated hosts have independent handle lifetimes. Queued operations
-are rejected once their owning cache is disposed, preventing handles from reopening
-during shutdown.
+Replacement shells for the same tenant directory share one physical runtime per
+index. During ordinary shell turnover, the last cache owner closes that runtime.
+Application shutdown closes admission across historical and replacement shells,
+drains admitted operations and search leases, then waits for physical close.
+A retained historical shell scope cannot reopen an index after host shutdown.
+Other tenants and isolated hosts have independent lifetimes. Close failures are
+reported and retained in ownership diagnostics rather than reported as success.
+
+The provider uses the same internal physical owner as Community Server. The
+owner controls the directory, writer and searcher generations; Orchard controls
+tenant paths, schema, task cursors and visibility after indexing. A task cursor
+advances only after both commit and the required refresh succeed.
 
 Each active provider instance assumes exclusive ownership of its tenant's index and cursor files. Do not point multiple active Orchard processes at the same `App_Data` directory. The provider has no cross-process writer lease or distributed cursor coordination. A multi-node deployment needs independent per-node indexes and an explicit rebuild/replay plan after failover; otherwise use a search service that provides shared distributed ownership.
 

@@ -1,4 +1,4 @@
-using System.Threading.Channels;
+﻿using System.Threading.Channels;
 using System.Runtime.ExceptionServices;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
@@ -89,6 +89,7 @@ public sealed partial class IndexWriter : IDisposable
     private int _failureReconciliationOwner;
     private Exception? _indexingFailure;
     private readonly Stream _writeLockFile;
+    private int _writeLockReleased;
 
     /// <summary>
     /// Initialises a new <see cref="IndexWriter"/> for the given directory with the specified configuration.
@@ -647,7 +648,11 @@ public sealed partial class IndexWriter : IDisposable
 
         CaptureDisposeFailure(ref failure, () => _backpressureSemaphore?.Dispose(), "dispose-backpressure");
         CaptureDisposeFailure(ref failure, _shutdownCts.Dispose, "dispose-shutdown-cancellation");
-        CaptureDisposeFailure(ref failure, _writeLockFile.Dispose, "dispose-write-lock-handle");
+        CaptureDisposeFailure(ref failure, () =>
+        {
+            _writeLockFile.Dispose();
+            Volatile.Write(ref _writeLockReleased, 1);
+        }, "dispose-write-lock-handle");
 
         var lockPath = Path.Combine(_directory.DirectoryPath, "write.lock");
         try { FileOpenRetry.Delete(lockPath); }
@@ -1117,6 +1122,14 @@ public sealed partial class IndexWriter : IDisposable
     internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureSemaphore;
     internal CancellationToken ShutdownToken => _shutdownToken;
     internal bool IsClosing => Volatile.Read(ref _closing) != 0;
+
+    internal bool WriteLockOwned => Volatile.Read(ref _writeLockReleased) == 0;
+    internal int ActiveMergeCount { get { lock (_mergeLock) return _mergeTasks.Count(static task => !task.IsCompleted); } }
+    internal bool DisposalCompleted => Volatile.Read(ref _disposed) != 0;
+
+    internal bool IsFaulted => Volatile.Read(ref _indexingFailed) != 0;
+
+    internal Exception? IndexingFailure => Volatile.Read(ref _indexingFailure);
     internal int InFlightIndexingOperationsForTests => _indexingOperations.ActiveCount;
     internal bool AsyncWriteConsumerStartedForTests
     {

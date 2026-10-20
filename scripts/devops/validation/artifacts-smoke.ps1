@@ -428,15 +428,21 @@ try {
         $functionalProjectSuites = @($testSuites.Keys | Where-Object { [string]$testSuites[$_].Project -ceq $functionalProject })
         Assert-Smoke ($functionalProjectSuites.Count -eq 1 -and $functionalProjectSuites[0] -ceq 'server-orchard-functional') 'the Orchard functional project is registered more than once or under another suite.'
         Assert-Smoke (-not $testSuites.ContainsKey('server-orchard-performance')) 'the duplicate Orchard performance suite remains registered.'
-        $functionalArguments = @($testSuites['server-orchard-functional'].AdditionalArguments)
-        Assert-Smoke ($functionalArguments.Count -eq 2 -and
-            $functionalArguments[0] -ceq '--filter-not-class' -and
-            $functionalArguments[1] -ceq 'Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.ProviderPerformanceTests') 'the functional suite does not exclude the explicit performance class.'
+        Assert-Smoke ([string]$testSuites['server-orchard-functional'].DefaultFilter -ceq
+            'FullyQualifiedName!~Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.ProviderPerformanceTests.') 'the functional suite does not exclude the explicit performance class.'
         $codeAreas = Import-PowerShellDataFile -LiteralPath (Join-Path $RepositoryRoot 'scripts/devops/config/code-areas.psd1')
         foreach ($areaName in $codeAreas.Keys) {
             foreach ($targetName in @($codeAreas[$areaName].Targets)) {
                 Assert-Smoke (-not ([string]$targetName).StartsWith('server-orchard-performance:', [StringComparison]::Ordinal)) "affected-test area '$areaName' still references the removed Orchard performance suite."
             }
+        }
+
+        # J. Published host consumers must exercise every supported runtime target.
+        . (Join-Path $RepositoryRoot 'scripts/devops/packaging/validate-package-consumers.ps1')
+        $consumerScenarios = @(Get-ConsumerScenarioDefinitions -Scope all)
+        foreach ($name in @('server-abstractions', 'server-core', 'server-aspnetcore', 'server-grpc', 'studio', 'orchard-search', 'server-local')) {
+            $frameworks = @($consumerScenarios | Where-Object Name -eq $name | ForEach-Object Framework | Sort-Object -Unique)
+            Assert-Smoke ($frameworks.Count -eq 2 -and 'net10.0' -in $frameworks -and 'net11.0' -in $frameworks) "package consumer '$name' does not cover both host frameworks."
         }
 
         Write-Host 'Artefact infrastructure smoke validation passed.'

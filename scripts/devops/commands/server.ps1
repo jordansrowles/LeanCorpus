@@ -11,9 +11,10 @@ function Invoke-DevOpsServer {
         Write-Host ''
         Write-Host '  Usage: devops server start [options] [-- <application arguments>]'
         Write-Host ''
-        Write-Host '  Start the local Community Server reference host on .NET 11.'
+        Write-Host '  Start the local Community Server reference host on .NET 10 or .NET 11.'
         Write-Host ''
         Write-Host '  Options:'
+        Write-Host '    -Framework           net10.0 or net11.0 (default: net11.0)'
         Write-Host '    -Configuration       Debug or Release (default: Debug)'
         Write-Host '    -NoBuild             Pass --no-build to dotnet run'
         Write-Host '    -NoRestore           Pass --no-restore to dotnet run'
@@ -30,6 +31,11 @@ function Invoke-DevOpsServer {
         exit 1
     }
 
+    $framework = $parsed.Get('Framework', 'net11.0')
+    if ($framework -notin @('net10.0', 'net11.0')) {
+        Write-Error "Unknown framework '$framework'. Valid: net10.0, net11.0"
+        exit 1
+    }
     $configuration = $parsed.Get('Configuration', 'Debug')
     if ($configuration -notin @('Debug', 'Release')) {
         Write-Error "Unknown configuration '$configuration'. Valid: Debug, Release"
@@ -41,7 +47,7 @@ function Invoke-DevOpsServer {
     $dotnetArguments = @(
         'run',
         '--project', $projectPath,
-        '--framework', 'net11.0',
+        '--framework', $framework,
         '--configuration', $configuration
     )
     if ($parsed.Has('NoBuild')) { $dotnetArguments += '--no-build' }
@@ -56,7 +62,7 @@ function Invoke-DevOpsServer {
     }
 
     Write-Heading 'Starting LeanCorpus Community Server'
-    Write-Host '  Framework:     net11.0'
+    Write-Host "  Framework:     $framework"
     Write-Host "  Configuration: $configuration"
     if ($parsed.Has('External')) {
         Write-Host '  Listener:      http://0.0.0.0:5080 (external)' -ForegroundColor Yellow

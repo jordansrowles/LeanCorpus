@@ -415,6 +415,13 @@ function Resolve-TestTargets {
             $targetAreas = if ($hasAffectedAreas) { $affectedAreas } else { @() }
             $targetFilter = Build-TestFilter -AffectedAreas $targetAreas -Area $Area `
                 -Category $Category -Technique $Technique -Filter $Filter
+            if ($suiteConfig.ContainsKey('DefaultFilter') -and $suiteConfig.DefaultFilter) {
+                $targetFilter = if ($targetFilter) {
+                    "($targetFilter)&($($suiteConfig.DefaultFilter))"
+                } else {
+                    [string]$suiteConfig.DefaultFilter
+                }
+            }
             $targetRuntimeIdentifier = if ($runner -eq 'AotNative') {
                 if ($RuntimeIdentifier) { $RuntimeIdentifier } else { Get-DefaultRuntimeIdentifier }
             } else {

@@ -50,6 +50,7 @@ _description: Recorded LeanCorpus architecture decisions and their status.
 <tr><td><a href="ADR037-block-join-block-deletion-semantics.md">037</a></td><td>2026-09-26</td><td>Accepted</td><td></td><td><a href="ADR037-block-join-block-deletion-semantics.md">Block joins preserve parent boundaries across deletion and merge</a></td><td></td></tr>
 <tr><td><a href="ADR038-bounded-query-string-compilation.md">038</a></td><td>2026-09-26</td><td>Accepted</td><td></td><td><a href="ADR038-bounded-query-string-compilation.md">Validate bounded query syntax before executable query construction</a></td><td></td></tr>
 <tr><td><a href="ADR039-sparse-vector-presence.md">039</a></td><td>2026-10-04</td><td>Accepted</td><td></td><td><a href="ADR039-sparse-vector-presence.md">Dense vector data persists explicit sparse presence</a></td><td></td></tr>
+<tr><td><a href="ADR040-physical-index-runtime-lifecycle.md">040</a></td><td>2026-10-17</td><td>Accepted</td><td></td><td><a href="ADR040-physical-index-runtime-lifecycle.md">Physical indexes have one composed runtime owner</a></td><td></td></tr>
 </tbody>
 </table>
 </div>

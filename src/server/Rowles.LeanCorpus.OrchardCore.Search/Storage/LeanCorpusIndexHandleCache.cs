@@ -1,8 +1,11 @@
-using System.Collections.Concurrent;
-using Rowles.LeanCorpus.Document;
+﻿using System.Collections.Concurrent;
+using Microsoft.Extensions.Hosting;
+using OrchardCore.Environment.Shell.Scope;
+using Rowles.LeanCorpus.Diagnostics;
+using Rowles.LeanCorpus.Index;
+using SearcherLease = Rowles.LeanCorpus.Index.PhysicalIndexRuntime.PhysicalSearcherLease;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search.Searcher;
-using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.OrchardCore.Search.Indexing;
@@ -16,43 +19,31 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
     private static readonly Dictionary<string, SharedState> SharedStates = new(
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     private readonly string _tenantDirectory;
-    private readonly SharedState _state;
+    private readonly Guid _cacheId = Guid.NewGuid();
+    private readonly int? _shellId = ShellScope.Context?.GetHashCode();
+    private SharedState? _state;
+    private readonly CancellationTokenRegistration _stoppingRegistration;
+    private readonly CancellationTokenRegistration _stoppedRegistration;
+    private bool _hostStopping;
     private int _disposed;
 
-    public LeanCorpusIndexHandleCache(LeanCorpusIndexPathResolver paths)
+    public LeanCorpusIndexHandleCache(LeanCorpusIndexPathResolver paths, IHostApplicationLifetime? lifetime = null)
     {
         _tenantDirectory = paths.TenantDirectory;
-        while (true)
+        if (lifetime is not null)
         {
-            Task? closing = null;
-            lock (SharedStateLock)
-            {
-                if (!SharedStates.TryGetValue(_tenantDirectory, out var state))
-                {
-                    state = new SharedState();
-                    SharedStates.Add(_tenantDirectory, state);
-                }
-                _state = state;
-                if (!_state.IsClosing)
-                {
-                    _state.ReferenceCount++;
-                    return;
-                }
-
-                closing = _state.Closed.Task;
-            }
-
-            closing.GetAwaiter().GetResult();
+            _stoppingRegistration = lifetime.ApplicationStopping.Register(OnHostStopping);
+            _stoppedRegistration = lifetime.ApplicationStopped.Register(OnHostStopped);
         }
     }
 
     public async Task<T> WithExclusiveAsync<T>(LeanCorpusIndexPaths paths, Func<Entry, T> operation)
     {
-        var entry = GetEntry(paths);
+        var entry = await GetEntryAsync(paths).ConfigureAwait(false);
         await entry.Gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            ThrowIfUnavailable();
             return operation(entry);
         }
         finally
@@ -63,11 +54,11 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
 
     public async Task<T> WithExclusiveAsync<T>(LeanCorpusIndexPaths paths, Func<Entry, Task<T>> operation)
     {
-        var entry = GetEntry(paths);
+        var entry = await GetEntryAsync(paths).ConfigureAwait(false);
         await entry.Gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            ThrowIfUnavailable();
             return await operation(entry).ConfigureAwait(false);
         }
         finally
@@ -81,12 +72,12 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
         Func<IndexSearcher, T> operation,
         LeanCorpusSchemaManifest? manifest = null)
     {
-        var entry = GetEntry(paths);
+        var entry = await GetEntryAsync(paths).ConfigureAwait(false);
         await entry.Gate.WaitAsync().ConfigureAwait(false);
         SearcherLease lease;
         try
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            ThrowIfUnavailable();
             lease = entry.Open(createIfMissing: false, manifest).AcquireSearcher();
         }
         finally
@@ -103,13 +94,13 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
         Func<IndexSearcher, LeanCorpusSchemaManifest, T> operation,
         Func<Entry, Task<LeanCorpusSchemaManifest>> manifestFactory)
     {
-        var entry = GetEntry(paths);
+        var entry = await GetEntryAsync(paths).ConfigureAwait(false);
         await entry.Gate.WaitAsync().ConfigureAwait(false);
         SearcherLease lease;
         LeanCorpusSchemaManifest manifest;
         try
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            ThrowIfUnavailable();
             manifest = await manifestFactory(entry).ConfigureAwait(false);
             lease = entry.Open(createIfMissing: false, manifest).AcquireSearcher();
         }
@@ -122,66 +113,175 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
             return operation(lease.Searcher, manifest);
     }
 
-    private Entry GetEntry(LeanCorpusIndexPaths paths)
+    private async Task<Entry> GetEntryAsync(LeanCorpusIndexPaths paths)
     {
-        // Entry registration and last-owner shutdown share the same lock, so
-        // disposal cannot miss an entry admitted by an operation that checked earlier.
+        while (true)
+        {
+            Task? previousClose = null;
+            lock (SharedStateLock)
+            {
+                ThrowIfUnavailable();
+                if (_state is null)
+                {
+                    if (!SharedStates.TryGetValue(_tenantDirectory, out var shared))
+                    {
+                        shared = new SharedState();
+                        SharedStates.Add(_tenantDirectory, shared);
+                    }
+                    if (shared.IsClosing)
+                        previousClose = shared.Closed.Task;
+                    else
+                    {
+                        _state = shared;
+                        int previousOwners = shared.Owners.Count;
+                        shared.Owners.Add(_cacheId);
+                        TraceOwnership("acquire", shared, previousOwners);
+                    }
+                }
+                if (previousClose is null)
+                    return _state!.Entries.GetOrAdd(paths.IndexDirectory, _ => new Entry(paths));
+            }
+            // Shell construction never synchronously waits for a previous owner.
+            await previousClose.ConfigureAwait(false);
+        }
+    }
+
+    private void ThrowIfUnavailable()
+    {
+        lock (SharedStateLock)
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0 || _hostStopping || _state?.IsClosing == true, this);
+    }
+
+    private void OnHostStopping()
+    {
+        SharedState? closing = null;
         lock (SharedStateLock)
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            return _state.Entries.GetOrAdd(paths.IndexDirectory, _ => new Entry(paths));
+            _hostStopping = true;
+            if (_state is not null && !_state.IsClosing)
+            {
+                _state.IsClosing = true;
+                int previousOwners = _state.Owners.Count;
+                _state.Owners.Clear();
+                TraceOwnership("host-stop", _state, previousOwners);
+                closing = _state;
+            }
         }
+        if (closing is not null)
+            _ = CloseStateAsync(_tenantDirectory, closing);
+    }
+
+    private void OnHostStopped()
+    {
+        Task? closing;
+        lock (SharedStateLock) closing = _state?.Closed.Task;
+        // ApplicationStopped is a synchronous host signal. Join the asynchronous
+        // close started at ApplicationStopping before terminal host stop returns.
+        closing?.GetAwaiter().GetResult();
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
-
-        bool closeState = false;
+        SharedState? closing = null;
+        bool startClose = false;
         lock (SharedStateLock)
         {
-            _state.ReferenceCount--;
-            if (_state.ReferenceCount == 0 && !_state.IsClosing)
+            if (Interlocked.Exchange(ref _disposed, 1) == 0 && _state is not null)
             {
-                _state.IsClosing = true;
-                closeState = true;
+                int previousOwners = _state.Owners.Count;
+                _state.Owners.Remove(_cacheId);
+                TraceOwnership("release", _state, previousOwners);
+                if (_state.Owners.Count == 0 && !_state.IsClosing)
+                {
+                    _state.IsClosing = true;
+                    startClose = true;
+                }
             }
+            if (_state?.IsClosing == true) closing = _state;
         }
-
-        if (!closeState)
-            return;
-
         try
         {
-            foreach (var entry in _state.Entries.Values)
-            {
-                await entry.Gate.WaitAsync().ConfigureAwait(false);
-                try { entry.Close(); }
-                finally { entry.Gate.Release(); }
-            }
-
-            _state.Entries.Clear();
+            if (startClose)
+                _ = CloseStateAsync(_tenantDirectory, closing!);
+            if (closing is not null)
+                await closing.Closed.Task.ConfigureAwait(false);
         }
         finally
         {
-            lock (SharedStateLock)
+            _stoppingRegistration.Dispose();
+            _stoppedRegistration.Dispose();
+        }
+    }
+
+    private static async Task CloseStateAsync(string tenantDirectory, SharedState state)
+    {
+        using var activity = LeanCorpusActivitySource.Source.StartActivity("leancorpus.orchard.shared.close");
+        activity?.SetTag("shared_state.id", state.Id);
+        activity?.SetTag("tenant.id", Path.GetFileName(Path.GetDirectoryName(tenantDirectory)));
+        var failures = new List<Exception>();
+        foreach (var pair in state.Entries)
+        {
+            Entry entry = pair.Value;
+            await entry.Gate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                if (SharedStates.TryGetValue(_tenantDirectory, out var state) && ReferenceEquals(state, _state))
-                    SharedStates.Remove(_tenantDirectory);
-                _state.Closed.TrySetResult();
+                await entry.CloseAsync().ConfigureAwait(false);
+                state.Entries.TryRemove(pair.Key, out _);
+            }
+            catch (Exception failure) { failures.Add(failure); }
+            finally { entry.Gate.Release(); }
+        }
+        lock (SharedStateLock)
+        {
+            if (failures.Count == 0)
+            {
+                if (SharedStates.TryGetValue(tenantDirectory, out var current) && ReferenceEquals(current, state))
+                    SharedStates.Remove(tenantDirectory);
+                state.Closed.TrySetResult();
+                activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Ok);
+            }
+            else
+            {
+                // Keep the failed owner discoverable. A new shell must observe
+                // this failure instead of opening beside retained resources.
+                state.Closed.TrySetException(new AggregateException("Orchard physical index shutdown failed.", failures));
+                activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Error, failures[0].Message);
             }
         }
     }
 
-    public void Dispose()
-        => DisposeAsync().AsTask().GetAwaiter().GetResult();
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+    internal OrchardIndexOwnershipDiagnostics GetDiagnostics()
+    {
+        lock (SharedStateLock)
+            return new(_cacheId, _shellId, _state?.Id, _state?.Owners.Count ?? 0,
+                _state?.Owners.ToArray() ?? [],
+                _hostStopping || Volatile.Read(ref _disposed) != 0 || _state?.IsClosing == true,
+                _state?.Closed.Task.IsCompletedSuccessfully ?? false,
+                _state?.Entries.Values.Select(entry => entry.Handle).OfType<LeanCorpusIndexHandle>()
+                    .Select(handle => handle.RuntimeId).ToArray() ?? [],
+                _state?.Closed.Task.Exception?.GetBaseException());
+    }
+
+    private void TraceOwnership(string reason, SharedState state, int previousOwners)
+    {
+        using var activity = LeanCorpusActivitySource.Source.StartActivity("leancorpus.orchard.ownership");
+        activity?.SetTag("ownership.reason", reason);
+        activity?.SetTag("cache.id", _cacheId);
+        activity?.SetTag("tenant.id", Path.GetFileName(Path.GetDirectoryName(_tenantDirectory)));
+        activity?.SetTag("shell.id", _shellId);
+        activity?.SetTag("shared_state.id", state.Id);
+        activity?.SetTag("owners.before", previousOwners);
+        activity?.SetTag("owners.after", state.Owners.Count);
+    }
 
     private sealed class SharedState
     {
         internal ConcurrentDictionary<string, Entry> Entries { get; } = new(StringComparer.Ordinal);
         internal TaskCompletionSource Closed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal int ReferenceCount;
+        internal Guid Id { get; } = Guid.NewGuid();
+        internal HashSet<Guid> Owners { get; } = [];
         internal bool IsClosing;
     }
 
@@ -225,9 +325,7 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
             if (directoryExisted && !createIfMissing && !HasCommit(paths.IndexDirectory))
                 throw new InvalidDataException($"LeanCorpus index '{paths.IndexFullName}' has no committed index state.");
 
-            var directory = new MMapDirectory(paths.IndexDirectory);
-            IndexWriter? writer = null;
-            IndexSearcher? searcher = null;
+            PhysicalIndexRuntime? runtime = null;
             try
             {
                 string analyserName = manifest?.Metadata.DefaultAnalyser ?? "standard";
@@ -237,35 +335,39 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
                     "standard" => new StandardAnalyser(),
                     _ => throw new InvalidDataException("The LeanCorpus index metadata names an unsupported analyser."),
                 };
-                var configuration = new IndexWriterConfig
+                runtime = new PhysicalIndexRuntime(paths.IndexDirectory, new IndexWriterConfig
                 {
                     DurableCommits = true,
                     DefaultAnalyser = defaultAnalyser,
-                };
-                writer = new IndexWriter(directory, configuration);
+                });
                 if (!HasCommit(paths.IndexDirectory))
                 {
                     if (!createIfMissing)
                         throw new InvalidDataException($"LeanCorpus index '{paths.IndexFullName}' has no committed index state.");
-                    writer.Commit();
+                    runtime.Commit(refresh: true);
                 }
 
-                searcher = new IndexSearcher(directory);
-                _handle = new LeanCorpusIndexHandle(directory, writer, searcher, analyserName);
+                _handle = new LeanCorpusIndexHandle(runtime, analyserName);
                 return _handle;
             }
-            catch
+            catch (Exception openFailure)
             {
-                searcher?.Dispose();
-                writer?.Dispose();
-                directory.Dispose();
+                try { runtime?.Dispose(); }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AggregateException("Orchard physical index open and cleanup failed.", openFailure, cleanupFailure);
+                }
                 throw;
             }
         }
 
         internal void Close()
+            => CloseAsync().AsTask().GetAwaiter().GetResult();
+
+        internal async ValueTask CloseAsync()
         {
-            _handle?.Dispose();
+            if (_handle is not null)
+                await _handle.DisposeAsync().ConfigureAwait(false);
             _handle = null;
         }
 
@@ -274,87 +376,15 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
     }
 }
 
-internal sealed class LeanCorpusIndexHandle : IDisposable
+/// <summary>Adds Orchard analyser identity and visibility policy to the common physical owner.</summary>
+internal sealed class LeanCorpusIndexHandle(PhysicalIndexRuntime runtime, string defaultAnalyserName) : IDisposable, IAsyncDisposable
 {
-    private readonly ReaderWriterLockSlim _searcherLock = new(LockRecursionPolicy.NoRecursion);
-    private IndexSearcher _searcher;
-    private int _disposed;
-
-    public MMapDirectory Directory { get; }
-    public IndexWriter Writer { get; }
-    public string DefaultAnalyserName { get; }
-
-    public LeanCorpusIndexHandle(MMapDirectory directory, IndexWriter writer, IndexSearcher searcher, string defaultAnalyserName)
-    {
-        Directory = directory;
-        Writer = writer;
-        _searcher = searcher;
-        DefaultAnalyserName = defaultAnalyserName;
-    }
-
-    public SearcherLease AcquireSearcher()
-    {
-        _searcherLock.EnterReadLock();
-        if (Volatile.Read(ref _disposed) != 0)
-        {
-            _searcherLock.ExitReadLock();
-            throw new ObjectDisposedException(nameof(LeanCorpusIndexHandle));
-        }
-
-        return new SearcherLease(_searcherLock, _searcher);
-    }
-
-    public void CommitAndRefresh()
-    {
-        Writer.Commit();
-        var replacement = new IndexSearcher(Directory);
-        _searcherLock.EnterWriteLock();
-        try
-        {
-            var previous = _searcher;
-            _searcher = replacement;
-            previous.Dispose();
-        }
-        catch
-        {
-            replacement.Dispose();
-            throw;
-        }
-        finally
-        {
-            _searcherLock.ExitWriteLock();
-        }
-    }
-
-    public void Dispose()
-    {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
-
-        _searcherLock.EnterWriteLock();
-        try { _searcher.Dispose(); }
-        finally { _searcherLock.ExitWriteLock(); }
-
-        Writer.Dispose();
-        Directory.Dispose();
-        _searcherLock.Dispose();
-    }
-}
-
-internal sealed class SearcherLease : IDisposable
-{
-    private ReaderWriterLockSlim? _lock;
-
-    internal IndexSearcher Searcher { get; }
-
-    public SearcherLease(ReaderWriterLockSlim @lock, IndexSearcher searcher)
-    {
-        _lock = @lock;
-        Searcher = searcher;
-    }
-
-    public void Dispose()
-    {
-        Interlocked.Exchange(ref _lock, null)?.ExitReadLock();
-    }
+    public IndexWriter Writer => runtime.Writer;
+    public string DefaultAnalyserName { get; } = defaultAnalyserName;
+    internal Guid RuntimeId => runtime.Id;
+    internal IDisposable EnterOperation() => runtime.EnterOperation();
+    public SearcherLease AcquireSearcher() => runtime.AcquireSearcher();
+    public void CommitAndRefresh() => runtime.Commit(refresh: true);
+    public void Dispose() => runtime.Dispose();
+    public ValueTask DisposeAsync() => runtime.DisposeAsync();
 }

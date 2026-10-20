@@ -41,13 +41,12 @@ jobs:
           path: artifacts/build/runs
           if-no-files-found: error
       - name: Install Playwright Chromium
-        if: matrix.framework == 'net11.0'
         shell: pwsh
         run: |
           $projectOutputRoot = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests'
-          $playwrightScripts = @(Get-ChildItem -LiteralPath $projectOutputRoot -Filter 'playwright.ps1' -File -Recurse -ErrorAction SilentlyContinue)
-          if ($playwrightScripts.Count -ne 1) { throw "Expected exactly one generated playwright.ps1 under '$projectOutputRoot'; found $($playwrightScripts.Count)." }
-          pwsh $playwrightScripts[0].FullName install --with-deps chromium
+          $playwrightScript = Join-Path $projectOutputRoot 'release_${{ matrix.framework }}/playwright.ps1'
+          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
+          pwsh $playwrightScript install --with-deps chromium
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Validate DevOps artefact infrastructure
         if: matrix.framework == 'net10.0'
@@ -118,9 +117,9 @@ jobs:
         shell: pwsh
         run: |
           $projectOutputRoot = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests'
-          $playwrightScripts = @(Get-ChildItem -LiteralPath $projectOutputRoot -Filter 'playwright.ps1' -File -Recurse -ErrorAction SilentlyContinue)
-          if ($playwrightScripts.Count -ne 1) { throw "Expected exactly one generated playwright.ps1 under '$projectOutputRoot'; found $($playwrightScripts.Count)." }
-          pwsh $playwrightScripts[0].FullName install chromium
+          $playwrightScript = Join-Path $projectOutputRoot 'release_net11.0/playwright.ps1'
+          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
+          pwsh $playwrightScript install chromium
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run complete Windows test suite
         shell: pwsh

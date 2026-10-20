@@ -1,9 +1,9 @@
-using Rowles.LeanCorpus.Server.Core.Execution;
+﻿using Rowles.LeanCorpus.Server.Core.Execution;
 
 namespace Rowles.LeanCorpus.Server.Core.Runtime;
 
 /// <summary>Coordinates periodic, threshold and explicit local commit publication.</summary>
-public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposable
+public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposable, IAsyncDisposable
 {
     private readonly IndexRuntime _runtime;
     private readonly Timer _timer;
@@ -11,6 +11,7 @@ public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposabl
     private readonly object _sync = new();
     private readonly List<(long Sequence, TaskCompletionSource<LocalCommitReceipt> Completion)> _waiters = [];
     private int _disposed;
+    private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private LocalCommitReceipt? _lastReceipt;
     private Exception? _lastFailure;
     private int _consecutiveFailures;
@@ -41,6 +42,8 @@ public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposabl
     /// <inheritdoc />
     public CommitResult Commit(bool refresh = false)
     {
+        if (Volatile.Read(ref _disposed) != 0)
+            return new CommitFailed("The local commit coordinator is closed.", new ObjectDisposedException(nameof(LocalCommitCoordinator)));
         try
         {
             LocalCommitReceipt? receipt = _runtime.CommitCore(refresh);
@@ -73,6 +76,8 @@ public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposabl
             Volatile.Write(ref _lastFailure, exception);
             Interlocked.Increment(ref _consecutiveFailures);
             _runtime.MarkDegraded();
+            if (_runtime.RequiresReopen)
+                FailWaiters(_runtime.PhysicalFailure ?? exception);
             return new CommitFailed("The local commit failed.", exception);
         }
     }
@@ -94,9 +99,13 @@ public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposabl
         TaskCompletionSource<LocalCommitReceipt> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (_sync)
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             current = LastReceipt;
             if (current is not null && current.LastSequenceNumber >= sequenceNumber)
                 return current;
+            if (_runtime.RequiresReopen)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(
+                    _runtime.PhysicalFailure ?? LastFailure ?? new IOException("The physical runtime requires reopening.")).Throw();
             _waiters.Add((sequenceNumber, completion));
         }
         using CancellationTokenRegistration registration = cancellationToken.Register(static state =>
@@ -131,6 +140,16 @@ public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposabl
             waiter.TrySetResult(receipt);
     }
 
+    private void FailWaiters(Exception failure)
+    {
+        lock (_sync)
+        {
+            foreach (var waiter in _waiters)
+                waiter.Completion.TrySetException(failure);
+            _waiters.Clear();
+        }
+    }
+
     private void CancelWaiter(TaskCompletionSource<LocalCommitReceipt> completion)
     {
         lock (_sync)
@@ -160,16 +179,29 @@ public sealed class LocalCommitCoordinator : ILocalCommitCoordinator, IDisposabl
     }
 
     /// <summary>Stops periodic commit scheduling and releases sequence waiters.</summary>
-    public void Dispose()
+    public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+    /// <summary>Stops scheduling, drains executing timer callbacks and releases remaining waiters.</summary>
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
-            return;
-        _timer.Dispose();
-        lock (_sync)
+        if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            _ = CloseCoreAsync();
+        return new ValueTask(_closed.Task);
+    }
+
+    private async Task CloseCoreAsync()
+    {
+        try
         {
-            foreach ((_, TaskCompletionSource<LocalCommitReceipt> completion) in _waiters)
-                completion.TrySetException(new ObjectDisposedException(nameof(LocalCommitCoordinator)));
-            _waiters.Clear();
+            await _timer.DisposeAsync().ConfigureAwait(false);
+            lock (_sync)
+            {
+                foreach ((_, TaskCompletionSource<LocalCommitReceipt> completion) in _waiters)
+                    completion.TrySetException(new ObjectDisposedException(nameof(LocalCommitCoordinator)));
+                _waiters.Clear();
+            }
+            _closed.TrySetResult();
         }
+        catch (Exception failure) { _closed.TrySetException(failure); }
     }
 }

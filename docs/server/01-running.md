@@ -1,10 +1,12 @@
 # Running the Community Server
 
-Community Server 0.1.0-alpha.1 targets .NET 11 and runs the reference host in the foreground:
+Community Server 0.1.0-alpha.1 targets .NET 10 and .NET 11. Building from source requires the .NET 11 SDK and preview C# compiler. The reference host runs in the foreground:
 
 ~~~
 ./devops server start
 ~~~
+
+Select .NET 10 with `./devops server start -Framework net10.0`; the default is `net11.0`.
 
 The default listeners are http://127.0.0.1:5080 and http://[::1]:5080. Indexes are stored below data/ in the host content root. Press Ctrl+C to stop the process. Set LeanCorpus:DataRoot in configuration, or pass an application argument, to select another data root.
 
@@ -35,3 +37,21 @@ Readiness means that startup and the registry completed, the process is not stop
 ## Create an index
 
 Create a logical index with PUT /v1/indices/{name}. The request schema is authoritative and the physical directory uses an opaque ID. The schemas and writes page contains the full example.
+
+## Shutdown
+
+Shutdown rejects new operations and waits for admitted requests before closing
+physical indexes. If `ShutdownTimeout` expires, disposal throws a timeout and
+retains the physical owners in the draining state. Finish or cancel the admitted
+requests, then retry disposal. A timeout does not mean the index files are free
+to rename or remove.
+
+Search leases and committed snapshot leases must be disposed before their
+physical runtime can close. Executing commit-timer callbacks are joined, and
+remaining durability waiters fail when their coordinator closes. A failed close
+is reported to the caller rather than treated as successful shutdown. Store
+shutdown attempts every physical owner even when one close fails; repeated
+callers observe the same close result, and a closed store rejects new owners.
+
+See [physical index lifetimes](../articles/physical-index-lifetimes.md) for the
+shared Core ownership contract.

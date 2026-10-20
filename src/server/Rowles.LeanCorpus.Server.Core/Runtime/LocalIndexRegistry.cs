@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Server.Core.Storage;
+﻿using Rowles.LeanCorpus.Server.Core.Storage;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
 using Rowles.LeanCorpus.Server.Core.Configuration;
 using Rowles.LeanCorpus.Server.Core.Execution;
@@ -31,16 +31,25 @@ internal sealed class LocalIndexRegistry : IDisposable
         LocalIndexRegistry registry = new(dataRoot, options.CommitInterval, options.RefreshInterval, options.CommitObserver);
         Directory.CreateDirectory(registry._indicesPath);
 
-        ServerRegistry persisted = await registry._store.LoadAsync(cancellationToken).ConfigureAwait(false);
-        ValidatePersistedRegistrations(persisted.Indices, registry._indicesPath);
-        foreach (IndexRegistration registration in persisted.Indices)
+        try
         {
-            LocalIndexDescriptor descriptor = ToDescriptor(registration);
-            LocalIndexHandle handle = await registry._physicalStore.OpenAsync(descriptor, LocalIndexOpenMode.ReadWrite, cancellationToken).ConfigureAwait(false);
-            registry._entries.Add(registration.Name, new IndexRuntimeEntry(registration, handle));
+            ServerRegistry persisted = await registry._store.LoadAsync(cancellationToken).ConfigureAwait(false);
+            ValidatePersistedRegistrations(persisted.Indices, registry._indicesPath);
+            foreach (IndexRegistration registration in persisted.Indices)
+            {
+                LocalIndexDescriptor descriptor = ToDescriptor(registration);
+                LocalIndexHandle handle = await registry._physicalStore.OpenAsync(descriptor, LocalIndexOpenMode.ReadWrite, cancellationToken).ConfigureAwait(false);
+                registry._entries.Add(registration.Name, new IndexRuntimeEntry(registration, handle));
+            }
+            return registry;
         }
-
-        return registry;
+        catch (Exception openFailure)
+        {
+            try { await registry._physicalStore.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception cleanupFailure) { throw new AggregateException("Server registry open and cleanup failed.", openFailure, cleanupFailure); }
+            finally { registry._gate.Dispose(); }
+            throw;
+        }
     }
 
     internal IReadOnlyList<IndexRuntimeEntry> List()
@@ -170,12 +179,8 @@ internal sealed class LocalIndexRegistry : IDisposable
 
     public void Dispose()
     {
-        IndexRuntimeEntry[] entries;
-        lock (_entries)
-            entries = _entries.Values.ToArray();
-        foreach (IndexRuntimeEntry entry in entries)
-            entry.Handle.Dispose();
-
+        // The physical store owns all handles and continues cleanup after an
+        // individual failure. Registry entries retain their logical identity.
         _physicalStore.DisposeAsync().AsTask().GetAwaiter().GetResult();
 
         _gate.Dispose();

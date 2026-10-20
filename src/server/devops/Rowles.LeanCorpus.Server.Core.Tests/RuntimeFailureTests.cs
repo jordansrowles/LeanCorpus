@@ -1,0 +1,154 @@
+﻿using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
+using Rowles.LeanCorpus.Server.Core.Execution;
+
+namespace Rowles.LeanCorpus.Server.Core.Tests;
+
+[Trait("Area", "Server")]
+public sealed class RuntimeFailureTests
+{
+    [Fact]
+    public async Task FatalPublicationFailureDegradesTheHostFailsWaitersAndPreservesTheOldReader()
+    {
+        string path = NewPath();
+        var handle = OpenHandle(path);
+        var runtime = handle.Runtime;
+        var failure = new IOException("controlled post-publication durability failure");
+        try
+        {
+            runtime.Writer.AddDocument(Document());
+            long sequence = runtime.MarkWrite();
+            runtime.Writer.PrepareCommit();
+            runtime.Writer.Config.PreparedCommitPublicationSync = _ => throw failure;
+            Task<LocalCommitReceipt> waiting = runtime.Commits.WaitUntilCommittedAsync(sequence, TestContext.Current.CancellationToken).AsTask();
+            Assert.True(runtime.Commits.Commit() is CommitFailed);
+            Assert.True(handle.Health.IsDegraded);
+            Assert.Same(failure, await Assert.ThrowsAsync<IOException>(() => waiting.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken)));
+            await Assert.ThrowsAsync<IOException>(async () => await runtime.Commits.WaitUntilCommittedAsync(sequence + 1, TestContext.Current.CancellationToken));
+            using var operation = await handle.EnterOperationAsync(TestContext.Current.CancellationToken);
+            using var old = runtime.Searchers.AcquireLease();
+            Assert.Equal(0, old.Searcher.Search(new MatchAllDocsQuery(), 10, TestContext.Current.CancellationToken).TotalHits);
+        }
+        finally
+        {
+            runtime.Writer.Config.PreparedCommitPublicationSync = null;
+            try { await handle.DisposeAsync(); } catch { /* The failed sequence remains failed during close. */ }
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RetryableCommitFailureRemainsDegradedUntilRetryAndThenCompletesItsWaiter()
+    {
+        string path = NewPath();
+        var handle = OpenHandle(path);
+        var runtime = handle.Runtime;
+        try
+        {
+            runtime.Writer.AddDocument(Document());
+            long sequence = runtime.MarkWrite();
+            runtime.Writer.Config.CommitBeforePublication = _ => throw new IOException("controlled pre-publication failure");
+            Task<LocalCommitReceipt> waiting = runtime.Commits.WaitUntilCommittedAsync(sequence, TestContext.Current.CancellationToken).AsTask();
+            Assert.True(runtime.Commits.Commit() is CommitFailed);
+            Assert.True(handle.Health.IsDegraded);
+            Assert.False(waiting.IsCompleted);
+            runtime.Writer.Config.CommitBeforePublication = null;
+            Assert.True(runtime.Commits.Commit(refresh: true) is CommitPublished);
+            Assert.True((await waiting.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken)).IsDurable);
+            Assert.False(handle.Health.IsDegraded);
+        }
+        finally
+        {
+            runtime.Writer.Config.CommitBeforePublication = null;
+            await handle.DisposeAsync();
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task RefreshFailureDegradesHostHealthWhileTheOldGenerationRemainsUsable()
+    {
+        string path = NewPath();
+        var handle = OpenHandle(path);
+        var saved = new Dictionary<string, byte[]>();
+        try
+        {
+            handle.Runtime.Writer.AddDocument(Document());
+            handle.Runtime.MarkWrite();
+            Assert.True(handle.Runtime.Commits.Commit(refresh: true) is CommitPublished);
+            foreach (string commit in Directory.EnumerateFiles(path, "segments_*"))
+            {
+                saved.Add(commit, File.ReadAllBytes(commit));
+                File.WriteAllText(commit, "controlled corrupt commit");
+            }
+            Assert.False(handle.Runtime.Searchers.Refresh());
+            Assert.True(handle.Health.IsDegraded);
+            Assert.True(handle.Health.IsUsable);
+            foreach (var commit in saved) File.WriteAllBytes(commit.Key, commit.Value);
+            handle.Runtime.Refresh();
+            Assert.False(handle.Health.IsDegraded);
+        }
+        finally
+        {
+            foreach (var commit in saved) File.WriteAllBytes(commit.Key, commit.Value);
+            await handle.DisposeAsync();
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task DurableReceiptDoesNotClaimVisibilityWhenTheRequiredRefreshFails()
+    {
+        string path = NewPath();
+        var handle = OpenHandle(path);
+        var runtime = handle.Runtime;
+        string? commitPath = null;
+        byte[]? committedBytes = null;
+        try
+        {
+            runtime.Writer.AddDocument(Document());
+            long sequence = runtime.MarkWrite();
+            runtime.Writer.PrepareCommit();
+            runtime.Writer.Config.PreparedCommitPublicationSync = directory =>
+            {
+                commitPath = Path.Combine(directory, $"segments_{runtime.Writer.CurrentCommitGeneration}");
+                committedBytes = File.ReadAllBytes(commitPath);
+                File.WriteAllText(commitPath, "controlled post-commit refresh failure");
+            };
+            Task<LocalCommitReceipt> waiting = runtime.Commits.WaitUntilCommittedAsync(sequence, TestContext.Current.CancellationToken).AsTask();
+            CommitResult result = runtime.Commits.Commit(refresh: true);
+            Assert.True(result is CommitPublished);
+            var receipt = result switch { CommitPublished published => published.Receipt, _ => throw new InvalidOperationException() };
+            Assert.True(receipt.IsDurable);
+            Assert.False(receipt.IsVisible);
+            Assert.True(handle.Health.IsDegraded);
+            Assert.Equal(receipt, await waiting.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+            Assert.ThrowsAny<Exception>(runtime.Refresh);
+            File.WriteAllBytes(commitPath!, committedBytes!);
+            runtime.Refresh();
+            Assert.False(handle.Health.IsDegraded);
+            using var visible = runtime.Searchers.AcquireLease();
+            Assert.Equal(receipt.ContentToken, visible.ContentToken);
+        }
+        finally
+        {
+            runtime.Writer.Config.PreparedCommitPublicationSync = null;
+            if (commitPath is not null && committedBytes is not null) File.WriteAllBytes(commitPath, committedBytes);
+            await handle.DisposeAsync();
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    private static LeanDocument Document()
+    {
+        var document = new LeanDocument();
+        document.Add(new TextField("body", "retained"));
+        return document;
+    }
+    private static LocalIndexHandle OpenHandle(string path) => new(new LocalIndexDescriptor(PhysicalIndexId.New(),
+        new IndexSchema([new IndexFieldDefinition("body", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
+        "failure-schema", new MutableIndexSettings(null, null, "body", null)), path, TimeSpan.FromHours(1), TimeSpan.FromHours(1), LocalIndexOpenMode.ReadWrite);
+    private static string NewPath() => Path.Combine(Path.GetTempPath(), "leancorpus-server-runtime-failures", Guid.NewGuid().ToString("N"));
+}
