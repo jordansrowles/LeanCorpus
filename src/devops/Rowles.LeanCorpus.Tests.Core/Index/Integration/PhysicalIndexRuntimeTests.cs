@@ -113,6 +113,64 @@ public sealed class PhysicalIndexRuntimeTests
     }
 
     [Fact]
+    public async Task AdmittedOperationCanCommitAndRefreshAfterQuiescingBegins()
+    {
+        string path = NewPath();
+        var runtime = Open(path);
+        PhysicalIndexRuntime.OperationLease operation = runtime.EnterOperation();
+        try
+        {
+            Task closing = runtime.CloseAsync().AsTask();
+            Assert.Equal(PhysicalIndexRuntimeState.Quiescing, runtime.GetDiagnostics().State);
+            Assert.Equal(1, runtime.GetDiagnostics().ActiveOperations);
+            Assert.Throws<ObjectDisposedException>(() => runtime.EnterOperation());
+
+            runtime.Writer.AddDocument(Document("admitted commit"));
+            runtime.CommitUnderOperation(operation, refresh: true);
+            using (var searcher = runtime.AcquireSearcherUnderOperation(operation))
+                Assert.Equal(1, searcher.Searcher.Search(new TermQuery("body", "admitted"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.False(closing.IsCompleted);
+
+            operation.Dispose();
+            await closing.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            Assert.Equal(PhysicalIndexRuntimeState.Closed, runtime.GetDiagnostics().State);
+            using (File.Open(Path.Combine(path, "write.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) { }
+        }
+        finally
+        {
+            operation.Dispose();
+            await runtime.DisposeAsync();
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task UnderOperationCommitRejectsDisposedAndForeignLeases()
+    {
+        string firstPath = NewPath();
+        string secondPath = NewPath();
+        var first = Open(firstPath);
+        var second = Open(secondPath);
+        PhysicalIndexRuntime.OperationLease operation = first.EnterOperation();
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => second.CommitUnderOperation(operation, refresh: true));
+            operation.Dispose();
+            Assert.Throws<ObjectDisposedException>(() => first.CommitUnderOperation(operation, refresh: true));
+            Assert.Equal(0, second.GetDiagnostics().ActiveOperations);
+            Assert.Equal(0, first.GetDiagnostics().ActiveOperations);
+        }
+        finally
+        {
+            operation.Dispose();
+            await first.DisposeAsync();
+            await second.DisposeAsync();
+            Directory.Delete(firstPath, recursive: true);
+            Directory.Delete(secondPath, recursive: true);
+        }
+    }
+
+    [Fact]
     public void FailedSearcherOpenReleasesAnAlreadyAcquiredWriterLock()
     {
         string path = NewPath();

@@ -170,7 +170,7 @@ public sealed class ProviderIntegrationTests
     public async Task IndexHandleIsSharedAcrossOrchardShellReplacement()
     {
         await using var fixture = new ProviderFixture();
-        await using var replacementHandles = new LeanCorpusIndexHandleCache(fixture.Paths);
+        await using var replacementHandles = new LeanCorpusIndexHandleCache(fixture.Paths, lifetime: null, manualRootLifetimeContext: fixture.RootHostContext);
         Assert.True(await fixture.Indexes.CreateAsync(fixture.Profile));
 
         await fixture.Handles.DisposeAsync();

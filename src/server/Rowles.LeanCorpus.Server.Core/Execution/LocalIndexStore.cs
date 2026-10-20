@@ -1,4 +1,5 @@
 ﻿using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Server.Core.Execution;
 
@@ -11,9 +12,12 @@ public sealed class LocalIndexStore : ILocalIndexStore
     private readonly ILocalCommitObserver _observer;
     private readonly ICommitInstallOperations _installOperations;
     private readonly Dictionary<PhysicalIndexId, LocalIndexHandle> _handles = [];
+    private readonly Dictionary<PhysicalIndexId, long> _replacementGenerations = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int _closing;
+    private bool? _lastCreateRollbackSucceeded;
+    private Exception? _lastCreateRollbackFailure;
 
     /// <summary>Creates a physical store rooted at a server-owned directory.</summary>
     public LocalIndexStore(string root, TimeSpan commitInterval, TimeSpan refreshInterval, ILocalCommitObserver? observer = null)
@@ -47,12 +51,51 @@ public sealed class LocalIndexStore : ILocalIndexStore
         try
         {
             ThrowIfClosing();
-            if (Exists(descriptor.Id)) throw new InvalidOperationException("The physical index already exists.");
+            if (_handles.ContainsKey(descriptor.Id) || Exists(descriptor.Id))
+                throw new InvalidOperationException("The physical index already exists or is already owned by this store.");
             string path = PathFor(descriptor.Id);
-            Directory.CreateDirectory(path);
-            LocalIndexHandle handle = new(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer, _installOperations);
-            _handles.Add(descriptor.Id, handle);
-            return handle;
+            LocalIndexHandle? handle = null;
+            bool pathCreated = false;
+            try
+            {
+                Directory.CreateDirectory(path);
+                pathCreated = true;
+                handle = new LocalIndexHandle(descriptor, path, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer, _installOperations);
+                _handles.Add(descriptor.Id, handle);
+                return handle;
+            }
+            catch (Exception createFailure)
+            {
+                var cleanupFailures = new List<Exception>();
+                bool ownerClosed = handle is null;
+                if (handle is not null)
+                {
+                    try { await handle.DisposeAsync().ConfigureAwait(false); ownerClosed = true; }
+                    catch (Exception failure) { cleanupFailures.Add(failure); }
+                    if (_handles.TryGetValue(descriptor.Id, out LocalIndexHandle? current) && ReferenceEquals(current, handle))
+                        _handles.Remove(descriptor.Id);
+                }
+                bool rollbackCompleted = false;
+                if (ownerClosed && pathCreated && !ContainsWriteLockFailure(createFailure) && !HasUnresolvedOpenCleanup(createFailure))
+                {
+                    try
+                    {
+                        if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+                        rollbackCompleted = true;
+                    }
+                    catch (Exception failure) { cleanupFailures.Add(failure); }
+                }
+                _lastCreateRollbackSucceeded = rollbackCompleted;
+                _lastCreateRollbackFailure = cleanupFailures.FirstOrDefault()
+                    ?? (rollbackCompleted ? null : createFailure);
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException("Local index creation and rollback failed; the path was retained for recovery.", [createFailure, .. cleanupFailures]);
+                    _lastCreateRollbackFailure = cleanupFailure;
+                    throw cleanupFailure;
+                }
+                throw;
+            }
         }
         finally { _gate.Release(); }
     }
@@ -71,6 +114,21 @@ public sealed class LocalIndexStore : ILocalIndexStore
             {
                 if (!string.Equals(existing.Descriptor.SchemaHash, descriptor.SchemaHash, StringComparison.Ordinal))
                     throw new InvalidDataException("The physical index is already open with a different schema.");
+                if (existing.LifecycleState != LocalIndexHandleLifecycleState.Active)
+                {
+                    // Disposing is instance-scoped. Join the old owner's shared
+                    // completion before considering another physical owner.
+                    await existing.DisposeAsync().AsTask().WaitAsync(cancellationToken).ConfigureAwait(false);
+                    if (_handles.TryGetValue(descriptor.Id, out LocalIndexHandle? current) && ReferenceEquals(current, existing))
+                        _handles.Remove(descriptor.Id);
+                    string closedPath = PathFor(descriptor.Id);
+                    if (!Directory.Exists(closedPath))
+                        throw new DirectoryNotFoundException("The physical index does not exist after its previous owner closed.");
+                    LocalIndexHandle replacement = new(descriptor, closedPath, descriptor.Settings.CommitInterval ?? _commitInterval, descriptor.Settings.RefreshInterval ?? _refreshInterval, mode, _observer, _installOperations);
+                    _handles.Add(descriptor.Id, replacement);
+                    _replacementGenerations[descriptor.Id] = _replacementGenerations.GetValueOrDefault(descriptor.Id) + 1;
+                    return replacement;
+                }
                 if (existing.Mode != mode)
                 {
                     if (mode == LocalIndexOpenMode.ReadWrite)
@@ -105,6 +163,7 @@ public sealed class LocalIndexStore : ILocalIndexStore
             }
             string path = PathFor(id);
             if (Directory.Exists(path)) Directory.Delete(path, true);
+            _replacementGenerations.Remove(id);
         }
         finally { _gate.Release(); }
     }
@@ -118,12 +177,38 @@ public sealed class LocalIndexStore : ILocalIndexStore
         .Select(static name => new PhysicalIndexId(name!))
         .ToArray();
 
+    internal async ValueTask<LocalIndexStoreDiagnostics> GetLifecycleDiagnosticsAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            LocalIndexStoreEntryDiagnostics[] entries = _handles.Select(pair =>
+            {
+                LocalIndexLifecycleDiagnostics lifecycle = pair.Value.GetLifecycleDiagnostics();
+                return new LocalIndexStoreEntryDiagnostics(pair.Key.Value, lifecycle.RuntimeId,
+                    pair.Value.LifecycleState, _replacementGenerations.GetValueOrDefault(pair.Key));
+            }).ToArray();
+            return new(Volatile.Read(ref _closing) != 0, entries, _lastCreateRollbackSucceeded, _lastCreateRollbackFailure);
+        }
+        finally { _gate.Release(); }
+    }
+
     private string PathFor(PhysicalIndexId id)
     {
         if (!Guid.TryParseExact(id.Value, "N", out _))
             throw new ArgumentException("Physical index IDs must be GUID values in N format.", nameof(id));
         return Path.Combine(_root, id.Value);
     }
+
+    private static bool ContainsWriteLockFailure(Exception failure) => failure switch
+    {
+        WriteLockException => true,
+        AggregateException aggregate => aggregate.InnerExceptions.Any(ContainsWriteLockFailure),
+        _ => failure.InnerException is not null && ContainsWriteLockFailure(failure.InnerException)
+    };
+
+    private static bool HasUnresolvedOpenCleanup(Exception failure) => failure is AggregateException aggregate
+        && (aggregate.InnerExceptions.Count > 1 || aggregate.InnerExceptions.Any(HasUnresolvedOpenCleanup));
 
     private void RecoverAbandonedInstallDirectories()
     {

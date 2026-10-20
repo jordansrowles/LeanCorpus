@@ -13,12 +13,13 @@ public sealed class ProviderOwnershipTests
         Assert.True(await fixture.Indexes.CreateAsync(fixture.Profile));
         var paths = fixture.Paths.Resolve(fixture.Profile.IndexFullName);
         using var lifetime = new ControlledLifetime();
-        await using var replacement = new LeanCorpusIndexHandleCache(fixture.Paths, lifetime);
+        await using var replacement = new LeanCorpusIndexHandleCache(fixture.Paths, lifetime, fixture.RootHostContext);
         await replacement.WithSearcherAsync(paths, _ => true);
 
         var old = fixture.Handles.GetDiagnostics();
         var current = replacement.GetDiagnostics();
         Assert.NotEqual(old.CacheId, current.CacheId);
+        Assert.Equal(old.RootHostId, current.RootHostId);
         Assert.Equal(old.SharedStateId, current.SharedStateId);
         Assert.Equal(2, current.ShellReferences);
         Assert.Contains(old.CacheId, current.OwnerCacheIds);
@@ -43,7 +44,7 @@ public sealed class ProviderOwnershipTests
         Assert.True(await fixture.Indexes.CreateAsync(fixture.Profile));
         var paths = fixture.Paths.Resolve(fixture.Profile.IndexFullName);
         using var lifetime = new ControlledLifetime();
-        await using var replacement = new LeanCorpusIndexHandleCache(fixture.Paths, lifetime);
+        await using var replacement = new LeanCorpusIndexHandleCache(fixture.Paths, lifetime, fixture.RootHostContext);
         await replacement.WithSearcherAsync(paths, _ => true);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -109,6 +110,69 @@ public sealed class ProviderOwnershipTests
     }
 
     [Fact]
+    public async Task IndependentRootHostCannotAttachToOrStopAnotherHostsRuntime()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-roots", Guid.NewGuid().ToString("N"));
+        var paths = new LeanCorpusIndexPathResolver(root, "Default");
+        var index = paths.Resolve("Search");
+        using var firstLifetime = new ControlledLifetime();
+        using var secondLifetime = new ControlledLifetime();
+        await using var first = new LeanCorpusIndexHandleCache(paths, firstLifetime);
+        await using var second = new LeanCorpusIndexHandleCache(paths, secondLifetime);
+        try
+        {
+            Guid firstRuntime = await first.WithExclusiveAsync(index, entry => entry.Open(createIfMissing: true).RuntimeId);
+            InvalidOperationException collision = await Assert.ThrowsAsync<InvalidOperationException>(
+                () => second.WithSearcherAsync(index, _ => true));
+            Assert.Contains("another Orchard root host", collision.Message, StringComparison.Ordinal);
+            Assert.NotEqual(first.GetDiagnostics().RootHostId, second.GetDiagnostics().RootHostId);
+            Assert.Null(second.GetDiagnostics().SharedStateId);
+            Assert.Equal(firstRuntime, Assert.Single(first.GetDiagnostics().RuntimeIds));
+
+            secondLifetime.StopApplication();
+            secondLifetime.SignalStopped();
+            Assert.True(await first.WithSearcherAsync(index, _ => true));
+            Assert.Equal(firstRuntime, Assert.Single(first.GetDiagnostics().RuntimeIds));
+        }
+        finally
+        {
+            firstLifetime.StopApplication();
+            firstLifetime.SignalStopped();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NewRootCanOpenAfterPriorRootClosesItsPhysicalOwner()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-root-reopen", Guid.NewGuid().ToString("N"));
+        var paths = new LeanCorpusIndexPathResolver(root, "Default");
+        var index = paths.Resolve("Search");
+        using var firstLifetime = new ControlledLifetime();
+        await using var first = new LeanCorpusIndexHandleCache(paths, firstLifetime);
+        try
+        {
+            Guid firstRuntime = await first.WithExclusiveAsync(index, entry => entry.Open(createIfMissing: true).RuntimeId);
+            firstLifetime.StopApplication();
+            firstLifetime.SignalStopped();
+            Assert.True(first.GetDiagnostics().CloseCompleted);
+            using var nextLifetime = new ControlledLifetime();
+            await using var next = new LeanCorpusIndexHandleCache(paths, nextLifetime);
+            Guid nextRuntime = await next.WithSearcherAsync(index, _ => next.GetDiagnostics().RuntimeIds.Single());
+            Assert.NotEqual(firstRuntime, nextRuntime);
+            Assert.Throws<IOException>(() => File.Open(Path.Combine(index.IndexDirectory, "write.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None).Dispose());
+            await next.DisposeAsync();
+            using (File.Open(Path.Combine(index.IndexDirectory, "write.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) { }
+        }
+        finally
+        {
+            firstLifetime.StopApplication();
+            firstLifetime.SignalStopped();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RepeatedShellHandoffsCloseEachPhysicalRuntimeExactlyOnceAtFinalOwnerRelease()
     {
         string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-handoffs", Guid.NewGuid().ToString("N"));
@@ -134,8 +198,9 @@ public sealed class ProviderOwnershipTests
         {
             for (int iteration = 0; iteration < 16; iteration++)
             {
-                await using var original = new LeanCorpusIndexHandleCache(paths);
-                await using var replacement = new LeanCorpusIndexHandleCache(paths);
+                object rootContext = new();
+                await using var original = new LeanCorpusIndexHandleCache(paths, lifetime: null, manualRootLifetimeContext: rootContext);
+                await using var replacement = new LeanCorpusIndexHandleCache(paths, lifetime: null, manualRootLifetimeContext: rootContext);
                 Guid runtime = await original.WithExclusiveAsync(index, entry => entry.Open(createIfMissing: true).RuntimeId);
                 await replacement.WithSearcherAsync(index, _ => true);
                 Assert.Equal(2, replacement.GetDiagnostics().ShellReferences);

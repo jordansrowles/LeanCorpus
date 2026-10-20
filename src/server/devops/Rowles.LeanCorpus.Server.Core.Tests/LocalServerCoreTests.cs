@@ -80,7 +80,7 @@ public sealed class LocalServerCoreTests
     }
 
     [Fact]
-    public async Task CommitFailureMakesHealthDegraded()
+    public async Task ObserverFailureMakesHealthDegradedWithoutCountingAsCommitFailure()
     {
         string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-failure-{Guid.NewGuid():N}");
         ToggleCommitObserver observer = new();
@@ -98,8 +98,8 @@ public sealed class LocalServerCoreTests
             Assert.False(health.Value!.IsHealthy);
             Assert.Equal("degraded", health.Value.Status);
             IndexHealthSummary index = Assert.Single(health.Value.Indices!);
-            Assert.Equal(1, index.ConsecutiveCommitFailures);
-            Assert.NotNull(index.LastCommitError);
+            Assert.Equal(0, index.ConsecutiveCommitFailures);
+            Assert.Null(index.LastCommitError);
             Assert.True(index.IsDegraded);
 
             ServiceResult<ReadinessResponse> readiness = await scope.Server.GetReadinessAsync();
@@ -113,7 +113,7 @@ public sealed class LocalServerCoreTests
     }
 
     [Fact]
-    public async Task RecoveredCommitFailureReturnsHealthyAfterOneSuccessfulCommit()
+    public async Task SuccessfulCommitClearsDegradedStateAfterObserverFailure()
     {
         string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-recovery-{Guid.NewGuid():N}");
         ToggleCommitObserver observer = new();

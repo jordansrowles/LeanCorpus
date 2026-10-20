@@ -13,7 +13,14 @@ Community Server 0.1.0-alpha.1 is deliberately single-node: one shard, no replic
 
 Terms facets are the supported Community facet subset. Range facets, highlights, postings/terms/analysis inspection and cluster administration are typed unsupported operations. The inspection resources available in this release are index inventory, reader state, fields, segments, storage and bounded documents.
 
-Health is degraded after a commit or installation failure while the last committed generation remains readable, and unhealthy when an installation rollback leaves the local runtime unusable. Readiness stays true for the former state and becomes false for the latter or while the server is draining.
+Health is degraded after a physical commit, observer notification or installation failure while the last committed generation remains readable, and unhealthy when an installation rollback leaves the local runtime unusable. Observer failures are diagnostic state separate from physical commit failures and do not undo a durable receipt. Readiness stays true for the former state and becomes false for the latter or while the server is draining.
+
+Each local index has one physical runtime owner. A request admitted before shutdown
+keeps its runtime lease through its required commit and refresh; shutdown rejects
+new work and waits for admitted operations before releasing the writer and mapped
+files. If a caller disposes a cached handle directly, a later store open waits for
+that instance's terminal close and creates a replacement. A failed close remains
+owned by the store and blocks a second writer from opening beside it.
 
 Successful writes return a versioned local write token. A search can request ReadYourWrites with that token, which waits for the token's local commit and refreshes the readable generation. Primary maps to Community's sole local copy. Refresh remains an independent visibility choice.
 

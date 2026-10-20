@@ -115,6 +115,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- Reclaim idle file-lifetime registry states after directory owners, file leases and deferred-delete callbacks have settled; preserve failed deletes for recovery.
+
 - Report the definitive fatal writer failure after an earlier recoverable error, preserving terminal close failure provenance.
 
 - Retain failed deferred deletions for observable cleanup and require unleased pending cleanup to finish before composed physical close succeeds.

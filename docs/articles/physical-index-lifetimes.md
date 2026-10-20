@@ -21,6 +21,16 @@ engine teardown while callers await the shared completion; this does not make
 filesystem durability barriers asynchronous I/O. Concurrent close callers join one completion. Cancelling a caller's
 wait leaves admission closed and cleanup running.
 
+An admitted operation carries an owner-bound lease through all of its physical
+stages. A commit or refresh inside that operation uses the existing lease even
+if close has begun; independent work cannot borrow it or enter after quiescing.
+Top-level commit and refresh calls acquire their own lease. Server commit
+receipts are published under the same writer lock as the physical commit, and
+waiters observe a monotonic durable sequence. Observer callbacks run outside the
+writer and publication locks. Their invocation and completion order is not a
+durability guarantee; consumers use the receipt sequence, and observer failures
+are reported separately from physical commit failures.
+
 Successful terminal close releases that runtime's physical ownership. Immediate
 writer reopen, directory rename and recursive deletion are then possible,
 subject to independent external owners and filesystem permissions. A close
@@ -58,6 +68,15 @@ invalidates idle historical owners, rejects queued work and waits for close,
 even when an old released shell scope remains retained. Tenant paths, task
 cursors and the required refresh after indexing remain Orchard policy.
 
+Orchard sharing is scoped to one root-host lifetime identity and canonical
+tenant path. Shells from that root may overlap during replacement. A second
+active root host in the same process cannot attach to the same writable path;
+it receives an ownership error. A new root can open the path after the previous
+owner has closed successfully. Core reclaims an idle directory registry state
+after the last `MMapDirectory` owner, file/snapshot lease, deferred delete and
+queued finaliser-delete callback has settled. A failed deferred delete keeps
+its state available for recovery.
+
 ## Diagnostics
 
 Internal snapshots include the physical runtime ID, lifecycle and health state,
@@ -68,8 +87,13 @@ pending deferred deletion. File-lease and pending-delete counts are directory-wi
 and can include independent embedded readers; input/view counts belong to the
 runtime directory. Unleased pending deletions must settle before terminal close
 succeeds. Orchard adds cache, shell and shared
-state IDs, current owner IDs, admission and close state. Activities use the
-existing `Rowles.LeanCorpus` ActivitySource and correlate close to these owners.
+state IDs, root-host, shell and cache correlation, current owner IDs, admission
+and close state. Server coordinator snapshots include the latest durable
+sequence and visibility, waiter and active-attempt counts, and separate physical
+and observer failures. File-lifetime diagnostics expose registered state,
+owner, lease and pending-delete counts without exporting paths. Activities use
+the existing `Rowles.LeanCorpus` ActivitySource and correlate close to these
+owners.
 
 See [ADR040](ADRs/ADR040-physical-index-runtime-lifecycle.md) for the ownership
 decision and [the Orchard provider guide](../server/orchard-core-search-provider.md)

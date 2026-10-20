@@ -1,4 +1,5 @@
-﻿using Rowles.LeanCorpus.Index.Backup;
+﻿using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
@@ -55,7 +56,19 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
         IndexRuntime runtime = _runtime;
         var physical = runtime.GetPhysicalDiagnostics();
         return new(Descriptor.Id.Value, physical.RuntimeId, runtime.Mode, runtime.CurrentServerSequence,
-            Volatile.Read(ref _activeSnapshots), physical);
+            Volatile.Read(ref _activeSnapshots), runtime.Commits.GetDiagnostics(), physical);
+    }
+
+    internal LocalIndexHandleLifecycleState LifecycleState
+    {
+        get
+        {
+            if (_closed.Task.IsCompletedSuccessfully) return LocalIndexHandleLifecycleState.Closed;
+            if (_closed.Task.IsFaulted || _closed.Task.IsCanceled) return LocalIndexHandleLifecycleState.Failed;
+            return Volatile.Read(ref _disposed) == 0
+                ? LocalIndexHandleLifecycleState.Active
+                : LocalIndexHandleLifecycleState.Closing;
+        }
     }
 
     /// <summary>Gets the current access mode.</summary>
@@ -361,6 +374,9 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
     public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
 
     internal async ValueTask<IDisposable> EnterOperationAsync(CancellationToken cancellationToken)
+        => await EnterOperationWithLeaseAsync(cancellationToken).ConfigureAwait(false);
+
+    internal async ValueTask<OperationLease> EnterOperationWithLeaseAsync(CancellationToken cancellationToken)
     {
         ThrowIfClosing();
         await _operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -422,16 +438,25 @@ public sealed class LocalIndexHandle : IAsyncDisposable, IDisposable
         }
     }
 
-    private sealed class OperationLease(SemaphoreSlim gate, IDisposable physicalOperation) : IDisposable
+    internal sealed class OperationLease : IDisposable
     {
+        private readonly SemaphoreSlim _gate;
+        private readonly PhysicalIndexRuntime.OperationLease _physicalOperation;
         private int _released;
+        internal PhysicalIndexRuntime.OperationLease PhysicalOperation => _physicalOperation;
+
+        internal OperationLease(SemaphoreSlim gate, PhysicalIndexRuntime.OperationLease physicalOperation)
+        {
+            _gate = gate;
+            _physicalOperation = physicalOperation;
+        }
 
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _released, 1) == 0)
             {
-                try { physicalOperation.Dispose(); }
-                finally { gate.Release(); }
+                try { _physicalOperation.Dispose(); }
+                finally { _gate.Release(); }
             }
         }
     }

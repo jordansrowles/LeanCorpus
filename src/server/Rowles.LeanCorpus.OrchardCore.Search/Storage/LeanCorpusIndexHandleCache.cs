@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Hosting;
 using OrchardCore.Environment.Shell.Scope;
 using Rowles.LeanCorpus.Diagnostics;
@@ -16,9 +17,12 @@ namespace Rowles.LeanCorpus.OrchardCore.Search.Storage;
 internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
 {
     private static readonly object SharedStateLock = new();
-    private static readonly Dictionary<string, SharedState> SharedStates = new(
-        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    private static readonly StringComparer TenantPathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+    private static readonly Dictionary<SharedStateKey, SharedState> SharedStates = new(new SharedStateKeyComparer());
+    private static readonly ConditionalWeakTable<object, RootHostIdentity> RootHostIdentities = new();
     private readonly string _tenantDirectory;
+    private readonly RootHostIdentity _rootHostIdentity;
+    private readonly SharedStateKey _stateKey;
     private readonly Guid _cacheId = Guid.NewGuid();
     private readonly int? _shellId = ShellScope.Context?.GetHashCode();
     private SharedState? _state;
@@ -28,8 +32,17 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
     private int _disposed;
 
     public LeanCorpusIndexHandleCache(LeanCorpusIndexPathResolver paths, IHostApplicationLifetime? lifetime = null)
+        : this(paths, lifetime, manualRootLifetimeContext: null)
     {
-        _tenantDirectory = paths.TenantDirectory;
+    }
+
+    internal LeanCorpusIndexHandleCache(LeanCorpusIndexPathResolver paths, IHostApplicationLifetime? lifetime, object? manualRootLifetimeContext)
+    {
+        _tenantDirectory = Path.TrimEndingDirectorySeparator(Path.GetFullPath(paths.TenantDirectory));
+        object rootLifetime = manualRootLifetimeContext ?? (object?)lifetime ?? new object();
+        lock (SharedStateLock)
+            _rootHostIdentity = RootHostIdentities.GetValue(rootLifetime, static _ => new RootHostIdentity());
+        _stateKey = new SharedStateKey(_rootHostIdentity, _tenantDirectory);
         if (lifetime is not null)
         {
             _stoppingRegistration = lifetime.ApplicationStopping.Register(OnHostStopping);
@@ -123,14 +136,26 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
                 ThrowIfUnavailable();
                 if (_state is null)
                 {
-                    if (!SharedStates.TryGetValue(_tenantDirectory, out var shared))
+                    if (!SharedStates.TryGetValue(_stateKey, out var shared))
                     {
-                        shared = new SharedState();
-                        SharedStates.Add(_tenantDirectory, shared);
+                        KeyValuePair<SharedStateKey, SharedState> conflictingRoot = SharedStates.FirstOrDefault(
+                            pair => TenantPathComparer.Equals(pair.Key.TenantDirectory, _tenantDirectory));
+                        if (conflictingRoot.Key is not null)
+                        {
+                            if (conflictingRoot.Value.IsClosing)
+                                previousClose = conflictingRoot.Value.Closed.Task;
+                            else
+                                throw new InvalidOperationException("The tenant index path is already owned by another Orchard root host in this process.");
+                        }
+                        else
+                        {
+                            shared = new SharedState(_rootHostIdentity, _tenantDirectory);
+                            SharedStates.Add(_stateKey, shared);
+                        }
                     }
-                    if (shared.IsClosing)
+                    if (previousClose is null && shared!.IsClosing)
                         previousClose = shared.Closed.Task;
-                    else
+                    else if (previousClose is null)
                     {
                         _state = shared;
                         int previousOwners = shared.Owners.Count;
@@ -168,7 +193,7 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
             }
         }
         if (closing is not null)
-            _ = CloseStateAsync(_tenantDirectory, closing);
+            _ = CloseStateAsync(_stateKey, closing);
     }
 
     private void OnHostStopped()
@@ -202,7 +227,7 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
         try
         {
             if (startClose)
-                _ = CloseStateAsync(_tenantDirectory, closing!);
+                _ = CloseStateAsync(_stateKey, closing!);
             if (closing is not null)
                 await closing.Closed.Task.ConfigureAwait(false);
         }
@@ -213,11 +238,12 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
         }
     }
 
-    private static async Task CloseStateAsync(string tenantDirectory, SharedState state)
+    private static async Task CloseStateAsync(SharedStateKey stateKey, SharedState state)
     {
         using var activity = LeanCorpusActivitySource.Source.StartActivity("leancorpus.orchard.shared.close");
         activity?.SetTag("shared_state.id", state.Id);
-        activity?.SetTag("tenant.id", Path.GetFileName(Path.GetDirectoryName(tenantDirectory)));
+        activity?.SetTag("root_host.id", state.RootHostIdentity.Id);
+        activity?.SetTag("tenant.id", Path.GetFileName(Path.GetDirectoryName(state.TenantDirectory)));
         var failures = new List<Exception>();
         foreach (var pair in state.Entries)
         {
@@ -235,8 +261,8 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
         {
             if (failures.Count == 0)
             {
-                if (SharedStates.TryGetValue(tenantDirectory, out var current) && ReferenceEquals(current, state))
-                    SharedStates.Remove(tenantDirectory);
+                if (SharedStates.TryGetValue(stateKey, out var current) && ReferenceEquals(current, state))
+                    SharedStates.Remove(stateKey);
                 state.Closed.TrySetResult();
                 activity?.SetStatus(System.Diagnostics.ActivityStatusCode.Ok);
             }
@@ -255,7 +281,7 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
     internal OrchardIndexOwnershipDiagnostics GetDiagnostics()
     {
         lock (SharedStateLock)
-            return new(_cacheId, _shellId, _state?.Id, _state?.Owners.Count ?? 0,
+            return new(_rootHostIdentity.Id, Path.GetFileName(Path.GetDirectoryName(_tenantDirectory)), _cacheId, _shellId, _state?.Id, _state?.Owners.Count ?? 0,
                 _state?.Owners.ToArray() ?? [],
                 _hostStopping || Volatile.Read(ref _disposed) != 0 || _state?.IsClosing == true,
                 _state?.Closed.Task.IsCompletedSuccessfully ?? false,
@@ -269,6 +295,7 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
         using var activity = LeanCorpusActivitySource.Source.StartActivity("leancorpus.orchard.ownership");
         activity?.SetTag("ownership.reason", reason);
         activity?.SetTag("cache.id", _cacheId);
+        activity?.SetTag("root_host.id", _rootHostIdentity.Id);
         activity?.SetTag("tenant.id", Path.GetFileName(Path.GetDirectoryName(_tenantDirectory)));
         activity?.SetTag("shell.id", _shellId);
         activity?.SetTag("shared_state.id", state.Id);
@@ -278,11 +305,36 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
 
     private sealed class SharedState
     {
+        internal SharedState(RootHostIdentity rootHostIdentity, string tenantDirectory)
+        {
+            RootHostIdentity = rootHostIdentity;
+            TenantDirectory = tenantDirectory;
+        }
+
         internal ConcurrentDictionary<string, Entry> Entries { get; } = new(StringComparer.Ordinal);
         internal TaskCompletionSource Closed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal Guid Id { get; } = Guid.NewGuid();
+        internal RootHostIdentity RootHostIdentity { get; }
+        internal string TenantDirectory { get; }
         internal HashSet<Guid> Owners { get; } = [];
         internal bool IsClosing;
+    }
+
+    private sealed class RootHostIdentity
+    {
+        internal Guid Id { get; } = Guid.NewGuid();
+    }
+
+    private sealed record SharedStateKey(RootHostIdentity RootIdentity, string TenantDirectory);
+
+    private sealed class SharedStateKeyComparer : IEqualityComparer<SharedStateKey>
+    {
+        public bool Equals(SharedStateKey? left, SharedStateKey? right) => left is not null && right is not null
+            && ReferenceEquals(left.RootIdentity, right.RootIdentity)
+            && TenantPathComparer.Equals(left.TenantDirectory, right.TenantDirectory);
+
+        public int GetHashCode(SharedStateKey key) => HashCode.Combine(
+            RuntimeHelpers.GetHashCode(key.RootIdentity), TenantPathComparer.GetHashCode(key.TenantDirectory));
     }
 
     internal sealed class Entry(LeanCorpusIndexPaths paths)
@@ -382,9 +434,9 @@ internal sealed class LeanCorpusIndexHandle(PhysicalIndexRuntime runtime, string
     public IndexWriter Writer => runtime.Writer;
     public string DefaultAnalyserName { get; } = defaultAnalyserName;
     internal Guid RuntimeId => runtime.Id;
-    internal IDisposable EnterOperation() => runtime.EnterOperation();
+    internal PhysicalIndexRuntime.OperationLease EnterOperation() => runtime.EnterOperation();
     public SearcherLease AcquireSearcher() => runtime.AcquireSearcher();
-    public void CommitAndRefresh() => runtime.Commit(refresh: true);
+    public void CommitAndRefresh(PhysicalIndexRuntime.OperationLease operation) => runtime.CommitUnderOperation(operation, refresh: true);
     public void Dispose() => runtime.Dispose();
     public ValueTask DisposeAsync() => runtime.DisposeAsync();
 }

@@ -83,6 +83,19 @@ for logical owners, and the existing writer lock remains the exclusion backstop
 for independent owners and processes. Low-level embedded callers can continue
 to compose engine primitives directly and own their complete lifetimes.
 
+## Changes / history
+
+- **2026-10-20, Issue #97 lifecycle hardening:** Keep one runtime admission lease
+  across each complete physical operation, including its commit and refresh.
+  Server receipt publication shares the writer linearisation lock, remains
+  monotonic, and completes waiters before that lock is released; observer
+  callbacks run outside it and their failures remain separate from physical
+  commit failures. Directory-state retention is bounded by registered
+  `MMapDirectory` owners, file and snapshot leases, pending deletes and queued
+  finaliser callbacks. Orchard shell sharing is scoped to the root-host
+  lifetime identity and canonical tenant path; a second active root host using
+  that path fails clearly.
+
 ## Consequences
 
 - First-party hosts adopt the common owner instead of constructing raw writers

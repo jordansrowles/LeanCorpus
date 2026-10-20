@@ -42,13 +42,17 @@ Index data, schema manifests, and indexing cursors are kept below:
 
 Tenant and index keys are derived from the Orchard names using a readable prefix and hash, so raw names are not used as filesystem paths. Keep this tenant data with the rest of Orchard's persistent `App_Data` when backing up or moving a site.
 
-Replacement shells for the same tenant directory share one physical runtime per
-index. During ordinary shell turnover, the last cache owner closes that runtime.
-Application shutdown closes admission across historical and replacement shells,
-drains admitted operations and search leases, then waits for physical close.
-A retained historical shell scope cannot reopen an index after host shutdown.
-Other tenants and isolated hosts have independent lifetimes. Close failures are
-reported and retained in ownership diagnostics rather than reported as success.
+Replacement shells belonging to the same root host and tenant directory share
+one physical runtime per index. During ordinary shell turnover, the last cache
+owner closes that runtime. Application shutdown closes admission across
+historical and replacement shells, drains admitted operations and search leases,
+then waits for physical close. A retained historical shell scope cannot reopen
+an index after host shutdown. An independent root host in the same process cannot
+attach to an already active writable tenant path; the provider returns a clear
+ownership error. After the original root closes successfully, a new root can
+open the path with a new runtime. Other tenants and different paths have
+independent lifetimes. Close failures remain visible in ownership diagnostics
+and prevent a new owner from treating the path as available.
 
 The provider uses the same internal physical owner as Community Server. The
 owner controls the directory, writer and searcher generations; Orchard controls

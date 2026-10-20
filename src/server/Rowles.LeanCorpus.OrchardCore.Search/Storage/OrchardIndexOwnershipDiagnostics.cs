@@ -1,6 +1,8 @@
 ﻿namespace Rowles.LeanCorpus.OrchardCore.Search.Storage;
 
 internal sealed record OrchardIndexOwnershipDiagnostics(
+    Guid RootHostId,
+    string TenantId,
     Guid CacheId,
     int? ShellId,
     Guid? SharedStateId,

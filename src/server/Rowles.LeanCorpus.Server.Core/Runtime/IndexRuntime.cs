@@ -41,7 +41,7 @@ internal sealed class IndexRuntime : IDisposable, IAsyncDisposable
     internal IndexWriter Writer => _physical.Writer;
     internal PhysicalIndexRuntimeDiagnostics GetPhysicalDiagnostics() => _physical.GetDiagnostics();
 
-    internal IDisposable EnterPhysicalOperation() => _physical.EnterOperation(allowFaultedWriter: true);
+    internal PhysicalIndexRuntime.OperationLease EnterPhysicalOperation() => _physical.EnterOperation(allowFaultedWriter: true);
 
     internal LocalIndexOpenMode Mode { get; private set; }
 
@@ -78,9 +78,10 @@ internal sealed class IndexRuntime : IDisposable, IAsyncDisposable
 
     internal bool Commit(bool refresh) => Commits.Commit(refresh) is CommitPublished;
 
-    internal LocalCommitReceipt? CommitCore(bool refresh)
+    internal LocalCommitReceipt? CommitCore(bool refresh, PhysicalIndexRuntime.OperationLease? admittedOperation = null)
     {
-        using var operation = _physical.EnterOperation();
+        using PhysicalIndexRuntime.OperationLease? ownedOperation = admittedOperation is null ? _physical.EnterOperation() : null;
+        PhysicalIndexRuntime.OperationLease operation = admittedOperation ?? ownedOperation!;
         lock (_writeLock)
         {
             if (Mode != LocalIndexOpenMode.ReadWrite)
@@ -88,21 +89,21 @@ internal sealed class IndexRuntime : IDisposable, IAsyncDisposable
             if (Volatile.Read(ref _pendingOperations) == 0)
             {
                 if (refresh)
-                    Searchers.Refresh();
+                    _physical.RefreshUnderOperation(operation);
                 return null;
             }
             long last = Volatile.Read(ref _nextServerSequence);
             long first = last - Volatile.Read(ref _pendingOperations) + 1;
-            _physical.Commit(refresh: false);
+            _physical.CommitUnderOperation(operation, refresh: false);
             Interlocked.Exchange(ref _pendingOperations, 0);
             long generation = Writer.CurrentCommitGeneration;
             long contentToken = Writer.CurrentContentToken;
             bool visible = false;
             if (refresh)
             {
-                Searchers.Refresh();
-                using var lease = Searchers.AcquireLease();
-                visible = Searchers.ConsecutiveRefreshFailures == 0 && lease.ContentToken == contentToken;
+                _physical.RefreshUnderOperation(operation);
+                using var lease = _physical.AcquireSearcherUnderOperation(operation);
+                visible = _physical.ConsecutiveRefreshFailures == 0 && lease.ContentToken == contentToken;
             }
             return new LocalCommitReceipt(first, last, generation, contentToken, true, visible);
         }

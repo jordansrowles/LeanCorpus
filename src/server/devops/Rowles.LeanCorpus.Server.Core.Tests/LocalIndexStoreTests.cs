@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Documents;
@@ -63,6 +64,68 @@ public sealed class LocalIndexStoreTests
             Assert.Equal(LocalIndexOpenMode.ReadWrite, handle.Mode);
             await handle.DemoteAsync();
             Assert.Equal(LocalIndexOpenMode.ReadOnly, handle.Mode);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task OpeningAfterCallerDisposedHandleWaitsAndReplacesTheCachedOwner()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-reopen-{Guid.NewGuid():N}");
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
+            LocalIndexDescriptor descriptor = new(PhysicalIndexId.New(),
+                new IndexSchema([new IndexFieldDefinition("content", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
+                "reopen-schema", new MutableIndexSettings(null, null, "content", null));
+            LocalIndexHandle oldHandle = await store.CreateAsync(descriptor);
+            Guid oldRuntime = oldHandle.GetLifecycleDiagnostics().RuntimeId;
+            await oldHandle.DisposeAsync();
+
+            LocalIndexHandle reopened = await store.OpenAsync(descriptor, LocalIndexOpenMode.ReadWrite);
+            Assert.NotSame(oldHandle, reopened);
+            Assert.NotEqual(oldRuntime, reopened.GetLifecycleDiagnostics().RuntimeId);
+            Assert.Equal(PhysicalIndexRuntimeState.Open, reopened.GetLifecycleDiagnostics().Physical.State);
+            LocalIndexStoreDiagnostics storeDiagnostics = await store.GetLifecycleDiagnosticsAsync(TestContext.Current.CancellationToken);
+            Assert.Equal(1, Assert.Single(storeDiagnostics.Entries).ReplacementGeneration);
+            Assert.Equal(LocalIndexHandleLifecycleState.Active, Assert.Single(storeDiagnostics.Entries).State);
+
+            await oldHandle.DisposeAsync();
+            Assert.Equal(PhysicalIndexRuntimeState.Open, reopened.GetLifecycleDiagnostics().Physical.State);
+            await reopened.DisposeAsync();
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task FailedCreateRemovesOnlyItsNewDirectoryAndAllowsSameIdRetry()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-create-rollback-{Guid.NewGuid():N}");
+        PhysicalIndexId id = PhysicalIndexId.New();
+        string path = Path.Combine(root, id.Value);
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
+            LocalIndexDescriptor invalid = new(id,
+                new IndexSchema([new IndexFieldDefinition("content", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
+                "rollback-schema", new MutableIndexSettings(TimeSpan.Zero, null, "content", null));
+
+            await Assert.ThrowsAnyAsync<Exception>(async () => await store.CreateAsync(invalid));
+            Assert.False(Directory.Exists(path));
+            LocalIndexStoreDiagnostics rollback = await store.GetLifecycleDiagnosticsAsync(TestContext.Current.CancellationToken);
+            Assert.True(rollback.LastCreateRollbackSucceeded);
+            Assert.Null(rollback.LastCreateRollbackFailure);
+
+            LocalIndexDescriptor valid = invalid with { Settings = new MutableIndexSettings(null, null, "content", null) };
+            LocalIndexHandle retried = await store.CreateAsync(valid);
+            Assert.Equal(id, retried.Descriptor.Id);
+            await retried.DisposeAsync();
         }
         finally
         {

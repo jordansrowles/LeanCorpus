@@ -55,14 +55,52 @@ internal sealed class PhysicalIndexRuntime : IDisposable, IAsyncDisposable, ILif
     // Ownership of these resources never transfers to a host.
     internal IndexWriter Writer => _writer ?? throw new InvalidOperationException("The physical index is read-only.");
 
-    internal LifetimeLease EnterOperation(bool allowFaultedWriter = false)
+    internal OperationLease EnterOperation(bool allowFaultedWriter = false)
     {
         lock (_gate)
         {
             EnsureOpen();
             if (!allowFaultedWriter) _writer?.ThrowIfIndexingFailed();
             _activeOperations++;
-            return new LifetimeLease(this, this);
+            return new OperationLease(this, new LifetimeLease(this, this));
+        }
+    }
+
+    internal void CommitUnderOperation(OperationLease operation, bool refresh)
+    {
+        ValidateOperation(operation);
+        Writer.ThrowIfIndexingFailed();
+        try
+        {
+            Writer.Commit();
+            lock (_gate) _commitDegraded = false;
+        }
+        catch (Exception failure)
+        {
+            lock (_gate) _commitDegraded = true;
+            RecordFailure("commit", failure);
+            throw;
+        }
+        if (refresh)
+            _ = RefreshUnderOperation(operation);
+    }
+
+    internal bool RefreshUnderOperation(OperationLease operation)
+    {
+        ValidateOperation(operation);
+        return _searchers.MaybeRefresh();
+    }
+
+    internal PhysicalSearcherLease AcquireSearcherUnderOperation(OperationLease operation)
+    {
+        ValidateOperation(operation);
+        lock (_gate)
+        {
+            if (_state is not (PhysicalIndexRuntimeState.Open or PhysicalIndexRuntimeState.Quiescing))
+                throw new ObjectDisposedException(nameof(PhysicalIndexRuntime));
+            var lease = _searchers.AcquireLease();
+            _activeSearcherLeases++;
+            return new PhysicalSearcherLease(this, lease);
         }
     }
 
@@ -90,29 +128,13 @@ internal sealed class PhysicalIndexRuntime : IDisposable, IAsyncDisposable, ILif
     internal void Commit(bool refresh)
     {
         using var operation = EnterOperation();
-        try
-        {
-            Writer.Commit();
-            lock (_gate) _commitDegraded = false;
-        }
-        catch (Exception failure)
-        {
-            lock (_gate) _commitDegraded = true;
-            RecordFailure("commit", failure);
-            throw;
-        }
-        if (refresh)
-        {
-            _searchers.MaybeRefresh();
-            if (_searchers.ConsecutiveRefreshFailures > 0 && _searchers.LastRefreshError is { } failure)
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
-        }
+        CommitUnderOperation(operation, refresh);
     }
 
     internal bool Refresh()
     {
         using var operation = EnterOperation();
-        return _searchers.MaybeRefresh();
+        return RefreshUnderOperation(operation);
     }
 
     internal PhysicalIndexRuntimeDiagnostics GetDiagnostics()
@@ -186,6 +208,12 @@ internal sealed class PhysicalIndexRuntime : IDisposable, IAsyncDisposable, ILif
             if (_activeOperations == 0 && _state != PhysicalIndexRuntimeState.Open)
                 _operationsDrained.TrySetResult();
         }
+    }
+
+    private void ValidateOperation(OperationLease operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        operation.EnsureOwner(this);
     }
 
     private void ReleaseSearcher(SearcherLease lease)
@@ -283,5 +311,31 @@ internal sealed class PhysicalIndexRuntime : IDisposable, IAsyncDisposable, ILif
         internal int CommitGeneration => lease.CommitGeneration;
         internal long ContentToken => lease.ContentToken;
         public void Dispose() => Interlocked.Exchange(ref _owner, null)?.ReleaseSearcher(lease);
+    }
+
+    internal sealed class OperationLease : IDisposable
+    {
+        private readonly PhysicalIndexRuntime _owner;
+        private readonly LifetimeLease _lifetime;
+        private int _disposed;
+
+        internal OperationLease(PhysicalIndexRuntime owner, LifetimeLease lifetime)
+        {
+            _owner = owner;
+            _lifetime = lifetime;
+        }
+
+        internal void EnsureOwner(PhysicalIndexRuntime owner)
+        {
+            if (!ReferenceEquals(_owner, owner))
+                throw new InvalidOperationException("The physical operation lease belongs to a different runtime.");
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                _lifetime.Dispose();
+        }
     }
 }

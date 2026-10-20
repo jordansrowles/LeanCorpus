@@ -68,6 +68,60 @@ public sealed class RuntimeFailureTests
     }
 
     [Fact]
+    public async Task RecoverableFailureCannotOverwriteALaterSuccessfulReceiptOrHealth()
+    {
+        string path = NewPath();
+        var handle = OpenHandle(path);
+        var runtime = handle.Runtime;
+        var firstCommitEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstCommit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondCommitAttempted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int attempts = 0;
+        try
+        {
+            runtime.Writer.AddDocument(Document());
+            long sequence = runtime.MarkWrite();
+            Task<LocalCommitReceipt> waiter = runtime.Commits.WaitUntilCommittedAsync(sequence, TestContext.Current.CancellationToken).AsTask();
+            runtime.Writer.Config.CommitBeforePublication = _ =>
+            {
+                if (Interlocked.Increment(ref attempts) == 1)
+                {
+                    firstCommitEntered.TrySetResult();
+                    releaseFirstCommit.Task.GetAwaiter().GetResult();
+                    throw new IOException("controlled recoverable first-attempt failure");
+                }
+            };
+
+            Task<CommitResult> first = Task.Run(() => runtime.Commits.Commit());
+            await firstCommitEntered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            Task<CommitResult> second = Task.Run(() =>
+            {
+                secondCommitAttempted.TrySetResult();
+                return runtime.Commits.Commit(refresh: true);
+            });
+            await secondCommitAttempted.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            Assert.False(second.IsCompleted);
+
+            releaseFirstCommit.TrySetResult();
+            Assert.True(await first is CommitFailed);
+            Assert.True(await second is CommitPublished);
+            LocalCommitReceipt receipt = await waiter.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            Assert.Equal(sequence, receipt.LastSequenceNumber);
+            Assert.Equal(receipt, runtime.Commits.LastReceipt);
+            Assert.Null(runtime.Commits.LastFailure);
+            Assert.Equal(0, runtime.Commits.ConsecutiveFailures);
+            Assert.False(handle.Health.IsDegraded);
+        }
+        finally
+        {
+            releaseFirstCommit.TrySetResult();
+            runtime.Writer.Config.CommitBeforePublication = null;
+            await handle.DisposeAsync();
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RefreshFailureDegradesHostHealthWhileTheOldGenerationRemainsUsable()
     {
         string path = NewPath();
