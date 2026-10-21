@@ -307,7 +307,7 @@ implementation. These are local qualification results, with no hosted or
 Windows qualification claim.
 
 Remaining testing work includes the public command and backup/restore matrix,
-legacy telemetry summary and full Markdown/JSON report compatibility, SDK provenance in
+real managed Core MTP telemetry capture and full Markdown/JSON report compatibility, SDK provenance in
 test manifests, structured skip reasons, isolated stress, platform parity and
 legacy retirement. The full migration remains in progress.
 
@@ -384,15 +384,29 @@ details and unscheduled targets. The CSV keeps the legacy column order and
 quotes every field, including embedded quotes and commas.
 
 The real planner-to-MTP run
-`e30d3ef9-0662-4ec8-a3b8-c3a555901716` completed two prepared executions and
-produced all three report files. Its source was commit
-`5d3ddfdb077525dff571d583b99b01330c482a2b` with the report changes in the dirty
-worktree. The latest setup passed 234 tests, skipped two intentional AOT
-qualification cases, built with zero warnings or errors, published and promoted
-the Linux host, and passed staged/promoted help and version probes. Build smoke
-run: `17bf9460-00a3-45a5-88b2-dae7cb69627d`.
+`e38363a1-2fce-43f1-8492-7f7ad2840474` completed two prepared executions and
+produced all three report files. It had no telemetry files, which the report
+represents as zero executions and an explicit absence message. Its source was
+commit `209fe731b36a016a534dd739a852f8b57306fbbc` with the telemetry projection
+changes in the dirty worktree. The latest setup passed 234 tests, skipped three
+intentional explicit qualification cases, built with zero warnings or errors,
+published and promoted the Linux host, and passed staged/promoted help and
+version probes. Build smoke run:
+`ec764552-7c17-4470-aa50-10235b8d5416`.
 
-This closes basic managed Markdown and timing-file generation on Linux.
-Telemetry summary integration, complete legacy Markdown/JSON field parity,
-other report consumers, Windows/Linux parity, isolated stress and public
-`test`/`aot` routing remain open.
+The managed report regression fixture also verified summing two telemetry
+summaries, retaining both NDJSON test records, exposing stream counters in
+`report.json` and rendering the aggregate in Markdown. A separate explicit
+managed Core MTP qualification, run `cc9fc88d-a479-44ac-bb2c-905bf44c250e`,
+built `core/net10.0`, ran
+`TelemetryExecutionStoreTests.SummaryModeDoesNotPersistCleanPassingTest`, and
+passed 1/1. Its report captured one telemetry execution, one started and
+finished test, one passed test, zero telemetry errors, no truncation, and the
+real summary at
+`targets/core-net10.0-3e99b8f0/001/telemetry/summary.json`. The run used source
+`209fe731b36a016a534dd739a852f8b57306fbbc` with the current changes in the
+dirty worktree.
+
+This verifies basic managed Core telemetry capture and reporting on Linux.
+Full legacy Markdown/JSON field parity, other report consumers, Windows/Linux
+parity, isolated stress and public `test`/`aot` routing remain open.

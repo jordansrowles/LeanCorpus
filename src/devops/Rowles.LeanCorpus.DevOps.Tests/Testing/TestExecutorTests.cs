@@ -37,10 +37,20 @@ public sealed class TestExecutorTests
         var markdown = await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "report.md"), TestContext.Current.CancellationToken);
         Assert.Contains("# Test run summary", markdown, StringComparison.Ordinal);
         Assert.Contains("Example\\|Test, \"Quoted\"", markdown, StringComparison.Ordinal);
+        Assert.Contains("## Telemetry summary", markdown, StringComparison.Ordinal);
+        Assert.Contains("Executions: 2; tests: 2 finished of 2 started (2 passed, 0 failed, 0 skipped).", markdown, StringComparison.Ordinal);
+        Assert.Contains("Activities: 4; metrics: 2; swallowed exceptions: 0; orphaned activities: 0; telemetry errors: 0.", markdown, StringComparison.Ordinal);
+        Assert.Contains("Retained: `Telemetry test` (Passed).", markdown, StringComparison.Ordinal);
         var timings = await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "timings.csv"), TestContext.Current.CancellationToken);
         Assert.StartsWith("\"recordType\",\"iteration\",\"suite\",\"framework\",\"target\",\"test\",\"outcome\",\"durationMs\"\n", timings, StringComparison.Ordinal);
         Assert.Contains("\"Target\",\"1\",\"core\",\"net10.0\",\"core/net10.0\",\"\",\"Passed\"", timings, StringComparison.Ordinal);
         Assert.Contains("\"Test\",\"1\",\"core\",\"net10.0\",\"core/net10.0\",\"Example|Test, \"\"Quoted\"\"\",\"Passed\"", timings, StringComparison.Ordinal);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "report.json"), TestContext.Current.CancellationToken));
+        var telemetry = report.RootElement.GetProperty("telemetry");
+        Assert.Equal(2, telemetry.GetProperty("executions").GetInt32());
+        Assert.Equal(2, telemetry.GetProperty("testsStarted").GetInt64());
+        Assert.Equal(4, telemetry.GetProperty("activities").GetInt64());
+        Assert.Equal(2, telemetry.GetProperty("retainedTests").GetArrayLength());
         Assert.True(File.Exists(Path.Combine(result.RunDirectory, "state.json")));
         var events = await File.ReadAllLinesAsync(Path.Combine(result.RunDirectory, "events.ndjson"), TestContext.Current.CancellationToken);
         Assert.Contains(events, line => line.Contains("targetDiscovered", StringComparison.OrdinalIgnoreCase));
@@ -286,6 +296,39 @@ public sealed class TestExecutorTests
                     <ResultSummary outcome="Completed"><Counters total="1" executed="1" passed="{passed}" failed="{failed}" error="0" timeout="0" aborted="0" inconclusive="0" notRunnable="0" notExecuted="0" disconnected="0" passedButRunAborted="0" inProgress="0" pending="0" /></ResultSummary></TestRun>
                     """;
                 await File.WriteAllTextAsync(Path.Combine(resultDirectory, "results.trx"), trx, cancellationToken);
+                if (request.EnvironmentVariables is { } variables &&
+                    variables.TryGetValue("LEANCORPUS_ARTIFACT_DIR", out var artifactDirectory) &&
+                    !string.IsNullOrWhiteSpace(artifactDirectory))
+                {
+                    var telemetryDirectory = Path.Combine(artifactDirectory, "telemetry");
+                    Directory.CreateDirectory(telemetryDirectory);
+                    var telemetrySummary = new
+                    {
+                        mode = "summary",
+                        testsStarted = 1,
+                        testsFinished = 1,
+                        testsPassed = 1,
+                        testsFailed = 0,
+                        testsSkipped = 0,
+                        retainedTestSummaries = 1,
+                        activities = 2,
+                        metrics = 1,
+                        swallowedExceptions = 0,
+                        orphanedActivities = 0,
+                        telemetryErrors = 0,
+                        streams = new
+                        {
+                            tests = new { recordsWritten = 1, recordsDropped = 0, bytesWritten = 64, truncated = false },
+                            activities = new { recordsWritten = 0, recordsDropped = 0, bytesWritten = 0, truncated = false },
+                            metrics = new { recordsWritten = 0, recordsDropped = 0, bytesWritten = 0, truncated = false },
+                            runtimeCounters = new { recordsWritten = 0, recordsDropped = 0, bytesWritten = 0, truncated = false }
+                        }
+                    };
+                    await File.WriteAllTextAsync(Path.Combine(telemetryDirectory, "summary.json"),
+                        JsonSerializer.Serialize(telemetrySummary), cancellationToken);
+                    await File.WriteAllTextAsync(Path.Combine(telemetryDirectory, "tests.ndjson"),
+                        "{\"testName\":\"Telemetry test\",\"result\":\"Passed\"}\n", cancellationToken);
+                }
             }
 
             return Process(request, failing ? OutcomeKind.CommandFailure : OutcomeKind.Success, failing ? 1 : 0);

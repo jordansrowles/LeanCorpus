@@ -537,6 +537,7 @@ internal sealed class TestArtifactService
         DateTimeOffset completedUtc,
         CancellationToken cancellationToken)
     {
+        var telemetry = TestReportWriter.ReadTelemetrySummary(runDirectory, aggregate);
         await WriteJsonAsync(Path.Combine(runDirectory, "report.json"), new
         {
             schemaVersion = 1,
@@ -557,10 +558,11 @@ internal sealed class TestArtifactService
                 .Select(static attempt => new { target = attempt.Target.Key, iteration = attempt.Iteration })
                 .ToArray() ?? [],
             attempts = aggregate?.Attempts.Select(ToAttemptDocument).ToArray() ?? [],
-            tests = aggregate?.Tests ?? []
+            tests = aggregate?.Tests ?? [],
+            telemetry
         }, cancellationToken).ConfigureAwait(false);
         await new TestReportWriter(_writer).WriteSupplementaryReportsAsync(runDirectory, manifest, request, aggregate,
-            commandResult, preparationTimings, completedUtc, cancellationToken).ConfigureAwait(false);
+            commandResult, preparationTimings, telemetry, completedUtc, cancellationToken).ConfigureAwait(false);
     }
 
     public Task WriteSelectionAsync(string runDirectory, TestExecutorRequest request, CancellationToken cancellationToken)

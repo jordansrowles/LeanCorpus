@@ -2280,8 +2280,8 @@
       },
       "testing": {
         "status": "linux-test-services-aot-sdk-and-skip-reasons-passed-routing-gates-open",
-        "managedTestCount": 236,
-        "setupBuildRunId": "ac310c6e-d7f2-43d3-ac9e-90e1b9c327bc",
+        "managedTestCount": 237,
+        "setupBuildRunId": "ec764552-7c17-4470-aa50-10235b8d5416",
         "realMtpRunId": "e678077a-3b5a-4d3e-9c22-176a4eb0835c",
         "realMtpExecutions": 2,
         "realMtpCasesPerExecution": 4,
@@ -2292,12 +2292,12 @@
           "isolated stress qualification",
           "public command integration including backup-restore-matrix",
           "cross-platform Native AOT qualification",
-          "legacy telemetry summary and full Markdown/JSON report compatibility",
+          "full Markdown/JSON report compatibility and other report consumers",
           "Windows validation of stdout-derived skip-reason normalization",
           "legacy retirement"
         ],
-        "managedTestTotal": 236,
-        "intentionalExplicitSkips": 2,
+        "managedTestTotal": 237,
+        "intentionalExplicitSkips": 3,
         "realMtpPassingCasesPerExecution": 2,
         "realMtpIntentionalSkipsPerExecution": 2,
         "runnerAdapters": [
@@ -2353,19 +2353,34 @@
           "unresolvedPolicy": "Validation failure before target preparation or execution"
         },
         "reportArtifacts": {
-          "status": "markdown-and-timing-csv-generated-and-real-mtp-proven-on-linux",
+          "status": "markdown-csv-and-telemetry-projections-implemented-on-linux",
           "files": [
             "report.json",
             "report.md",
             "timings.csv"
           ],
-          "realMtpRunId": "e30d3ef9-0662-4ec8-a3b8-c3a555901716",
+          "realMtpRunId": "e38363a1-2fce-43f1-8492-7f7ad2840474",
           "executions": 2,
           "casesPerExecution": 4,
-          "setupBuildRunId": "17bf9460-00a3-45a5-88b2-dae7cb69627d",
-          "sourceCommit": "5d3ddfdb077525dff571d583b99b01330c482a2b",
+          "setupBuildRunId": "ec764552-7c17-4470-aa50-10235b8d5416",
+          "sourceCommit": "209fe731b36a016a534dd739a852f8b57306fbbc",
           "sourceDirty": true,
-          "open": "Telemetry summary integration and complete legacy Markdown/JSON and other-consumer compatibility."
+          "telemetryProjection": "Synthetic report fixtures aggregate summary counters, stream state and retained NDJSON records. Real managed Core MTP run cc9fc88d-a479-44ac-bb2c-905bf44c250e captured one passed test and one summary file with no telemetry errors or truncation.",
+          "coreMtpTelemetryQualification": {
+            "status": "passed-linux",
+            "runId": "cc9fc88d-a479-44ac-bb2c-905bf44c250e",
+            "target": "core/net10.0",
+            "testsPassed": 1,
+            "telemetryExecutions": 1,
+            "testsStarted": 1,
+            "testsFinished": 1,
+            "telemetryErrors": 0,
+            "truncated": false,
+            "summaryPath": "targets/core-net10.0-3e99b8f0/001/telemetry/summary.json",
+            "sourceCommit": "209fe731b36a016a534dd739a852f8b57306fbbc",
+            "sourceDirty": true
+          },
+          "open": "Full legacy Markdown/JSON field parity and other report-consumer compatibility."
         }
       },
       "runEnvelopeMigration": {
@@ -2374,9 +2389,9 @@
         "canonicalPrecedence": true,
         "historicalFilesRewritten": false,
         "managedSuiteSucceeded": 234,
-        "managedSuiteIntentionalSkipped": 2,
+        "managedSuiteIntentionalSkipped": 3,
         "uiSmokeChecks": 23,
-        "setupBuildRunId": "ac310c6e-d7f2-43d3-ac9e-90e1b9c327bc",
+        "setupBuildRunId": "ec764552-7c17-4470-aa50-10235b8d5416",
         "activeRunProtection": "all eleven ArtifactPaths.RunCategories",
         "uiCompatibility": "read-only managed manifest and test report projections; legacy shapes retained",
         "sourceCommit": "158f8068a1d56e78c34e886ca2bf19a4dadea0bb",

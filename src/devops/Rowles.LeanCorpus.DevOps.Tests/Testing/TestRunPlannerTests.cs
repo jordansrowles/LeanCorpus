@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Build;
 using Rowles.LeanCorpus.DevOps.Configuration;
@@ -90,6 +91,51 @@ public sealed class TestRunPlannerTests
         Assert.Equal("11.0.100-preview.7.26381.103", manifest.ToolVersions["dotnet-sdk-requested"]);
         Assert.Equal("11.0.100-preview.7.26381.103", manifest.ToolVersions["dotnet-sdk-selected"]);
         Assert.Equal("latestPatch", manifest.ToolVersions["dotnet-sdk-roll-forward"]);
+    }
+
+    [Theory(Explicit = true)]
+    [InlineData("net10.0")]
+    public async Task CapturesCoreMtpTelemetryInManagedReports(string framework)
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+        var processes = new ProcessRunner();
+        var request = await new TestRunPlanner(configuration, new AffectedSelectionService(processes)).PlanAsync(checkout,
+            new TestRunOptions
+            {
+                Selection = new TestTargetRequest
+                {
+                    Suites = ["core"],
+                    Framework = framework,
+                    FrameworkExplicit = true,
+                    Category = "Unit",
+                    Filter = "FullyQualifiedName~TelemetryExecutionStoreTests.SummaryModeDoesNotPersistCleanPassingTest"
+                },
+                Count = 1,
+                Flaky = true,
+                HangTimeout = "off",
+                ProcessTimeout = "5m"
+            }, TestContext.Current.CancellationToken);
+        var paths = new ArtifactPaths(checkout.RepositoryRoot);
+        var result = await new TestExecutor(paths, new ArtifactRunStore(paths, runCategory: "test"), processes,
+            new DotNetSdkResolver(processes), new GitRepositoryProvenanceReader(processes))
+            .RunAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
+        Assert.True(result.Aggregate!.Succeeded);
+        Assert.Single(result.Aggregate.Attempts);
+        using var report = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "report.json"),
+            TestContext.Current.CancellationToken));
+        var telemetry = report.RootElement.GetProperty("telemetry");
+        Assert.Equal(1, telemetry.GetProperty("executions").GetInt32());
+        Assert.Equal(1, telemetry.GetProperty("summaryPaths").GetArrayLength());
+        Assert.Empty(telemetry.GetProperty("errors").EnumerateArray());
+        var testsStarted = telemetry.GetProperty("testsStarted").GetInt64();
+        Assert.True(testsStarted > 0);
+        Assert.Equal(testsStarted, telemetry.GetProperty("testsFinished").GetInt64());
+        var markdown = await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "report.md"), TestContext.Current.CancellationToken);
+        Assert.Contains("## Telemetry summary", markdown, StringComparison.Ordinal);
+        Assert.Contains($"Executions: 1; tests: {testsStarted} finished of {testsStarted} started", markdown, StringComparison.Ordinal);
     }
 
     private static (CheckoutIdentity Checkout, DevOpsConfiguration Configuration) Load()
