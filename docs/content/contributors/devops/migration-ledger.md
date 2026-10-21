@@ -355,4 +355,22 @@ resolved before preparation on Linux. The updated managed Native AOT runs
 `f34cdfcb-f2ab-48b1-941b-c52ca4b6f45d` (`net10.0`) and
 `1fdf9cdc-a2da-4950-93de-250322126662` (`net11.0`) each passed 122/122 tests
 and recorded the same SDK policy in their manifests. Windows, macOS, hosted
-parity, remaining report consumers and structured skip reasons remain open.
+parity and remaining report consumers remain open.
+
+### Structured skip reasons from MTP output
+
+`TestResultReader` now supplements a missing TRX skip reason only when the
+captured MTP stdout contains the matching test name and its adjacent indented
+reason line. Existing TRX reasons take precedence. Missing, oversized,
+unreadable or ambiguous console evidence leaves the reason unset; the original
+stdout remains retained.
+
+The real planner-to-MTP run `e678077a-3b5a-4d3e-9c22-176a4eb0835c` passed two
+prepared apphost attempts on Debian 13 x64. It normalized four explicit-filter
+skip reasons that TRX omitted and recorded the selected SDK policy. The
+DevOps setup passed 234/236 tests, with the two existing intentional AOT
+qualification skips, built with zero warnings/errors, and promoted the Linux
+host; build smoke run `ac310c6e-d7f2-43d3-ac9e-90e1b9c327bc`. The source commit
+was `158f8068a1d56e78c34e886ca2bf19a4dadea0bb` with these changes in a dirty
+worktree. Windows console-format parity, report consumers, public test/AOT
+routing, stress and broader platform qualification remain open.

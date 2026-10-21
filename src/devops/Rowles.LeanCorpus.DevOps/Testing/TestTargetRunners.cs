@@ -35,7 +35,7 @@ internal sealed class MtpExecutableTestRunner(IProcessRunner processes) : ITestT
         var ended = DateTimeOffset.UtcNow;
         var trxPath = Path.Combine(context.AttemptDirectory, "results.trx");
         var results = context.Options.ArtifactsEnabled
-            ? await TestResultReader.ReadAsync(trxPath, CancellationToken.None).ConfigureAwait(false)
+            ? await TestResultReader.ReadAsync(trxPath, process.StandardOutputLogPath, CancellationToken.None).ConfigureAwait(false)
             : null;
         return new TestRunnerResult(process, results, trxPath, started, ended);
     }

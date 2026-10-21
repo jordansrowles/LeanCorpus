@@ -42,8 +42,15 @@ internal sealed record TestResultData(
 internal static class TestResultReader
 {
     private const long MaximumDocumentCharacters = 128 * 1024 * 1024;
+    private const long MaximumStandardOutputBytesForSkipReasons = 16 * 1024 * 1024;
 
-    public static async Task<TestResultData> ReadAsync(string path, CancellationToken cancellationToken = default)
+    public static Task<TestResultData> ReadAsync(string path, CancellationToken cancellationToken = default)
+        => ReadAsync(path, standardOutputPath: null, cancellationToken);
+
+    public static async Task<TestResultData> ReadAsync(
+        string path,
+        string? standardOutputPath,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         if (!File.Exists(path))
@@ -201,6 +208,24 @@ internal static class TestResultReader
             {
                 return Invalid(exists: true, "TRX summary outcome does not agree with the individual test results.");
             }
+            if (standardOutputPath is not null)
+            {
+                var consoleSkipReasons = await ReadConsoleSkipReasonsAsync(standardOutputPath, cancellationToken).ConfigureAwait(false);
+                if (consoleSkipReasons.Count > 0)
+                {
+                    for (var index = 0; index < tests.Count; index++)
+                    {
+                        var test = tests[index];
+                        if (test.SkipReason is null &&
+                            (test.Outcome is TestCaseOutcome.Skipped or TestCaseOutcome.NotRunnable or TestCaseOutcome.NotExecuted) &&
+                            consoleSkipReasons.TryGetValue(test.TestName, out var reason))
+                        {
+                            tests[index] = test with { SkipReason = reason };
+                        }
+                    }
+                }
+            }
+
             return new TestResultData(true, true, total, Count(TestCaseOutcome.Passed), failed, skipped, tests, null);
 
             int Count(TestCaseOutcome outcome)
@@ -237,6 +262,107 @@ internal static class TestResultReader
 
     private static string? FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(static value => !string.IsNullOrWhiteSpace(value));
+
+    private static async Task<IReadOnlyDictionary<string, string>> ReadConsoleSkipReasonsAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(path))
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+
+        try
+        {
+            if (new FileInfo(path).Length > MaximumStandardOutputBytesForSkipReasons)
+            {
+                return new Dictionary<string, string>(StringComparer.Ordinal);
+            }
+
+            var lines = await File.ReadAllLinesAsync(path, cancellationToken).ConfigureAwait(false);
+            var reasonsByTest = new Dictionary<string, ConsoleSkipReasonObservation>(StringComparer.Ordinal);
+            for (var index = 0; index < lines.Length; index++)
+            {
+                if (!TryReadSkippedTestName(lines[index], out var testName))
+                {
+                    continue;
+                }
+
+                if (!reasonsByTest.TryGetValue(testName, out var observation))
+                {
+                    observation = new ConsoleSkipReasonObservation();
+                    reasonsByTest.Add(testName, observation);
+                }
+                observation.SkippedLineCount++;
+
+                if (index + 1 >= lines.Length)
+                {
+                    continue;
+                }
+
+                var reasonLine = lines[index + 1];
+                if (reasonLine.Length == 0 || !char.IsWhiteSpace(reasonLine[0]))
+                {
+                    continue;
+                }
+
+                var reason = reasonLine.Trim();
+                if (reason.Length == 0 || reason.StartsWith("skipped ", StringComparison.OrdinalIgnoreCase) ||
+                    reason.StartsWith("Test run summary:", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                observation.ReasonLineCount++;
+                observation.Reasons.Add(reason);
+            }
+
+            return reasonsByTest
+                .Where(static pair => pair.Value.SkippedLineCount == pair.Value.ReasonLineCount && pair.Value.Reasons.Count == 1)
+                .ToDictionary(static pair => pair.Key, static pair => pair.Value.Reasons.Single(), StringComparer.Ordinal);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            return new Dictionary<string, string>(StringComparer.Ordinal);
+        }
+    }
+
+    private static bool TryReadSkippedTestName(string line, out string testName)
+    {
+        testName = string.Empty;
+        const string prefix = "skipped ";
+        // MTP emits this marker directly before the indented reason line; other formats remain unnormalised.
+        if (!line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var durationStart = line.LastIndexOf(" (", StringComparison.Ordinal);
+        if (durationStart <= prefix.Length || !line.EndsWith(')'))
+        {
+            return false;
+        }
+
+        var duration = line[(durationStart + 2)..^1];
+        var numericLength = duration.EndsWith("ms", StringComparison.OrdinalIgnoreCase) ? duration.Length - 2
+            : duration.EndsWith('s') || duration.EndsWith('m') ? duration.Length - 1
+            : -1;
+        if (numericLength <= 0 || !double.TryParse(duration[..numericLength], NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture, out var elapsed) || !double.IsFinite(elapsed) || elapsed < 0)
+        {
+            return false;
+        }
+
+        testName = line[prefix.Length..durationStart];
+        return !string.IsNullOrWhiteSpace(testName);
+    }
+
+    private sealed class ConsoleSkipReasonObservation
+    {
+        public int SkippedLineCount { get; set; }
+        public int ReasonLineCount { get; set; }
+        public HashSet<string> Reasons { get; } = new(StringComparer.Ordinal);
+    }
 
     private static TestResultData Invalid(bool exists, string message)
         => new(exists, false, 0, 0, 0, 0, [], message);

@@ -2279,10 +2279,10 @@
         "open": "Windows/macOS, hosted CI, and cross-platform parity qualification."
       },
       "testing": {
-        "status": "linux-test-services-aot-and-sdk-provenance-passed-routing-gates-open",
-        "managedTestCount": 235,
-        "setupBuildRunId": "581cf1df-43f9-4f66-aac2-def4ed3967b6",
-        "realMtpRunId": "88ab4c73-ac73-43fd-994d-2da30bf073f9",
+        "status": "linux-test-services-aot-sdk-and-skip-reasons-passed-routing-gates-open",
+        "managedTestCount": 236,
+        "setupBuildRunId": "ac310c6e-d7f2-43d3-ac9e-90e1b9c327bc",
+        "realMtpRunId": "e678077a-3b5a-4d3e-9c22-176a4eb0835c",
         "realMtpExecutions": 2,
         "realMtpCasesPerExecution": 4,
         "preparedOutput": true,
@@ -2293,10 +2293,10 @@
           "public command integration including backup-restore-matrix",
           "cross-platform Native AOT qualification",
           "remaining legacy report consumers and Markdown output compatibility",
-          "structured explicit-skip reasons where TRX omits them",
+          "Windows validation of stdout-derived skip-reason normalization",
           "legacy retirement"
         ],
-        "managedTestTotal": 235,
+        "managedTestTotal": 236,
         "intentionalExplicitSkips": 2,
         "realMtpPassingCasesPerExecution": 2,
         "realMtpIntentionalSkipsPerExecution": 2,
@@ -2320,7 +2320,17 @@
         ],
         "qualificationSourceCommit": "a11da52cdc3b0c6e482accb9f5c3ef4573eeec5b",
         "qualificationSourceDirty": true,
-        "skipReasonEvidence": "MTP TRX omits explicit-filter reasons; retained raw stdout carries the reasons. Structured normalization remains open.",
+        "skipReasonEvidence": "MTP TRX omits explicit-filter reasons; exact test-name matches to adjacent per-test stdout records normalize reasons. Missing or conflicting matches remain unset.",
+        "skipReasonNormalization": {
+          "status": "implemented-and-real-mtp-proven-on-linux",
+          "runId": "e678077a-3b5a-4d3e-9c22-176a4eb0835c",
+          "matchedReasons": 4,
+          "attempts": 2,
+          "sourceCommit": "158f8068a1d56e78c34e886ca2bf19a4dadea0bb",
+          "sourceDirty": true,
+          "unmatchedBehavior": "Leave skip reason unset; retain the raw stdout log.",
+          "open": "Windows MTP console-format parity"
+        },
         "sdkProvenance": {
           "status": "implemented-and-real-mtp-and-aot-proven-on-linux",
           "manifestKeys": [
@@ -2328,11 +2338,11 @@
             "dotnet-sdk-selected",
             "dotnet-sdk-roll-forward"
           ],
-          "runId": "88ab4c73-ac73-43fd-994d-2da30bf073f9",
+          "runId": "e678077a-3b5a-4d3e-9c22-176a4eb0835c",
           "requested": "11.0.100-preview.7.26381.103",
           "selected": "11.0.100-preview.7.26381.103",
           "rollForward": "latestPatch",
-          "sourceCommit": "a11da52cdc3b0c6e482accb9f5c3ef4573eeec5b",
+          "sourceCommit": "158f8068a1d56e78c34e886ca2bf19a4dadea0bb",
           "sourceDirty": true,
           "platform": "Debian GNU/Linux 13 (trixie); X64",
           "nativeAotRunIds": [
@@ -2348,15 +2358,15 @@
         "historicalReadFallback": "manifest.json",
         "canonicalPrecedence": true,
         "historicalFilesRewritten": false,
-        "managedSuiteSucceeded": 233,
+        "managedSuiteSucceeded": 234,
         "managedSuiteIntentionalSkipped": 2,
         "uiSmokeChecks": 23,
-        "setupBuildRunId": "581cf1df-43f9-4f66-aac2-def4ed3967b6",
+        "setupBuildRunId": "ac310c6e-d7f2-43d3-ac9e-90e1b9c327bc",
         "activeRunProtection": "all eleven ArtifactPaths.RunCategories",
         "uiCompatibility": "read-only managed manifest and test report projections; legacy shapes retained",
-        "sourceCommit": "a11da52cdc3b0c6e482accb9f5c3ef4573eeec5b",
+        "sourceCommit": "158f8068a1d56e78c34e886ca2bf19a4dadea0bb",
         "sourceDirty": true,
-        "open": "Other legacy report consumers, remaining report output parity, structured skip reasons, platform qualification and final cutover."
+        "open": "Other legacy report consumers, remaining report output parity, Windows skip-reason output parity, platform qualification and final cutover."
       }
     }
   }

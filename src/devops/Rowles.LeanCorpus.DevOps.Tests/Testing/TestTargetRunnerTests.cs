@@ -16,6 +16,60 @@ public sealed class TestTargetRunnerTests
     }
 
     [Fact]
+    public async Task MtpAdapterAddsOnlyPerTestConsoleSkipReasonsMissingFromTrx()
+    {
+        using var directory = new TemporaryDirectory();
+        var trx = """
+            <TestRun>
+              <TestDefinitions>
+                <UnitTest id="explicit"><TestMethod className="Example.Tests" name="ExplicitCase" /></UnitTest>
+                <UnitTest id="unknown"><TestMethod className="Example.Tests" name="UnknownCase" /></UnitTest>
+                <UnitTest id="trx"><TestMethod className="Example.Tests" name="TrxReasonCase" /></UnitTest>
+                <UnitTest id="ambiguous"><TestMethod className="Example.Tests" name="AmbiguousCase" /></UnitTest>
+                <UnitTest id="incomplete-duplicate"><TestMethod className="Example.Tests" name="IncompleteDuplicateCase" /></UnitTest>
+              </TestDefinitions>
+              <Results>
+                <UnitTestResult testId="explicit" testName="Example.Tests.ExplicitCase" outcome="NotRunnable" />
+                <UnitTestResult testId="unknown" testName="Example.Tests.UnknownCase" outcome="NotRunnable" />
+                <UnitTestResult testId="trx" testName="Example.Tests.TrxReasonCase" outcome="NotRunnable">
+                  <Output><StdOut>Reason from TRX</StdOut></Output>
+                </UnitTestResult>
+                <UnitTestResult testId="ambiguous" testName="Example.Tests.AmbiguousCase" outcome="NotRunnable" />
+                <UnitTestResult testId="incomplete-duplicate" testName="Example.Tests.IncompleteDuplicateCase" outcome="NotRunnable" />
+              </Results>
+              <ResultSummary outcome="Completed"><Counters total="5" executed="0" passed="0" failed="0" error="0" timeout="0" notRunnable="5" notExecuted="0" /></ResultSummary>
+            </TestRun>
+            """;
+        const string standardOutput = """
+            skipped Example.Tests.ExplicitCase (0ms)
+              Not run (due to explicit test filtering)
+            skipped Example.Tests.UnrelatedCase (0ms)
+              This reason belongs to another test
+            skipped Example.Tests.TrxReasonCase (0ms)
+              Console reason must not replace the TRX value
+            skipped Example.Tests.AmbiguousCase (0ms)
+              First conflicting reason
+            skipped Example.Tests.AmbiguousCase (1ms)
+              Second conflicting reason
+            skipped Example.Tests.IncompleteDuplicateCase (0ms)
+              Only one duplicate has a reason
+            skipped Example.Tests.IncompleteDuplicateCase (0ms)
+
+            """;
+        var runner = new WritingMtpProcessRunner(trx, standardOutput);
+        var context = CreateMtpContext(directory.Path);
+
+        var result = await new MtpExecutableTestRunner(runner).RunAsync(context, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Results!.Valid, result.Results.Error);
+        Assert.Equal("Not run (due to explicit test filtering)", result.Results.Tests[0].SkipReason);
+        Assert.Null(result.Results.Tests[1].SkipReason);
+        Assert.Equal("Reason from TRX", result.Results.Tests[2].SkipReason);
+        Assert.Null(result.Results.Tests[3].SkipReason);
+        Assert.Null(result.Results.Tests[4].SkipReason);
+    }
+
+    [Fact]
     public async Task NativeAdapterPreservesRealProcessFailureWithoutTrx()
     {
         using var directory = new TemporaryDirectory();
@@ -66,6 +120,30 @@ public sealed class TestTargetRunnerTests
             "fixture.csproj", "net10.0", "Release", "", "", [], false, [], arguments);
         return new TestRunnerContext(Guid.NewGuid(), new PreparedTestTarget(target, "fixture.csproj", child),
             new TestRunnerOptions(directory), directory, directory, 1, null);
+    }
+
+    private static TestRunnerContext CreateMtpContext(string directory)
+    {
+        var target = new TestTarget("core/net10.0", "Core", "core", "Mtp", "core.csproj", "net10.0",
+            "Release", string.Empty, string.Empty, [], false, [], []);
+        return new TestRunnerContext(Guid.NewGuid(), new PreparedTestTarget(target, "core.csproj", "core-apphost"),
+            new TestRunnerOptions(directory) { ArtifactsEnabled = true, ExplicitMode = "off" }, directory, directory, 1, null);
+    }
+
+    private sealed class WritingMtpProcessRunner(string trx, string standardOutput) : IProcessRunner
+    {
+        public async Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken = default)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(request.StandardOutputLogPath)!);
+            await File.WriteAllTextAsync(request.StandardOutputLogPath, standardOutput, cancellationToken);
+            await File.WriteAllTextAsync(request.StandardErrorLogPath, string.Empty, cancellationToken);
+            var reportDirectoryIndex = request.Arguments.ToList().IndexOf("--results-directory");
+            Assert.True(reportDirectoryIndex >= 0);
+            var reportDirectory = request.Arguments[reportDirectoryIndex + 1];
+            await File.WriteAllTextAsync(System.IO.Path.Combine(reportDirectory, "results.trx"), trx, cancellationToken);
+            return new ProcessResult(OutcomeKind.Success, 0, [], [], 0, 0, TimeSpan.FromMilliseconds(5),
+                request.StandardOutputLogPath, request.StandardErrorLogPath, null);
+        }
     }
 
     private sealed class RejectProcessRunner : IProcessRunner
