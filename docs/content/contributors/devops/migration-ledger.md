@@ -256,3 +256,25 @@ ADR context for this milestone: `docs/articles/ADRs/index.md` selected `docs/art
 - `retired`: all active callers are migrated and the old source is removed after the zero-caller check.
 
 Generated JSON ledger: [`migration-ledger.json`](migration-ledger.json).
+
+## Testing continuation
+
+The shared managed planner now preserves the ordinary, unit, flaky, CI,
+explicit-test, diagnostics and coverage request defaults before execution.
+Invalid repetition, profile, duration and affected-source options fail before
+child processes start. The dedicated DevOps test project uses the existing
+GitHub Actions reporter at `2.4.0` to exercise the real CI argument contract;
+its dependency remains inside the separate DevOps package graph.
+
+The Linux managed setup passed 226/226 tests with zero build warnings/errors
+and promoted the single-file host. Build smoke run:
+`906072de-a8ae-4997-9f97-4de057994ee7`. Managed execution run
+`dcebf4c5-9c8d-433a-8a61-e9498eb0fbe9` used CI-prepared output, resolved the
+actual MTP executable through MSBuild, ran two filtered tests twice, parsed
+both real TRX reports, and recorded a successful terminal manifest with two
+complete attempts and two stable passing test identities.
+
+This evidence covers the managed planner and executor on Linux. Public
+`test` and `aot` routing, full Windows/Linux parity, isolated stress,
+deliberate-skip qualification, managed Native AOT qualification and legacy
+retirement remain open under specification section 18.

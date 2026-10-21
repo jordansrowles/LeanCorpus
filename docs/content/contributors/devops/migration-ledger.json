@@ -2277,6 +2277,23 @@
         "recoveredInterruptedRunId": "714dd4f4-c07a-42ac-8880-6933ff746c9e",
         "legacyDifferences": "Legacy numstat parser treated old => new as a literal pathname, dropping rename-commit changes. Managed NUL-safe parsing retained them. This baseline has 7,196 additional churn additions and 4,247 additional deletions in source, with documented fixture coverage.",
         "open": "Windows/macOS, hosted CI, and cross-platform parity qualification."
+      },
+      "testing": {
+        "status": "linux-managed-planner-executor-integration-passed-routing-gates-open",
+        "managedTestCount": 226,
+        "setupBuildRunId": "906072de-a8ae-4997-9f97-4de057994ee7",
+        "realMtpRunId": "dcebf4c5-9c8d-433a-8a61-e9498eb0fbe9",
+        "realMtpExecutions": 2,
+        "realMtpCasesPerExecution": 2,
+        "preparedOutput": true,
+        "publicRouting": false,
+        "open": [
+          "Windows/Linux full-slice parity",
+          "isolated stress and deliberate-skip qualification",
+          "public command integration",
+          "Native AOT managed execution qualification",
+          "legacy retirement"
+        ]
       }
     }
   }
