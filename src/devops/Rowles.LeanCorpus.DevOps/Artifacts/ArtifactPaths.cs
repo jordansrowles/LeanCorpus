@@ -28,7 +28,7 @@ internal sealed class ArtifactPaths
     public string GetRunRoot(string category)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(category);
-        if (category is not ("build" or "test" or "coverage" or "benchmark" or "diagnostics" or "report" or "package" or "docs" or "dataforge" or "server"))
+        if (category is not ("build" or "test" or "coverage" or "benchmark" or "diagnostics" or "report" or "package" or "docs" or "data" or "dataforge" or "server"))
         {
             throw new ArgumentException($"'{category}' is not a supported artefact run category.", nameof(category));
         }

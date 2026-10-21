@@ -27,7 +27,7 @@ switch (args[0])
         Console.WriteLine(Environment.CurrentDirectory);
         return 0;
     case "readiness":
-        Console.WriteLine("Now listening: http://127.0.0.1:5080");
+        Console.WriteLine("      Now listening: http://127.0.0.1:5080");
         await Task.Delay(int.Parse(args[1]));
         return 0;
     case "exit":

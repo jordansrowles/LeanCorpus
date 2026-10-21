@@ -1,6 +1,8 @@
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Build;
+using Rowles.LeanCorpus.DevOps.Data;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
+using Rowles.LeanCorpus.DevOps.Packaging;
 using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Reporting;
 using Rowles.LeanCorpus.DevOps.Server;
@@ -252,11 +254,239 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         }
     }
 
+    public int Pack(PackCommandOptions options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            if (options.ValidatePackages && options.CompressionOnly)
+            {
+                return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                    "Package validation requires the complete shipping package set and cannot be combined with compression-only packing."), output, error);
+            }
+
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var provenanceReader = new GitRepositoryProvenanceReader(processRunner);
+            var packResult = new PackageBuildService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "package"),
+                processRunner,
+                new DotNetSdkResolver(processRunner),
+                provenanceReader).PackAsync(new PackageBuildRequest
+                {
+                    Checkout = checkout,
+                    Configuration = options.Configuration,
+                    CompressionOnly = options.CompressionOnly,
+                    NoBuild = options.NoBuild,
+                    Clean = options.Clean
+                }, cancellation.Token).GetAwaiter().GetResult();
+
+            if (packResult.CommandResult.Outcome != OutcomeKind.Success || !options.ValidatePackages && !options.ValidateCompression)
+            {
+                var packageCommandResult = WithRunEvidence(packResult.CommandResult, packResult.RunDirectory, "Packages written");
+                return _renderer.Render(packageCommandResult, output, error);
+            }
+
+            var consumerResult = new PackageConsumerValidationService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "test"),
+                processRunner,
+                provenanceReader,
+                progress: message => output.WriteLine(message)).ValidateAsync(new PackageConsumerValidationRequest
+                {
+                    Checkout = checkout,
+                    PackageDirectory = Path.Combine(paths.ArtifactRoot, "package", "release"),
+                    Scope = options.ValidatePackages ? "all" : "compression"
+                }, cancellation.Token).GetAwaiter().GetResult();
+
+            var result = consumerResult.CommandResult with
+            {
+                Message = consumerResult.CommandResult.Outcome == OutcomeKind.Success
+                    ? $"Package consumer validation passed. Package output: {Path.Combine(paths.ArtifactRoot, "package", "release")}."
+                    : consumerResult.CommandResult.Message,
+                Details = JoinDetails(packResult.RunDirectory, consumerResult.AcceptancePath,
+                    consumerResult.CommandResult.Details)
+            };
+            return _renderer.Render(result, output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run the managed package command.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int Data(DataCommandOptions options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            if (!options.Dataset.Equals("gutenberg", StringComparison.OrdinalIgnoreCase) &&
+                !options.Dataset.Equals("migration-fixtures-311", StringComparison.OrdinalIgnoreCase))
+            {
+                return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                    $"Unknown data set '{options.Dataset}'. Valid data sets: gutenberg, migration-fixtures-311."), output, error);
+            }
+
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            if (options.Dataset.Equals("migration-fixtures-311", StringComparison.OrdinalIgnoreCase))
+            {
+                var processRunner = new ProcessRunner();
+                var fixtureResult = new MigrationFixtureGenerationService(
+                    paths,
+                    new ArtifactRunStore(paths, runCategory: "data"),
+                    processRunner,
+                    new GitRepositoryProvenanceReader(processRunner),
+                    message => output.WriteLine(message)).GenerateAsync(new MigrationFixtureGenerationRequest(
+                        checkout, options.PackageSource, options.OutputDirectory), cancellation.Token).GetAwaiter().GetResult();
+                var fixtureCommandResult = fixtureResult.CommandResult with
+                {
+                    Message = fixtureResult.CommandResult.Outcome == OutcomeKind.Success
+                        ? $"{fixtureResult.CommandResult.Message} Run evidence: {fixtureResult.RunDirectory}"
+                        : fixtureResult.CommandResult.Message,
+                    Details = JoinDetails(fixtureResult.RunDirectory, fixtureResult.CommandResult.Details)
+                };
+                return _renderer.Render(fixtureCommandResult, output, error);
+            }
+
+            if (options.BookCount < 1)
+                return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, "Gutenberg -BookCount must be a positive integer."), output, error);
+
+            using var httpClient = new HttpClient();
+            var result = new GutenbergDownloadService(httpClient, message => output.WriteLine(message))
+                .DownloadAsync(new GutenbergDownloadRequest
+                {
+                    RepositoryRoot = checkout.RepositoryRoot,
+                    BookCount = options.BookCount,
+                    OutputDirectory = options.OutputDirectory
+                }, cancellation.Token).GetAwaiter().GetResult();
+            return _renderer.Render(result.CommandResult, output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Gutenberg data preparation was cancelled."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run the managed data command.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int DataForge(DataForgeCommandOptions options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var result = new DataForgeCommandService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "dataforge"),
+                processRunner,
+                new DotNetSdkResolver(processRunner),
+                new GitRepositoryProvenanceReader(processRunner),
+                outputProgress: message => output.WriteLine(message),
+                errorOutput: message => error.WriteLine(message)).RunAsync(new DataForgeCommandRequest(checkout, options.Arguments),
+                cancellation.Token).GetAwaiter().GetResult();
+            var commandResult = result.CommandResult with
+            {
+                Message = result.CommandResult.Outcome == OutcomeKind.Success
+                    ? $"{result.CommandResult.Message} Run evidence: {result.RunDirectory}"
+                    : result.CommandResult.Message,
+                Details = JoinDetails(result.RunDirectory, result.CommandResult.Details)
+            };
+            return _renderer.Render(commandResult, output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "DataForge was cancelled."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run the managed DataForge command.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
     private int? RejectStaleManagedHost(CheckoutIdentity checkout)
     {
         var failure = ManagedHostFingerprint.Validate(checkout.RepositoryRoot, Environment.ProcessPath);
         return failure is null
             ? null
             : _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "The managed DevOps apphost is missing valid promotion evidence.", Details: failure), output, error);
+    }
+
+    private static CommandResult WithRunEvidence(CommandResult result, string? runDirectory, string successPrefix)
+        => runDirectory is null
+            ? result
+            : result with
+            {
+                Message = result.Outcome == OutcomeKind.Success ? $"{successPrefix}. Run evidence: {runDirectory}" : result.Message,
+                Details = JoinDetails(runDirectory, result.Details)
+            };
+
+    private static string? JoinDetails(params string?[] values)
+    {
+        var present = values.Where(static value => !string.IsNullOrWhiteSpace(value)).ToArray();
+        return present.Length == 0 ? null : string.Join(Environment.NewLine, present);
     }
 }

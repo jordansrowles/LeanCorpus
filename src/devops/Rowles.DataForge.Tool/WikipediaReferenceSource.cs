@@ -19,7 +19,7 @@ internal static class WikipediaReferenceSource
         var metadataPath = Path.Combine(root, "source.json");
         foreach (var required in new[] { checksumPath, statusPath, primaryPath, indexPath, metadataPath })
             if (!File.Exists(required))
-                throw new FileNotFoundException($"Pinned Wikipedia source file is missing: '{required}'. Run 'pwsh ./devops.ps1 dataforge reference download'.", required);
+                throw new FileNotFoundException($"Pinned Wikipedia source file is missing: '{required}'. Run 'devops dataforge reference download'.", required);
 
         var source = JsonSerializer.Deserialize<WikipediaDumpSource>(File.ReadAllBytes(metadataPath))
             ?? throw new InvalidDataException("Wikipedia source.json is empty or invalid.");

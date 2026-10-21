@@ -69,7 +69,7 @@ internal sealed class ProcessRunner : IProcessRunner
                     {
                         stdout.Add(line);
                         if (request.StopOnStandardOutputPrefix is { Length: > 0 } prefix &&
-                            line.StartsWith(prefix, StringComparison.Ordinal))
+                            line.AsSpan().TrimStart().StartsWith(prefix, StringComparison.Ordinal))
                         {
                             Interlocked.Exchange(ref stoppedByCondition, 1);
                             linkedSource.Cancel();

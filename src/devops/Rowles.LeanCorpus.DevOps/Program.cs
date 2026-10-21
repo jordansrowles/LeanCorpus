@@ -25,10 +25,16 @@ internal static class Program
         var clean = BuildCleanCommand(handler, repository);
         var server = BuildServerCommand(handler, repository);
         var report = BuildReportCommand(handler, repository);
+        var pack = BuildPackCommand(handler, repository);
+        var data = BuildDataCommand(handler, repository);
+        var dataForge = BuildDataForgeCommand(handler, repository);
         root.Add(build);
         root.Add(clean);
         root.Add(server);
         root.Add(report);
+        root.Add(pack);
+        root.Add(data);
+        root.Add(dataForge);
 
         return root;
     }
@@ -176,19 +182,123 @@ internal static class Program
             result.GetValue(repository))));
         return command;
     }
+
+    private static Command BuildPackCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var configuration = new Option<string>("--configuration", ["-Configuration"])
+        {
+            Description = "Package configuration (default: Release).",
+            DefaultValueFactory = _ => "Release"
+        };
+        var compressionOnly = new Option<bool>("--compression-only", ["-CompressionOnly"])
+        {
+            Description = "Pack Core and the three optional compression packages."
+        };
+        var noBuild = new Option<bool>("--no-build", ["-NoBuild"])
+        {
+            Description = "Pack existing builds without rebuilding projects."
+        };
+        var clean = new Option<bool>("--clean", ["-Clean"])
+        {
+            Description = "Remove the owned package output directory before packing."
+        };
+        var validatePackages = new Option<bool>("--validate-packages", ["-ValidatePackages"])
+        {
+            Description = "Build and run isolated consumers for every shipping package."
+        };
+        var validateCompression = new Option<bool>("--validate-compression", ["-ValidateCompression"])
+        {
+            Description = "Build and run the isolated compression consumer matrix."
+        };
+        var command = new Command("pack", "Pack and validate LeanCorpus NuGet packages.");
+        command.Add(configuration);
+        command.Add(compressionOnly);
+        command.Add(noBuild);
+        command.Add(clean);
+        command.Add(validatePackages);
+        command.Add(validateCompression);
+        command.SetAction(result => handler.Pack(new PackCommandOptions(
+            result.GetValue(configuration) ?? "Release",
+            result.GetValue(compressionOnly),
+            result.GetValue(noBuild),
+            result.GetValue(clean),
+            result.GetValue(validatePackages),
+            result.GetValue(validateCompression),
+            result.GetValue(repository))));
+        return command;
+    }
+
+    private static Command BuildDataCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var dataset = new Argument<string>("dataset")
+        {
+            Description = "Dataset to prepare: gutenberg or migration-fixtures-311.",
+            Arity = ArgumentArity.ExactlyOne
+        };
+        var bookCount = new Option<int>("--book-count", ["-BookCount"])
+        {
+            Description = "Number of Project Gutenberg books to prepare (default: 200).",
+            DefaultValueFactory = _ => 200
+        };
+        var outputDirectory = new Option<string?>("--output-dir", ["-OutputDir"])
+        {
+            Description = "Output directory (dataset-specific default when omitted)."
+        };
+        var packageSource = new Option<string>("--package-source", ["-PackageSource"])
+        {
+            Description = "NuGet source used by the pinned 3.1.1 fixture generator.",
+            DefaultValueFactory = _ => "https://api.nuget.org/v3/index.json"
+        };
+        var command = new Command("data", "Prepare benchmark datasets and migration fixtures.");
+        command.Add(dataset);
+        command.Add(bookCount);
+        command.Add(outputDirectory);
+        command.Add(packageSource);
+        command.SetAction(result => handler.Data(new DataCommandOptions(
+            result.GetValue(dataset) ?? string.Empty,
+            result.GetValue(bookCount),
+            result.GetValue(outputDirectory),
+            result.GetValue(packageSource) ?? "https://api.nuget.org/v3/index.json",
+            result.GetValue(repository))));
+        return command;
+    }
+
+    private static Command BuildDataForgeCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var arguments = new Argument<string[]>("arguments")
+        {
+            Description = "DataForge tool command and arguments.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+        var command = new Command("dataforge", "Run the DataForge generation and reference tool.");
+        command.Add(arguments);
+        command.SetAction(result => handler.DataForge(new DataForgeCommandOptions(
+            result.GetValue(arguments) ?? [], result.GetValue(repository))));
+        return command;
+    }
 }
 
 internal static class CommandLineApplication
 {
     public static int Run(string[] args, TextWriter output, TextWriter error, ICommandHandler? handler = null)
     {
+        var commandHandler = handler ?? new ManagedCommandHandler(output, error);
+        if (TryGetDataForgeOptions(args, out var dataForgeOptions))
+        {
+            if (dataForgeOptions.Arguments.FirstOrDefault()?.Equals("qualify", StringComparison.OrdinalIgnoreCase) is true)
+            {
+                error.WriteLine("The 'dataforge qualify' workflow remains on the PowerShell path during migration. Run `pwsh ./devops.ps1 dataforge qualify` with the same arguments.");
+                return 2;
+            }
+            return commandHandler.DataForge(dataForgeOptions);
+        }
+
         if (args.Length > 0 && UnmigratedCommands.Contains(args[0], StringComparer.OrdinalIgnoreCase))
         {
             error.WriteLine($"The '{args[0]}' command remains on the PowerShell path during migration. Run `pwsh ./devops.ps1 {args[0]}` with the same arguments.");
             return 2;
         }
 
-        var commandHandler = handler ?? new ManagedCommandHandler(output, error);
         var root = Program.BuildRootCommand(commandHandler);
         var parseResult = root.Parse(args);
         if (parseResult.Errors.Count > 0)
@@ -213,8 +323,33 @@ internal static class CommandLineApplication
 
     private static readonly string[] UnmigratedCommands =
     [
-        "aot", "benchmark", "benchmarks", "coverage", "data", "dataforge", "diagnostics", "docs", "pack", "setup", "test", "ui"
+        "aot", "benchmark", "benchmarks", "coverage", "diagnostics", "docs", "setup", "test", "ui"
     ];
+
+    private static bool TryGetDataForgeOptions(string[] args, out DataForgeCommandOptions options)
+    {
+        string? repositoryPath = null;
+        var commandIndex = -1;
+        if (args.Length >= 3 && args[0].Equals("--repo", StringComparison.OrdinalIgnoreCase) &&
+            args[2].Equals("dataforge", StringComparison.OrdinalIgnoreCase))
+        {
+            repositoryPath = args[1];
+            commandIndex = 2;
+        }
+        else if (args.Length > 0 && args[0].Equals("dataforge", StringComparison.OrdinalIgnoreCase))
+        {
+            commandIndex = 0;
+        }
+
+        if (commandIndex < 0)
+        {
+            options = null!;
+            return false;
+        }
+
+        options = new DataForgeCommandOptions(args.Skip(commandIndex + 1).ToArray(), repositoryPath);
+        return true;
+    }
 }
 
 internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHandler
@@ -226,6 +361,12 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int StartServer(ServerStartCommandOptions options) => Missing("server");
 
     public int Report(ReportCommandOptions options) => Missing("report");
+
+    public int Pack(PackCommandOptions options) => Missing("pack");
+
+    public int Data(DataCommandOptions options) => Missing("data");
+
+    public int DataForge(DataForgeCommandOptions options) => Missing("dataforge");
 
     private int Missing(string command)
     {

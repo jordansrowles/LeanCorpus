@@ -74,6 +74,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Pin DocFX 2.78.5 in the repository-local .NET tool manifest and add root `setup.ps1` checks for PowerShell 7, Git and the `global.json` SDK family.
 - Move canonical documentation and site configuration into `docs/content/` and `docs/site-config/`; stage generated API, import, ADR, changelog, benchmark and site outputs under `artifacts/docs/`.
 - Add an isolated managed DevOps host for `build`, `clean` and foreground `server start`; bootstrap it with `pwsh ./setup.ps1` and keep unmigrated commands on the PowerShell dispatcher.
+- Extend the managed DevOps host with package archive and isolated-consumer validation, plus Gutenberg downloads that record SHA-256 identities and atomically promote completed files.
+- Add managed DataForge dataset generation and reproducible migration-fixture archive generation to the DevOps CLI.
 - Add managed repository, tracked-file and code-health reports with JSON run evidence, child-process logs, strict checks and explicit shallow-history and rename-analysis warnings.
 - Disable MSBuild build servers during managed DevOps locked restores to avoid stale server or named-pipe delays during bootstrap.
 - Bundle native dependencies in the managed single-file host so packages such as LibGit2Sharp do not leave root-level sidecars.

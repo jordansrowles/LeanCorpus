@@ -9,4 +9,10 @@ internal interface ICommandHandler
     int StartServer(ServerStartCommandOptions options);
 
     int Report(ReportCommandOptions options);
+
+    int Pack(PackCommandOptions options);
+
+    int Data(DataCommandOptions options);
+
+    int DataForge(DataForgeCommandOptions options);
 }

@@ -22,6 +22,9 @@ public sealed class CommandLineContractTests
         Assert.Contains("clean", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("server", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("report", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pack", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("data", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("dataforge", output.ToString(), StringComparison.OrdinalIgnoreCase);
         var helpLines = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
         Assert.DoesNotContain(helpLines, line => line.TrimStart().StartsWith("test ", StringComparison.OrdinalIgnoreCase));
         Assert.Empty(error.ToString());
@@ -119,6 +122,69 @@ public sealed class CommandLineContractTests
         Assert.Equal(0, Invoke(["--repo", repository, "build"], handler));
 
         Assert.Equal(repository, Assert.IsType<BuildCommandOptions>(Assert.Single(handler.Calls)).RepositoryPath);
+    }
+
+    [Fact]
+    public void PackAcceptsLegacyFlagsAndDefaultsToRelease()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+
+        Assert.Equal(0, Invoke(["--repo", repository, "pack", "-CompressionOnly", "-NoBuild", "-Clean", "-ValidateCompression"], handler));
+
+        Assert.Equal(new PackCommandOptions("Release", true, true, true, false, true, repository),
+            Assert.IsType<PackCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void DataAcceptsLegacyDatasetFlagsAndExplicitRepository()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+
+        Assert.Equal(0, Invoke(["--repo", repository, "data", "gutenberg", "-BookCount", "321", "-OutputDir", "/tmp/books"], handler));
+
+        Assert.Equal(new DataCommandOptions("gutenberg", 321, "/tmp/books", "https://api.nuget.org/v3/index.json", repository),
+            Assert.IsType<DataCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void DataMigrationFixtureCommandAcceptsThePackageSourceAndOutputDirectory()
+    {
+        var handler = new RecordingCommandHandler();
+        const string outputDirectory = "/tmp/migration fixtures";
+
+        Assert.Equal(0, Invoke(["data", "migration-fixtures-311", "-PackageSource", "/tmp/nuget-feed", "-OutputDir", outputDirectory], handler));
+
+        Assert.Equal(new DataCommandOptions("migration-fixtures-311", 200, outputDirectory, "/tmp/nuget-feed"),
+            Assert.IsType<DataCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void DataForgePreservesExternalToolArgumentsAndRepositorySelection()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+        string[] arguments = ["generate", "-Profile", "leancorpus-search", "-Seed", "42", "-Output", "data dir"];
+
+        Assert.Equal(0, Invoke(["--repo", repository, "dataforge", .. arguments], handler));
+
+        var actual = Assert.IsType<DataForgeCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal(arguments, actual.Arguments);
+        Assert.Equal(repository, actual.RepositoryPath);
+    }
+
+    [Fact]
+    public void DataForgeQualificationRemainsOnTheLegacyRouteUntilItsManagedWorkflowExists()
+    {
+        var handler = new RecordingCommandHandler();
+        var error = new StringWriter();
+
+        var exitCode = CommandLineApplication.Run(["dataforge", "qualify", "-Dry"], TextWriter.Null, error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("pwsh ./devops.ps1 dataforge qualify", error.ToString(), StringComparison.Ordinal);
+        Assert.Empty(handler.Calls);
     }
 
     [Fact]
@@ -260,6 +326,24 @@ public sealed class CommandLineContractTests
         }
 
         public int Report(ReportCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int Pack(PackCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int Data(DataCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int DataForge(DataForgeCommandOptions options)
         {
             Calls.Add(options);
             return 0;

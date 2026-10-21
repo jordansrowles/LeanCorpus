@@ -104,7 +104,7 @@ public sealed class ProcessRunnerTests
         Assert.Equal(OutcomeKind.Success, result.Outcome);
         Assert.True(result.StoppedByCondition);
         Assert.Null(result.RawExitCode);
-        Assert.Contains(result.StandardOutputTail, line => line.StartsWith("Now listening: http://127.0.0.1:", StringComparison.Ordinal));
+        Assert.Contains(result.StandardOutputTail, line => line.TrimStart().StartsWith("Now listening: http://127.0.0.1:", StringComparison.Ordinal));
         Assert.True(result.Duration < TimeSpan.FromSeconds(5));
     }
 
