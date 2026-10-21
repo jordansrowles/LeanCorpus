@@ -47,7 +47,7 @@ public sealed class CleanServiceTests
         var result = await service.CleanAsync(new CleanRequest { Checkout = checkout.Identity, Target = "build" }, TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
-        Assert.True(File.Exists(Path.Combine(paths.BuildRunRoot, active.RunId.ToString("D"), "manifest.json")));
+        Assert.True(File.Exists(Path.Combine(paths.BuildRunRoot, active.RunId.ToString("D"), "run.json")));
         Assert.False(File.Exists(Path.Combine(paths.ArtifactRoot, "build", "old", "output.log")));
         var cleanManifest = await store.ReadAsync(result.RunId!.Value, TestContext.Current.CancellationToken);
         Assert.NotNull(cleanManifest);
@@ -72,6 +72,26 @@ public sealed class CleanServiceTests
         Assert.False(File.Exists(Path.Combine(paths.ArtifactRoot, "temp", "output")));
         Assert.True(File.Exists(Path.Combine(paths.ArtifactRoot, "devops", "staging", "current", "payload")));
         Assert.True(File.Exists(paths.RootApphostPath));
+    }
+
+    [Fact]
+    public async Task AllTargetPreservesActiveRunsInEverySupportedCategory()
+    {
+        using var checkout = TemporaryCheckout.Create();
+        var paths = new ArtifactPaths(checkout.Root);
+        var manifests = new List<string>();
+        foreach (var category in ArtifactPaths.RunCategories)
+        {
+            var run = await new ArtifactRunStore(paths, runCategory: category).StartAsync(category,
+                cancellationToken: TestContext.Current.CancellationToken);
+            manifests.Add(Path.Combine(paths.GetRunDirectory(category, run.RunId), "run.json"));
+        }
+
+        var result = await new CleanService(paths, new ArtifactRunStore(paths)).CleanAsync(
+            new CleanRequest { Checkout = checkout.Identity, Target = "all" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
+        Assert.All(manifests, path => Assert.True(File.Exists(path), path));
     }
 
     [Fact]

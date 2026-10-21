@@ -20,7 +20,7 @@ public sealed class ArtifactRunStoreTests
 
         Assert.NotEqual(Guid.Empty, started.RunId);
         Assert.Equal(RunState.Running, started.State);
-        var manifestPath = Path.Combine(paths.BuildRunRoot, started.RunId.ToString("D"), "manifest.json");
+        var manifestPath = Path.Combine(paths.BuildRunRoot, started.RunId.ToString("D"), "run.json");
         Assert.True(File.Exists(manifestPath));
         Assert.Contains("\"state\": \"running\"", await File.ReadAllTextAsync(manifestPath, TestContext.Current.CancellationToken), StringComparison.Ordinal);
         Assert.Equal("abc123", started.SourceCommit);
@@ -70,7 +70,7 @@ public sealed class ArtifactRunStoreTests
             OwnerProcessStartedUtc = DateTimeOffset.UtcNow.AddDays(-2)
         };
         await File.WriteAllTextAsync(
-            Path.Combine(runDirectory, "manifest.json"),
+            Path.Combine(runDirectory, "run.json"),
             JsonSerializer.Serialize(orphaned, new JsonSerializerOptions(JsonSerializerDefaults.Web)
             {
                 Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter(System.Text.Json.JsonNamingPolicy.CamelCase, allowIntegerValues: false) }
@@ -99,7 +99,7 @@ public sealed class ArtifactRunStoreTests
 
         await Assert.ThrowsAsync<IOException>(() => store.StartAsync("build", cancellationToken: TestContext.Current.CancellationToken));
 
-        Assert.Empty(Directory.GetFiles(paths.BuildRunRoot, "manifest.json", SearchOption.AllDirectories));
+        Assert.Empty(Directory.GetFiles(paths.BuildRunRoot, "run.json", SearchOption.AllDirectories));
     }
 
     [Fact]
@@ -111,11 +111,36 @@ public sealed class ArtifactRunStoreTests
         var finished = await store.FinishAsync(started, RunState.Failed, failure: "expected", cancellationToken: TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => store.FinishAsync(finished, RunState.Succeeded, cancellationToken: TestContext.Current.CancellationToken));
-        var path = Path.Combine(root.Path, "artifacts", "build", "runs", started.RunId.ToString("D"), "manifest.json");
+        var path = Path.Combine(root.Path, "artifacts", "build", "runs", started.RunId.ToString("D"), "run.json");
         var json = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(path, json.Replace("\"schemaVersion\": 1", "\"schemaVersion\": 99", StringComparison.Ordinal), TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<InvalidDataException>(() => store.ReadAsync(started.RunId, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ReadsHistoricalManifestAndWritesCanonicalRunWithoutReplacingHistory()
+    {
+        using var root = TemporaryRoot.Create();
+        var paths = new ArtifactPaths(root.Path);
+        var store = new ArtifactRunStore(paths);
+        var started = await store.StartAsync("test", cancellationToken: TestContext.Current.CancellationToken);
+        var directory = paths.GetBuildRunDirectory(started.RunId);
+        var canonical = Path.Combine(directory, "run.json");
+        var historical = Path.Combine(directory, "manifest.json");
+        File.Move(canonical, historical);
+        var original = await File.ReadAllTextAsync(historical, TestContext.Current.CancellationToken);
+
+        var recovered = await store.ReadAsync(started.RunId, TestContext.Current.CancellationToken);
+        Assert.NotNull(recovered);
+        await store.FinishAsync(recovered, RunState.Succeeded, cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(File.Exists(canonical));
+        Assert.Equal(original, await File.ReadAllTextAsync(historical, TestContext.Current.CancellationToken));
+        Assert.Equal(RunState.Succeeded, (await store.ReadAsync(started.RunId, TestContext.Current.CancellationToken))!.State);
+
+        await File.WriteAllTextAsync(canonical, "{invalid", TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<JsonException>(() => store.ReadAsync(started.RunId, TestContext.Current.CancellationToken));
     }
 
     private sealed class FailingWriter : IAtomicFileWriter

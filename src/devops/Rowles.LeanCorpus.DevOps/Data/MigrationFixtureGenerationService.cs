@@ -136,7 +136,7 @@ internal sealed class MigrationFixtureGenerationService(
                 cancellationToken: CancellationToken.None, childExitCodes: childExitCodes).ConfigureAwait(false);
             return new MigrationFixtureGenerationResult(new CommandResult(OutcomeKind.Success,
                 $"Frozen 3.1.1 migration fixtures generated in '{outputDirectory}'.",
-                Details: Path.Combine(runDirectory, "manifest.json")), completed.RunId, runDirectory);
+                Details: Path.Combine(runDirectory, "run.json")), completed.RunId, runDirectory);
         }
         catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
         {

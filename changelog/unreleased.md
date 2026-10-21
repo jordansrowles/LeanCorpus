@@ -82,6 +82,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Add managed local BenchmarkDotNet runs with suite, strategy, dataset and group selection, run provenance, bounded cancellation, result validation and scoped child-process environment overrides.
 - Route local, affected-source and remote SSH/tmux benchmark commands through the managed host; bootstrap that host in the manual benchmark workflow, record affected paths and remote session state, and leave cancellation unconfirmed until remote status is terminal.
 - Add shared managed test request planning, target selection and preparation, separate Microsoft.Testing.Platform and Native AOT runner adapters, strict TRX evidence parsing, legacy argument parity, repeated-run aggregation, target discovery and checkpoint events, and durable attempt and unscheduled-target reporting; keep the `test` and `aot` routes gated on platform parity.
+- Write managed run envelopes to `run.json`, retain historical manifest readers, display managed evidence in the existing runs UI, and protect active runs in every supported artefact category.
 - Disable MSBuild build servers during managed DevOps locked restores to avoid stale server or named-pipe delays during bootstrap.
 - Bundle native dependencies in the managed single-file host so packages such as LibGit2Sharp do not leave root-level sidecars.
 - Retire tracked benchmark and changelog copies after verifying their staged replacements, and load the pinned Chart.js bundle locally.

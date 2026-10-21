@@ -95,7 +95,7 @@ internal sealed class ArtifactRunStore
             OwnerProcessStartedUtc = GetCurrentProcessStartedUtc()
         };
 
-        await WriteAsync(Path.Combine(runDirectory, "manifest.json"), manifest, cancellationToken).ConfigureAwait(false);
+        await WriteAsync(Path.Combine(runDirectory, "run.json"), manifest, cancellationToken).ConfigureAwait(false);
         return manifest;
     }
 
@@ -184,7 +184,12 @@ internal sealed class ArtifactRunStore
         var path = GetManifestPath(runId);
         if (!File.Exists(path))
         {
-            return null;
+            var historicalPath = Path.Combine(Path.GetDirectoryName(path)!, "manifest.json");
+            if (!File.Exists(historicalPath))
+            {
+                return null;
+            }
+            path = historicalPath;
         }
 
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16_384, FileOptions.Asynchronous | FileOptions.SequentialScan);
@@ -199,7 +204,7 @@ internal sealed class ArtifactRunStore
                 CompletedUtc = DateTimeOffset.UtcNow,
                 Failure = "The run owner process ended before writing a terminal manifest."
             };
-            await WriteAsync(path, manifest, cancellationToken).ConfigureAwait(false);
+            await WriteAsync(GetManifestPath(runId), manifest, cancellationToken).ConfigureAwait(false);
         }
 
         return manifest;
@@ -239,7 +244,7 @@ internal sealed class ArtifactRunStore
             throw new ArgumentException("A non-empty run identity is required.", nameof(runId));
         }
 
-        return Path.Combine(_paths.GetRunRoot(_runCategory), runId.ToString("D"), "manifest.json");
+        return Path.Combine(_paths.GetRunRoot(_runCategory), runId.ToString("D"), "run.json");
     }
 
     private async Task WriteAsync(string path, RunManifest manifest, CancellationToken cancellationToken)

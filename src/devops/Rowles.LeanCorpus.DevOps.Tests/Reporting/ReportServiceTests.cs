@@ -31,7 +31,7 @@ public sealed class ReportServiceTests
         Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
         var runDirectory = Assert.IsType<string>(result.RunDirectory);
         Assert.StartsWith(Path.Combine(repository.Path, "artifacts", "report", "runs"), runDirectory, StringComparison.Ordinal);
-        Assert.True(File.Exists(Path.Combine(runDirectory, "manifest.json")));
+        Assert.True(File.Exists(Path.Combine(runDirectory, "run.json")));
         Assert.True(File.Exists(Path.Combine(runDirectory, "report.json")));
         var logReferences = Assert.IsType<JsonArray>(result.Document!["logRefs"]);
         Assert.NotEmpty(logReferences);
@@ -39,7 +39,7 @@ public sealed class ReportServiceTests
         var childAttempts = Assert.IsType<JsonArray>(result.Document["childAttempts"]);
         Assert.NotEmpty(childAttempts);
         Assert.All(childAttempts, attempt => Assert.Equal(0, attempt!["rawExitCode"]!.GetValue<int>()));
-        using (var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(runDirectory, "manifest.json"))))
+        using (var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(runDirectory, "run.json"))))
         {
             Assert.Equal("succeeded", manifest.RootElement.GetProperty("state").GetString());
             Assert.NotEmpty(manifest.RootElement.GetProperty("childExitCodes").EnumerateArray());
@@ -303,7 +303,7 @@ public sealed class ReportServiceTests
 
         Assert.Equal(OutcomeKind.Timeout, result.CommandResult.Outcome);
         Assert.Equal("Timeout", result.Document!["outcome"]!.GetValue<string>());
-        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(result.RunDirectory!, "manifest.json")));
+        using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(result.RunDirectory!, "run.json")));
         Assert.Equal("timedOut", manifest.RootElement.GetProperty("state").GetString());
     }
 

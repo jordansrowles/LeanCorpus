@@ -169,7 +169,7 @@ internal sealed class DiagnosticsCommandService(
             foreach (var file in Directory.EnumerateFiles(runDirectory, "*", SearchOption.AllDirectories))
             {
                 var relative = Path.GetRelativePath(runDirectory, file).Replace('\\', '/');
-                if (relative != "manifest.json")
+                if (relative is not ("run.json" or "manifest.json"))
                     artifacts.Add(relative);
             }
 
@@ -384,7 +384,7 @@ internal sealed class DiagnosticsCommandService(
             foreach (var file in Directory.EnumerateFiles(runDirectory, "*", SearchOption.AllDirectories))
             {
                 var relative = Path.GetRelativePath(runDirectory, file).Replace('\\', '/');
-                if (relative != "manifest.json")
+                if (relative is not ("run.json" or "manifest.json"))
                     artifactSet.Add(relative);
             }
         }

@@ -1,6 +1,77 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function Get-DevOpsEvidenceValue {
+    param([object]$Document, [string]$Name, [object]$Default = '')
+    if ($null -ne $Document -and $Document.PSObject.Properties[$Name]) { return $Document.$Name }
+    return $Default
+}
+
+function ConvertTo-DevOpsUiRunManifest {
+    param([Parameter(Mandatory = $true)][object]$Manifest)
+    if (-not $Manifest.PSObject.Properties['state']) { return $Manifest }
+    if ($Manifest.schemaVersion -ne 1) { throw "Unsupported managed run schema: $($Manifest.schemaVersion)" }
+    $inputs = Get-DevOpsEvidenceValue $Manifest 'inputs' $null
+    $started = Get-DevOpsEvidenceValue $Manifest 'startedUtc'
+    $completed = Get-DevOpsEvidenceValue $Manifest 'completedUtc'
+    $duration = 0
+    if ($started -and $completed) { $duration = ([DateTimeOffset]::Parse($completed) - [DateTimeOffset]::Parse($started)).TotalMilliseconds }
+    return [pscustomobject]@{
+        runId = $Manifest.runId
+        status = [string]$Manifest.state
+        startedAtUtc = $started
+        completedAtUtc = $completed
+        durationMs = $duration
+        branch = Get-DevOpsEvidenceValue $Manifest 'sourceBranch'
+        commit = Get-DevOpsEvidenceValue $Manifest 'sourceCommit'
+        dirty = Get-DevOpsEvidenceValue $Manifest 'sourceDirty' $false
+        os = Get-DevOpsEvidenceValue $Manifest 'platform'
+        target = Get-DevOpsEvidenceValue $inputs 'targets' (Get-DevOpsEvidenceValue $inputs 'target')
+        framework = Get-DevOpsEvidenceValue $inputs 'framework'
+        configuration = Get-DevOpsEvidenceValue $inputs 'configuration'
+        commandLine = Get-DevOpsEvidenceValue $Manifest 'command'
+        error = Get-DevOpsEvidenceValue $Manifest 'failure'
+        outputs = @(Get-DevOpsEvidenceValue $Manifest 'artifacts' @())
+        toolVersions = Get-DevOpsEvidenceValue $Manifest 'toolVersions' $null
+    }
+}
+
+function ConvertTo-DevOpsUiTestReport {
+    param([Parameter(Mandatory = $true)][object]$Report)
+    if (-not $Report.PSObject.Properties['attempts']) { return $Report }
+    if ($Report.schemaVersion -ne 1) { throw "Unsupported managed test report schema: $($Report.schemaVersion)" }
+    $attempts = @($Report.attempts)
+    $targetRows = @($attempts | ForEach-Object {
+        [pscustomobject]@{
+            iteration = $_.iteration; suite = $_.suite; targetKey = $_.target; outcome = $_.outcome
+            durationMs = $_.durationMs
+            failedTestCount = @($_.tests | Where-Object { $_.outcome -in @('Failed', 'Error', 'Timeout') }).Count
+        }
+    })
+    $tests = @($Report.tests | ForEach-Object {
+        [pscustomobject]@{
+            suite = $_.suite; testName = $_.testName; classification = $_.stability
+            failedCount = @($_.attempts | Where-Object { $_.outcome -in @('Failed', 'Error', 'Timeout') }).Count
+        }
+    })
+    return [pscustomobject]@{
+        summary = [pscustomobject]@{
+            succeeded = $Report.succeeded
+            requestedTargetExecutions = $Report.requestedExecutions
+            passedTargetExecutions = @($attempts | Where-Object outcome -eq 'Passed').Count
+            failedTargetExecutions = @($attempts | Where-Object outcome -eq 'AssertionFailure').Count
+            crashedTargetExecutions = @($attempts | Where-Object outcome -eq 'Crashed').Count
+            hungTargetExecutions = @($attempts | Where-Object outcome -eq 'Hung').Count
+            incompleteTargetExecutions = @($attempts | Where-Object outcome -eq 'Incomplete').Count
+            cancelledTargetExecutions = @($attempts | Where-Object outcome -eq 'Cancelled').Count
+            unscheduledTargetExecutions = Get-DevOpsEvidenceValue $Report 'unscheduledExecutions' ([Math]::Max(0, $Report.requestedExecutions - $attempts.Count))
+            totalDurationMs = ($attempts | Measure-Object -Property durationMs -Sum).Sum
+        }
+        targetResults = $targetRows
+        tests = $tests
+    }
+}
+
 function Invoke-DevOpsUiObserveMenu {
     while ($true) {
         $item = [string](Read-DevOpsUiSelection -Message 'Observe' -Choices @('Runs and artefacts', 'Diagnostics', 'Repository health', 'Back') -EnableSearch)
@@ -14,16 +85,19 @@ function Invoke-DevOpsUiObserveMenu {
 }
 
 function Get-DevOpsUiRecentRuns {
-    $repoRoot = Get-RepoRoot
+    param([string]$RepoRoot = (Get-RepoRoot))
     $runs = [System.Collections.Generic.List[object]]::new()
     foreach ($kind in @('test', 'coverage', 'diagnostics', 'benchmark')) {
         $root = Get-ArtifactRunsRoot -Kind $kind -RepoRoot $repoRoot
         if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
         foreach ($directory in Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue) {
             $manifestPath = Join-Path $directory.FullName 'run.json'
-            if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { continue }
+            if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+                $manifestPath = Join-Path $directory.FullName 'manifest.json'
+                if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { continue }
+            }
             try {
-                $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -Depth 32
+                $manifest = ConvertTo-DevOpsUiRunManifest (Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json -Depth 32)
                 $started = [DateTimeOffset]::MinValue
                 [void][DateTimeOffset]::TryParse([string]$manifest.startedAtUtc, [ref]$started)
                 [void]$runs.Add([pscustomobject]@{
@@ -50,7 +124,7 @@ function Invoke-DevOpsUiRuns {
     $run = @($runs | Where-Object RunId -eq $selectedId | Select-Object -First 1)[0]
     $manifest = $run.Manifest
     Write-SpectreRule -PassThru -Title "$($run.Kind) $($run.Status): $($run.RunId)" | Out-SpectreHost | Out-Host
-    foreach ($property in @('branch', 'commit', 'dirty', 'os', 'architecture', 'machine', 'framework', 'configuration', 'target', 'commandLine', 'startedAtUtc', 'completedAtUtc', 'durationMs', 'error')) {
+    foreach ($property in @('branch', 'commit', 'dirty', 'os', 'architecture', 'machine', 'framework', 'configuration', 'target', 'commandLine', 'startedAtUtc', 'completedAtUtc', 'durationMs', 'error', 'toolVersions')) {
         if ($manifest.PSObject.Properties[$property] -and $null -ne $manifest.$property) { Write-DevOpsUiMarkup (ConvertTo-DevOpsUiLiteralText ("{0}: {1}" -f $property, $manifest.$property)) }
     }
     foreach ($name in @('summary', 'report', 'projects', 'outputs', 'warnings', 'failures')) {
@@ -60,7 +134,7 @@ function Invoke-DevOpsUiRuns {
     }
     $testReportPath = Join-Path $run.Directory 'report.json'
     if ($run.Kind -eq 'test' -and (Test-Path -LiteralPath $testReportPath -PathType Leaf)) {
-        $testReport = Get-Content -LiteralPath $testReportPath -Raw | ConvertFrom-Json -Depth 32
+        $testReport = ConvertTo-DevOpsUiTestReport (Get-Content -LiteralPath $testReportPath -Raw | ConvertFrom-Json -Depth 32)
         if ($null -ne $testReport.summary) {
             Show-DevOpsUiSummaryTable -Rows @([pscustomobject]@{
                 Succeeded = $testReport.summary.succeeded
@@ -68,6 +142,9 @@ function Invoke-DevOpsUiRuns {
                 Failed = $testReport.summary.failedTargetExecutions
                 Crashed = $testReport.summary.crashedTargetExecutions
                 Hung = $testReport.summary.hungTargetExecutions
+                Incomplete = Get-DevOpsEvidenceValue $testReport.summary 'incompleteTargetExecutions' 'unknown'
+                Cancelled = Get-DevOpsEvidenceValue $testReport.summary 'cancelledTargetExecutions' 'unknown'
+                Unscheduled = Get-DevOpsEvidenceValue $testReport.summary 'unscheduledTargetExecutions' 'unknown'
                 DurationSeconds = [Math]::Round([double]$testReport.summary.totalDurationMs / 1000, 2)
             })
         }

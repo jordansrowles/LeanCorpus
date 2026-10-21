@@ -2280,8 +2280,8 @@
       },
       "testing": {
         "status": "linux-adapters-mtp-skips-and-both-native-aot-frameworks-passed-routing-gates-open",
-        "managedTestCount": 230,
-        "setupBuildRunId": "35ac31dc-e1d4-408c-8bfd-c5d3a972b8ce",
+        "managedTestCount": 232,
+        "setupBuildRunId": "557bbf9d-c658-4d4f-84dc-7ff77b97f252",
         "realMtpRunId": "95852349-8646-4d31-8041-12b81c29aa6d",
         "realMtpExecutions": 2,
         "realMtpCasesPerExecution": 4,
@@ -2292,12 +2292,12 @@
           "isolated stress qualification",
           "public command integration including backup-restore-matrix",
           "cross-platform Native AOT qualification",
-          "legacy report/UI schema and manifest filename compatibility",
+          "remaining legacy report consumers and Markdown output compatibility",
           "SDK provenance in test manifests",
           "structured explicit-skip reasons where TRX omits them",
           "legacy retirement"
         ],
-        "managedTestTotal": 232,
+        "managedTestTotal": 234,
         "intentionalExplicitSkips": 2,
         "realMtpPassingCasesPerExecution": 2,
         "realMtpIntentionalSkipsPerExecution": 2,
@@ -2322,6 +2322,21 @@
         "qualificationSourceCommit": "678e4feddcd4c40c178eb9f686009868f8dbd34e",
         "qualificationSourceDirty": true,
         "skipReasonEvidence": "MTP TRX omits explicit-filter reasons; retained raw stdout carries the reasons. Structured normalization remains open."
+      },
+      "runEnvelopeMigration": {
+        "canonicalFile": "run.json",
+        "historicalReadFallback": "manifest.json",
+        "canonicalPrecedence": true,
+        "historicalFilesRewritten": false,
+        "managedSuiteSucceeded": 232,
+        "managedSuiteIntentionalSkipped": 2,
+        "uiSmokeChecks": 23,
+        "setupBuildRunId": "557bbf9d-c658-4d4f-84dc-7ff77b97f252",
+        "activeRunProtection": "all eleven ArtifactPaths.RunCategories",
+        "uiCompatibility": "read-only managed manifest and test report projections; legacy shapes retained",
+        "sourceCommit": "574726828c4fb4c2da8b90c980c00103e0c4d90f",
+        "sourceDirty": true,
+        "open": "Other legacy report consumers, remaining report output parity, SDK test provenance, platform qualification and final cutover."
       }
     }
   }

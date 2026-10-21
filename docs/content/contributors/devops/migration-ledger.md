@@ -307,6 +307,34 @@ implementation. These are local qualification results, with no hosted or
 Windows qualification claim.
 
 Remaining testing work includes the public command and backup/restore matrix,
-legacy report/UI schema and manifest filename compatibility, SDK provenance in
+remaining report consumers and Markdown output compatibility, SDK provenance in
 test manifests, structured skip reasons, isolated stress, platform parity and
 legacy retirement. The full migration remains in progress.
+
+
+### Canonical run envelope and existing UI compatibility
+
+New managed run envelopes use ADR030's `run.json`. The shared store continues
+to read historical `manifest.json` files, prefers canonical evidence when both
+exist, and writes subsequent updates to the canonical path without changing
+the historical file. Corrupt canonical evidence fails explicitly instead of
+falling back to stale history. Package and dataset manifests retain their
+separate filenames and contracts.
+
+The existing runs UI discovers both formats and projects managed provenance,
+terminal state and test attempts into its display model. Legacy report shapes
+remain supported. The projection preserves incomplete and unscheduled counts
+and per-attempt failures without changing raw evidence. Cleaning discovers
+both envelope names and protects active runs across all eleven supported
+categories using the shared category list.
+
+The UI contract smoke passed 23 checks, including mixed discovery, canonical
+precedence, corrupt canonical evidence, provenance, incomplete targets and
+legacy report handling. A read-only inspection of retained runs also found
+the real managed MTP and both Native AOT qualification runs. Setup passed
+232 succeeded, 2 intentional explicit skips and zero failed tests, with zero
+build warnings/errors and successful publication/promotion. Build smoke run:
+`557bbf9d-c658-4d4f-84dc-7ff77b97f252`. Evidence records parent source
+`574726828c4fb4c2da8b90c980c00103e0c4d90f` with this implementation in the dirty
+worktree. Other report consumers, full report-output parity, SDK provenance,
+platform gates and final cutover remain open.

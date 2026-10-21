@@ -2,6 +2,11 @@ namespace Rowles.LeanCorpus.DevOps.Artifacts;
 
 internal sealed class ArtifactPaths
 {
+    public static IReadOnlyList<string> RunCategories { get; } = Array.AsReadOnly(new[]
+    {
+        "build", "test", "coverage", "benchmark", "diagnostics", "report", "package", "docs", "data", "dataforge", "server"
+    });
+
     public ArtifactPaths(string repositoryRoot)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
@@ -28,7 +33,7 @@ internal sealed class ArtifactPaths
     public string GetRunRoot(string category)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(category);
-        if (category is not ("build" or "test" or "coverage" or "benchmark" or "diagnostics" or "report" or "package" or "docs" or "data" or "dataforge" or "server"))
+        if (!RunCategories.Contains(category, StringComparer.Ordinal))
         {
             throw new ArgumentException($"'{category}' is not a supported artefact run category.", nameof(category));
         }

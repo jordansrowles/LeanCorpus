@@ -209,14 +209,7 @@ internal sealed class CleanService
 
     private HashSet<string> FindActiveRunDirectories(IReadOnlyList<string> targets, bool removeArtifactContents)
     {
-        var knownRunRoots = new[]
-        {
-            Path.Combine(_paths.ArtifactRoot, "build", "runs"),
-            Path.Combine(_paths.ArtifactRoot, "test", "runs"),
-            Path.Combine(_paths.ArtifactRoot, "coverage", "runs"),
-            Path.Combine(_paths.ArtifactRoot, "benchmark", "runs"),
-            Path.Combine(_paths.ArtifactRoot, "diagnostics", "runs")
-        };
+        var knownRunRoots = ArtifactPaths.RunCategories.Select(_paths.GetRunRoot);
         var runRoots = knownRunRoots.Where(runRoot => removeArtifactContents || targets.Any(target => IsWithinOrEqual(target, runRoot) || IsWithinOrEqual(runRoot, target)));
         var manifestPaths = runRoots.SelectMany(root => EnumerateManifestPaths(root, skipDevOpsRoot: false)).Distinct(PathComparer());
         var protectedRuns = new HashSet<string>(PathComparer());
@@ -260,9 +253,15 @@ internal sealed class CleanService
             yield break;
         }
 
-        foreach (var file in Directory.EnumerateFiles(directory, "manifest.json", SearchOption.TopDirectoryOnly))
+        var canonical = Path.Combine(directory, "run.json");
+        var historical = Path.Combine(directory, "manifest.json");
+        if (File.Exists(canonical))
         {
-            yield return file;
+            yield return canonical;
+        }
+        else if (File.Exists(historical))
+        {
+            yield return historical;
         }
 
         foreach (var child in Directory.EnumerateDirectories(directory))
