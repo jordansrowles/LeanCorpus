@@ -12,6 +12,7 @@ public sealed class MtpTestArgumentBuilderTests
             "", "Area=Search&Category=Unit", ["Search"], true, ["Trx", "HangDump", "CrashDump"], ["--custom", "value"]);
         var options = new TestRunnerOptions(directory.Path)
         {
+            ArtifactsEnabled = true,
             Ci = true,
             CollectCoverage = true,
             Diagnostics = true,
@@ -62,14 +63,29 @@ public sealed class MtpTestArgumentBuilderTests
 
         Assert.DoesNotContain("--coverlet", arguments);
         Assert.DoesNotContain("--hangdump", arguments);
-        Assert.DoesNotContain("--explicit", arguments);
+        AssertContainsPair(arguments, "--explicit", "off");
         Assert.DoesNotContain("--results-directory", arguments);
+    }
+
+    [Fact]
+    public void MatchesLegacyDefaultVerbosityAndExplicitModeArguments()
+    {
+        var target = new TestTarget("core/net10.0", "Core", "core", "Mtp", "src/core.csproj", "net10.0", "Release",
+            "", "", [], false, [], []);
+        var options = new TestRunnerOptions(Path.GetTempPath());
+
+        var arguments = MtpTestArgumentBuilder.Build(target, options, "");
+
+        Assert.DoesNotContain("--output", arguments);
+        AssertContainsPair(arguments, "--parallel", "collections");
+        AssertContainsPair(arguments, "--explicit", "off");
+        Assert.DoesNotContain("--report-xunit-trx", arguments);
     }
 
     [Fact]
     public void ScopesLegacyArtifactAndTelemetryVariablesToTheChildProcess()
     {
-        var options = new TestRunnerOptions(Path.GetTempPath()) { Ci = true, Flaky = true };
+        var options = new TestRunnerOptions(Path.GetTempPath()) { ArtifactsEnabled = true, Ci = true, Flaky = true };
         var target = new TestTarget("core/net10.0", "Core", "core", "Mtp", "src/core.csproj", "net10.0", "Release",
             "", "", [], true, [], []);
         var runId = Guid.Parse("7531d90b-82ad-4f01-8a3a-7f9a1750cfe8");

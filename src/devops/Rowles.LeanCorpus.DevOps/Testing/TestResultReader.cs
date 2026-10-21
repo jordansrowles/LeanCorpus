@@ -58,10 +58,11 @@ internal static class TestResultReader
                 return Invalid(exists: true, $"TRX result file exceeds the {MaximumDocumentCharacters} character limit.");
             }
 
-            var bytes = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
-            using var stream = new MemoryStream(bytes, writable: false);
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
             using var reader = XmlReader.Create(stream, new XmlReaderSettings
             {
+                Async = true,
                 DtdProcessing = DtdProcessing.Prohibit,
                 XmlResolver = null,
                 MaxCharactersInDocument = MaximumDocumentCharacters,
@@ -69,7 +70,7 @@ internal static class TestResultReader
                 IgnoreComments = true,
                 IgnoreProcessingInstructions = true
             });
-            var document = XDocument.Load(reader, LoadOptions.None);
+            var document = await XDocument.LoadAsync(reader, LoadOptions.None, cancellationToken).ConfigureAwait(false);
             var summary = document.Descendants().FirstOrDefault(static element => element.Name.LocalName == "ResultSummary");
             var counters = summary?.Elements().FirstOrDefault(static element => element.Name.LocalName == "Counters");
             if (summary is null || counters is null)

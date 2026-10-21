@@ -33,6 +33,8 @@ internal enum TestEventKind
 {
     RunStarted,
     TargetsPrepared,
+    TargetDiscovered,
+    Checkpoint,
     TargetStarted,
     TargetHeartbeat,
     TargetCompleted,
@@ -53,7 +55,9 @@ internal sealed record TestProgressEvent(
     int RequestedExecutions = 0,
     TimeSpan? ProcessElapsed = null,
     int? StandardOutputLineCount = null,
-    int? StandardErrorLineCount = null);
+    int? StandardErrorLineCount = null,
+    string? Framework = null,
+    IReadOnlyList<string>? Areas = null);
 
 internal sealed class TestExecutor(
     ArtifactPaths artifactPaths,
@@ -124,6 +128,9 @@ internal sealed class TestExecutor(
                 attempts, activeTarget, activeIteration, cancellationToken).ConfigureAwait(false);
             await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.RunStarted,
                 DateTimeOffset.UtcNow, RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
+            await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.Checkpoint,
+                DateTimeOffset.UtcNow, Message: "Run state checkpointed before preparation.",
+                RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
 
             var provenance = await provenanceReader.ReadAsync(request.Checkout, runDirectory, cancellationToken).ConfigureAwait(false);
             if (provenance.Outcome != OutcomeKind.Success || string.IsNullOrWhiteSpace(provenance.Commit))
@@ -153,6 +160,15 @@ internal sealed class TestExecutor(
                 await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.TargetsPrepared,
                     DateTimeOffset.UtcNow, Message: string.Join(',', preparation.Targets.Select(static target => target.Target.Key)),
                     RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
+                foreach (var preparedTarget in preparation.Targets)
+                {
+                    await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.TargetDiscovered,
+                        DateTimeOffset.UtcNow, preparedTarget.Target.Key,
+                        Message: preparedTarget.Target.Name,
+                        RequestedExecutions: requestedExecutionCount,
+                        Framework: preparedTarget.Target.Framework,
+                        Areas: preparedTarget.Target.Areas), cancellationToken).ConfigureAwait(false);
+                }
                 var stopScheduling = false;
                 foreach (var iteration in Enumerable.Range(1, request.Count))
                 {
@@ -169,6 +185,10 @@ internal sealed class TestExecutor(
                         var attemptDirectory = _artifacts.GetAttemptDirectory(runDirectory, preparedTarget.Target, iteration);
                         await _artifacts.WriteStateAsync(runDirectory, manifest.RunId, "running", request.Targets,
                             request.Count, attempts, activeTarget, activeIteration, cancellationToken).ConfigureAwait(false);
+                        await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.Checkpoint,
+                            DateTimeOffset.UtcNow, activeTarget, activeIteration,
+                            Message: "Target start checkpointed.", CompletedExecutions: attempts.Count,
+                            RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
                         await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.TargetStarted,
                             DateTimeOffset.UtcNow, activeTarget, iteration, CompletedExecutions: attempts.Count,
                             RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
@@ -180,6 +200,10 @@ internal sealed class TestExecutor(
                         activeIteration = null;
                         await _artifacts.WriteStateAsync(runDirectory, manifest.RunId, "running", request.Targets,
                             request.Count, attempts, activeTarget, activeIteration, cancellationToken).ConfigureAwait(false);
+                        await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.Checkpoint,
+                            DateTimeOffset.UtcNow, attempt.Target.Key, attempt.Iteration,
+                            Message: "Target completion checkpointed.", CompletedExecutions: attempts.Count,
+                            RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
                         await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.TargetCompleted,
                             DateTimeOffset.UtcNow, attempt.Target.Key, attempt.Iteration, attempt.Outcome,
                             attempt.Failure, attempts.Count, requestedExecutionCount), cancellationToken).ConfigureAwait(false);
@@ -205,11 +229,13 @@ internal sealed class TestExecutor(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            RecordInterruptedExecution(TestExecutionOutcome.Cancelled, "Test execution was cancelled before its target completed.");
             commandResult = new CommandResult(OutcomeKind.Cancelled, "Test run was cancelled.");
             aggregate = TestRunAggregator.Aggregate(request.Targets.Select(static target => target.Key).ToArray(), request.Count, attempts);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or TestExecutionInfrastructureException)
         {
+            RecordInterruptedExecution(TestExecutionOutcome.Incomplete, exception.Message);
             commandResult = new CommandResult(OutcomeKind.InfrastructureFailure, "Managed test execution failed.", Details: exception.Message);
             aggregate ??= TestRunAggregator.Aggregate(request.Targets.Select(static target => target.Key).ToArray(), request.Count, attempts);
             try
@@ -236,6 +262,9 @@ internal sealed class TestExecutor(
                 cancellationToken: CancellationToken.None).ConfigureAwait(false);
             await _artifacts.WriteStateAsync(runDirectory, manifest.RunId, terminalStatus.ToString().ToLowerInvariant(),
                 request.Targets, request.Count, attempts, null, null, CancellationToken.None).ConfigureAwait(false);
+            await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.Checkpoint,
+                DateTimeOffset.UtcNow, Message: $"Terminal state checkpointed as {terminalStatus}.",
+                CompletedExecutions: attempts.Count, RequestedExecutions: requestedExecutionCount), CancellationToken.None).ConfigureAwait(false);
             await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.RunCompleted,
                 DateTimeOffset.UtcNow, Outcome: ToProgressOutcome(commandResult, aggregate),
                 Message: commandResult.Message, CompletedExecutions: attempts.Count,
@@ -277,6 +306,34 @@ internal sealed class TestExecutor(
                 : commandResult.Details
         };
         return new TestExecutorResult(commandResult, runDirectory, aggregate, finishedManifest);
+
+        void RecordInterruptedExecution(TestExecutionOutcome outcome, string failure)
+        {
+            if (activeTarget is null || activeIteration is null)
+            {
+                return;
+            }
+
+            var target = request.Targets.FirstOrDefault(candidate => candidate.Key == activeTarget);
+            if (target is null)
+            {
+                return;
+            }
+
+            var artifactDirectory = _artifacts.GetAttemptDirectory(runDirectory, target, activeIteration.Value);
+            attempts.Add(new TestExecutionAttempt(target, activeIteration.Value, outcome, [], false, failure)
+            {
+                StartedUtc = DateTimeOffset.UtcNow,
+                ArtifactDirectory = artifactDirectory,
+                StandardOutputPath = Path.Combine(artifactDirectory, "stdout.log"),
+                StandardErrorPath = Path.Combine(artifactDirectory, "stderr.log"),
+                TrxPath = target.RunnerKind.Equals("Mtp", StringComparison.OrdinalIgnoreCase)
+                    ? Path.Combine(artifactDirectory, "results.trx")
+                    : null
+            });
+            activeTarget = null;
+            activeIteration = null;
+        }
     }
 
     private async Task<TestExecutionAttempt> ExecuteAttemptAsync(
@@ -478,6 +535,11 @@ internal sealed class TestArtifactService
             error = commandResult.Details,
             selection = GetSelectionDocument(request),
             selectedTargets = request.Targets,
+            unscheduledTargets = GetUnscheduledTargets(request, aggregate),
+            cancelledTargets = aggregate?.Attempts
+                .Where(static attempt => attempt.Outcome == TestExecutionOutcome.Cancelled)
+                .Select(static attempt => new { target = attempt.Target.Key, iteration = attempt.Iteration })
+                .ToArray() ?? [],
             attempts = aggregate?.Attempts.Select(ToAttemptDocument).ToArray() ?? [],
             tests = aggregate?.Tests ?? []
         }, cancellationToken);
@@ -517,6 +579,18 @@ internal sealed class TestArtifactService
             areasBySuite = affected.AreasBySuite,
             selectedTargets = request.Targets
         };
+    }
+
+    private static object[] GetUnscheduledTargets(TestExecutorRequest request, TestRunAggregate? aggregate)
+    {
+        var scheduled = aggregate?.Attempts
+            .Select(static attempt => (attempt.Target.Key, attempt.Iteration))
+            .ToHashSet() ?? new HashSet<(string Key, int Iteration)>();
+        return request.Targets
+            .SelectMany(target => Enumerable.Range(1, request.Count)
+                .Where(iteration => !scheduled.Contains((target.Key, iteration)))
+                .Select(iteration => new { target = target.Key, iteration }))
+            .ToArray();
     }
 
     public async Task AppendEventAsync(string runDirectory, TestProgressEvent progressEvent, CancellationToken cancellationToken)

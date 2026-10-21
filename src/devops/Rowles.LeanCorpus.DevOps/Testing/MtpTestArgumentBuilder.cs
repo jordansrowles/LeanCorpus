@@ -4,7 +4,7 @@ namespace Rowles.LeanCorpus.DevOps.Testing;
 
 internal sealed record TestRunnerOptions(string RepositoryRoot)
 {
-    public bool ArtifactsEnabled { get; init; } = true;
+    public bool ArtifactsEnabled { get; init; }
     public bool Ci { get; init; }
     public bool CollectCoverage { get; init; }
     public bool Diagnostics { get; init; }
@@ -12,7 +12,7 @@ internal sealed record TestRunnerOptions(string RepositoryRoot)
     public bool FailWarnings { get; init; }
     public string ParallelProfile { get; init; } = "integration";
     public string ExplicitMode { get; init; } = "off";
-    public string Verbosity { get; init; } = "normal";
+    public string Verbosity { get; init; } = string.Empty;
     public string HangTimeout { get; init; } = "100s";
 }
 
@@ -61,9 +61,10 @@ internal static class MtpTestArgumentBuilder
             _ => throw new InvalidOperationException($"Unknown test profile '{options.ParallelProfile}'. Valid profiles are unit, integration and stress.")
         }]);
 
-        if (options.ExplicitMode.Trim().ToLowerInvariant() is { } explicitMode && explicitMode is not ("" or "off"))
+        var explicitMode = options.ExplicitMode.Trim().ToLowerInvariant();
+        if (explicitMode.Length > 0)
         {
-            if (explicitMode is not ("on" or "only"))
+            if (explicitMode is not ("off" or "on" or "only"))
             {
                 throw new InvalidOperationException($"Unknown explicit-test mode '{options.ExplicitMode}'. Valid modes are off, on and only.");
             }

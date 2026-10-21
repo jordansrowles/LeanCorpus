@@ -32,6 +32,8 @@ public sealed class TestExecutorTests
         Assert.True(File.Exists(Path.Combine(result.RunDirectory, "report.json")));
         Assert.True(File.Exists(Path.Combine(result.RunDirectory, "state.json")));
         var events = await File.ReadAllLinesAsync(Path.Combine(result.RunDirectory, "events.ndjson"), TestContext.Current.CancellationToken);
+        Assert.Contains(events, line => line.Contains("targetDiscovered", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(events, line => line.Contains("checkpoint", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(2, events.Count(line => line.Contains("targetStarted", StringComparison.OrdinalIgnoreCase)));
         Assert.Equal(2, events.Count(line => line.Contains("targetCompleted", StringComparison.OrdinalIgnoreCase)));
     }
@@ -56,6 +58,9 @@ public sealed class TestExecutorTests
         Assert.Equal(RunState.Failed, result.Manifest!.State);
         using var report = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "report.json"), TestContext.Current.CancellationToken));
         Assert.Equal(1, report.RootElement.GetProperty("unscheduledExecutions").GetInt32());
+        var unscheduled = Assert.Single(report.RootElement.GetProperty("unscheduledTargets").EnumerateArray());
+        Assert.Equal("text/net10.0", unscheduled.GetProperty("target").GetString());
+        Assert.Equal(1, unscheduled.GetProperty("iteration").GetInt32());
     }
 
     [Fact]
