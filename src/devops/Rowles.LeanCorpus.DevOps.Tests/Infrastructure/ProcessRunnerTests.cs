@@ -83,6 +83,20 @@ public sealed class ProcessRunnerTests
     }
 
     [Fact]
+    public async Task PreservesNulDelimitedUtf8OutputInTheRawLog()
+    {
+        using var directory = TemporaryDirectory.Create("DevOps raw process output ");
+        var result = await new ProcessRunner().RunAsync(
+            CreateRequest(directory.Path, "nul-output", "src/core/Ångström parser.cs", "docs/space name.md"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.Outcome);
+        Assert.Equal(
+            System.Text.Encoding.UTF8.GetBytes("src/core/Ångström parser.cs\0docs/space name.md\0"),
+            await File.ReadAllBytesAsync(result.StandardOutputLogPath, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task RetainsRawNonZeroChildExitCode()
     {
         using var directory = TemporaryDirectory.Create("DevOps child exit ");

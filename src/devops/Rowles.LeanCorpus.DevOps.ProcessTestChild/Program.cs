@@ -32,6 +32,12 @@ switch (args[0])
     case "stdin":
         Console.Write(await Console.In.ReadToEndAsync());
         return 0;
+    case "nul-output":
+    {
+        var bytes = Encoding.UTF8.GetBytes(string.Join('\0', args.Skip(1)) + '\0');
+        await Console.OpenStandardOutput().WriteAsync(bytes);
+        return 0;
+    }
     case "readiness":
         Console.WriteLine("      Now listening: http://127.0.0.1:5080");
         await Task.Delay(int.Parse(args[1]));
