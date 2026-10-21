@@ -25,6 +25,21 @@ public sealed class BenchmarkCommandPlannerTests
     }
 
     [Fact]
+    public void CreatesTextProjectInvocationForMultilingualBenchmarks()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+        var options = Options(suite: "text", arguments: ["--filter", "*MultiLanguageAnalysisBenchmarks*"]);
+
+        var plan = BenchmarkCommandPlanner.Create(options, configuration, checkout.RepositoryRoot);
+
+        var invocation = Assert.Single(plan.Invocations);
+        Assert.Equal("text", invocation.ProjectKey);
+        Assert.Equal("src/devops/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj", Path.GetRelativePath(checkout.RepositoryRoot, invocation.ProjectPath).Replace('\\', '/'));
+        Assert.Equal(["--job", "dry", "--filter", "*MultiLanguageAnalysisBenchmarks*"], invocation.Arguments);
+    }
+
+    [Fact]
     public void RejectsCustomFilterWhenAreaSelectionAddsPerClassFilters()
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);

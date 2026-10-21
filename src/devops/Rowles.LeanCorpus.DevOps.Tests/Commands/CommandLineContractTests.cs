@@ -176,16 +176,15 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
-    public void DataForgeQualificationRemainsOnTheLegacyRouteUntilItsManagedWorkflowExists()
+    public void DataForgeQualificationRoutesToTheManagedHandler()
     {
         var handler = new RecordingCommandHandler();
-        var error = new StringWriter();
 
-        var exitCode = CommandLineApplication.Run(["dataforge", "qualify", "-Dry"], TextWriter.Null, error, handler);
+        var exitCode = CommandLineApplication.Run(["dataforge", "qualify", "--dry", "--reference-path", "/tmp/wikipedia"], TextWriter.Null, TextWriter.Null, handler);
 
-        Assert.Equal(2, exitCode);
-        Assert.Contains("pwsh ./devops.ps1 dataforge qualify", error.ToString(), StringComparison.Ordinal);
-        Assert.Empty(handler.Calls);
+        Assert.Equal(0, exitCode);
+        var actual = Assert.IsType<DataForgeCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal(["qualify", "--dry", "--reference-path", "/tmp/wikipedia"], actual.Arguments);
     }
 
     [Fact]

@@ -46,7 +46,7 @@ internal static class BenchmarkCommandPlanner
         var dataset = options.Dataset.Trim().ToLowerInvariant();
         if (suite is "remote" or "affected")
             throw new InvalidOperationException($"The benchmark '{suite}' workflow is not yet managed; use `pwsh ./devops.ps1 benchmark {suite}` during migration.");
-        if (suite != "all" && suite != "core" && !configuration.BenchmarkSuites.ContainsKey(suite))
+        if (suite is not ("all" or "core" or "text") && !configuration.BenchmarkSuites.ContainsKey(suite))
             throw new InvalidOperationException($"Unknown benchmark suite '{suite}'. Use --list to see available suites.");
         if (!configuration.BenchmarkStrategies.TryGetValue(strategyName, out var strategy))
             throw new InvalidOperationException($"Unknown benchmark strategy '{strategyName}'. Use --list to see available strategies.");
@@ -465,26 +465,22 @@ internal sealed class BenchmarkCommandService(
         if (result.Outcome != OutcomeKind.Success)
             return null;
 
-        var manifestPath = Path.Combine(plan.ReferencePath!, "manifest.json");
-        using var document = JsonDocument.Parse(await File.ReadAllBytesAsync(manifestPath, cancellationToken).ConfigureAwait(false));
-        var root = document.RootElement;
-        var source = root.GetProperty("source");
+        var referenceIdentity = DataForgeQualificationEvidence.ReadReferenceIdentity(plan.ReferencePath!, out var failure);
+        if (referenceIdentity is null)
+            throw new InvalidDataException(failure ?? "The verified artefact manifest does not identify the required Wikipedia reference.");
         var identity = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["sourceKind"] = source.GetProperty("sourceKind").GetString(),
-            ["datasetId"] = source.GetProperty("datasetId").GetString(),
-            ["datasetVersion"] = source.GetProperty("datasetVersion").GetInt32(),
-            ["recordCount"] = root.GetProperty("recordCount").GetInt32(),
-            ["logicalByteCount"] = root.GetProperty("logicalByteCount").GetInt64(),
-            ["contentSha256"] = root.GetProperty("contentSha256").GetString(),
-            ["artefactSha256"] = root.GetProperty("artefactSha256").GetString(),
-            ["dumpDate"] = source.GetProperty("dumpDate").GetString(),
-            ["primarySha1"] = source.GetProperty("primarySha1").GetString(),
-            ["indexSha1"] = source.GetProperty("indexSha1").GetString()
+            ["sourceKind"] = referenceIdentity.SourceKind,
+            ["datasetId"] = referenceIdentity.DatasetId,
+            ["datasetVersion"] = referenceIdentity.DatasetVersion,
+            ["recordCount"] = referenceIdentity.RecordCount,
+            ["logicalByteCount"] = referenceIdentity.LogicalByteCount,
+            ["contentSha256"] = referenceIdentity.ContentSha256,
+            ["artefactSha256"] = referenceIdentity.ArtefactSha256,
+            ["dumpDate"] = referenceIdentity.DumpDate,
+            ["primarySha1"] = referenceIdentity.PrimarySha1,
+            ["indexSha1"] = referenceIdentity.IndexSha1
         };
-        if (!Equals(identity["sourceKind"], "Imported") || !Equals(identity["datasetId"], "leancorpus-wikipedia-en") ||
-            !Equals(identity["datasetVersion"], 1) || !Equals(identity["recordCount"], 20_000) || !Equals(identity["dumpDate"], "20260901"))
-            throw new InvalidDataException("The verified artefact manifest does not identify the required 20,000-record leancorpus-wikipedia-en v1 reference.");
         return identity;
     }
 

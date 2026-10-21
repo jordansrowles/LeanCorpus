@@ -9,9 +9,10 @@ On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. `devops.ps1` remains the PowerShell transition dispatcher.
 It forwards `build`, `clean`, `report`, and `server start` to a fresh managed
 host. The managed apphost also supports local benchmark runs through
-`./devops benchmark`; `pwsh ./devops.ps1 benchmark` remains on the legacy route
-while benchmark CI and remote workflows are migrated. Other commands remain
-on the legacy PowerShell implementation and must be invoked as
+`./devops benchmark` and DataForge qualification through
+`./devops dataforge qualify`; `pwsh ./devops.ps1 benchmark` remains on the
+legacy route while benchmark CI and remote workflows are migrated. Other
+commands remain on the legacy PowerShell implementation and must be invoked as
 `pwsh ./devops.ps1 <command>`. A missing or stale managed host is a setup
 error; the dispatcher does not fall back to the legacy command after a
 managed command fails.
@@ -40,7 +41,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `coverage` | PowerShell: collect coverage and optionally generate a report | `pwsh ./devops.ps1 coverage` |
 | `benchmark` | Managed apphost: list or run local BenchmarkDotNet suites; PowerShell: remote and affected runs | `./devops benchmark --list` |
 | `data` | PowerShell: prepare a named benchmark corpus | `pwsh ./devops.ps1 data gutenberg` |
-| `dataforge` | PowerShell: manage deterministic datasets and reference data | `pwsh ./devops.ps1 dataforge profiles` |
+| `dataforge` | Managed apphost: run qualification; PowerShell: manage datasets and reference data | `./devops dataforge qualify` |
 | `diagnostics` | PowerShell: collect diagnostics for a selected process | `pwsh ./devops.ps1 diagnostics ps` |
 | `docs` | PowerShell: prepare staged inputs, generate API metadata and build or serve DocFX | `pwsh ./devops.ps1 docs build -SkipBenchmarks` |
 | `server start` | Managed: start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
@@ -65,6 +66,14 @@ renames that the legacy text parser dropped; equal-ranked rows now use stable
 ordinal ordering.
 
 Use `benchmark` for running measurements and `benchmarks docs` for publishing existing result artefacts. The plural command is intentionally not a second benchmark runner.
+
+`./devops dataforge qualify` verifies the frozen Wikipedia reference, runs the
+DataForge and related test suites, checks synthetic benchmark identities, and
+runs the Wikipedia smoke and default benchmark suites. It records each child
+run and validates every Wikipedia report against the verified reference
+identity. This is qualification evidence, not a performance comparison. Other
+DataForge commands remain on the PowerShell route while their managed slices
+are migrated.
 
 ## Argument handling
 

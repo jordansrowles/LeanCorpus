@@ -1548,9 +1548,15 @@
       ],
       "source": "scripts/devops/commands/dataforge.ps1",
       "plannedPhase": 3,
-      "state": "inventoried",
+      "state": "implemented",
       "replacement": "DataForge adapter; Rowles.DataForge.Tool remains independent",
       "routed": false,
+      "implementedVariants": [
+        "dataforge qualify"
+      ],
+      "routedVariants": [
+        "dataforge qualify"
+      ],
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {

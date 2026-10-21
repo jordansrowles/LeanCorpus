@@ -383,11 +383,6 @@ internal static class CommandLineApplication
         var commandHandler = handler ?? new ManagedCommandHandler(output, error);
         if (TryGetDataForgeOptions(args, out var dataForgeOptions))
         {
-            if (dataForgeOptions.Arguments.FirstOrDefault()?.Equals("qualify", StringComparison.OrdinalIgnoreCase) is true)
-            {
-                error.WriteLine("The 'dataforge qualify' workflow remains on the PowerShell path during migration. Run `pwsh ./devops.ps1 dataforge qualify` with the same arguments.");
-                return 2;
-            }
             return commandHandler.DataForge(dataForgeOptions);
         }
 

@@ -432,6 +432,34 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
             var paths = new ArtifactPaths(checkout.RepositoryRoot);
             var processRunner = new ProcessRunner();
+            if (options.Arguments.FirstOrDefault()?.Equals("qualify", StringComparison.OrdinalIgnoreCase) is true)
+            {
+                var parsed = DataForgeQualificationArgumentParser.Parse(options.Arguments.Skip(1).ToArray(), checkout.RepositoryRoot);
+                if (!parsed.Success || parsed.Options is null)
+                {
+                    return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                        parsed.Failure ?? "Invalid DataForge qualification arguments."), output, error);
+                }
+
+                var qualification = new DataForgeQualificationService(
+                    paths,
+                    new AtomicFileWriter(),
+                    new DataForgeQualificationStepRunner(paths, processRunner, new DotNetSdkResolver(processRunner),
+                        new GitRepositoryProvenanceReader(processRunner),
+                        progress: message => output.WriteLine(message),
+                        errorOutput: message => error.WriteLine(message)),
+                    new GitRepositoryProvenanceReader(processRunner),
+                    new DotNetSdkResolver(processRunner),
+                    progress: message => output.WriteLine(message),
+                    errorOutput: message => error.WriteLine(message));
+                var qualificationResult = qualification.RunAsync(checkout, parsed.Options, cancellation.Token).GetAwaiter().GetResult();
+                var qualificationCommandResult = qualificationResult.CommandResult with
+                {
+                    Details = JoinDetails(qualificationResult.QualificationDirectory, qualificationResult.CommandResult.Details)
+                };
+                return _renderer.Render(qualificationCommandResult, output, error);
+            }
+
             var result = new DataForgeCommandService(
                 paths,
                 new ArtifactRunStore(paths, runCategory: "dataforge"),
