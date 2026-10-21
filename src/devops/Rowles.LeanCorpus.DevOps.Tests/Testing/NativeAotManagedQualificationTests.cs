@@ -27,7 +27,8 @@ public sealed class NativeAotManagedQualificationTests
             }, TestContext.Current.CancellationToken);
         var paths = new ArtifactPaths(checkout.RepositoryRoot);
         var result = await new TestExecutor(paths, new ArtifactRunStore(paths, runCategory: "test"), processes,
-            new GitRepositoryProvenanceReader(processes)).RunAsync(request, TestContext.Current.CancellationToken);
+            new DotNetSdkResolver(processes), new GitRepositoryProvenanceReader(processes))
+            .RunAsync(request, TestContext.Current.CancellationToken);
 
         Assert.True(result.CommandResult.Outcome == OutcomeKind.Success,
             $"{result.CommandResult.Message}: {result.CommandResult.Details}");

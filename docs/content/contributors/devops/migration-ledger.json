@@ -2279,10 +2279,10 @@
         "open": "Windows/macOS, hosted CI, and cross-platform parity qualification."
       },
       "testing": {
-        "status": "linux-adapters-mtp-skips-and-both-native-aot-frameworks-passed-routing-gates-open",
-        "managedTestCount": 232,
-        "setupBuildRunId": "557bbf9d-c658-4d4f-84dc-7ff77b97f252",
-        "realMtpRunId": "95852349-8646-4d31-8041-12b81c29aa6d",
+        "status": "linux-test-services-aot-and-sdk-provenance-passed-routing-gates-open",
+        "managedTestCount": 235,
+        "setupBuildRunId": "581cf1df-43f9-4f66-aac2-def4ed3967b6",
+        "realMtpRunId": "88ab4c73-ac73-43fd-994d-2da30bf073f9",
         "realMtpExecutions": 2,
         "realMtpCasesPerExecution": 4,
         "preparedOutput": true,
@@ -2293,11 +2293,10 @@
           "public command integration including backup-restore-matrix",
           "cross-platform Native AOT qualification",
           "remaining legacy report consumers and Markdown output compatibility",
-          "SDK provenance in test manifests",
           "structured explicit-skip reasons where TRX omits them",
           "legacy retirement"
         ],
-        "managedTestTotal": 234,
+        "managedTestTotal": 235,
         "intentionalExplicitSkips": 2,
         "realMtpPassingCasesPerExecution": 2,
         "realMtpIntentionalSkipsPerExecution": 2,
@@ -2308,35 +2307,56 @@
         "nativeAotLinuxRuns": [
           {
             "framework": "net10.0",
-            "runId": "97d2a050-14d6-4177-8bad-254a0b9acedb",
+            "runId": "f34cdfcb-f2ab-48b1-941b-c52ca4b6f45d",
             "passed": 122,
             "failed": 0
           },
           {
             "framework": "net11.0",
-            "runId": "7a2c4fd2-1af5-4a4f-932b-a99c12ffc31e",
+            "runId": "1fdf9cdc-a2da-4950-93de-250322126662",
             "passed": 122,
             "failed": 0
           }
         ],
-        "qualificationSourceCommit": "678e4feddcd4c40c178eb9f686009868f8dbd34e",
+        "qualificationSourceCommit": "a11da52cdc3b0c6e482accb9f5c3ef4573eeec5b",
         "qualificationSourceDirty": true,
-        "skipReasonEvidence": "MTP TRX omits explicit-filter reasons; retained raw stdout carries the reasons. Structured normalization remains open."
+        "skipReasonEvidence": "MTP TRX omits explicit-filter reasons; retained raw stdout carries the reasons. Structured normalization remains open.",
+        "sdkProvenance": {
+          "status": "implemented-and-real-mtp-and-aot-proven-on-linux",
+          "manifestKeys": [
+            "dotnet-sdk-requested",
+            "dotnet-sdk-selected",
+            "dotnet-sdk-roll-forward"
+          ],
+          "runId": "88ab4c73-ac73-43fd-994d-2da30bf073f9",
+          "requested": "11.0.100-preview.7.26381.103",
+          "selected": "11.0.100-preview.7.26381.103",
+          "rollForward": "latestPatch",
+          "sourceCommit": "a11da52cdc3b0c6e482accb9f5c3ef4573eeec5b",
+          "sourceDirty": true,
+          "platform": "Debian GNU/Linux 13 (trixie); X64",
+          "nativeAotRunIds": [
+            "f34cdfcb-f2ab-48b1-941b-c52ca4b6f45d",
+            "1fdf9cdc-a2da-4950-93de-250322126662"
+          ],
+          "nativeAotPassedPerFramework": 122,
+          "unresolvedPolicy": "Validation failure before target preparation or execution"
+        }
       },
       "runEnvelopeMigration": {
         "canonicalFile": "run.json",
         "historicalReadFallback": "manifest.json",
         "canonicalPrecedence": true,
         "historicalFilesRewritten": false,
-        "managedSuiteSucceeded": 232,
+        "managedSuiteSucceeded": 233,
         "managedSuiteIntentionalSkipped": 2,
         "uiSmokeChecks": 23,
-        "setupBuildRunId": "557bbf9d-c658-4d4f-84dc-7ff77b97f252",
+        "setupBuildRunId": "581cf1df-43f9-4f66-aac2-def4ed3967b6",
         "activeRunProtection": "all eleven ArtifactPaths.RunCategories",
         "uiCompatibility": "read-only managed manifest and test report projections; legacy shapes retained",
-        "sourceCommit": "574726828c4fb4c2da8b90c980c00103e0c4d90f",
+        "sourceCommit": "a11da52cdc3b0c6e482accb9f5c3ef4573eeec5b",
         "sourceDirty": true,
-        "open": "Other legacy report consumers, remaining report output parity, SDK test provenance, platform qualification and final cutover."
+        "open": "Other legacy report consumers, remaining report output parity, structured skip reasons, platform qualification and final cutover."
       }
     }
   }

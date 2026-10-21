@@ -73,7 +73,8 @@ public sealed class TestRunPlannerTests
             }, TestContext.Current.CancellationToken);
         var paths = new ArtifactPaths(checkout.RepositoryRoot);
         var result = await new TestExecutor(paths, new ArtifactRunStore(paths, runCategory: "test"), runner,
-            new GitRepositoryProvenanceReader(runner)).RunAsync(request, TestContext.Current.CancellationToken);
+            new DotNetSdkResolver(runner), new GitRepositoryProvenanceReader(runner))
+            .RunAsync(request, TestContext.Current.CancellationToken);
 
         Assert.True(result.CommandResult.Outcome == OutcomeKind.Success,
             $"{result.CommandResult.Message}: {result.CommandResult.Details}");
@@ -84,7 +85,11 @@ public sealed class TestRunPlannerTests
         Assert.Equal(2, result.Aggregate.Tests.Count(static test => test.Stability == TestStability.Skipped));
         Assert.All(result.Aggregate.Tests, test => Assert.True(test.Stability is TestStability.AlwaysPasses or TestStability.Skipped));
         Assert.All(result.Aggregate.Attempts, attempt => Assert.True(File.Exists(attempt.TrxPath)));
-        Assert.Equal(RunState.Succeeded, result.Manifest!.State);
+        var manifest = Assert.IsType<RunManifest>(result.Manifest);
+        Assert.Equal(RunState.Succeeded, manifest.State);
+        Assert.Equal("11.0.100-preview.7.26381.103", manifest.ToolVersions["dotnet-sdk-requested"]);
+        Assert.Equal("11.0.100-preview.7.26381.103", manifest.ToolVersions["dotnet-sdk-selected"]);
+        Assert.Equal("latestPatch", manifest.ToolVersions["dotnet-sdk-roll-forward"]);
     }
 
     private static (CheckoutIdentity Checkout, DevOpsConfiguration Configuration) Load()

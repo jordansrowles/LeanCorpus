@@ -331,10 +331,28 @@ categories using the shared category list.
 The UI contract smoke passed 23 checks, including mixed discovery, canonical
 precedence, corrupt canonical evidence, provenance, incomplete targets and
 legacy report handling. A read-only inspection of retained runs also found
-the real managed MTP and both Native AOT qualification runs. Setup passed
-232 succeeded, 2 intentional explicit skips and zero failed tests, with zero
-build warnings/errors and successful publication/promotion. Build smoke run:
-`557bbf9d-c658-4d4f-84dc-7ff77b97f252`. Evidence records parent source
-`574726828c4fb4c2da8b90c980c00103e0c4d90f` with this implementation in the dirty
-worktree. Other report consumers, full report-output parity, SDK provenance,
-platform gates and final cutover remain open.
+the real managed MTP and both Native AOT qualification runs. The latest setup
+passed 233 tests, skipped 2 intentional explicit cases and failed none, with
+zero build warnings/errors and successful publication/promotion. Build smoke
+run: `581cf1df-43f9-4f66-aac2-def4ed3967b6`. Evidence records parent source
+`a11da52cdc3b0c6e482accb9f5c3ef4573eeec5b` with this implementation in the dirty
+worktree. Other report consumers, full report-output parity, structured skip
+reasons, platform gates and final cutover remain open.
+
+### SDK selection in test run evidence
+
+`TestExecutor` now resolves the SDK through the shared `DotNetSdkResolver`
+before preparation. A successful `run.json` records
+`dotnet-sdk-requested`, `dotnet-sdk-selected` and `dotnet-sdk-roll-forward`;
+an invalid or unavailable SDK policy terminates the run before target
+preparation. The focused test `DoesNotPrepareTestsWhenSdkPolicyCannotBeResolved`
+checks the failure path. The real planner-to-MTP integration run
+`88ab4c73-ac73-43fd-994d-2da30bf073f9` executed two prepared apphost attempts
+on Debian 13 x64 and recorded requested/selected SDK
+`11.0.100-preview.7.26381.103` with `latestPatch`. The run identifies source
+`a11da52cdc3b0c6e482accb9f5c3ef4573eeec5b` with a dirty worktree. The SDK is
+resolved before preparation on Linux. The updated managed Native AOT runs
+`f34cdfcb-f2ab-48b1-941b-c52ca4b6f45d` (`net10.0`) and
+`1fdf9cdc-a2da-4950-93de-250322126662` (`net11.0`) each passed 122/122 tests
+and recorded the same SDK policy in their manifests. Windows, macOS, hosted
+parity, remaining report consumers and structured skip reasons remain open.

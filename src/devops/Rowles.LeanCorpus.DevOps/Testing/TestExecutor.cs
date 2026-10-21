@@ -63,6 +63,7 @@ internal sealed class TestExecutor(
     ArtifactPaths artifactPaths,
     ArtifactRunStore artifactRunStore,
     IProcessRunner processRunner,
+    IDotNetSdkResolver sdkResolver,
     IRepositoryProvenanceReader provenanceReader,
     Action<TestProgressEvent>? progress = null)
 {
@@ -135,10 +136,27 @@ internal sealed class TestExecutor(
             var provenance = await provenanceReader.ReadAsync(request.Checkout, runDirectory, cancellationToken).ConfigureAwait(false);
             if (provenance.Outcome != OutcomeKind.Success || string.IsNullOrWhiteSpace(provenance.Commit))
             {
-                throw new TestExecutionInfrastructureException(provenance.Failure ?? "Git source provenance could not be read.");
+                throw new TestExecutionException(OutcomeKind.InfrastructureFailure,
+                    provenance.Failure ?? "Git source provenance could not be read.");
             }
             manifest = await artifactRunStore.UpdateRunningAsync(manifest, provenance.Commit, provenance.Branch,
                 provenance.Dirty, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            var sdk = await sdkResolver.ResolveAsync(request.Checkout, runDirectory, cancellationToken).ConfigureAwait(false);
+            if (sdk.Outcome != OutcomeKind.Success)
+            {
+                throw new TestExecutionException(sdk.Outcome,
+                    sdk.Failure ?? "The SDK selected by global.json could not be resolved.");
+            }
+
+            manifest = await artifactRunStore.UpdateRunningAsync(manifest, provenance.Commit, provenance.Branch,
+                provenance.Dirty,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["dotnet-sdk-requested"] = sdk.RequestedVersion ?? string.Empty,
+                    ["dotnet-sdk-selected"] = sdk.SelectedVersion ?? string.Empty,
+                    ["dotnet-sdk-roll-forward"] = sdk.RollForward ?? "default"
+                }, cancellationToken).ConfigureAwait(false);
 
             var preparation = await new TestPreparationService(processRunner).PrepareAsync(new TestPreparationRequest
             {
@@ -233,10 +251,12 @@ internal sealed class TestExecutor(
             commandResult = new CommandResult(OutcomeKind.Cancelled, "Test run was cancelled.");
             aggregate = TestRunAggregator.Aggregate(request.Targets.Select(static target => target.Key).ToArray(), request.Count, attempts);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or TestExecutionInfrastructureException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or TestExecutionException)
         {
             RecordInterruptedExecution(TestExecutionOutcome.Incomplete, exception.Message);
-            commandResult = new CommandResult(OutcomeKind.InfrastructureFailure, "Managed test execution failed.", Details: exception.Message);
+            commandResult = exception is TestExecutionException testException
+                ? new CommandResult(testException.Outcome, "Managed test execution could not start.", Details: exception.Message)
+                : new CommandResult(OutcomeKind.InfrastructureFailure, "Managed test execution failed.", Details: exception.Message);
             aggregate ??= TestRunAggregator.Aggregate(request.Targets.Select(static target => target.Key).ToArray(), request.Count, attempts);
             try
             {
@@ -455,7 +475,10 @@ internal sealed class TestExecutor(
     private static TestExecutorResult Validation(string message)
         => new(new CommandResult(OutcomeKind.ValidationFailure, message), string.Empty, null, null);
 
-    private sealed class TestExecutionInfrastructureException(string message) : Exception(message);
+    private sealed class TestExecutionException(OutcomeKind outcome, string message) : Exception(message)
+    {
+        public OutcomeKind Outcome { get; } = outcome;
+    }
 }
 
 internal sealed class TestArtifactService
