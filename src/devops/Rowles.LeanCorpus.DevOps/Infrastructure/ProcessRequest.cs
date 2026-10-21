@@ -12,6 +12,8 @@ internal sealed record ProcessRequest
 
     public required string StandardErrorLogPath { get; init; }
 
+    public IReadOnlyDictionary<string, string?>? EnvironmentVariables { get; init; }
+
     public TimeSpan? Timeout { get; init; }
 
     public TimeSpan ProgressInterval { get; init; } = TimeSpan.FromSeconds(5);

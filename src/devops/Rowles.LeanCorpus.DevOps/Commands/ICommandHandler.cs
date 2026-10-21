@@ -15,4 +15,6 @@ internal interface ICommandHandler
     int Data(DataCommandOptions options);
 
     int DataForge(DataForgeCommandOptions options);
+
+    int Benchmark(BenchmarkCommandOptions options);
 }

@@ -30,7 +30,7 @@ The post-#11 tracked tree (`4ccdf1ba7ae447ed982a34dc64478df47879baf3`) contains 
 | `aot` (`aot`) | `scripts/devops/commands/aot.ps1` | 5 | Inventoried; not routed |
 | `coverage` (`coverage`) | `scripts/devops/commands/coverage.ps1` | 6 | Inventoried; not routed |
 | `diagnostics` (`diagnostics ps`, `diagnostics counters`, `diagnostics trace`, `diagnostics gcdump`, `diagnostics dump`, `diagnostics symbols`, `diagnostics capture`) | `scripts/devops/commands/diagnostics.ps1` | 4 | Inventoried; not routed |
-| `benchmark` (`benchmark`, `benchmark remote`) | `scripts/devops/commands/benchmark.ps1` | 4 | Inventoried; not routed |
+| `benchmark` (`benchmark`, `benchmark remote`) | `scripts/devops/commands/benchmark.ps1` | 4 | Local suites implemented in the managed apphost; transition dispatcher, remote and affected workflows remain on PowerShell pending their own parity gates. |
 | `data` (`data gutenberg`, `data migration-fixtures-311`) | `scripts/devops/commands/data.ps1` | 3 | Inventoried; not routed |
 | `dataforge` (`dataforge profiles`, `dataforge generate`, `dataforge inspect`, `dataforge verify`, `dataforge reproduce`, `dataforge reference download`, `dataforge reference build`, `dataforge reference inspect`, `dataforge reference verify`, `dataforge qualify`) | `scripts/devops/commands/dataforge.ps1` | 3 | Inventoried; not routed |
 | `docs` (`docs prepare`, `docs build`, `docs metadata`, `docs serve`, `docs test`) | `scripts/devops/commands/docs.ps1` | 6 | Inventoried; not routed |
@@ -42,7 +42,7 @@ The post-#11 tracked tree (`4ccdf1ba7ae447ed982a34dc64478df47879baf3`) contains 
 | `report` (`report git`, `report files`, `report code`) | `scripts/devops/commands/report.ps1` | 2 | Linux managed all-groups report passed with 50/50 child exits and 37 evaluated projects; promoted-host PowerShell forwarding passed with 8/8 child exits. Report tests cover versioned JSON, strict checks, unusual paths, rename-aware churn, shallow history and syntax-analysis limits. Windows/macOS and hosted parity gates remain open. |
 | `server` (`server start`) | `scripts/devops/commands/server.ps1` | 1 | Managed foreground server is tested and routed through the Linux-x64 apphost. |
 
-Managed routing currently covers `build`, `clean`, `report`, and foreground `server start`. `test` and `aot` remain on PowerShell until their complete Phase 5 slice. Every other command remains on its current path until its own phase and parity gate.
+The PowerShell transition dispatcher currently forwards `build`, `clean`, `report`, and foreground `server start`. The managed apphost also runs local `benchmark` suites directly; `devops.ps1 benchmark`, remote and affected workflows remain on PowerShell. `test` and `aot` remain on PowerShell until their complete Phase 5 slice. Every other command remains on its current path until its own phase and parity gate.
 
 ## Legacy module inventory
 

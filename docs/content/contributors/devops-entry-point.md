@@ -8,9 +8,12 @@ single-file executable at the repository root.
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. `devops.ps1` remains the PowerShell transition dispatcher.
 It forwards `build`, `clean`, `report`, and `server start` to a fresh managed
-host. Other commands remain on the legacy PowerShell implementation and must
-be invoked as `pwsh ./devops.ps1 <command>`. A missing or stale managed host is
-a setup error; the dispatcher does not fall back to the legacy command after a
+host. The managed apphost also supports local benchmark runs through
+`./devops benchmark`; `pwsh ./devops.ps1 benchmark` remains on the legacy route
+while benchmark CI and remote workflows are migrated. Other commands remain
+on the legacy PowerShell implementation and must be invoked as
+`pwsh ./devops.ps1 <command>`. A missing or stale managed host is a setup
+error; the dispatcher does not fall back to the legacy command after a
 managed command fails.
 
 ## Why it exists
@@ -35,7 +38,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `test` | PowerShell: run one or more registered test suites | `pwsh ./devops.ps1 test` |
 | `aot` | PowerShell: publish and run Native AOT smoke validation | `pwsh ./devops.ps1 aot` |
 | `coverage` | PowerShell: collect coverage and optionally generate a report | `pwsh ./devops.ps1 coverage` |
-| `benchmark` | PowerShell: list or run BenchmarkDotNet suites | `pwsh ./devops.ps1 benchmark -List` |
+| `benchmark` | Managed apphost: list or run local BenchmarkDotNet suites; PowerShell: remote and affected runs | `./devops benchmark --list` |
 | `data` | PowerShell: prepare a named benchmark corpus | `pwsh ./devops.ps1 data gutenberg` |
 | `dataforge` | PowerShell: manage deterministic datasets and reference data | `pwsh ./devops.ps1 dataforge profiles` |
 | `diagnostics` | PowerShell: collect diagnostics for a selected process | `pwsh ./devops.ps1 diagnostics ps` |
@@ -73,7 +76,7 @@ The script combines two styles:
 BenchmarkDotNet arguments follow a `--` separator:
 
 ```powershell
-pwsh ./devops.ps1 benchmark -Suite query -Strat quick-compare -- --filter "*TermQuery*"
+./devops benchmark --suite query --strat quick-compare -- --filter "*TermQuery*"
 ```
 
 Keep repository arguments before `--`. Everything after it is passed to the benchmark process.
@@ -94,7 +97,15 @@ Do not bypass the central map with a second list in another script.
 
 ## Benchmarks
 
-`scripts/devops/config/benchmark-suites.psd1` maps public aliases such as `query`, `hnsw`, `blockjoin`, and `query-cache` to benchmark suite selections. `benchmark-strategies.psd1` and `Resolve-BenchmarkStrategy` define workload and BenchmarkDotNet job presets.
+The managed `benchmark` command uses the repository's benchmark suite,
+strategy, dataset and group configuration. It accepts `--suite`, `--strat`,
+`--framework`, `--dataset`, `--area`, `--group`, `--dry` and `--list`; legacy
+PowerShell option aliases are accepted by the apphost. Dataset selection is
+limited to synthetic and the frozen Wikipedia reference, whose supported
+suites and 20,000-document ceiling are checked before execution. Local
+BenchmarkDotNet arguments follow `--`. Remote SSH/tmux and affected-source
+workflows remain on the PowerShell route until their managed migration is
+qualified.
 
 ```mermaid
 flowchart LR
@@ -110,9 +121,12 @@ flowchart LR
     R --> O[one artifacts benchmark run]
 ```
 
-`-Dry` prints the resolved command. Use it when changing routing or investigating a remote invocation.
+`--dry` prints the resolved managed command plan. Use it when changing routing
+or investigating a local invocation.
 
-`-Controlled` applies a deterministic diagnostic preset and selects corpus-only cases. It does not make different hardware or runtime environments equivalent.
+`--controlled` applies a deterministic diagnostic preset and selects
+corpus-only cases. It does not make different hardware or runtime environments
+equivalent.
 
 When adding an alias, keep its name short and stable. Point it at an existing benchmark-suite selector rather than adding benchmark logic to `devops.ps1`.
 

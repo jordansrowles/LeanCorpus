@@ -28,6 +28,7 @@ internal static class Program
         var pack = BuildPackCommand(handler, repository);
         var data = BuildDataCommand(handler, repository);
         var dataForge = BuildDataForgeCommand(handler, repository);
+        var benchmark = BuildBenchmarkCommand(handler, repository);
         root.Add(build);
         root.Add(clean);
         root.Add(server);
@@ -35,6 +36,7 @@ internal static class Program
         root.Add(pack);
         root.Add(data);
         root.Add(dataForge);
+        root.Add(benchmark);
 
         return root;
     }
@@ -276,6 +278,102 @@ internal static class Program
             result.GetValue(arguments) ?? [], result.GetValue(repository))));
         return command;
     }
+
+    private static Command BuildBenchmarkCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var suite = new Option<string>("--suite", ["-Suite"])
+        {
+            Description = "Benchmark suite (default: all).",
+            DefaultValueFactory = _ => "all"
+        };
+        var strategy = new Option<string>("--strat", ["-Strat"])
+        {
+            Description = "Benchmark strategy (default: default).",
+            DefaultValueFactory = _ => "default"
+        };
+        var framework = new Option<string>("--framework", ["-Framework"])
+        {
+            Description = "Benchmark target framework (default: net11.0).",
+            DefaultValueFactory = _ => "net11.0"
+        };
+        var documentCount = new Option<int>("--doc-count", ["-DocCount"])
+        {
+            Description = "Override the strategy document count."
+        };
+        var dataset = new Option<string>("--dataset", ["-Dataset"])
+        {
+            Description = "Benchmark dataset: synthetic or wikipedia (default: synthetic).",
+            DefaultValueFactory = _ => "synthetic"
+        };
+        var referencePath = new Option<string?>("--reference-path", ["-ReferencePath"])
+        {
+            Description = "Frozen Wikipedia reference directory."
+        };
+        var area = new Option<string?>("--area", ["-Area"]);
+        var group = new Option<string?>("--group", ["-Group"]);
+        var sourceCommit = new Option<string?>("--source-commit", ["-SourceCommit"]);
+        var sourceRef = new Option<string?>("--source-ref", ["-SourceRef"]);
+        var sourceManifest = new Option<string?>("--source-manifest", ["-SourceManifest"]);
+        var controlled = new Option<bool>("--controlled", ["-Controlled"]);
+        var corpusOnly = new Option<bool>("--corpus-only", ["-CorpusOnly"]);
+        var gcDump = new Option<bool>("--gc-dump", ["-GcDump"]);
+        var prepareData = new Option<bool>("--prepare-data", ["-PrepareData"]);
+        var bookCount = new Option<int>("--book-count", ["-BookCount"])
+        {
+            Description = "Gutenberg book count for data preparation (default: 200).",
+            DefaultValueFactory = _ => 200
+        };
+        var dry = new Option<bool>("--dry", ["-Dry"]);
+        var list = new Option<bool>("--list", ["-List"]);
+        var arguments = new Argument<string[]>("arguments")
+        {
+            Description = "BenchmarkDotNet arguments following --.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+
+        var command = new Command("benchmark", "Run selected BenchmarkDotNet suites.");
+        command.Add(suite);
+        command.Add(strategy);
+        command.Add(framework);
+        command.Add(documentCount);
+        command.Add(dataset);
+        command.Add(referencePath);
+        command.Add(area);
+        command.Add(group);
+        command.Add(sourceCommit);
+        command.Add(sourceRef);
+        command.Add(sourceManifest);
+        command.Add(controlled);
+        command.Add(corpusOnly);
+        command.Add(gcDump);
+        command.Add(prepareData);
+        command.Add(bookCount);
+        command.Add(dry);
+        command.Add(list);
+        command.Add(arguments);
+        command.SetAction(result => handler.Benchmark(new BenchmarkCommandOptions(
+            result.GetValue(suite) ?? "all",
+            result.GetValue(strategy) ?? "default",
+            result.GetValue(framework) ?? "net11.0",
+            result.GetValue(documentCount),
+            result.GetValue(dataset) ?? "synthetic",
+            result.GetValue(referencePath),
+            result.GetValue(area),
+            result.GetValue(group),
+            result.GetValue(sourceCommit),
+            result.GetValue(sourceRef),
+            result.GetValue(sourceManifest),
+            result.GetValue(controlled),
+            result.GetValue(corpusOnly),
+            result.GetValue(gcDump),
+            result.GetValue(prepareData),
+            result.GetValue(bookCount),
+            result.GetValue(dry),
+            result.GetValue(list),
+            result.GetValue(arguments) ?? [],
+            result.GetValue(repository))));
+        return command;
+    }
 }
 
 internal static class CommandLineApplication
@@ -300,7 +398,7 @@ internal static class CommandLineApplication
         }
 
         var root = Program.BuildRootCommand(commandHandler);
-        var parseResult = root.Parse(args);
+        var parseResult = root.Parse(NormalizeBenchmarkSuiteArgument(args));
         if (parseResult.Errors.Count > 0)
         {
             foreach (var parseError in parseResult.Errors)
@@ -323,8 +421,23 @@ internal static class CommandLineApplication
 
     private static readonly string[] UnmigratedCommands =
     [
-        "aot", "benchmark", "benchmarks", "coverage", "diagnostics", "docs", "setup", "test", "ui"
+        "aot", "benchmarks", "coverage", "diagnostics", "docs", "setup", "test", "ui"
     ];
+
+    private static string[] NormalizeBenchmarkSuiteArgument(string[] args)
+    {
+        var commandIndex = args.Length >= 3 && args[0].Equals("--repo", StringComparison.OrdinalIgnoreCase)
+            ? 2
+            : 0;
+        var suiteIndex = commandIndex + 1;
+        if (commandIndex >= args.Length || !args[commandIndex].Equals("benchmark", StringComparison.OrdinalIgnoreCase) ||
+            suiteIndex >= args.Length || args[suiteIndex].StartsWith("-", StringComparison.Ordinal) || args[suiteIndex] == "--")
+        {
+            return args;
+        }
+
+        return [.. args.Take(suiteIndex), "--suite", args[suiteIndex], .. args.Skip(suiteIndex + 1)];
+    }
 
     private static bool TryGetDataForgeOptions(string[] args, out DataForgeCommandOptions options)
     {
@@ -367,6 +480,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int Data(DataCommandOptions options) => Missing("data");
 
     public int DataForge(DataForgeCommandOptions options) => Missing("dataforge");
+
+    public int Benchmark(BenchmarkCommandOptions options) => Missing("benchmark");
 
     private int Missing(string command)
     {

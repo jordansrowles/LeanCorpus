@@ -25,6 +25,7 @@ public sealed class CommandLineContractTests
         Assert.Contains("pack", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("data", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("dataforge", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("benchmark", output.ToString(), StringComparison.OrdinalIgnoreCase);
         var helpLines = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
         Assert.DoesNotContain(helpLines, line => line.TrimStart().StartsWith("test ", StringComparison.OrdinalIgnoreCase));
         Assert.Empty(error.ToString());
@@ -188,6 +189,22 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
+    public void BenchmarkAcceptsLegacyAliasesAndPreservesBenchmarkDotNetArguments()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["benchmark", "query", "-Strat", "fast", "-Framework", "net10.0", "-DocCount", "700", "-Area", "Search", "--", "--filter", "*Term*", "--job", "dry"], handler));
+
+        var actual = Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal("query", actual.Suite);
+        Assert.Equal("fast", actual.Strategy);
+        Assert.Equal("net10.0", actual.Framework);
+        Assert.Equal(700, actual.DocumentCount);
+        Assert.Equal("Search", actual.Area);
+        Assert.Equal(["--filter", "*Term*", "--job", "dry"], actual.Arguments);
+    }
+
+    [Fact]
     public void CleanDefaultsToDefaultTargetAndAcceptsTargetArgument()
     {
         var handler = new RecordingCommandHandler();
@@ -282,6 +299,32 @@ public sealed class CommandLineContractTests
                 .Select(item => item.GetProperty("id").GetString()).Order(StringComparer.Ordinal));
     }
 
+    [Fact]
+    public void BenchmarkRoutesToTheManagedHandlerWithLegacyAliases()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(["benchmark", "-Suite", "query", "-Strat", "fast", "-Dry"], handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal("query", Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls)).Suite);
+        var actual = Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal("fast", actual.Strategy);
+        Assert.True(actual.Dry);
+    }
+
+    [Fact]
+    public void BenchmarkSuiteOptionPreservesChildOptionTokensAfterSeparator()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(["benchmark", "--suite", "query", "--strat", "fast", "--dry", "--", "--filter", "*Term*"], handler);
+
+        Assert.Equal(0, exitCode);
+        var actual = Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal(["--filter", "*Term*"], actual.Arguments);
+    }
+
     private static int Invoke(string[] args, RecordingCommandHandler handler)
         => CommandLineApplication.Run(args, TextWriter.Null, TextWriter.Null, handler);
 
@@ -344,6 +387,12 @@ public sealed class CommandLineContractTests
         }
 
         public int DataForge(DataForgeCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int Benchmark(BenchmarkCommandOptions options)
         {
             Calls.Add(options);
             return 0;

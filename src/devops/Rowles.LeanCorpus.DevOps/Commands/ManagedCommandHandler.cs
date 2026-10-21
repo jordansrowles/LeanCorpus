@@ -1,4 +1,5 @@
 using Rowles.LeanCorpus.DevOps.Artifacts;
+using Rowles.LeanCorpus.DevOps.Benchmarks;
 using Rowles.LeanCorpus.DevOps.Build;
 using Rowles.LeanCorpus.DevOps.Data;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
@@ -460,6 +461,54 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
         {
             return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run the managed DataForge command.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int Benchmark(BenchmarkCommandOptions options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var result = new BenchmarkCommandService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "benchmark"),
+                processRunner,
+                new DotNetSdkResolver(processRunner),
+                new GitRepositoryProvenanceReader(processRunner),
+                progress: message => output.WriteLine(message),
+                errorOutput: message => error.WriteLine(message)).RunAsync(
+                    new BenchmarkCommandRequest(checkout, options), cancellation.Token).GetAwaiter().GetResult();
+            return _renderer.Render(WithRunEvidence(result.CommandResult, result.RunDirectory, "Benchmark run completed"), output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Benchmark run was cancelled."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run the managed benchmark command.", Details: exception.Message), output, error);
         }
         finally
         {

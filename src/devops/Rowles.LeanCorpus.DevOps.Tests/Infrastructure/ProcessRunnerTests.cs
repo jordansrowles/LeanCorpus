@@ -53,6 +53,24 @@ public sealed class ProcessRunnerTests
     }
 
     [Fact]
+    public async Task AppliesScopedEnvironmentVariablesToChildProcess()
+    {
+        using var directory = TemporaryDirectory.Create("DevOps child environment ");
+        var request = CreateRequest(directory.Path, "environment", "LEANCORPUS_DEVOPS_PROCESS_TEST") with
+        {
+            EnvironmentVariables = new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["LEANCORPUS_DEVOPS_PROCESS_TEST"] = "scoped-value"
+            }
+        };
+
+        var result = await new ProcessRunner().RunAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.Outcome);
+        Assert.Equal("scoped-value", Assert.Single(result.StandardOutputTail));
+    }
+
+    [Fact]
     public async Task RetainsRawNonZeroChildExitCode()
     {
         using var directory = TemporaryDirectory.Create("DevOps child exit ");

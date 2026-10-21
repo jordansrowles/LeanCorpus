@@ -34,3 +34,25 @@ internal sealed record DataCommandOptions(
 internal sealed record DataForgeCommandOptions(
     IReadOnlyList<string> Arguments,
     string? RepositoryPath = null);
+
+internal sealed record BenchmarkCommandOptions(
+    string Suite,
+    string Strategy,
+    string Framework,
+    int DocumentCount,
+    string Dataset,
+    string? ReferencePath,
+    string? Area,
+    string? Group,
+    string? SourceCommit,
+    string? SourceRef,
+    string? SourceManifest,
+    bool Controlled,
+    bool CorpusOnly,
+    bool GcDump,
+    bool PrepareData,
+    int BookCount,
+    bool Dry,
+    bool List,
+    IReadOnlyList<string> Arguments,
+    string? RepositoryPath = null);

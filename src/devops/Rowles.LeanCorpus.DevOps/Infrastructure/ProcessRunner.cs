@@ -79,6 +79,10 @@ internal sealed class ProcessRunner : IProcessRunner
                 .WithStandardErrorPipe(PipeTarget.Merge(
                     PipeTarget.ToDelegate(stderr.Add),
                     PipeTarget.ToFile(stderrPath)));
+            if (request.EnvironmentVariables is { Count: > 0 } environmentVariables)
+            {
+                command = command.WithEnvironmentVariables(environmentVariables);
+            }
 
             var child = await command.ExecuteAsync(linkedSource.Token).ConfigureAwait(false);
             stopwatch.Stop();
