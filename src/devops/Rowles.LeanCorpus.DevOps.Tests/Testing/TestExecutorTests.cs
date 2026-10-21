@@ -34,6 +34,13 @@ public sealed class TestExecutorTests
         Assert.Equal("10.0.103", manifest.ToolVersions["dotnet-sdk-selected"]);
         Assert.Equal("latestPatch", manifest.ToolVersions["dotnet-sdk-roll-forward"]);
         Assert.True(File.Exists(Path.Combine(result.RunDirectory, "report.json")));
+        var markdown = await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "report.md"), TestContext.Current.CancellationToken);
+        Assert.Contains("# Test run summary", markdown, StringComparison.Ordinal);
+        Assert.Contains("Example\\|Test, \"Quoted\"", markdown, StringComparison.Ordinal);
+        var timings = await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "timings.csv"), TestContext.Current.CancellationToken);
+        Assert.StartsWith("\"recordType\",\"iteration\",\"suite\",\"framework\",\"target\",\"test\",\"outcome\",\"durationMs\"\n", timings, StringComparison.Ordinal);
+        Assert.Contains("\"Target\",\"1\",\"core\",\"net10.0\",\"core/net10.0\",\"\",\"Passed\"", timings, StringComparison.Ordinal);
+        Assert.Contains("\"Test\",\"1\",\"core\",\"net10.0\",\"core/net10.0\",\"Example|Test, \"\"Quoted\"\"\",\"Passed\"", timings, StringComparison.Ordinal);
         Assert.True(File.Exists(Path.Combine(result.RunDirectory, "state.json")));
         var events = await File.ReadAllLinesAsync(Path.Combine(result.RunDirectory, "events.ndjson"), TestContext.Current.CancellationToken);
         Assert.Contains(events, line => line.Contains("targetDiscovered", StringComparison.OrdinalIgnoreCase));
@@ -86,6 +93,10 @@ public sealed class TestExecutorTests
         var unscheduled = Assert.Single(report.RootElement.GetProperty("unscheduledTargets").EnumerateArray());
         Assert.Equal("text/net10.0", unscheduled.GetProperty("target").GetString());
         Assert.Equal(1, unscheduled.GetProperty("iteration").GetInt32());
+        var markdown = await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "report.md"), TestContext.Current.CancellationToken);
+        Assert.Contains("- Result: **Not passed** (CommandFailure)", markdown, StringComparison.Ordinal);
+        Assert.Contains("## Unscheduled targets", markdown, StringComparison.Ordinal);
+        Assert.Contains("- iteration 1: `text/net10.0`", markdown, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -271,7 +282,7 @@ public sealed class TestExecutorTests
                 var passed = failing ? "0" : "1";
                 var failed = failing ? "1" : "0";
                 var trx = $"""
-                    <TestRun><Results><UnitTestResult testId="stable" testName="Example.Test" outcome="{outcome}" duration="00:00:00.010" /></Results>
+                    <TestRun><Results><UnitTestResult testId="stable" testName="Example|Test, &quot;Quoted&quot;" outcome="{outcome}" duration="00:00:00.010" /></Results>
                     <ResultSummary outcome="Completed"><Counters total="1" executed="1" passed="{passed}" failed="{failed}" error="0" timeout="0" aborted="0" inconclusive="0" notRunnable="0" notExecuted="0" disconnected="0" passedButRunAborted="0" inProgress="0" pending="0" /></ResultSummary></TestRun>
                     """;
                 await File.WriteAllTextAsync(Path.Combine(resultDirectory, "results.trx"), trx, cancellationToken);

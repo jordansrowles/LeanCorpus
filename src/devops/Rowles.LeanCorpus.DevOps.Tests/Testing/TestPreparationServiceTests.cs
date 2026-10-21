@@ -27,6 +27,7 @@ public sealed class TestPreparationServiceTests
 
         Assert.Equal(OutcomeKind.Success, result.Outcome);
         Assert.Equal(executablePath, Assert.Single(result.Targets).ExecutablePath);
+        Assert.Equal("resolve MTP target path", Assert.Single(result.Timings).Operation);
         Assert.Single(process.Requests);
         Assert.Contains("-getProperty:TargetPath", process.Requests[0].Arguments);
     }

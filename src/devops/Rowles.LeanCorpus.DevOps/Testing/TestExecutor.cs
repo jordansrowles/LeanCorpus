@@ -114,6 +114,7 @@ internal sealed class TestExecutor(
         var manifest = await artifactRunStore.StartAsync("test", inputs, cancellationToken: cancellationToken).ConfigureAwait(false);
         var runDirectory = artifactPaths.GetRunDirectory("test", manifest.RunId);
         var attempts = new List<TestExecutionAttempt>();
+        IReadOnlyList<TestPreparationTiming> preparationTimings = [];
         var requestedExecutionCount = checked(request.Targets.Count * request.Count);
         string? activeTarget = null;
         int? activeIteration = null;
@@ -165,6 +166,7 @@ internal sealed class TestExecutor(
                 Ci = request.RunnerOptions.Ci,
                 NoRestore = request.NoRestore
             }, runDirectory, cancellationToken).ConfigureAwait(false);
+            preparationTimings = preparation.Timings;
             if (preparation.Outcome != OutcomeKind.Success)
             {
                 commandResult = PreparationCommandResult(preparation);
@@ -279,7 +281,7 @@ internal sealed class TestExecutor(
         try
         {
             await _artifacts.WriteReportAsync(runDirectory, manifest.RunId, request, aggregate, commandResult,
-                cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                manifest, preparationTimings, DateTimeOffset.UtcNow, CancellationToken.None).ConfigureAwait(false);
             await _artifacts.WriteStateAsync(runDirectory, manifest.RunId, terminalStatus.ToString().ToLowerInvariant(),
                 request.Targets, request.Count, attempts, null, null, CancellationToken.None).ConfigureAwait(false);
             await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.Checkpoint,
@@ -524,14 +526,18 @@ internal sealed class TestArtifactService
             attempts = attempts.Select(ToAttemptDocument).ToArray()
         }, cancellationToken);
 
-    public Task WriteReportAsync(
+    public async Task WriteReportAsync(
         string runDirectory,
         Guid runId,
         TestExecutorRequest request,
         TestRunAggregate? aggregate,
         CommandResult commandResult,
+        RunManifest manifest,
+        IReadOnlyList<TestPreparationTiming> preparationTimings,
+        DateTimeOffset completedUtc,
         CancellationToken cancellationToken)
-        => WriteJsonAsync(Path.Combine(runDirectory, "report.json"), new
+    {
+        await WriteJsonAsync(Path.Combine(runDirectory, "report.json"), new
         {
             schemaVersion = 1,
             runId,
@@ -552,7 +558,10 @@ internal sealed class TestArtifactService
                 .ToArray() ?? [],
             attempts = aggregate?.Attempts.Select(ToAttemptDocument).ToArray() ?? [],
             tests = aggregate?.Tests ?? []
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
+        await new TestReportWriter(_writer).WriteSupplementaryReportsAsync(runDirectory, manifest, request, aggregate,
+            commandResult, preparationTimings, completedUtc, cancellationToken).ConfigureAwait(false);
+    }
 
     public Task WriteSelectionAsync(string runDirectory, TestExecutorRequest request, CancellationToken cancellationToken)
         => WriteJsonAsync(Path.Combine(runDirectory, "selection.json"), GetSelectionDocument(request), cancellationToken);

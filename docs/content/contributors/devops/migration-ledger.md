@@ -307,7 +307,7 @@ implementation. These are local qualification results, with no hosted or
 Windows qualification claim.
 
 Remaining testing work includes the public command and backup/restore matrix,
-remaining report consumers and Markdown output compatibility, SDK provenance in
+legacy telemetry summary and full Markdown/JSON report compatibility, SDK provenance in
 test manifests, structured skip reasons, isolated stress, platform parity and
 legacy retirement. The full migration remains in progress.
 
@@ -374,3 +374,25 @@ host; build smoke run `ac310c6e-d7f2-43d3-ac9e-90e1b9c327bc`. The source commit
 was `158f8068a1d56e78c34e886ca2bf19a4dadea0bb` with these changes in a dirty
 worktree. Windows console-format parity, report consumers, public test/AOT
 routing, stress and broader platform qualification remain open.
+
+### Managed Markdown and timing reports
+
+The managed executor now writes `report.md` and `timings.csv` alongside the
+existing `report.json`. The Markdown summary includes environment and target
+details, preparation timings, target outcomes, test classifications, failure
+details and unscheduled targets. The CSV keeps the legacy column order and
+quotes every field, including embedded quotes and commas.
+
+The real planner-to-MTP run
+`e30d3ef9-0662-4ec8-a3b8-c3a555901716` completed two prepared executions and
+produced all three report files. Its source was commit
+`5d3ddfdb077525dff571d583b99b01330c482a2b` with the report changes in the dirty
+worktree. The latest setup passed 234 tests, skipped two intentional AOT
+qualification cases, built with zero warnings or errors, published and promoted
+the Linux host, and passed staged/promoted help and version probes. Build smoke
+run: `17bf9460-00a3-45a5-88b2-dae7cb69627d`.
+
+This closes basic managed Markdown and timing-file generation on Linux.
+Telemetry summary integration, complete legacy Markdown/JSON field parity,
+other report consumers, Windows/Linux parity, isolated stress and public
+`test`/`aot` routing remain open.

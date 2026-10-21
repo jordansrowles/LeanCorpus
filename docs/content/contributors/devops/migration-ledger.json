@@ -2292,7 +2292,7 @@
           "isolated stress qualification",
           "public command integration including backup-restore-matrix",
           "cross-platform Native AOT qualification",
-          "remaining legacy report consumers and Markdown output compatibility",
+          "legacy telemetry summary and full Markdown/JSON report compatibility",
           "Windows validation of stdout-derived skip-reason normalization",
           "legacy retirement"
         ],
@@ -2351,6 +2351,21 @@
           ],
           "nativeAotPassedPerFramework": 122,
           "unresolvedPolicy": "Validation failure before target preparation or execution"
+        },
+        "reportArtifacts": {
+          "status": "markdown-and-timing-csv-generated-and-real-mtp-proven-on-linux",
+          "files": [
+            "report.json",
+            "report.md",
+            "timings.csv"
+          ],
+          "realMtpRunId": "e30d3ef9-0662-4ec8-a3b8-c3a555901716",
+          "executions": 2,
+          "casesPerExecution": 4,
+          "setupBuildRunId": "17bf9460-00a3-45a5-88b2-dae7cb69627d",
+          "sourceCommit": "5d3ddfdb077525dff571d583b99b01330c482a2b",
+          "sourceDirty": true,
+          "open": "Telemetry summary integration and complete legacy Markdown/JSON and other-consumer compatibility."
         }
       },
       "runEnvelopeMigration": {

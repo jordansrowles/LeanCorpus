@@ -14,11 +14,21 @@ internal sealed record TestPreparationRequest
 
 internal sealed record PreparedTestTarget(TestTarget Target, string ProjectPath, string ExecutablePath);
 
+internal sealed record TestPreparationTiming(
+    string Stage,
+    string Operation,
+    string WorkItem,
+    IReadOnlyList<string> TargetKeys,
+    double DurationMs);
+
 internal sealed record TestPreparationResult(
     OutcomeKind Outcome,
     IReadOnlyList<PreparedTestTarget> Targets,
     IReadOnlyList<ProcessResult> Processes,
-    string? Failure);
+    string? Failure)
+{
+    public IReadOnlyList<TestPreparationTiming> Timings { get; init; } = [];
+}
 
 internal sealed class TestPreparationService(IProcessRunner processRunner)
 {
@@ -48,6 +58,7 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
         var published = new HashSet<string>(PathComparer);
         var mtpExecutables = new Dictionary<string, string>(PathComparer);
         var aotExecutables = new Dictionary<string, string>(PathComparer);
+        var timings = new List<TestPreparationTiming>();
         var sequence = 0;
 
         try
@@ -59,7 +70,8 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
                 if (!IsWithin(root, projectPath) || !projectPath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) || !File.Exists(projectPath))
                 {
                     return Failure(OutcomeKind.ValidationFailure,
-                        $"Test project '{target.Project}' must resolve to an existing project inside the selected checkout.", prepared, processes);
+                        $"Test project '{target.Project}' must resolve to an existing project inside the selected checkout.", prepared, processes,
+                        timings: timings);
                 }
 
                 if (target.RunnerKind == "Mtp")
@@ -75,11 +87,11 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
                     {
                         var restore = await RunDotNetAsync(root, outputDirectory, ++sequence,
                             ["restore", projectPath, "--nologo", "--disable-build-servers", "-m:1", "-p:UseSharedCompilation=false"],
-                            TimeSpan.FromMinutes(15), cancellationToken).ConfigureAwait(false);
+                            TimeSpan.FromMinutes(15), "restore", target, timings, cancellationToken).ConfigureAwait(false);
                         processes.Add(restore);
                         if (restore.Outcome != OutcomeKind.Success)
                         {
-                            return Failure(restore.Outcome, $"Restore failed for test project '{target.Project}'.", prepared, processes, restore.Failure);
+                            return Failure(restore.Outcome, $"Restore failed for test project '{target.Project}'.", prepared, processes, restore.Failure, timings);
                         }
                     }
 
@@ -88,11 +100,12 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
                         var build = await RunDotNetAsync(root, outputDirectory, ++sequence,
                             ["build", projectPath, "--configuration", target.Configuration, "--framework", target.Framework,
                                 "--no-restore", "--nologo", "--disable-build-servers", "-m:1", "-p:UseSharedCompilation=false"],
-                            TimeSpan.FromMinutes(20), cancellationToken).ConfigureAwait(false);
+                            TimeSpan.FromMinutes(20), "build", target, timings, cancellationToken).ConfigureAwait(false);
                         processes.Add(build);
                         if (build.Outcome != OutcomeKind.Success)
                         {
-                            return Failure(build.Outcome, $"Build failed for test project '{target.Project}' ({target.Framework}).", prepared, processes, build.Failure);
+                            return Failure(build.Outcome, $"Build failed for test project '{target.Project}' ({target.Framework}).", prepared, processes,
+                                build.Failure, timings);
                         }
                     }
 
@@ -100,11 +113,12 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
                         ["msbuild", projectPath, "--nologo", "--disable-build-servers", "-m:1", "-getProperty:TargetPath",
                             $"-property:Configuration={target.Configuration}", $"-property:TargetFramework={target.Framework}",
                             "-property:UseSharedCompilation=false"],
-                        TimeSpan.FromMinutes(2), cancellationToken).ConfigureAwait(false);
+                        TimeSpan.FromMinutes(2), "resolve MTP target path", target, timings, cancellationToken).ConfigureAwait(false);
                     processes.Add(targetPathResult);
                     if (targetPathResult.Outcome != OutcomeKind.Success)
                     {
-                        return Failure(targetPathResult.Outcome, $"Could not resolve the MTP target path for '{target.Project}'.", prepared, processes, targetPathResult.Failure);
+                        return Failure(targetPathResult.Outcome, $"Could not resolve the MTP target path for '{target.Project}'.", prepared, processes,
+                            targetPathResult.Failure, timings);
                     }
 
                     var targetPaths = File.ReadLines(targetPathResult.StandardOutputLogPath)
@@ -117,14 +131,14 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
                     {
                         return Failure(OutcomeKind.InfrastructureFailure,
                             $"dotnet msbuild did not return one TargetPath for '{target.Project}' ({target.Framework}, {target.Configuration}).",
-                            prepared, processes);
+                            prepared, processes, timings: timings);
                     }
 
                     var targetPath = Path.GetFullPath(targetPaths[0]);
                     if (!IsWithin(root, targetPath))
                     {
                         return Failure(OutcomeKind.ValidationFailure,
-                            $"Resolved test TargetPath '{targetPath}' is outside the selected checkout.", prepared, processes);
+                            $"Resolved test TargetPath '{targetPath}' is outside the selected checkout.", prepared, processes, timings: timings);
                     }
                     var projectName = Path.GetFileNameWithoutExtension(projectPath);
                     var executableDirectory = Path.GetDirectoryName(targetPath)!;
@@ -135,7 +149,7 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
                     if (executablePath is null)
                     {
                         return Failure(OutcomeKind.InfrastructureFailure,
-                            $"Managed test output is missing its executable beside TargetPath '{targetPath}'.", prepared, processes);
+                            $"Managed test output is missing its executable beside TargetPath '{targetPath}'.", prepared, processes, timings: timings);
                     }
 
                     var resolvedExecutable = Path.GetFullPath(executablePath);
@@ -147,11 +161,12 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
                 if (target.RunnerKind != "AotNative")
                 {
                     return Failure(OutcomeKind.ValidationFailure,
-                        $"Unsupported runner kind '{target.RunnerKind}' for test target '{target.Key}'.", prepared, processes);
+                        $"Unsupported runner kind '{target.RunnerKind}' for test target '{target.Key}'.", prepared, processes, timings: timings);
                 }
                 if (string.IsNullOrWhiteSpace(target.RuntimeIdentifier))
                 {
-                    return Failure(OutcomeKind.ValidationFailure, $"AOT target '{target.Key}' requires a runtime identifier.", prepared, processes);
+                    return Failure(OutcomeKind.ValidationFailure, $"AOT target '{target.Key}' requires a runtime identifier.", prepared, processes,
+                        timings: timings);
                 }
 
                 var publishKey = $"{projectPath}|{target.Framework}|{target.RuntimeIdentifier}|{target.Configuration}";
@@ -174,11 +189,12 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
                         publishArguments.Add("--no-restore");
                     }
                     var publish = await RunDotNetAsync(root, outputDirectory, ++sequence, publishArguments,
-                        TimeSpan.FromMinutes(45), cancellationToken).ConfigureAwait(false);
+                        TimeSpan.FromMinutes(45), "publish native AOT", target, timings, cancellationToken).ConfigureAwait(false);
                     processes.Add(publish);
                     if (publish.Outcome != OutcomeKind.Success)
                     {
-                        return Failure(publish.Outcome, $"Native AOT publish failed for '{target.Project}' ({target.Framework}, {target.RuntimeIdentifier}).", prepared, processes, publish.Failure);
+                        return Failure(publish.Outcome, $"Native AOT publish failed for '{target.Project}' ({target.Framework}, {target.RuntimeIdentifier}).",
+                            prepared, processes, publish.Failure, timings);
                     }
                 }
 
@@ -190,21 +206,21 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
                 if (!IsWithin(Path.Combine(root, "artifacts", "publish"), nativePath) || !File.Exists(nativePath))
                 {
                     return Failure(OutcomeKind.InfrastructureFailure,
-                        $"AOT publish completed but the expected native test executable is missing: {nativePath}", prepared, processes);
+                        $"AOT publish completed but the expected native test executable is missing: {nativePath}", prepared, processes, timings: timings);
                 }
                 aotExecutables.Add(publishKey, nativePath);
                 prepared.Add(new PreparedTestTarget(target, projectPath, nativePath));
             }
 
-            return new TestPreparationResult(OutcomeKind.Success, prepared, processes, null);
+            return new TestPreparationResult(OutcomeKind.Success, prepared, processes, null) { Timings = timings.ToArray() };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return Failure(OutcomeKind.Cancelled, "Test target preparation was cancelled.", prepared, processes);
+            return Failure(OutcomeKind.Cancelled, "Test target preparation was cancelled.", prepared, processes, timings: timings);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
         {
-            return Failure(OutcomeKind.InfrastructureFailure, "Could not prepare test targets.", prepared, processes, exception.Message);
+            return Failure(OutcomeKind.InfrastructureFailure, "Could not prepare test targets.", prepared, processes, exception.Message, timings);
         }
     }
 
@@ -214,10 +230,13 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
         int sequence,
         IReadOnlyList<string> arguments,
         TimeSpan timeout,
+        string operation,
+        TestTarget target,
+        ICollection<TestPreparationTiming> timings,
         CancellationToken cancellationToken)
     {
         var prefix = $"preparation-{sequence:D3}";
-        return await processRunner.RunAsync(new ProcessRequest
+        var result = await processRunner.RunAsync(new ProcessRequest
         {
             ExecutablePath = "dotnet",
             Arguments = arguments,
@@ -227,6 +246,10 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
             Timeout = timeout,
             ProgressInterval = TimeSpan.FromSeconds(5)
         }, cancellationToken).ConfigureAwait(false);
+        timings.Add(new TestPreparationTiming("Preparation", operation,
+            $"{target.Project}|{target.Framework}|{target.Configuration}|{target.RuntimeIdentifier}", [target.Key],
+            Math.Round(result.Duration.TotalMilliseconds, 3)));
+        return result;
     }
 
     private static TestPreparationResult Failure(
@@ -234,8 +257,12 @@ internal sealed class TestPreparationService(IProcessRunner processRunner)
         string failure,
         IReadOnlyList<PreparedTestTarget>? targets = null,
         IReadOnlyList<ProcessResult>? processes = null,
-        string? details = null)
-        => new(outcome, targets ?? [], processes ?? [], details is null ? failure : $"{failure} {details}");
+        string? details = null,
+        IReadOnlyList<TestPreparationTiming>? timings = null)
+        => new TestPreparationResult(outcome, targets ?? [], processes ?? [], details is null ? failure : $"{failure} {details}")
+        {
+            Timings = timings ?? []
+        };
 
     private static bool IsWithin(string root, string path)
     {
