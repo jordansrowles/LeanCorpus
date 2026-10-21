@@ -29,6 +29,9 @@ switch (args[0])
     case "environment":
         Console.WriteLine(Environment.GetEnvironmentVariable(args[1]) ?? "<unset>");
         return 0;
+    case "stdin":
+        Console.Write(await Console.In.ReadToEndAsync());
+        return 0;
     case "readiness":
         Console.WriteLine("      Now listening: http://127.0.0.1:5080");
         await Task.Delay(int.Parse(args[1]));

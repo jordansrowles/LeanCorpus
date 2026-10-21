@@ -14,6 +14,8 @@ internal sealed record ProcessRequest
 
     public IReadOnlyDictionary<string, string?>? EnvironmentVariables { get; init; }
 
+    public string? StandardInputText { get; init; }
+
     public TimeSpan? Timeout { get; init; }
 
     public TimeSpan ProgressInterval { get; init; } = TimeSpan.FromSeconds(5);

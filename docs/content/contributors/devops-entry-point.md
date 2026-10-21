@@ -7,11 +7,10 @@ single-file executable at the repository root.
 
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. `devops.ps1` remains the PowerShell transition dispatcher.
-It forwards `build`, `clean`, `report`, `diagnostics`, and `server start` to a
-fresh managed host. The apphost also supports local benchmark runs through
-`./devops benchmark` and DataForge qualification through
-`./devops dataforge qualify`; `pwsh ./devops.ps1 benchmark` remains on the
-legacy route while benchmark CI and remote workflows are migrated. Other
+It forwards `build`, `clean`, `report`, `benchmark`, `diagnostics`, and
+`server start` to a fresh managed host. The apphost supports local and
+affected-source benchmark runs, managed SSH/tmux start, status and cancellation,
+and DataForge qualification through `./devops dataforge qualify`. Other
 commands remain on the legacy PowerShell implementation and must be invoked as
 `pwsh ./devops.ps1 <command>`. A missing or stale managed host is a setup
 error; the dispatcher does not fall back to the legacy command after a
@@ -39,7 +38,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `test` | PowerShell: run one or more registered test suites | `pwsh ./devops.ps1 test` |
 | `aot` | PowerShell: publish and run Native AOT smoke validation | `pwsh ./devops.ps1 aot` |
 | `coverage` | PowerShell: collect coverage and optionally generate a report | `pwsh ./devops.ps1 coverage` |
-| `benchmark` | Managed apphost: list or run local BenchmarkDotNet suites; PowerShell: remote and affected runs | `./devops benchmark --list` |
+| `benchmark` | Managed apphost: local and affected BenchmarkDotNet suites plus remote SSH/tmux lifecycle | `./devops benchmark --list` |
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
 | `data` | PowerShell: prepare a named benchmark corpus | `pwsh ./devops.ps1 data gutenberg` |
 | `dataforge` | Managed apphost: run qualification; PowerShell: manage datasets and reference data | `./devops dataforge qualify` |
@@ -132,6 +131,31 @@ flowchart LR
 
 `--dry` prints the resolved managed command plan. Use it when changing routing
 or investigating a local invocation.
+
+`benchmark affected` reads staged, modified, renamed and untracked paths from
+the current checkout, matches the existing benchmark group map, and records
+the selected paths and groups with the run. It refuses an empty selection.
+Area and group filters narrow that selection; a custom BenchmarkDotNet filter
+cannot be combined with class-scoped affected runs.
+
+Start a remote run by naming the host, absolute POSIX checkout path and branch;
+arguments after `--` are forwarded as benchmark command tokens:
+
+```bash
+./devops benchmark remote start --host jordan@debian --path /home/jordan/code/leancorpus --branch main -- --suite query --strat intense
+./devops benchmark remote status --run-id <run-id>
+./devops benchmark remote cancel --run-id <run-id>
+```
+
+The remote dispatcher requires a clean checkout, fetches and fast-forwards the
+requested branch, verifies that its managed apphost is current, then starts a
+unique tmux session. Remote run and session identity are stored under the local
+benchmark run directory. A lost SSH connection or local cancellation leaves
+remote state unknown until a later status response confirms a terminal state.
+Cancellation sends Ctrl+C and is not reported as complete before that check.
+The legacy `-Remote`, `-RemotePath`, `-Branch`, `-SessionName` and
+`-BenchmarkArgs` forms remain accepted during transition; use `--` for exact
+argument boundaries.
 
 `--controlled` applies a deterministic diagnostic preset and selects
 corpus-only cases. It does not make different hardware or runtime environments

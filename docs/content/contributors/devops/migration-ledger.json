@@ -1508,13 +1508,16 @@
       "name": "benchmark",
       "variants": [
         "benchmark",
-        "benchmark remote"
+        "benchmark affected",
+        "benchmark remote start",
+        "benchmark remote status",
+        "benchmark remote cancel"
       ],
       "source": "scripts/devops/commands/benchmark.ps1",
       "plannedPhase": 4,
-      "state": "inventoried",
-      "replacement": "Benchmark service and remote helper",
-      "routed": false,
+      "state": "routed",
+      "replacement": "Managed BenchmarkDotNet service with affected selection and SSH/tmux remote lifecycle",
+      "routed": true,
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {

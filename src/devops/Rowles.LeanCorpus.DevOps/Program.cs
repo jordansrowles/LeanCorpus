@@ -398,6 +398,21 @@ internal static class CommandLineApplication
     public static int Run(string[] args, TextWriter output, TextWriter error, ICommandHandler? handler = null)
     {
         var commandHandler = handler ?? new ManagedCommandHandler(output, error);
+        if (TryGetBenchmarkRemoteOptions(args, out var remoteParse))
+        {
+            if (remoteParse.Help)
+            {
+                output.WriteLine(RemoteBenchmarkHelp);
+                return 0;
+            }
+            if (remoteParse.Error is not null)
+            {
+                error.WriteLine(remoteParse.Error);
+                return 2;
+            }
+            return commandHandler.BenchmarkRemote(remoteParse.Options!);
+        }
+
         if (TryGetDataForgeOptions(args, out var dataForgeOptions))
         {
             return commandHandler.DataForge(dataForgeOptions);
@@ -440,6 +455,211 @@ internal static class CommandLineApplication
     [
         "aot", "benchmarks", "coverage", "docs", "setup", "test", "ui"
     ];
+
+    private const string RemoteBenchmarkHelp = """
+        Usage:
+          devops benchmark remote start [--host <user@host>] [--path <absolute-posix-path>] [--branch <branch>] [--session <name>] -- [benchmark arguments]
+          devops benchmark remote status --run-id <guid>
+          devops benchmark remote cancel --run-id <guid>
+
+        Start example:
+          devops benchmark remote start --host jordan@debian --path /home/jordan/code/leancorpus --branch main -- --suite query --strat intense
+
+        Status and cancellation use the remote identity stored in the local benchmark run artefacts.
+        Cancellation requests Ctrl+C in tmux and remains unconfirmed until a later status response is terminal.
+        """;
+
+    private sealed record RemoteBenchmarkParse(
+        BenchmarkRemoteCommandOptions? Options,
+        string? Error,
+        bool Help);
+
+    private static bool TryGetBenchmarkRemoteOptions(string[] args, out RemoteBenchmarkParse parse)
+    {
+        var commandIndex = args.Length >= 3 && args[0].Equals("--repo", StringComparison.OrdinalIgnoreCase)
+            ? 2
+            : 0;
+        if (commandIndex + 1 >= args.Length || !args[commandIndex].Equals("benchmark", StringComparison.OrdinalIgnoreCase) ||
+            !args[commandIndex + 1].Equals("remote", StringComparison.OrdinalIgnoreCase))
+        {
+            parse = null!;
+            return false;
+        }
+
+        var index = commandIndex + 2;
+        string action = "start";
+        if (index < args.Length && !args[index].StartsWith("-", StringComparison.Ordinal))
+        {
+            action = args[index++].ToLowerInvariant();
+        }
+        if (action is "help" or "--help")
+        {
+            parse = new RemoteBenchmarkParse(null, null, true);
+            return true;
+        }
+        if (action is not ("start" or "status" or "cancel"))
+        {
+            parse = new RemoteBenchmarkParse(null, $"Unknown remote benchmark action '{action}'. Valid actions are start, status, cancel and help.", false);
+            return true;
+        }
+
+        string? host = null;
+        string? remotePath = null;
+        string? branch = null;
+        string? sessionName = null;
+        string? repositoryPath = commandIndex == 2 ? args[1] : null;
+        Guid? runId = null;
+        var benchmarkArguments = new List<string>();
+        string? failure = null;
+        while (index < args.Length && failure is null)
+        {
+            var argument = args[index++];
+            if (argument == "--")
+            {
+                benchmarkArguments.AddRange(args.Skip(index));
+                break;
+            }
+            if (argument is "--help" or "-h")
+            {
+                parse = new RemoteBenchmarkParse(null, null, true);
+                return true;
+            }
+
+            string? Value()
+            {
+                if (index >= args.Length || args[index] == "--")
+                {
+                    failure = $"Option '{argument}' requires a value.";
+                    return null;
+                }
+                return args[index++];
+            }
+
+            switch (argument.ToLowerInvariant())
+            {
+                case "--host":
+                case "-remote":
+                    host = Value();
+                    break;
+                case "--path":
+                case "-remotepath":
+                    remotePath = Value();
+                    break;
+                case "--branch":
+                case "-branch":
+                    branch = Value();
+                    break;
+                case "--session":
+                case "-sessionname":
+                    sessionName = Value();
+                    break;
+                case "--run-id":
+                    var runIdText = Value();
+                    if (runIdText is not null)
+                    {
+                        if (!Guid.TryParse(runIdText, out var parsedRunId) || parsedRunId == Guid.Empty)
+                            failure = $"'{runIdText}' is not a valid remote benchmark run id.";
+                        else
+                            runId = parsedRunId;
+                    }
+                    break;
+                case "--repo":
+                case "-repo":
+                    repositoryPath = Value();
+                    break;
+                case "--benchmark-args":
+                case "-benchmarkargs":
+                    var legacyArguments = Value();
+                    if (legacyArguments is not null)
+                    {
+                        try
+                        {
+                            benchmarkArguments.AddRange(SplitLegacyCommandLine(legacyArguments));
+                        }
+                        catch (FormatException exception)
+                        {
+                            failure = exception.Message;
+                        }
+                    }
+                    break;
+                default:
+                    failure = $"Unknown remote benchmark option or argument '{argument}'. Use 'benchmark remote --help' for usage.";
+                    break;
+            }
+        }
+
+        if (failure is null && action == "start" && runId is not null)
+            failure = "--run-id is valid only for remote status and cancel actions.";
+        if (failure is null && action != "start" && benchmarkArguments.Count > 0)
+            failure = $"Benchmark arguments are valid only for 'benchmark remote start'.";
+
+        parse = new RemoteBenchmarkParse(failure is null
+            ? new BenchmarkRemoteCommandOptions(action, host, remotePath, branch, sessionName, runId, benchmarkArguments, repositoryPath)
+            : null, failure, false);
+        return true;
+    }
+
+    private static IReadOnlyList<string> SplitLegacyCommandLine(string value)
+    {
+        var arguments = new List<string>();
+        var token = new System.Text.StringBuilder();
+        var quote = '\0';
+        var escaped = false;
+        var hasToken = false;
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (escaped)
+            {
+                token.Append(character);
+                escaped = false;
+                hasToken = true;
+                continue;
+            }
+            if (character == '\\' && quote != '\'' && index + 1 < value.Length &&
+                (char.IsWhiteSpace(value[index + 1]) || value[index + 1] is '\\' or '\'' or '"'))
+            {
+                escaped = true;
+                hasToken = true;
+                continue;
+            }
+            if (quote != '\0')
+            {
+                if (character == quote)
+                    quote = '\0';
+                else
+                    token.Append(character);
+                hasToken = true;
+                continue;
+            }
+            if (character is '\'' or '"')
+            {
+                quote = character;
+                hasToken = true;
+            }
+            else if (char.IsWhiteSpace(character))
+            {
+                if (hasToken)
+                {
+                    arguments.Add(token.ToString());
+                    token.Clear();
+                    hasToken = false;
+                }
+            }
+            else
+            {
+                token.Append(character);
+                hasToken = true;
+            }
+        }
+        if (escaped)
+            token.Append('\\');
+        if (quote != '\0')
+            throw new FormatException("--benchmark-args contains an unterminated quote.");
+        if (hasToken)
+            arguments.Add(token.ToString());
+        return arguments;
+    }
 
     private static string[] NormalizeBenchmarkSuiteArgument(string[] args)
     {
@@ -554,6 +774,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int Diagnostics(DiagnosticsCommandOptions options) => Missing("diagnostics");
 
     public int Benchmark(BenchmarkCommandOptions options) => Missing("benchmark");
+
+    public int BenchmarkRemote(BenchmarkRemoteCommandOptions options) => Missing("benchmark remote");
 
     private int Missing(string command)
     {

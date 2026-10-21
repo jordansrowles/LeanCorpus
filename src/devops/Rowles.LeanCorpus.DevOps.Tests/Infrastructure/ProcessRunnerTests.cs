@@ -71,6 +71,18 @@ public sealed class ProcessRunnerTests
     }
 
     [Fact]
+    public async Task ForwardsExplicitStandardInputText()
+    {
+        using var directory = TemporaryDirectory.Create("DevOps child stdin ");
+        var request = CreateRequest(directory.Path, "stdin") with { StandardInputText = "remote script\nwith exact lines\n" };
+
+        var result = await new ProcessRunner().RunAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.Outcome);
+        Assert.Equal(["remote script", "with exact lines"], result.StandardOutputTail);
+    }
+
+    [Fact]
     public async Task RetainsRawNonZeroChildExitCode()
     {
         using var directory = TemporaryDirectory.Create("DevOps child exit ");

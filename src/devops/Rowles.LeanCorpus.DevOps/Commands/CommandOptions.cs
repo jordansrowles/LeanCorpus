@@ -60,3 +60,13 @@ internal sealed record BenchmarkCommandOptions(
     bool List,
     IReadOnlyList<string> Arguments,
     string? RepositoryPath = null);
+
+internal sealed record BenchmarkRemoteCommandOptions(
+    string Action,
+    string? Host,
+    string? RemotePath,
+    string? Branch,
+    string? SessionName,
+    Guid? RunId,
+    IReadOnlyList<string> BenchmarkArguments,
+    string? RepositoryPath = null);

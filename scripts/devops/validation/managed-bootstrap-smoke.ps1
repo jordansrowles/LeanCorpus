@@ -246,6 +246,11 @@ try {
             Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell diagnostics invocation should reach the promoted managed host'
             $forwarded = [System.IO.File]::ReadAllLines($capturePath)
             Assert-BootstrapContract (($forwarded -join '|') -ceq 'diagnostics|trace|--pid|42|--|--providers|Microsoft-DotNETRuntime') 'PowerShell diagnostics invocation should preserve argument token boundaries and ordering'
+
+            & $powerShell.Source -NoProfile -File $dispatcher benchmark remote start --host jordan@bench --path '/srv/LeanCorpus checkout' --branch issue-97 -- --suite query --filter '*Term Query*'
+            Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell benchmark invocation should reach the promoted managed host'
+            $forwarded = [System.IO.File]::ReadAllLines($capturePath)
+            Assert-BootstrapContract (($forwarded -join '|') -ceq 'benchmark|remote|start|--host|jordan@bench|--path|/srv/LeanCorpus checkout|--branch|issue-97|--|--suite|query|--filter|*Term Query*') 'PowerShell benchmark invocation should preserve exact remote and benchmark argument tokens'
         } finally {
             $env:DEVOPS_CAPTURE_PATH = $previousCapturePath
         }

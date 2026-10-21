@@ -79,6 +79,10 @@ internal sealed class ProcessRunner : IProcessRunner
                 .WithStandardErrorPipe(PipeTarget.Merge(
                     PipeTarget.ToDelegate(stderr.Add),
                     PipeTarget.ToFile(stderrPath)));
+            if (request.StandardInputText is not null)
+            {
+                command = command.WithStandardInputPipe(PipeSource.FromString(request.StandardInputText));
+            }
             if (request.EnvironmentVariables is { Count: > 0 } environmentVariables)
             {
                 command = command.WithEnvironmentVariables(environmentVariables);

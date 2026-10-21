@@ -15,7 +15,7 @@ Use this directory when you need to run or extend LeanCorpus tests, benchmarks, 
 | Validate Native AOT | `pwsh ./devops.ps1 aot` |
 | Attach standard .NET diagnostics | `./devops diagnostics ps` |
 | Generate coverage and HTML | `pwsh ./devops.ps1 coverage -Clean -GenerateReport` |
-| List benchmark suites | `pwsh ./devops.ps1 benchmark -List` |
+| List benchmark suites | `./devops benchmark --list` |
 | Build documentation | `pwsh ./devops.ps1 docs build` |
 
 Run `./devops --help` for the complete current command surface.
@@ -174,14 +174,33 @@ pwsh ./devops.ps1 benchmark -List
 Run a bounded smoke workload:
 
 ```bash
-pwsh ./devops.ps1 benchmark -Suite query -Strat fast
+./devops benchmark --suite query --strat fast
 ```
 
 Run the controlled preset:
 
 ```bash
-pwsh ./devops.ps1 benchmark -Suite query -Controlled
+./devops benchmark --suite query --controlled
 ```
+
+Select benchmark classes that match current dirty paths with
+`./devops benchmark affected --dry`. The command refuses to run zero classes
+and records changed paths and matched groups in the benchmark run evidence.
+Area and group filters can narrow the selected classes.
+
+Remote runs use SSH and tmux without invoking the legacy PowerShell benchmark
+script:
+
+```bash
+./devops benchmark remote start --host jordan@debian --path /home/jordan/code/leancorpus --branch main -- --suite query --strat intense
+./devops benchmark remote status --run-id <run-id>
+./devops benchmark remote cancel --run-id <run-id>
+```
+
+The remote checkout must be clean and its managed apphost current. The local
+run record keeps the remote host, path, branch, session and source revision.
+SSH disconnects and cancellation leave remote lifetime unknown until a status
+check confirms completion.
 
 Record corpus, workload, commit, framework, host state and provenance before making a comparison claim.
 

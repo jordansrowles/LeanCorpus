@@ -176,6 +176,62 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
+    public void RemoteBenchmarkStartPreservesArgumentTokensAfterSeparator()
+    {
+        var handler = new RecordingCommandHandler();
+        var arguments = new[] { "--suite", "query", "--strat", "intense", "--", "--filter", "*Name With Spaces*" };
+
+        Assert.Equal(0, Invoke(["--repo", "/tmp/LeanCorpus checkout", "benchmark", "remote", "start",
+            "--host", "jordan@bench", "--path", "/srv/LeanCorpus checkout", "--branch", "issue-97", "--", .. arguments], handler));
+
+        var actual = Assert.IsType<BenchmarkRemoteCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal("start", actual.Action);
+        Assert.Equal("jordan@bench", actual.Host);
+        Assert.Equal("/srv/LeanCorpus checkout", actual.RemotePath);
+        Assert.Equal("issue-97", actual.Branch);
+        Assert.Equal(arguments, actual.BenchmarkArguments);
+        Assert.Equal("/tmp/LeanCorpus checkout", actual.RepositoryPath);
+    }
+
+    [Fact]
+    public void RemoteBenchmarkAcceptsLegacyAliasesAndTokenisesQuotedBenchmarkArguments()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["benchmark", "remote", "-Remote", "jordan@bench", "-RemotePath", "/srv/repo",
+            "-Branch", "main", "-SessionName", "nightly", "-BenchmarkArgs", "--suite query --filter '*Term Query*'"], handler));
+
+        var actual = Assert.IsType<BenchmarkRemoteCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal("start", actual.Action);
+        Assert.Equal(["--suite", "query", "--filter", "*Term Query*"], actual.BenchmarkArguments);
+        Assert.Equal("nightly", actual.SessionName);
+    }
+
+    [Fact]
+    public void RemoteBenchmarkStatusRequiresAValidRunIdentityBeforeDispatch()
+    {
+        var handler = new RecordingCommandHandler();
+        var error = new StringWriter();
+
+        var exitCode = CommandLineApplication.Run(["benchmark", "remote", "status", "--run-id", "bad-id"], new StringWriter(), error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("not a valid remote benchmark run id", error.ToString(), StringComparison.Ordinal);
+        Assert.Empty(handler.Calls);
+    }
+
+    [Fact]
+    public void RemoteLegacyBenchmarkArgumentParserPreservesBackslashPatterns()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["benchmark", "remote", "-BenchmarkArgs", "--filter '*Term\\.Query*'"], handler));
+
+        var actual = Assert.IsType<BenchmarkRemoteCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal(["--filter", "*Term\\.Query*"], actual.BenchmarkArguments);
+    }
+
+    [Fact]
     public void DataForgeQualificationRoutesToTheManagedHandler()
     {
         var handler = new RecordingCommandHandler();
@@ -465,6 +521,12 @@ public sealed class CommandLineContractTests
         }
 
         public int Benchmark(BenchmarkCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int BenchmarkRemote(BenchmarkRemoteCommandOptions options)
         {
             Calls.Add(options);
             return 0;

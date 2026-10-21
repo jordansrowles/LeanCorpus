@@ -80,6 +80,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Route standalone .NET diagnostics through the managed apphost with pinned local tools, run manifests, capture timeouts and retained child logs.
 - Add managed repository, tracked-file and code-health reports with JSON run evidence, child-process logs, strict checks and explicit shallow-history and rename-analysis warnings.
 - Add managed local BenchmarkDotNet runs with suite, strategy, dataset and group selection, run provenance, bounded cancellation, result validation and scoped child-process environment overrides.
+- Route local, affected-source and remote SSH/tmux benchmark commands through the managed host; bootstrap that host in the manual benchmark workflow, record affected paths and remote session state, and leave cancellation unconfirmed until remote status is terminal.
 - Disable MSBuild build servers during managed DevOps locked restores to avoid stale server or named-pipe delays during bootstrap.
 - Bundle native dependencies in the managed single-file host so packages such as LibGit2Sharp do not leave root-level sidecars.
 - Retire tracked benchmark and changelog copies after verifying their staged replacements, and load the pinned Chart.js bundle locally.

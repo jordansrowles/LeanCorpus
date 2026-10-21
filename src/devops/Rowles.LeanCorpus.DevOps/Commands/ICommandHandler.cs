@@ -19,4 +19,6 @@ internal interface ICommandHandler
     int Diagnostics(DiagnosticsCommandOptions options);
 
     int Benchmark(BenchmarkCommandOptions options);
+
+    int BenchmarkRemote(BenchmarkRemoteCommandOptions options);
 }

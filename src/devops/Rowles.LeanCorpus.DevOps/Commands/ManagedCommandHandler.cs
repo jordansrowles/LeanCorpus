@@ -650,6 +650,50 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         }
     }
 
+    public int BenchmarkRemote(BenchmarkRemoteCommandOptions options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+                return staleExitCode;
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var runner = new ProcessRunner();
+            var service = new RemoteBenchmarkCommandService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "benchmark"),
+                runner,
+                new GitRepositoryProvenanceReader(runner),
+                progress: message => output.WriteLine(message));
+            var result = service.RunAsync(checkout, options, cancellation.Token).GetAwaiter().GetResult();
+            return _renderer.Render(WithRunEvidence(result.CommandResult, result.RunDirectory, "Remote benchmark command completed"), output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Remote benchmark command was cancelled; remote state may be unknown."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run the managed remote benchmark command.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
     private int? RejectStaleManagedHost(CheckoutIdentity checkout)
     {
         var failure = ManagedHostFingerprint.Validate(checkout.RepositoryRoot, Environment.ProcessPath);

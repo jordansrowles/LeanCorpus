@@ -80,6 +80,9 @@ jobs:
           global-json-file: global.json
           dotnet-quality: preview
 
+      - name: Bootstrap managed DevOps host
+        run: pwsh ./setup.ps1
+
       - name: Run benchmarks
         shell: pwsh
         env:
