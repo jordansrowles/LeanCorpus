@@ -119,6 +119,7 @@ internal sealed class MigrationFixtureGenerationService(
                 var manifestPath = Path.Combine(outputRoot, stem + ".manifest.json");
                 var layoutDirectory = Path.Combine(outputRoot, layout);
                 var archive = CreateArchive(layoutDirectory, manifestPath);
+                archive = PreserveCanonicalEncoding(repositoryRoot, stem, archive);
                 var manifestNode = JsonNode.Parse(await File.ReadAllTextAsync(manifestPath, cancellationToken).ConfigureAwait(false)) as JsonObject
                     ?? throw new InvalidDataException($"Generated fixture manifest '{manifestPath}' is not a JSON object.");
                 manifestNode["ArchiveSha256"] = Hash(archive);
@@ -145,7 +146,7 @@ internal sealed class MigrationFixtureGenerationService(
             return await FinishEarlyAsync(manifest, runDirectory, OutcomeKind.Cancelled,
                 "Migration fixture generation was cancelled.", exception.Message, artifacts, childExitCodes).ConfigureAwait(false);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or System.ComponentModel.Win32Exception)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or FormatException or System.ComponentModel.Win32Exception)
         {
             await WriteCleanupReceiptAsync(runDirectory, generationRoot, removed: false, CancellationToken.None,
                 "Generation did not complete; temporary generator files were retained.").ConfigureAwait(false);
@@ -201,16 +202,57 @@ internal sealed class MigrationFixtureGenerationService(
         var tarLength = checked((int)tarStream.Length);
         var recordPadding = (tarRecordSize - tarLength % tarRecordSize) % tarRecordSize;
         using var compressed = new MemoryStream();
-        using (var gzip = new GZipStream(compressed, CompressionLevel.Optimal, leaveOpen: true))
+        using (var gzip = new GZipStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
         {
             gzip.Write(tarStream.GetBuffer(), 0, tarLength);
             if (recordPadding != 0)
                 gzip.Write(new byte[recordPadding]);
         }
-        return compressed.ToArray();
+        var archive = compressed.ToArray();
+        archive[9] = byte.MaxValue;
+        return archive;
     }
 
     internal static string Hash(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
+
+    internal static byte[] PreferCanonicalEncoding(byte[] generatedArchive, byte[]? canonicalArchive)
+    {
+        ArgumentNullException.ThrowIfNull(generatedArchive);
+        if (canonicalArchive is null || !ArchivePayloadsMatch(generatedArchive, canonicalArchive))
+            return generatedArchive;
+        return canonicalArchive;
+    }
+
+    private static byte[] PreserveCanonicalEncoding(string repositoryRoot, string stem, byte[] generatedArchive)
+    {
+        var fixtureRoot = Path.Combine(repositoryRoot, FixtureRoot);
+        var archivePath = Path.Combine(fixtureRoot, stem + ".fixture.b64");
+        var manifestPath = Path.Combine(fixtureRoot, stem + ".manifest.json");
+        if (!File.Exists(archivePath) || !File.Exists(manifestPath))
+            return generatedArchive;
+
+        var canonicalArchive = Convert.FromBase64String(File.ReadAllText(archivePath));
+        using var manifest = JsonDocument.Parse(File.ReadAllBytes(manifestPath));
+        if (!manifest.RootElement.TryGetProperty("ArchiveSha256", out var archiveHash) || archiveHash.ValueKind != JsonValueKind.String ||
+            !string.Equals(Hash(canonicalArchive), archiveHash.GetString(), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException($"Canonical migration fixture archive '{archivePath}' does not match its manifest hash.");
+
+        return PreferCanonicalEncoding(generatedArchive, canonicalArchive);
+    }
+
+    private static bool ArchivePayloadsMatch(byte[] first, byte[] second)
+    {
+        using var firstStream = new MemoryStream(first, writable: false);
+        using var firstGzip = new GZipStream(firstStream, CompressionMode.Decompress);
+        using var firstPayload = new MemoryStream();
+        firstGzip.CopyTo(firstPayload);
+
+        using var secondStream = new MemoryStream(second, writable: false);
+        using var secondGzip = new GZipStream(secondStream, CompressionMode.Decompress);
+        using var secondPayload = new MemoryStream();
+        secondGzip.CopyTo(secondPayload);
+        return firstPayload.ToArray().AsSpan().SequenceEqual(secondPayload.ToArray());
+    }
 
     private async Task<ProcessResult> RunChildAsync(
         IReadOnlyList<string> arguments,

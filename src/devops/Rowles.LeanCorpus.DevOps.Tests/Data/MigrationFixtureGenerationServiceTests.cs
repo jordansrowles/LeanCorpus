@@ -24,6 +24,11 @@ public sealed class MigrationFixtureGenerationServiceTests
 
         Assert.Equal(first, second);
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(first)), MigrationFixtureGenerationService.Hash(first));
+        Assert.Equal(2, first[8]);
+        Assert.Equal(byte.MaxValue, first[9]);
+        var canonicalEncoding = first.ToArray();
+        canonicalEncoding[9] = 0;
+        Assert.Equal(canonicalEncoding, MigrationFixtureGenerationService.PreferCanonicalEncoding(first, canonicalEncoding));
         using (var archiveInput = new MemoryStream(first))
         using (var archiveGzip = new GZipStream(archiveInput, CompressionMode.Decompress))
         using (var tarBytes = new MemoryStream())
@@ -39,6 +44,24 @@ public sealed class MigrationFixtureGenerationServiceTests
         Assert.Equal("a.seg", firstEntry?.Name);
         Assert.Equal("b.seg", secondEntry?.Name);
         Assert.Null(tar.GetNextEntry());
+    }
+
+    [Fact]
+    public void UsesGeneratedEncodingWhenCanonicalArchiveHasDifferentTarPayload()
+    {
+        using var directory = new TemporaryDirectory();
+        var layoutDirectory = Path.Combine(directory.Path, "loose");
+        Directory.CreateDirectory(layoutDirectory);
+        File.WriteAllText(Path.Combine(layoutDirectory, "a.seg"), "original");
+        var manifestPath = Path.Combine(directory.Path, "manifest.json");
+        File.WriteAllText(manifestPath, CreateManifest(layoutDirectory, "a.seg"));
+        var canonical = MigrationFixtureGenerationService.CreateArchive(layoutDirectory, manifestPath);
+
+        File.WriteAllText(Path.Combine(layoutDirectory, "a.seg"), "changed");
+        File.WriteAllText(manifestPath, CreateManifest(layoutDirectory, "a.seg"));
+        var generated = MigrationFixtureGenerationService.CreateArchive(layoutDirectory, manifestPath);
+
+        Assert.Equal(generated, MigrationFixtureGenerationService.PreferCanonicalEncoding(generated, canonical));
     }
 
     [Fact]
