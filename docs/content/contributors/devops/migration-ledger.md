@@ -278,3 +278,35 @@ This evidence covers the managed planner and executor on Linux. Public
 `test` and `aot` routing, full Windows/Linux parity, isolated stress,
 deliberate-skip qualification, managed Native AOT qualification and legacy
 retirement remain open under specification section 18.
+
+### Runner adapters and qualification
+
+The executor now uses the required `MtpExecutableTestRunner` and
+`NativeAotTestRunner` adapters. Shared process lifecycle handling retains
+arguments, scoped environment, output logs, timeouts and cancellation. Native
+process failure, timeout and cancellation tests use a regular process fixture;
+they do not claim Native AOT publication evidence.
+
+Setup passed with 230 tests succeeded, 2 intentional explicit-test skips and
+zero failures, plus zero build warnings/errors. Build smoke run:
+`35ac31dc-e1d4-408c-8bfd-c5d3a972b8ce`. The real managed MTP run
+`95852349-8646-4d31-8041-12b81c29aa6d` executed twice with two passing tests and
+two intentionally excluded Native AOT qualification cases per iteration.
+Aggregation retained two `AlwaysPasses` and two `Skipped` identities. MTP's
+TRX contains no reason for these explicit-filter exclusions; the raw stdout
+retains the reasons, and structured reason normalisation remains open.
+
+Both explicit managed Native AOT qualification cases passed on Linux x64:
+.NET 10 run `97d2a050-14d6-4177-8bad-254a0b9acedb` and .NET 11 run
+`7a2c4fd2-1af5-4a4f-932b-a99c12ffc31e`. Each published the actual smoke project
+through managed preparation, executed its native binary through the native
+adapter, passed 122 tests and recorded exit zero and a successful manifest
+without requiring TRX. The evidence records source
+`678e4feddcd4c40c178eb9f686009868f8dbd34e` with a dirty worktree containing this
+implementation. These are local qualification results, with no hosted or
+Windows qualification claim.
+
+Remaining testing work includes the public command and backup/restore matrix,
+legacy report/UI schema and manifest filename compatibility, SDK provenance in
+test manifests, structured skip reasons, isolated stress, platform parity and
+legacy retirement. The full migration remains in progress.

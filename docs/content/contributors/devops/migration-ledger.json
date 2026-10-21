@@ -2279,21 +2279,49 @@
         "open": "Windows/macOS, hosted CI, and cross-platform parity qualification."
       },
       "testing": {
-        "status": "linux-managed-planner-executor-integration-passed-routing-gates-open",
-        "managedTestCount": 226,
-        "setupBuildRunId": "906072de-a8ae-4997-9f97-4de057994ee7",
-        "realMtpRunId": "dcebf4c5-9c8d-433a-8a61-e9498eb0fbe9",
+        "status": "linux-adapters-mtp-skips-and-both-native-aot-frameworks-passed-routing-gates-open",
+        "managedTestCount": 230,
+        "setupBuildRunId": "35ac31dc-e1d4-408c-8bfd-c5d3a972b8ce",
+        "realMtpRunId": "95852349-8646-4d31-8041-12b81c29aa6d",
         "realMtpExecutions": 2,
-        "realMtpCasesPerExecution": 2,
+        "realMtpCasesPerExecution": 4,
         "preparedOutput": true,
         "publicRouting": false,
         "open": [
           "Windows/Linux full-slice parity",
-          "isolated stress and deliberate-skip qualification",
-          "public command integration",
-          "Native AOT managed execution qualification",
+          "isolated stress qualification",
+          "public command integration including backup-restore-matrix",
+          "cross-platform Native AOT qualification",
+          "legacy report/UI schema and manifest filename compatibility",
+          "SDK provenance in test manifests",
+          "structured explicit-skip reasons where TRX omits them",
           "legacy retirement"
-        ]
+        ],
+        "managedTestTotal": 232,
+        "intentionalExplicitSkips": 2,
+        "realMtpPassingCasesPerExecution": 2,
+        "realMtpIntentionalSkipsPerExecution": 2,
+        "runnerAdapters": [
+          "MtpExecutableTestRunner",
+          "NativeAotTestRunner"
+        ],
+        "nativeAotLinuxRuns": [
+          {
+            "framework": "net10.0",
+            "runId": "97d2a050-14d6-4177-8bad-254a0b9acedb",
+            "passed": 122,
+            "failed": 0
+          },
+          {
+            "framework": "net11.0",
+            "runId": "7a2c4fd2-1af5-4a4f-932b-a99c12ffc31e",
+            "passed": 122,
+            "failed": 0
+          }
+        ],
+        "qualificationSourceCommit": "678e4feddcd4c40c178eb9f686009868f8dbd34e",
+        "qualificationSourceDirty": true,
+        "skipReasonEvidence": "MTP TRX omits explicit-filter reasons; retained raw stdout carries the reasons. Structured normalization remains open."
       }
     }
   }

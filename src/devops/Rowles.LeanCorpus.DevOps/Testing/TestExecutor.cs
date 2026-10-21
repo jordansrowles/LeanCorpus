@@ -351,34 +351,21 @@ internal sealed class TestExecutor(
         var target = preparedTarget.Target;
         var stdoutPath = Path.Combine(attemptDirectory, "stdout.log");
         var stderrPath = Path.Combine(attemptDirectory, "stderr.log");
-        var trxPath = target.RunnerKind.Equals("Mtp", StringComparison.OrdinalIgnoreCase)
-            ? Path.Combine(attemptDirectory, "results.trx")
-            : null;
-        var arguments = target.RunnerKind.Equals("Mtp", StringComparison.OrdinalIgnoreCase)
-            ? MtpTestArgumentBuilder.Build(target, request.RunnerOptions, attemptDirectory)
-            : target.AdditionalArguments;
-        var environment = TestProcessEnvironmentBuilder.Build(request.RunnerOptions, runId, attemptDirectory, target, iteration);
-        var startedUtc = DateTimeOffset.UtcNow;
-        var process = await processRunner.RunAsync(new ProcessRequest
+        ITestTargetRunner runner = target.RunnerKind switch
         {
-            ExecutablePath = preparedTarget.ExecutablePath,
-            Arguments = arguments,
-            WorkingDirectory = request.Checkout.RepositoryRoot,
-            StandardOutputLogPath = stdoutPath,
-            StandardErrorLogPath = stderrPath,
-            EnvironmentVariables = environment,
-            Timeout = request.ProcessTimeout,
-            ProgressInterval = TimeSpan.FromSeconds(5),
-            Progress = processProgress => progress?.Invoke(new TestProgressEvent(runId,
+            "Mtp" => new MtpExecutableTestRunner(processRunner),
+            "AotNative" => new NativeAotTestRunner(processRunner),
+            _ => throw new InvalidOperationException($"Unsupported test runner '{target.RunnerKind}'.")
+        };
+        var execution = await runner.RunAsync(new TestRunnerContext(runId, preparedTarget, request.RunnerOptions,
+            request.Checkout.RepositoryRoot, attemptDirectory, iteration, request.ProcessTimeout,
+            processProgress => progress?.Invoke(new TestProgressEvent(runId,
                 TestEventKind.TargetHeartbeat, DateTimeOffset.UtcNow, target.Key, iteration,
                 Message: "Test process is still running.", ProcessElapsed: processProgress.Elapsed,
                 StandardOutputLineCount: processProgress.StandardOutputLineCount,
-                StandardErrorLineCount: processProgress.StandardErrorLineCount))
-        }, cancellationToken).ConfigureAwait(false);
-        var endedUtc = DateTimeOffset.UtcNow;
-        var resultData = trxPath is not null && request.RunnerOptions.ArtifactsEnabled
-            ? await TestResultReader.ReadAsync(trxPath, CancellationToken.None).ConfigureAwait(false)
-            : null;
+                StandardErrorLineCount: processProgress.StandardErrorLineCount))), cancellationToken).ConfigureAwait(false);
+        var process = execution.Process;
+        var resultData = execution.Results;
         var diagnosticPaths = GetDiagnosticPaths(attemptDirectory);
         var outcome = TestOutcomeClassifier.Classify(target.RunnerKind, process, resultData,
             resultsRequired: target.RunnerKind.Equals("Mtp", StringComparison.OrdinalIgnoreCase) && request.RunnerOptions.ArtifactsEnabled,
@@ -387,13 +374,13 @@ internal sealed class TestExecutor(
         return new TestExecutionAttempt(target, iteration, outcome, resultData?.Tests ?? [], true, failure)
         {
             ExitCode = process.RawExitCode,
-            StartedUtc = startedUtc,
-            EndedUtc = endedUtc,
+            StartedUtc = execution.StartedUtc,
+            EndedUtc = execution.EndedUtc,
             Duration = process.Duration,
             ArtifactDirectory = attemptDirectory,
             StandardOutputPath = stdoutPath,
             StandardErrorPath = stderrPath,
-            TrxPath = trxPath,
+            TrxPath = execution.TrxPath,
             DiagnosticPaths = diagnosticPaths
         };
     }

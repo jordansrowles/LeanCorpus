@@ -67,7 +67,7 @@ public sealed class TestRunPlannerTests
                 Selection = new TestTargetRequest
                 {
                     Suites = ["devops-probe"], ContinuousIntegration = true,
-                    Filter = "FullyQualifiedName~TestFilterBuilderTests"
+                    Filter = "FullyQualifiedName~TestFilterBuilderTests|FullyQualifiedName~NativeAotManagedQualificationTests"
                 },
                 Count = 2, HangTimeout = "off", ProcessTimeout = "1m"
             }, TestContext.Current.CancellationToken);
@@ -80,7 +80,9 @@ public sealed class TestRunPlannerTests
         Assert.True(result.Aggregate!.Succeeded);
         Assert.Equal(2, result.Aggregate.Attempts.Count);
         Assert.NotEmpty(result.Aggregate.Tests);
-        Assert.All(result.Aggregate.Tests, test => Assert.Equal(TestStability.AlwaysPasses, test.Stability));
+        Assert.Equal(2, result.Aggregate.Tests.Count(static test => test.Stability == TestStability.AlwaysPasses));
+        Assert.Equal(2, result.Aggregate.Tests.Count(static test => test.Stability == TestStability.Skipped));
+        Assert.All(result.Aggregate.Tests, test => Assert.True(test.Stability is TestStability.AlwaysPasses or TestStability.Skipped));
         Assert.All(result.Aggregate.Attempts, attempt => Assert.True(File.Exists(attempt.TrxPath)));
         Assert.Equal(RunState.Succeeded, result.Manifest!.State);
     }
