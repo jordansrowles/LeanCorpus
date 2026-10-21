@@ -73,6 +73,10 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 - Pin DocFX 2.78.5 in the repository-local .NET tool manifest and add root `setup.ps1` checks for PowerShell 7, Git and the `global.json` SDK family.
 - Move canonical documentation and site configuration into `docs/content/` and `docs/site-config/`; stage generated API, import, ADR, changelog, benchmark and site outputs under `artifacts/docs/`.
+- Add an isolated managed DevOps host for `build`, `clean` and foreground `server start`; bootstrap it with `pwsh ./setup.ps1` and keep unmigrated commands on the PowerShell dispatcher.
+- Add managed repository, tracked-file and code-health reports with JSON run evidence, child-process logs, strict checks and explicit shallow-history and rename-analysis warnings.
+- Disable MSBuild build servers during managed DevOps locked restores to avoid stale server or named-pipe delays during bootstrap.
+- Bundle native dependencies in the managed single-file host so packages such as LibGit2Sharp do not leave root-level sidecars.
 - Retire tracked benchmark and changelog copies after verifying their staged replacements, and load the pinned Chart.js bundle locally.
 - Add provenance and link validation plus docs-site Playwright coverage with six visual baselines; make CI produce the site artefact that deployment publishes without rebuilding.
 - Restore the withdrawn field-length decision as ADR040 and assign the physical-index lifecycle decision ADR041, preserving history and correcting references.
@@ -119,6 +123,9 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Return `CharFilterResult` from `ICharFilter` with public `OffsetCorrectionMap` support for composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the previous character-filter API in Rowles.Text and source-included Core analysis. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 
 ## Fixed
+
+- Keep benchmark-run discovery as an array when documentation generation skips the scan or finds no runs.
+- Include linked DevOps migration-ledger JSON files in the generated documentation site.
 
 - Reclaim idle file-lifetime registry states after directory owners, file leases and deferred-delete callbacks have settled; preserve failed deletes for recovery.
 

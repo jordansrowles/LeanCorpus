@@ -55,6 +55,10 @@
         "src": "../../artifacts/docs/content"
       },
       {
+        "files": [ "contributors/devops/*.json" ],
+        "src": "../../artifacts/docs/content"
+      },
+      {
         "files": [ "*.json", "benchmark-charts.js", "chart.umd.js" ],
         "src": "../../artifacts/docs/content/benchmarks",
         "dest": "benchmarks"

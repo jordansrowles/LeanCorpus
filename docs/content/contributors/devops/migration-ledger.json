@@ -1,0 +1,2274 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "commit": "4ccdf1ba7ae447ed982a34dc64478df47879baf3",
+    "branch": "issue-97",
+    "trackedWorkingTreeCleanBeforeTask": true,
+    "sdkSelected": "11.0.100-preview.7.26381.103",
+    "installedSdks": [
+      "10.0.103",
+      "11.0.100-preview.6.26359.118",
+      "11.0.100-preview.7.26381.103"
+    ],
+    "runtimes": [
+      "Microsoft.NETCore.App 10.0.3",
+      "Microsoft.AspNetCore.App 10.0.3",
+      "Microsoft.NETCore.App 11.0.0-preview.6.26359.118",
+      "Microsoft.AspNetCore.App 11.0.0-preview.6.26359.118",
+      "Microsoft.NETCore.App 11.0.0-preview.7.26381.103",
+      "Microsoft.AspNetCore.App 11.0.0-preview.7.26381.103"
+    ],
+    "msbuild": "18.10.0.38203",
+    "rid": "linux-x64",
+    "os": "Debian GNU/Linux 13 (trixie)",
+    "architecture": "x64",
+    "powershell": "7.5.4",
+    "git": "2.47.3",
+    "docsInventory": {
+      "preIssue11TrackedDocsPaths": 445,
+      "preIssue11TrackedDocsMarkdown": 274,
+      "preIssue11GeneratedBenchmarkPaths": 146,
+      "preIssue11GeneratedBenchmarkMarkdown": 76,
+      "preIssue11NonBenchmarkPaths": 299,
+      "preIssue11NonBenchmarkMarkdown": 198,
+      "preIssue11Revision": "7e5bf521d48da2df20a5bc7af1ec816022d4e9ce",
+      "trackedDocsPaths": 272,
+      "trackedDocsMarkdown": 177,
+      "canonicalContentPaths": 179,
+      "canonicalContentMarkdown": 177,
+      "siteConfigPaths": 93,
+      "siteConfigMarkdown": 0,
+      "note": "The pre-#11 inventory included 146 generated docs/benchmarks paths (76 Markdown). Post-#11 counts describe docs/content and docs/site-config; generated API, benchmark, coverage and site outputs are staged under ignored artifacts/docs. The non-benchmark remainder is mixed content, assets, configuration and templates, not an authored-Markdown count."
+    }
+  },
+  "scope": {
+    "requested": "Complete issue #8 across the managed DevOps migration specification, including phases 0 through 9.",
+    "phasesIncluded": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9
+    ],
+    "phasesNotIncluded": [],
+    "status": "in-progress",
+    "note": "The first-milestone implementation and its Linux evidence are retained; later migration phases remain open until their implementation and qualification gates pass."
+  },
+  "migrationStates": [
+    "inventoried",
+    "implemented",
+    "parity-proven",
+    "routed",
+    "retired"
+  ],
+  "sourceFileCount": 75,
+  "sourceFiles": [
+    {
+      "id": "SRC-001",
+      "path": "scripts/devops/DevOps.psm1",
+      "owner": "composition:devops-psm1",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-002",
+      "path": "scripts/devops/artifacts/clean.ps1",
+      "owner": "shared:artifacts",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-003",
+      "path": "scripts/devops/artifacts/manifests.ps1",
+      "owner": "shared:artifacts",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-004",
+      "path": "scripts/devops/artifacts/paths.ps1",
+      "owner": "shared:artifacts",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-005",
+      "path": "scripts/devops/artifacts/runs.ps1",
+      "owner": "shared:artifacts",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-006",
+      "path": "scripts/devops/commands/aot.ps1",
+      "owner": "command:aot",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-002",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-015",
+        "CALL-018",
+        "CALL-019",
+        "CALL-032",
+        "CALL-033",
+        "CALL-040"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-007",
+      "path": "scripts/devops/commands/benchmark.ps1",
+      "owner": "command:benchmark",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-005",
+        "CALL-008",
+        "CALL-010",
+        "CALL-013",
+        "CALL-015",
+        "CALL-016",
+        "CALL-025",
+        "CALL-026",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-036",
+        "CALL-039"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-008",
+      "path": "scripts/devops/commands/benchmarks.ps1",
+      "owner": "command:benchmarks",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-008",
+        "CALL-015",
+        "CALL-028",
+        "CALL-033",
+        "CALL-036",
+        "CALL-039"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-009",
+      "path": "scripts/devops/commands/build.ps1",
+      "owner": "command:build",
+      "plannedPhase": 1,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-008",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-020",
+        "CALL-023",
+        "CALL-025",
+        "CALL-026",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-037",
+        "CALL-041"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-010",
+      "path": "scripts/devops/commands/clean.ps1",
+      "owner": "command:clean",
+      "plannedPhase": 1,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-002",
+        "CALL-015",
+        "CALL-016",
+        "CALL-032",
+        "CALL-033"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-011",
+      "path": "scripts/devops/commands/coverage.ps1",
+      "owner": "command:coverage",
+      "plannedPhase": 6,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-002",
+        "CALL-007",
+        "CALL-008",
+        "CALL-015",
+        "CALL-032",
+        "CALL-033"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-012",
+      "path": "scripts/devops/commands/data.ps1",
+      "owner": "command:data",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-008",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-021",
+        "CALL-038"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-013",
+      "path": "scripts/devops/commands/dataforge.ps1",
+      "owner": "command:dataforge",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-008",
+        "CALL-016",
+        "CALL-025",
+        "CALL-026",
+        "CALL-034",
+        "CALL-035",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-014",
+      "path": "scripts/devops/commands/diagnostics.ps1",
+      "owner": "command:diagnostics",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-003",
+        "CALL-032",
+        "CALL-033",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-015",
+      "path": "scripts/devops/commands/docs.ps1",
+      "owner": "command:docs",
+      "plannedPhase": 6,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-002",
+        "CALL-005",
+        "CALL-008",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-032",
+        "CALL-033",
+        "CALL-037"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-016",
+      "path": "scripts/devops/commands/pack.ps1",
+      "owner": "command:pack",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-002",
+        "CALL-010",
+        "CALL-015",
+        "CALL-016"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-017",
+      "path": "scripts/devops/commands/report.ps1",
+      "owner": "command:report",
+      "plannedPhase": 2,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-015"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-018",
+      "path": "scripts/devops/commands/server.ps1",
+      "owner": "command:server",
+      "plannedPhase": 1,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-008",
+        "CALL-015",
+        "CALL-016",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-019",
+      "path": "scripts/devops/commands/setup.ps1",
+      "owner": "command:setup",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-005",
+        "CALL-016",
+        "CALL-018"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-020",
+      "path": "scripts/devops/commands/test.ps1",
+      "owner": "command:test",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-007",
+        "CALL-008",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-015",
+        "CALL-016",
+        "CALL-018",
+        "CALL-019",
+        "CALL-023",
+        "CALL-024",
+        "CALL-027",
+        "CALL-030",
+        "CALL-032",
+        "CALL-033"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-021",
+      "path": "scripts/devops/common/arguments.ps1",
+      "owner": "shared:common",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-022",
+      "path": "scripts/devops/common/output.ps1",
+      "owner": "shared:common",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-023",
+      "path": "scripts/devops/common/paths.ps1",
+      "owner": "shared:common",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-024",
+      "path": "scripts/devops/common/processes.ps1",
+      "owner": "shared:common",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-025",
+      "path": "scripts/devops/common/tools.ps1",
+      "owner": "shared:common",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [
+        "CALL-001",
+        "CALL-002",
+        "CALL-003",
+        "CALL-004",
+        "CALL-005",
+        "CALL-006",
+        "CALL-007",
+        "CALL-008",
+        "CALL-009",
+        "CALL-010",
+        "CALL-011",
+        "CALL-012",
+        "CALL-013",
+        "CALL-014",
+        "CALL-015",
+        "CALL-016",
+        "CALL-017",
+        "CALL-018",
+        "CALL-019",
+        "CALL-020",
+        "CALL-021",
+        "CALL-022",
+        "CALL-023",
+        "CALL-024",
+        "CALL-025",
+        "CALL-026",
+        "CALL-027",
+        "CALL-028",
+        "CALL-029",
+        "CALL-030",
+        "CALL-031",
+        "CALL-032",
+        "CALL-033",
+        "CALL-034",
+        "CALL-035",
+        "CALL-036",
+        "CALL-037",
+        "CALL-038",
+        "CALL-039",
+        "CALL-040",
+        "CALL-041",
+        "CALL-042",
+        "CALL-043",
+        "CALL-044"
+      ],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-026",
+      "path": "scripts/devops/config/benchmark-datasets.psd1",
+      "owner": "config:benchmark",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-027",
+      "path": "scripts/devops/config/benchmark-groups.psd1",
+      "owner": "config:benchmark",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-028",
+      "path": "scripts/devops/config/benchmark-strategies.psd1",
+      "owner": "config:benchmark",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-029",
+      "path": "scripts/devops/config/benchmark-suites.psd1",
+      "owner": "config:benchmark",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-030",
+      "path": "scripts/devops/config/code-areas.psd1",
+      "owner": "config:code-areas",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-031",
+      "path": "scripts/devops/config/test-suites.psd1",
+      "owner": "config:testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-032",
+      "path": "scripts/devops/data/fixtures-311/Generator.csproj.template",
+      "owner": "data:migration-fixtures",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-033",
+      "path": "scripts/devops/data/fixtures-311/Program.cs.template",
+      "owner": "data:migration-fixtures",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-034",
+      "path": "scripts/devops/data/fixtures-311/global.json.template",
+      "owner": "data:migration-fixtures",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-035",
+      "path": "scripts/devops/data/generate-migration-fixtures-311.ps1",
+      "owner": "data:migration-fixtures",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-036",
+      "path": "scripts/devops/diagnostics/capture.ps1",
+      "owner": "diagnostics",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-037",
+      "path": "scripts/devops/diagnostics/tools.ps1",
+      "owner": "diagnostics",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-038",
+      "path": "scripts/devops/packaging/Consumer.csproj.template",
+      "owner": "packaging",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-039",
+      "path": "scripts/devops/packaging/Program.cs.template",
+      "owner": "packaging",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-040",
+      "path": "scripts/devops/packaging/package-policy.json",
+      "owner": "packaging",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-041",
+      "path": "scripts/devops/packaging/validate-compression-package-archive.ps1",
+      "owner": "packaging",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-042",
+      "path": "scripts/devops/packaging/validate-compression.ps1",
+      "owner": "packaging",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-043",
+      "path": "scripts/devops/packaging/validate-package-archive.ps1",
+      "owner": "packaging",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-044",
+      "path": "scripts/devops/packaging/validate-package-consumers.ps1",
+      "owner": "packaging",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-045",
+      "path": "scripts/devops/support/benchmark.ps1",
+      "owner": "support:benchmark",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-046",
+      "path": "scripts/devops/support/coverage.ps1",
+      "owner": "support:coverage",
+      "plannedPhase": 6,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-047",
+      "path": "scripts/devops/support/docfx.ps1",
+      "owner": "support:docfx",
+      "plannedPhase": 6,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-048",
+      "path": "scripts/devops/testing/artifacts.ps1",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-049",
+      "path": "scripts/devops/testing/backup-restore-matrix.ps1",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-050",
+      "path": "scripts/devops/testing/events.ps1",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-051",
+      "path": "scripts/devops/testing/execution.ps1",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-052",
+      "path": "scripts/devops/testing/preparation.ps1",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-053",
+      "path": "scripts/devops/testing/reports.ps1",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-054",
+      "path": "scripts/devops/testing/results.ps1",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-055",
+      "path": "scripts/devops/testing/runner.ps1",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-056",
+      "path": "scripts/devops/testing/targets.ps1",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-057",
+      "path": "scripts/devops/testing/testconfig.json",
+      "owner": "testing",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-058",
+      "path": "scripts/devops/ui/components/commands.ps1",
+      "owner": "ui",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-059",
+      "path": "scripts/devops/ui/dependencies.ps1",
+      "owner": "ui",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-060",
+      "path": "scripts/devops/ui/pages/benchmarks.ps1",
+      "owner": "ui",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-061",
+      "path": "scripts/devops/ui/pages/dataforge.ps1",
+      "owner": "ui",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-062",
+      "path": "scripts/devops/ui/pages/observe.ps1",
+      "owner": "ui",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-063",
+      "path": "scripts/devops/ui/pages/surface.ps1",
+      "owner": "ui",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-064",
+      "path": "scripts/devops/ui/pages/tests.ps1",
+      "owner": "ui",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-065",
+      "path": "scripts/devops/ui/ui.ps1",
+      "owner": "ui",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-066",
+      "path": "scripts/devops/validation/adr-index-smoke.ps1",
+      "owner": "validation-oracle:adr-index-smoke",
+      "plannedPhase": 6,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-067",
+      "path": "scripts/devops/validation/affected-selection-smoke.ps1",
+      "owner": "validation-oracle:affected-selection-smoke",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-068",
+      "path": "scripts/devops/validation/artifacts-smoke.ps1",
+      "owner": "validation-oracle:artifacts-smoke",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-069",
+      "path": "scripts/devops/validation/backup-restore-matrix-smoke.ps1",
+      "owner": "validation-oracle:backup-restore-matrix-smoke",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-070",
+      "path": "scripts/devops/validation/docs-site-smoke.ps1",
+      "owner": "validation-oracle:docs-site-smoke",
+      "plannedPhase": 6,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-071",
+      "path": "scripts/devops/validation/runtime-identifier-smoke.ps1",
+      "owner": "validation-oracle:runtime-identifier-smoke",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-072",
+      "path": "scripts/devops/validation/test-progress-smoke.ps1",
+      "owner": "validation-oracle:test-progress-smoke",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-073",
+      "path": "scripts/devops/validation/test-selection-smoke.ps1",
+      "owner": "validation-oracle:test-selection-smoke",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-074",
+      "path": "scripts/devops/validation/ui-contract-smoke.ps1",
+      "owner": "validation-oracle:ui-contract-smoke",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    },
+    {
+      "id": "SRC-075",
+      "path": "scripts/devops/validation/ui-smoke.ps1",
+      "owner": "validation-oracle:ui-smoke",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "callerRefs": [],
+      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
+    }
+  ],
+  "commands": [
+    {
+      "id": "CMD-BUILD",
+      "name": "build",
+      "variants": [
+        "build"
+      ],
+      "source": "scripts/devops/commands/build.ps1",
+      "plannedPhase": 1,
+      "state": "routed",
+      "replacement": "BuildService",
+      "routed": true,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation.",
+      "cliParser": "implemented",
+      "service": "passed",
+      "evidence": "Linux-x64 direct apphost and PowerShell-forwarded project builds passed; setup builds the dedicated solution in locked mode."
+    },
+    {
+      "id": "CMD-TEST",
+      "name": "test",
+      "variants": [
+        "test",
+        "test affected",
+        "test backup-restore-matrix"
+      ],
+      "source": "scripts/devops/commands/test.ps1",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "replacement": "Testing services and direct MTP/AOT runners",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-AOT",
+      "name": "aot",
+      "variants": [
+        "aot"
+      ],
+      "source": "scripts/devops/commands/aot.ps1",
+      "plannedPhase": 5,
+      "state": "inventoried",
+      "replacement": "AOT runner inside the testing vertical slice",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-COVERAGE",
+      "name": "coverage",
+      "variants": [
+        "coverage"
+      ],
+      "source": "scripts/devops/commands/coverage.ps1",
+      "plannedPhase": 6,
+      "state": "inventoried",
+      "replacement": "Coverage service and ReportGenerator adapter",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-DIAGNOSTICS",
+      "name": "diagnostics",
+      "variants": [
+        "diagnostics ps",
+        "diagnostics counters",
+        "diagnostics trace",
+        "diagnostics gcdump",
+        "diagnostics dump",
+        "diagnostics symbols",
+        "diagnostics capture"
+      ],
+      "source": "scripts/devops/commands/diagnostics.ps1",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "replacement": "Diagnostics capture services",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-BENCHMARK",
+      "name": "benchmark",
+      "variants": [
+        "benchmark",
+        "benchmark remote"
+      ],
+      "source": "scripts/devops/commands/benchmark.ps1",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "replacement": "Benchmark service and remote helper",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-DATA",
+      "name": "data",
+      "variants": [
+        "data gutenberg",
+        "data migration-fixtures-311"
+      ],
+      "source": "scripts/devops/commands/data.ps1",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "replacement": "Data preparation service",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-DATAFORGE",
+      "name": "dataforge",
+      "variants": [
+        "dataforge profiles",
+        "dataforge generate",
+        "dataforge inspect",
+        "dataforge verify",
+        "dataforge reproduce",
+        "dataforge reference download",
+        "dataforge reference build",
+        "dataforge reference inspect",
+        "dataforge reference verify",
+        "dataforge qualify"
+      ],
+      "source": "scripts/devops/commands/dataforge.ps1",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "replacement": "DataForge adapter; Rowles.DataForge.Tool remains independent",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-DOCS",
+      "name": "docs",
+      "variants": [
+        "docs prepare",
+        "docs build",
+        "docs metadata",
+        "docs serve",
+        "docs test"
+      ],
+      "source": "scripts/devops/commands/docs.ps1",
+      "plannedPhase": 6,
+      "state": "inventoried",
+      "replacement": "Documentation service and DocFX adapter",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-BENCHMARKS",
+      "name": "benchmarks",
+      "variants": [
+        "benchmarks docs"
+      ],
+      "source": "scripts/devops/commands/benchmarks.ps1",
+      "plannedPhase": 4,
+      "state": "inventoried",
+      "replacement": "Benchmark documentation service",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-SETUP",
+      "name": "setup",
+      "variants": [
+        "setup"
+      ],
+      "source": "scripts/devops/commands/setup.ps1",
+      "plannedPhase": 0,
+      "state": "inventoried",
+      "replacement": "Root bootstrap setup.ps1; legacy devops setup command retires deliberately",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-CLEAN",
+      "name": "clean",
+      "variants": [
+        "clean [target]"
+      ],
+      "source": "scripts/devops/commands/clean.ps1",
+      "plannedPhase": 1,
+      "state": "routed",
+      "replacement": "CleanService",
+      "routed": true,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation.",
+      "cliParser": "implemented",
+      "service": "passed",
+      "evidence": "77-test managed suite includes disposable fixtures for every owned target, invalid paths, symlink escapes, active runs and apphost protection."
+    },
+    {
+      "id": "CMD-PACK",
+      "name": "pack",
+      "variants": [
+        "pack"
+      ],
+      "source": "scripts/devops/commands/pack.ps1",
+      "plannedPhase": 3,
+      "state": "inventoried",
+      "replacement": "Package build and validation services",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-UI",
+      "name": "ui",
+      "variants": [
+        "ui"
+      ],
+      "source": "scripts/devops/commands/ui.ps1",
+      "plannedPhase": 7,
+      "state": "inventoried",
+      "replacement": "Spectre.Console workbench over shared services",
+      "routed": false,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+    },
+    {
+      "id": "CMD-REPORT",
+      "name": "report",
+      "variants": [
+        "report git",
+        "report files",
+        "report code"
+      ],
+      "source": "scripts/devops/commands/report.ps1",
+      "plannedPhase": 2,
+      "state": "routed",
+      "replacement": "Repository intelligence/report services",
+      "routed": true,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation.",
+      "cliParser": "implemented",
+      "service": "passed-linux-all-groups-and-apphost-git",
+      "evidence": "Linux all-groups run 19246c98-5c1d-4999-9a8e-4fbf6563ccd9 succeeded with 50/50 child exits, all 37 solution projects evaluated, and Git/Files/Code sections. Promoted single-file PowerShell forwarding run 2bdf88d7-085d-4319-9db8-d0187cbf0622 succeeded with 8/8 child exits. The legacy parser omitted similarity-rename line changes; NUL-safe managed parsing retains them. Contract fixtures record the baseline churn difference and deterministic tie ordering. Windows/macOS and hosted parity gates remain open."
+    },
+    {
+      "id": "CMD-SERVER",
+      "name": "server",
+      "variants": [
+        "server start"
+      ],
+      "source": "scripts/devops/commands/server.ps1",
+      "plannedPhase": 1,
+      "state": "routed",
+      "replacement": "ServerService",
+      "routed": true,
+      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation.",
+      "cliParser": "implemented",
+      "service": "passed",
+      "evidence": "Loopback foreground start, child logs, terminal cancellation manifest and typed argument forwarding passed on Linux."
+    }
+  ],
+  "rootSources": [
+    {
+      "path": "devops",
+      "role": "ignored generated current-RID managed apphost",
+      "plannedPhase": 0,
+      "state": "retired",
+      "decision": "The tracked Bash wrapper was removed from the index after Linux setup promotion and active Unix caller migration; setup generates the ignored apphost."
+    },
+    {
+      "path": "devops.ps1",
+      "role": "PowerShell command dispatcher",
+      "plannedPhase": 0,
+      "state": "routed",
+      "decision": "Retain as transition dispatcher: forward build, clean, report and server start to a fingerprint-validated apphost; unmigrated commands stay on PowerShell with no fallback after managed failure."
+    },
+    {
+      "path": "setup.ps1",
+      "role": "checkout bootstrap",
+      "plannedPhase": 0,
+      "state": "implemented",
+      "decision": "Retain as the checkout bootstrap; locked restore, build, tests, current-RID single-file publish, probes and atomic promotion passed twice on Linux-x64."
+    }
+  ],
+  "externalCallers": [
+    {
+      "id": "CALL-001",
+      "path": ".github/workflows/benchmark.yml",
+      "category": "workflow",
+      "matchCount": 2,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-002",
+      "path": ".github/workflows/build.yml",
+      "category": "workflow",
+      "matchCount": 13,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-003",
+      "path": ".github/workflows/test-diagnostics.yml",
+      "category": "workflow",
+      "matchCount": 4,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-004",
+      "path": ".github/workflows/test-stress.yml",
+      "category": "workflow",
+      "matchCount": 4,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-005",
+      "path": "CONTRIBUTING.md",
+      "category": "documentation",
+      "matchCount": 18,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-006",
+      "path": "README.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-007",
+      "path": "changelog/3.0.0 - 2026-08-25.md",
+      "category": "source-message-or-example",
+      "matchCount": 1,
+      "status": "historical",
+      "note": "Preserved as dated evidence or release/architecture history; it is not an active invocation instruction."
+    },
+    {
+      "id": "CALL-008",
+      "path": "devops",
+      "category": "source-message-or-example",
+      "matchCount": 2,
+      "status": "retired-generated-path",
+      "note": "Tracked wrapper removed; this path is now generated and ignored by setup.ps1."
+    },
+    {
+      "id": "CALL-009",
+      "path": "devops.ps1",
+      "category": "source-message-or-example",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-010",
+      "path": "docs/content/articles/ADRs/ADR030-unified-devops-artefact-and-test-evidence.md",
+      "category": "documentation",
+      "matchCount": 2,
+      "status": "historical",
+      "note": "Preserved as dated evidence or release/architecture history; it is not an active invocation instruction."
+    },
+    {
+      "id": "CALL-011",
+      "path": "docs/content/articles/testing/backup-restore-measurement.md",
+      "category": "documentation",
+      "matchCount": 2,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-012",
+      "path": "docs/content/articles/testing/backup-restore-results.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "historical",
+      "note": "Preserved as dated evidence or release/architecture history; it is not an active invocation instruction."
+    },
+    {
+      "id": "CALL-013",
+      "path": "docs/content/contributors/benchmarking.md",
+      "category": "documentation",
+      "matchCount": 3,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-014",
+      "path": "docs/content/contributors/codeckit/03-migrations.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-015",
+      "path": "docs/content/contributors/devops-entry-point.md",
+      "category": "documentation",
+      "matchCount": 24,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-016",
+      "path": "docs/content/contributors/devops-ui.md",
+      "category": "documentation",
+      "matchCount": 8,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-017",
+      "path": "docs/content/contributors/documentation.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-018",
+      "path": "docs/content/contributors/index.md",
+      "category": "documentation",
+      "matchCount": 9,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-019",
+      "path": "docs/content/getting-started/01-installation.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-020",
+      "path": "docs/content/index-management/04-cli-checker.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "managed-route",
+      "note": "The documented build or server command remains on the managed apphost route."
+    },
+    {
+      "id": "CALL-021",
+      "path": "docs/content/index-management/11-codec-migration-3-0.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-022",
+      "path": "docs/content/server/01-running.md",
+      "category": "documentation",
+      "matchCount": 4,
+      "status": "managed-route",
+      "note": "The documented build or server command remains on the managed apphost route."
+    },
+    {
+      "id": "CALL-023",
+      "path": "docs/content/server/evidence/orchard-core-search-provider.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "historical",
+      "note": "Preserved as dated evidence or release/architecture history; it is not an active invocation instruction."
+    },
+    {
+      "id": "CALL-024",
+      "path": "docs/content/server/orchard-core-search-provider.md",
+      "category": "documentation",
+      "matchCount": 5,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-025",
+      "path": "docs/content/tips/03-benchmarking.md",
+      "category": "documentation",
+      "matchCount": 13,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-026",
+      "path": "docs/content/tips/dataforge.md",
+      "category": "documentation",
+      "matchCount": 11,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-027",
+      "path": "lexicons/README.md",
+      "category": "documentation",
+      "matchCount": 3,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-028",
+      "path": "scripts/benchmarks/send-remote.ps1",
+      "category": "developer-script",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-029",
+      "path": "scripts/nightly-benchmark.sh",
+      "category": "developer-script",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-030",
+      "path": "src/core/Rowles.Text/CONTRIBUTING.md",
+      "category": "documentation",
+      "matchCount": 7,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-031",
+      "path": "src/core/Rowles.Text/README.md",
+      "category": "documentation",
+      "matchCount": 2,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-032",
+      "path": "src/devops/CONTRIBUTING.md",
+      "category": "documentation",
+      "matchCount": 20,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-033",
+      "path": "src/devops/README.md",
+      "category": "documentation",
+      "matchCount": 36,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-034",
+      "path": "src/devops/Rowles.DataForge.Tool/DataForgeCommandLine.cs",
+      "category": "source-message-or-example",
+      "matchCount": 15,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-035",
+      "path": "src/devops/Rowles.DataForge.Tool/WikipediaReferenceSource.cs",
+      "category": "source-message-or-example",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-036",
+      "path": "src/devops/Rowles.LeanCorpus.Benchmarks.Compression/Program.cs",
+      "category": "source-message-or-example",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-037",
+      "path": "src/devops/Rowles.LeanCorpus.Tests.Docs/DocsSiteAcceptanceTests.cs",
+      "category": "source-message-or-example",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-038",
+      "path": "src/devops/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/README.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-039",
+      "path": "src/devops/Rowles.Text.Benchmarks/Program.cs",
+      "category": "source-message-or-example",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-040",
+      "path": "src/examples/README.md",
+      "category": "documentation",
+      "matchCount": 1,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-041",
+      "path": "src/server/README.md",
+      "category": "documentation",
+      "matchCount": 3,
+      "status": "updated",
+      "note": "Active command references now use ./devops for managed commands or pwsh ./devops.ps1 for unmigrated commands."
+    },
+    {
+      "id": "CALL-042",
+      "path": "src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj",
+      "category": "source-message-or-example",
+      "matchCount": 2,
+      "status": "path-only-match",
+      "note": "The match is a relative source include containing the directory name devops, not a launcher call."
+    },
+    {
+      "id": "CALL-043",
+      "path": "src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj",
+      "category": "source-message-or-example",
+      "matchCount": 2,
+      "status": "path-only-match",
+      "note": "The match is a relative source include containing the directory name devops, not a launcher call."
+    },
+    {
+      "id": "CALL-044",
+      "path": "src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj",
+      "category": "source-message-or-example",
+      "matchCount": 3,
+      "status": "path-only-match",
+      "note": "The match is a relative source include containing the directory name devops, not a launcher call."
+    }
+  ],
+  "workflows": [
+    {
+      "path": ".github/workflows/benchmark.yml",
+      "state": "updated",
+      "phase": "0-8",
+      "action": "Manual benchmark route remains PowerShell; its failure hint names the explicit dispatcher."
+    },
+    {
+      "path": ".github/workflows/build.yml",
+      "state": "updated",
+      "phase": "0-8",
+      "action": "Adds Linux and Windows managed-host qualification plus bootstrap before existing managed builds; product matrices remain unchanged. Hosted execution is pending."
+    },
+    {
+      "path": ".github/workflows/deploy.yml",
+      "state": "unchanged",
+      "phase": "0-8",
+      "action": "Consumes the generated documentation artefact and does not invoke the root launcher."
+    },
+    {
+      "path": ".github/workflows/test-diagnostics.yml",
+      "state": "updated",
+      "phase": "0-8",
+      "action": "Linux and Windows jobs bootstrap before their managed build; test execution remains on PowerShell. Hosted execution is pending."
+    },
+    {
+      "path": ".github/workflows/test-stress.yml",
+      "state": "updated",
+      "phase": "0-8",
+      "action": "Linux and Windows jobs bootstrap before their managed build; test execution remains on PowerShell. Hosted execution is pending."
+    }
+  ],
+  "configAndData": {
+    "psd1Files": [
+      "scripts/devops/config/benchmark-datasets.psd1",
+      "scripts/devops/config/benchmark-groups.psd1",
+      "scripts/devops/config/benchmark-strategies.psd1",
+      "scripts/devops/config/benchmark-suites.psd1",
+      "scripts/devops/config/code-areas.psd1",
+      "scripts/devops/config/test-suites.psd1"
+    ],
+    "jsonFiles": [
+      "scripts/devops/packaging/package-policy.json",
+      "scripts/devops/testing/testconfig.json"
+    ],
+    "packagingData": [
+      "scripts/devops/packaging/Consumer.csproj.template",
+      "scripts/devops/packaging/Program.cs.template",
+      "scripts/devops/packaging/package-policy.json"
+    ],
+    "policy": "Keep legacy .psd1 authoritative until each managed reader is migrated and semantic equivalence passes; retain non-DevOps data/tool boundaries."
+  },
+  "fixtures": {
+    "legacyHelp": "src/devops/Rowles.LeanCorpus.DevOps.Tests/Fixtures/Legacy/legacy-help.txt",
+    "legacyHelpExitCode": "src/devops/Rowles.LeanCorpus.DevOps.Tests/Fixtures/Legacy/legacy-help.exitcode",
+    "commandContracts": "src/devops/Rowles.LeanCorpus.DevOps.Tests/Fixtures/Contracts/legacy-command-contracts.json"
+  },
+  "adrContext": {
+    "index": "docs/articles/ADRs/index.md",
+    "read": [
+      "docs/articles/ADRs/ADR030-unified-devops-artefact-and-test-evidence.md"
+    ],
+    "reason": "ADR030 governs run artefact identity and evidence provenance consumed by build and later shared command services."
+  },
+  "baselineWorkflows": {
+    "build": {
+      "status": "Passed",
+      "runId": "20261021-072118-578e5e4b-linux",
+      "commit": "4ccdf1ba7ae447ed982a34dc64478df47879baf3",
+      "branch": "issue-97",
+      "framework": "",
+      "configuration": "Release",
+      "target": "solution",
+      "warnings": 974,
+      "errors": 0,
+      "notes": "Repository build completed successfully; NuGet vulnerability feed warnings and existing analyser warnings are retained in the run log."
+    },
+    "testAllNet10": "not-run",
+    "packNoBuild": "not-run"
+  },
+  "statusRules": {
+    "implemented": "Code exists; compatibility and parity are not implied.",
+    "parity-proven": "Contract, negative, outcome, artefact and required-platform evidence are retained.",
+    "routed": "Dispatcher forwards without fallback after parity gates pass.",
+    "retired": "No active callers; source removal and regression coverage are reviewed."
+  },
+  "managedFoundation": {
+    "solution": "src/devops/Rowles.LeanCorpus.DevOps.slnx",
+    "projects": [
+      {
+        "path": "src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj",
+        "targetFramework": "net10.0",
+        "outputRoot": "artifacts/devops/bin/Rowles.LeanCorpus.DevOps/"
+      },
+      {
+        "path": "src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj",
+        "targetFramework": "net10.0",
+        "outputRoot": "artifacts/devops/bin/Rowles.LeanCorpus.DevOps.Tests/"
+      }
+    ],
+    "packageGraph": "src/devops/Directory.Packages.props with per-project packages.lock.json files; product root package metadata unchanged",
+    "parserTests": {
+      "status": "passed",
+      "total": 13,
+      "failed": 0,
+      "succeeded": 13,
+      "runner": "compiled xUnit/Microsoft.Testing.Platform apphost invoked directly"
+    },
+    "cliSmoke": {
+      "help": "Passed from staged and promoted host without repository discovery.",
+      "version": "Passed from staged and promoted host.",
+      "directBuild": "Passed through root Linux-x64 apphost.",
+      "powershellForwardedBuild": "Passed through pwsh ./devops.ps1 with exact argument forwarding.",
+      "unsupportedCommands": "Remain explicit PowerShell routes; managed host reports unsupported commands without fallback."
+    },
+    "solutionBoundary": "The dedicated solution contains only the managed host and its tests; Rowles.LeanCorpus.slnx is unchanged and contains no managed DevOps project.",
+    "toolingGap": {
+      "status": "resolved-for-milestone",
+      "note": "setup.ps1 explicitly builds the dedicated managed solution in locked mode. No product solution selector was added because that solution is a bootstrap-owned implementation detail."
+    },
+    "legacyPropsBoundary": "Existing Rowles.LeanCorpus.Cli still builds through ./devops build -Project with root target/package settings imported by the new src/devops props.",
+    "milestoneEvidence": {
+      "managedTests": {
+        "status": "passed",
+        "total": 92,
+        "failed": 0,
+        "skipped": 0,
+        "runner": "xUnit v3 Microsoft.Testing.Platform apphost",
+        "bootstrapFingerprintCoverage": [
+          "current root and staged apphosts",
+          "stale managed source",
+          "tampered apphost bytes",
+          "missing promotion manifest"
+        ],
+        "latestEvidence": "Full direct MTP apphost run after report rename-churn regression test: 92 passed, 0 failed, 0 skipped."
+      },
+      "linuxBootstrap": {
+        "status": "passed",
+        "runs": 3,
+        "rid": "linux-x64",
+        "lockedRestore": true,
+        "warnings": 0,
+        "errors": 0,
+        "singleFile": true,
+        "unexpectedSidecars": 0,
+        "stagedProbes": [
+          "help",
+          "version",
+          "managed project build"
+        ],
+        "promotedProbes": [
+          "help",
+          "version"
+        ],
+        "manifest": "artifacts/devops/managed-host.json",
+        "lastPrePublishTestCount": 91,
+        "nativeLibrariesBundled": true,
+        "latestEvidence": "Locked restores, single-file publish, staged help/version/build probes, atomic promotion, and promoted help/version probes passed for linux-x64."
+      },
+      "rootRouting": {
+        "status": "passed",
+        "directBuild": true,
+        "powershellForwardedBuild": true,
+        "legacyFallback": false
+      },
+      "server": {
+        "status": "passed",
+        "listener": "127.0.0.1:5080",
+        "rootResponse": 404,
+        "stop": "Ctrl+C; exit 130; cancelled run manifest and both child logs retained"
+      },
+      "windowsVm": {
+        "status": "blocked",
+        "os": "Windows Server 2025 build 26100",
+        "sdks": [
+          "10.0.400",
+          "11.0.100-preview.7.26381.103"
+        ],
+        "reason": "C:\\source\\leancorpus has no .git marker and Git is not installed; no bootstrap or source-revision qualification was run."
+      },
+      "hostedCi": "Configuration added, not run from this branch.",
+      "macOsAndOtherRids": "Not run; not qualified.",
+      "bootstrapFailureSmoke": {
+        "status": "passed",
+        "checks": 37,
+        "script": "scripts/devops/validation/managed-bootstrap-smoke.ps1",
+        "coverage": [
+          "wrong checkout",
+          "missing SDK",
+          "tool restore failure",
+          "locked restore failure",
+          "build failure",
+          "publish failure",
+          "unexpected sidecar",
+          "staged probe failure preserves prior host",
+          "promoted probe failure rolls back host and manifest",
+          "successful staged help/version/build probes and promotion",
+          "locked restores disable build servers",
+          "single-file publish bundles native libraries"
+        ],
+        "hostPlatform": "Linux"
+      },
+      "report": {
+        "status": "passed-linux-all-groups-and-apphost-git",
+        "allGroupsRunId": "19246c98-5c1d-4999-9a8e-4fbf6563ccd9",
+        "allGroupsChildExits": {
+          "passed": 50,
+          "failed": 0
+        },
+        "evaluatedSolutionProjects": 37,
+        "apphostPowerShellRunId": "2bdf88d7-085d-4319-9db8-d0187cbf0622",
+        "apphostGitChildExits": {
+          "passed": 8,
+          "failed": 0
+        },
+        "recoveredInterruptedRunId": "714dd4f4-c07a-42ac-8880-6933ff746c9e",
+        "legacyDifferences": "Legacy numstat parser treated old => new as a literal pathname, dropping rename-commit changes. Managed NUL-safe parsing retained them. This baseline has 7,196 additional churn additions and 4,247 additional deletions in source, with documented fixture coverage.",
+        "open": "Windows/macOS, hosted CI, and cross-platform parity qualification."
+      }
+    }
+  }
+}

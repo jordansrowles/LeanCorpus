@@ -1,0 +1,12 @@
+namespace Rowles.LeanCorpus.DevOps.Commands;
+
+internal interface ICommandHandler
+{
+    int Build(BuildCommandOptions options);
+
+    int Clean(CleanCommandOptions options);
+
+    int StartServer(ServerStartCommandOptions options);
+
+    int Report(ReportCommandOptions options);
+}

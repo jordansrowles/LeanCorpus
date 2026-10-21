@@ -40,7 +40,7 @@ function Invoke-DataForgeQualification {
     $parsed = ConvertFrom-DevOpsArguments $Arguments
     $unknownOptions = @($parsed.Parsed.Keys | Where-Object { $_ -notin @('ReferencePath', 'Dry') })
     if ($unknownOptions.Count -gt 0 -or $parsed.Positionals.Count -gt 0 -or $parsed.PassThrough.Count -gt 0) {
-        Write-Error 'Usage: devops dataforge qualify [-ReferencePath <path>] [-Dry]'
+        Write-Error 'Usage: pwsh ./devops.ps1 dataforge qualify [-ReferencePath <path>] [-Dry]'
         return 1
     }
 

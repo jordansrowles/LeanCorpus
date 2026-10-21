@@ -179,7 +179,7 @@ try {
         }
         foreach ($selection in @($dirtySelection, $commitSelection, $script:captured)) {
         $options.AffectedSelection = $selection
-        $context = New-TestRunContext -Options $options -Targets $script:capturedTargets -CommandLine './devops test affected -Range HEAD~1..HEAD' -RepoRoot $Root
+        $context = New-TestRunContext -Options $options -Targets $script:capturedTargets -CommandLine 'pwsh ./devops.ps1 test affected -Range HEAD~1..HEAD' -RepoRoot $Root
         $manifest = Get-Content $context.ManifestPath -Raw | ConvertFrom-Json
         Assert-Selection (($manifest.affectedSelection | ConvertTo-Json -Depth 10 -Compress) -ceq ($selection | ConvertTo-Json -Depth 10 -Compress)) 'Manifest preserves complete selection provenance'
         Complete-ArtifactRun -RunDirectory $context.RunDirectory -Status Passed

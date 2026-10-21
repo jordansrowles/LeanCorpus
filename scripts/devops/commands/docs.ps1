@@ -54,7 +54,7 @@ function Invoke-DevOpsDocs {
         $node = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         $npm = Get-Command npm -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($null -eq $node -or $null -eq $npm) {
-            throw 'Node.js and npm are required to prepare pinned diagram assets. Install Node.js 20 or newer, then rerun ./devops docs prepare.'
+            throw 'Node.js and npm are required to prepare pinned diagram assets. Install Node.js 20 or newer, then rerun pwsh ./devops.ps1 docs prepare.'
         }
 
         $bytefieldModule = Join-Path $moduleRoot 'bytefield-svg'

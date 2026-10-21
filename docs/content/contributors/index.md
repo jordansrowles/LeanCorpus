@@ -8,11 +8,11 @@ This section routes repository contributors to the shortest useful guide. Packag
 ## Make a first contribution
 
 1. Read the repository [CONTRIBUTING guide](../../../CONTRIBUTING.md).
-2. Run `./devops setup` and `./devops build`.
+2. Run `pwsh -NoProfile -File ./setup.ps1` and `./devops build`.
 3. Choose the subsystem that owns the behaviour.
 4. Run one focused test selection.
 5. Make the change and add tests.
-6. Run `./devops test affected`.
+6. Run `pwsh ./devops.ps1 test affected`.
 7. Add compatibility, AOT, documentation or benchmark validation when the claim requires it.
 
 ## Choose your contributor path
@@ -23,6 +23,7 @@ This section routes repository contributors to the shortest useful guide. Packag
 | Change analysers, filters, tokenisers, stemmers or languages | [Rowles.Text contribution guide](../../../src/core/Rowles.Text/CONTRIBUTING.md) |
 | Add tests, benchmarks or repository tooling | [DevOps and tests contribution guide](../../../src/devops/CONTRIBUTING.md) |
 | Understand `devops` and `devops.ps1` | [DevOps entry point](devops-entry-point.md) |
+| Review the managed DevOps migration | [Migration ledger](devops/migration-ledger.md) and [publish compatibility](devops/publish-compatibility.md) |
 | Use the interactive DevOps workbench | [Interactive DevOps workbench](devops-ui.md) |
 | Change the DocFX site or generated documentation | [Documentation](documentation.md) |
 | Add or assess a benchmark | [Benchmarking](benchmarking.md) |
@@ -60,10 +61,10 @@ Use the narrowest command that can disprove your claim, then widen only where ne
 
 ```bash
 ./devops build
-./devops test affected
-./devops test -Suite architecture
-./devops aot
-./devops docs build -SkipBenchmarks
+pwsh ./devops.ps1 test affected
+pwsh ./devops.ps1 test -Suite architecture
+pwsh ./devops.ps1 aot
+pwsh ./devops.ps1 docs build -SkipBenchmarks
 ```
 
 Run `./devops --help` for the current command surface.

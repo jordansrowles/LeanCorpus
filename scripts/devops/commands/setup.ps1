@@ -7,7 +7,7 @@ function Invoke-DevOpsSetup {
     $parsed = ConvertFrom-DevOpsArguments $Arguments
     $unknownOptions = @($parsed.Parsed.Keys | Where-Object { $_ -notin @('InstallUi') })
     if ($unknownOptions.Count -gt 0 -or $parsed.Positionals.Count -gt 0 -or $parsed.PassThrough.Count -gt 0) {
-        Write-Failure 'Usage: ./devops setup [-InstallUi]'
+        Write-Failure 'Usage: pwsh ./devops.ps1 setup [-InstallUi]'
         return 2
     }
     if ($parsed.Has('InstallUi')) {
@@ -97,7 +97,7 @@ function Invoke-DevOpsSetup {
     if (Test-DevOpsUiDependency) {
         Write-Success "  PwshSpectreConsole $(Get-DevOpsUiDependencyVersion): installed"
     } else {
-        Write-Info "  PwshSpectreConsole $(Get-DevOpsUiDependencyVersion): not installed (run: ./devops setup -InstallUi)"
+        Write-Info "  PwshSpectreConsole $(Get-DevOpsUiDependencyVersion): not installed (run: pwsh ./devops.ps1 setup -InstallUi)"
     }
 
     Write-Host ''

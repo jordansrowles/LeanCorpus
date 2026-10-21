@@ -196,7 +196,11 @@ function Test-CoreReportShape($Report) {
 
 $newestPerSuite = @{}
 $newestProjectEvidence = @{}
-$runDirectories = if (-not $SkipRunScan -and (Test-Path $BenchDir)) { @(Get-ChildItem $BenchDir -Directory) } else { @() }
+$runDirectories = @(
+    if (-not $SkipRunScan -and (Test-Path $BenchDir)) {
+        Get-ChildItem $BenchDir -Directory
+    }
+)
 if ($runDirectories.Count -eq 0) {
     Write-Warning "No benchmark runs found in $BenchDir"
 }

@@ -96,7 +96,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $suites = Import-PowerShellDataFile './scripts/devops/config/benchmark-suites.psd1'
           if ($env:BENCHMARK_SUITE -notin @('core', 'text', 'compression') -and -not $suites.ContainsKey($env:BENCHMARK_SUITE)) {
-            throw "Unknown benchmark suite '$env:BENCHMARK_SUITE'. Use ./devops benchmark -List to list suites."
+            throw "Unknown benchmark suite '$env:BENCHMARK_SUITE'. Use pwsh ./devops.ps1 benchmark -List to list suites."
           }
           $docCount = 0
           if (-not [int]::TryParse($env:BENCHMARK_DOC_COUNT, [ref]$docCount) -or $docCount -lt 0) {

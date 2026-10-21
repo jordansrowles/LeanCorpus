@@ -117,7 +117,7 @@ the complete expected codec action set, with no index-sort rewrite.
 Focused vector tests additionally cover Int8 and BBQ rewrites. Vector v2 is a
 one-way persisted-format boundary; a 3.1.1 reader is not expected to open it.
 
-Regenerate deliberately with `./devops data migration-fixtures-311` using SDK
+Regenerate deliberately with `pwsh ./devops.ps1 data migration-fixtures-311` using SDK
 10.0.103 and Python 3. Use `-PackageSource` for a local source containing the
 pinned 3.1.1 package. Ordinary tests never invoke this generator or download the
 historical package. See the fixture directory's README for provenance and the

@@ -14,6 +14,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  managed-devops-foundation:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-latest
+          - platform: win-x64
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Exercise managed bootstrap failure and rollback contracts
+        if: matrix.platform == 'linux-x64'
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/devops/validation/managed-bootstrap-smoke.ps1
+      - name: Bootstrap and qualify managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./setup.ps1
+      - name: Verify promoted host, direct build and PowerShell forwarding
+        shell: pwsh
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $managedHost --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $project = 'src/devops/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj'
+          & $managedHost build --project $project --framework net10.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh ./devops.ps1 build --project $project --framework net10.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Upload managed DevOps diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: managed-devops-${{ matrix.platform }}-diagnostics
+          path: |
+            artifacts/devops
+            artifacts/build/runs
+          if-no-files-found: warn
+
   linux-tests:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
@@ -30,6 +79,9 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./setup.ps1
       - name: Build solution
         shell: pwsh
         run: ./devops.ps1 build
@@ -105,6 +157,9 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./setup.ps1
       - name: Build solution
         shell: pwsh
         run: ./devops.ps1 build
@@ -255,7 +310,7 @@ jobs:
           path: artifacts/coverage/runs
       - name: Build docs test target
         shell: pwsh
-        run: ./devops build -Project src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj -Framework net10.0
+        run: ./devops build --project src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj --framework net10.0
       - name: Install Playwright Chromium
         shell: pwsh
         run: |
@@ -265,10 +320,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build documentation site
         shell: pwsh
-        run: ./devops docs build
+        run: pwsh ./devops.ps1 docs build
       - name: Validate documentation site
         shell: pwsh
-        run: ./devops docs test -Framework net10.0 -NoRestore
+        run: pwsh ./devops.ps1 docs test -Framework net10.0 -NoRestore
       - uses: actions/upload-artifact@v7
         with:
           name: leancorpus-docs-site

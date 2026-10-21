@@ -86,8 +86,8 @@ The pipeline favours streaming and span-based APIs to avoid per-token allocation
 Performance-sensitive changes should be checked with the registered analysis benchmark suites:
 
 ```bash
-./devops benchmark -List
-./devops benchmark -Suite analysis-filters -Strat fast
+pwsh ./devops.ps1 benchmark -List
+pwsh ./devops.ps1 benchmark -Suite analysis-filters -Strat fast
 ```
 
 ## Next steps

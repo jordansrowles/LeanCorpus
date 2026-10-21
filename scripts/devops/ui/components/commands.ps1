@@ -62,7 +62,8 @@ function Get-DevOpsUiShellPath {
 function New-DevOpsUiCommandPreview {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    return ConvertTo-CommandLineText -Command './devops' -Arguments $Arguments
+    $command = if ($Arguments.Count -gt 0 -and $Arguments[0] -in @('build', 'clean', 'server')) { './devops' } else { 'pwsh ./devops.ps1' }
+    return ConvertTo-CommandLineText -Command $command -Arguments $Arguments
 }
 
 function Show-DevOpsUiCommandPreview {

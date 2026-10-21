@@ -7,7 +7,7 @@ LeanCorpus benchmarks answer two different questions: whether a focused operatio
 List benchmark suites through the repository entry point:
 
 ```powershell
-./devops benchmark -List
+pwsh ./devops.ps1 benchmark -List
 ```
 
 Add a case to the nearest existing suite when the setup, corpus, and measured operation are genuinely shared. Create a new suite when reusing setup would hide materially different work.
@@ -33,7 +33,7 @@ Keep global setup outside the measured method. Consume returned values so work c
 Use a dry run while developing:
 
 ```powershell
-./devops benchmark -Suite <suite> -Strat fast
+pwsh ./devops.ps1 benchmark -Suite <suite> -Strat fast
 ```
 
 Run the repository's normal strategy for evidence intended to support a performance claim.
@@ -43,7 +43,7 @@ Run the repository's normal strategy for evidence intended to support a performa
 Open the **Benchmark** workflow (`.github/workflows/benchmark.yml`) in GitHub Actions
 and select **Run workflow**. Choose the branch, suite, strategy, framework and
 hosted runner OS. Suites accept `all`, `core`, `text`, `compression` or a named
-suite from `./devops benchmark -List`, such as `query` or `index`.
+suite from `pwsh ./devops.ps1 benchmark -List`, such as `query` or `index`.
 
 The defaults run all three benchmark projects on Ubuntu with .NET 10 and the
 `default` strategy. A document count of `0` keeps the strategy's default.

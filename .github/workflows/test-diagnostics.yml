@@ -105,6 +105,10 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
 
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./setup.ps1
+
       - name: Build prepared test output
         shell: pwsh
         run: ./devops.ps1 build
@@ -184,6 +188,10 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./setup.ps1
 
       - name: Build prepared test output
         shell: pwsh

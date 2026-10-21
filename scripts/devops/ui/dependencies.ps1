@@ -57,7 +57,7 @@ function Import-DevOpsUiDependency {
         Where-Object { $_.Version -eq $version } |
         Select-Object -First 1
     if ($null -eq $installed) {
-        throw "PwshSpectreConsole $version is not installed. Run './devops setup -InstallUi' to install the pinned UI dependency."
+        throw "PwshSpectreConsole $version is not installed. Run 'pwsh ./devops.ps1 setup -InstallUi' to install the pinned UI dependency."
     }
 
     Import-Module PwshSpectreConsole -RequiredVersion $version -ErrorAction Stop

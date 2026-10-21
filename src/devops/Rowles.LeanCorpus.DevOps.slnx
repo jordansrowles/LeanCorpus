@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/DevOps/">
+    <Project Path="Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj" />
+    <Project Path="Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj" />
+    <Project Path="Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj" />
+  </Folder>
+</Solution>

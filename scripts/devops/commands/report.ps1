@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 # ---------------------------------------------------------------------------
-# Repository health report: devops report [git|files|code] [options]
+# Repository health report: pwsh ./devops.ps1 report [git|files|code] [options]
 #
 # Groups:
 #   git    repository/commit-level statistics

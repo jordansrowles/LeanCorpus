@@ -218,7 +218,7 @@ function Invoke-DevOpsBenchmark {
     }
 
     Write-Host ''
-    $commandLine = ConvertTo-CommandLineText -Command './devops benchmark' -Arguments $Arguments
+    $commandLine = ConvertTo-CommandLineText -Command 'pwsh ./devops.ps1 benchmark' -Arguments $Arguments
     $benchmarkRun = New-ArtifactRun -Kind benchmark -Framework $framework -Configuration Release `
         -Target $suite -CommandLine $commandLine -RepoRoot $repoRoot
     $projectResults = [System.Collections.Generic.List[object]]::new()

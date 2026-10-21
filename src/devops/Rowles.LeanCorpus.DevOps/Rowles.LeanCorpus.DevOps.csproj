@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>leancorpus-devops</AssemblyName>
+    <UseAppHost>true</UseAppHost>
+    <RuntimeIdentifiers>win-x64;win-arm64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Bullseye" />
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="CliWrap" />
+    <PackageReference Include="LibGit2Sharp" />
+    <PackageReference Include="Microsoft.Build" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Build.Locator" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
+    <PackageReference Include="Microsoft.VisualStudio.SolutionPersistence" />
+    <InternalsVisibleTo Include="Rowles.LeanCorpus.DevOps.Tests" />
+  </ItemGroup>
+</Project>

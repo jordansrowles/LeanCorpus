@@ -27,7 +27,7 @@ function Invoke-DevOpsCoverage {
         if ($clean -and (Test-Path $coverageRoot)) {
             Remove-OwnedArtifactPath -Path $coverageRoot -ArtifactRoot (Get-ArtifactRoot -RepoRoot $repoRoot)
         }
-        $commandLine = ConvertTo-CommandLineText -Command './devops coverage' -Arguments $Arguments
+        $commandLine = ConvertTo-CommandLineText -Command 'pwsh ./devops.ps1 coverage' -Arguments $Arguments
         $coverageRun = New-ArtifactRun -Kind coverage -Framework $framework -Configuration $configuration `
             -Target $suite -CommandLine $commandLine -RepoRoot $repoRoot
         Update-ArtifactRunManifest -RunDirectory $coverageRun.RunDirectory `

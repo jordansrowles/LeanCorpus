@@ -16,7 +16,7 @@ function Invoke-DevOpsUi {
     else { $Arguments = @($Arguments) }
     if ($Arguments.Count -gt 0 -and $Arguments[0] -in @('-h', '--help', '-Help', '--Help')) {
         Write-Host "Interactive DevOps workbench. Requires PowerShell 7.4+ and PwshSpectreConsole $(Get-DevOpsUiDependencyVersion)."
-        Write-Host "Install the pinned dependency with: ./devops setup -InstallUi"
+        Write-Host "Install the pinned dependency with: pwsh ./devops.ps1 setup -InstallUi"
         return 0
     }
     if ($Arguments.Count -gt 0) {
@@ -24,7 +24,7 @@ function Invoke-DevOpsUi {
         return 2
     }
     if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected) {
-        Write-Failure 'The DevOps UI requires an interactive terminal. Use the equivalent ./devops command for this operation.'
+        Write-Failure 'The DevOps UI requires an interactive terminal. Use ./devops for build, clean and server, or pwsh ./devops.ps1 for other commands.'
         return 2
     }
 

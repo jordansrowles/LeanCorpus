@@ -20,7 +20,7 @@ function Invoke-DevOpsData {
 
     $dataset = $parsed.Positionals[0]
     if (-not $dataset) {
-        Write-Error "Usage: devops data gutenberg [options]"
+        Write-Error "Usage: pwsh ./devops.ps1 data gutenberg [options]"
         exit 1
     }
 

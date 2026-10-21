@@ -65,7 +65,7 @@ function Invoke-DevOpsAot {
             PassThrough = @($parsed.PassThrough)
         }
 
-        $commandLine = ConvertTo-CommandLineText -Command './devops aot' -Arguments $Arguments
+        $commandLine = ConvertTo-CommandLineText -Command 'pwsh ./devops.ps1 aot' -Arguments $Arguments
         return Invoke-TestPipeline -Targets $targets -Options $options -CommandLine $commandLine `
             -DisplayName 'AOT test run' -RepoRoot $repoRoot
     } catch {

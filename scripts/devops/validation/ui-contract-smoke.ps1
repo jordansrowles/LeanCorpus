@@ -26,10 +26,12 @@ try {
         Assert-UiContract (($techniques -join ',') -ceq 'PropertyBased,StateMachine,Metamorphic') 'techniques reflect the test metadata enum'
 
         $frameworks = @(Get-DevOpsUiFrameworkChoices -SuiteKeys @('core', 'server-core'))
-        Assert-UiContract (($frameworks -join ',') -ceq 'net11.0') 'framework selection uses the selected suites common targets'
+        Assert-UiContract (($frameworks -join ',') -ceq 'net10.0,net11.0') 'framework selection uses the selected suites common targets'
 
         $preview = New-DevOpsUiCommandPreview -Arguments @('test', '-Suite', 'core,text', '-Filter', 'FullyQualifiedName~Writer')
-        Assert-UiContract ($preview -like './devops test *-Suite core,text*') 'preview represents the normal DevOps command surface'
+        Assert-UiContract ($preview -like 'pwsh ./devops.ps1 test *-Suite core,text*') 'preview routes the legacy test command through the PowerShell dispatcher'
+        $managedPreview = New-DevOpsUiCommandPreview -Arguments @('build', '-Configuration', 'Release')
+        Assert-UiContract ($managedPreview -ceq './devops build -Configuration Release') 'preview routes managed build directly through the root apphost'
 
         $tokens = @(ConvertFrom-DevOpsUiArgumentText -Text '--filter "*Single Segment*" --job short')
         Assert-UiContract (($tokens -join '|') -ceq '--filter|*Single Segment*|--job|short') 'quoted pass-through values remain a single argument'
@@ -54,7 +56,7 @@ try {
             Commit = ''; Range = ''; Areas = @('Index'); Categories = @('Unit')
             Techniques = @('PropertyBased'); Filter = ''; Count = '1'; Profile = 'unit'
             HangTimeout = '100s'; Timeout = 'off'; Verbosity = 'minimal'; Flaky = $false
-            RuntimeIdentifier = ''
+            RuntimeIdentifier = ''; Flags = @(); ExplicitMode = 'Exclude explicit tests'
         }
         $testArguments = New-DevOpsUiTestArguments -Options $testOptions
         $testPreview = New-DevOpsUiCommandPreview -Arguments @($testArguments)

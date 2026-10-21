@@ -7,15 +7,15 @@ Use this directory when you need to run or extend LeanCorpus tests, benchmarks, 
 | I want to... | Command |
 | --- | --- |
 | Build the normal Release target | `./devops build` |
-| Run every configured test route | `./devops test` |
-| Run tests affected by current changes | `./devops test -Suite affected` |
-| Run one production area | `./devops test -Suite core -Area Index` |
-| Repeat a focused target with artefacts | `./devops test core --count 3 --filter 'FullyQualifiedName~Writer'` |
-| Capture managed test diagnostics | `./devops test core --diagnostics` |
-| Validate Native AOT | `./devops aot` |
-| Generate coverage and HTML | `./devops coverage -Clean -GenerateReport` |
-| List benchmark suites | `./devops benchmark -List` |
-| Build documentation | `./devops docs build` |
+| Run every configured test route | `pwsh ./devops.ps1 test` |
+| Run tests affected by current changes | `pwsh ./devops.ps1 test -Suite affected` |
+| Run one production area | `pwsh ./devops.ps1 test -Suite core -Area Index` |
+| Repeat a focused target with artefacts | `pwsh ./devops.ps1 test core --count 3 --filter 'FullyQualifiedName~Writer'` |
+| Capture managed test diagnostics | `pwsh ./devops.ps1 test core --diagnostics` |
+| Validate Native AOT | `pwsh ./devops.ps1 aot` |
+| Generate coverage and HTML | `pwsh ./devops.ps1 coverage -Clean -GenerateReport` |
+| List benchmark suites | `pwsh ./devops.ps1 benchmark -List` |
+| Build documentation | `pwsh ./devops.ps1 docs build` |
 
 Run `./devops --help` for the complete current command surface.
 
@@ -36,10 +36,10 @@ A test selection combines independent dimensions:
 Examples:
 
 ```bash
-./devops test -Suite core -Area Search
-./devops test -Suite core -Area Index -Category Chaos
-./devops test -Suite text -Area Filters
-./devops test -Suite core -Filter 'FullyQualifiedName~Writer'
+pwsh ./devops.ps1 test -Suite core -Area Search
+pwsh ./devops.ps1 test -Suite core -Area Index -Category Chaos
+pwsh ./devops.ps1 test -Suite text -Area Filters
+pwsh ./devops.ps1 test -Suite core -Filter 'FullyQualifiedName~Writer'
 ```
 
 `Area` and `Category` become trait filters. `Filter` is passed to the test runner.
@@ -51,9 +51,9 @@ distinct project and framework, while every repetition starts a fresh managed
 or Native AOT process:
 
 ```bash
-./devops test core --count 3 --filter 'FullyQualifiedName~Writer'
-./devops test core --flaky --count 5
-./devops test core --count 30 --fail-fast
+pwsh ./devops.ps1 test core --count 3 --filter 'FullyQualifiedName~Writer'
+pwsh ./devops.ps1 test core --flaky --count 5
+pwsh ./devops.ps1 test core --count 30 --fail-fast
 ```
 
 Repeated, diagnostic and CI runs write one run directory under
@@ -101,7 +101,7 @@ managed restore and build, but still publishes Native AOT targets when they
 are selected:
 
 ```bash
-./devops test all --ci --framework net10.0
+pwsh ./devops.ps1 test all --ci --framework net10.0
 ```
 
 ## Standalone diagnostics
@@ -110,13 +110,13 @@ Use `--diagnostics` to enable MTP diagnostic logging for a test process. For
 an explicitly selected .NET process, use the standard diagnostic tools:
 
 ```bash
-./devops diagnostics ps
-./devops diagnostics counters --pid 1234
-./devops diagnostics trace --pid 1234
-./devops diagnostics gcdump --pid 1234
-./devops diagnostics dump --pid 1234 --type Mini
-./devops diagnostics symbols path/to/core.dmp
-./devops diagnostics capture --pid 1234 --duration 5s
+pwsh ./devops.ps1 diagnostics ps
+pwsh ./devops.ps1 diagnostics counters --pid 1234
+pwsh ./devops.ps1 diagnostics trace --pid 1234
+pwsh ./devops.ps1 diagnostics gcdump --pid 1234
+pwsh ./devops.ps1 diagnostics dump --pid 1234 --type Mini
+pwsh ./devops.ps1 diagnostics symbols path/to/core.dmp
+pwsh ./devops.ps1 diagnostics capture --pid 1234 --duration 5s
 ```
 
 Trace, GC dump, dump and capture output is written under
@@ -126,7 +126,7 @@ memory. Pass tool-specific options after `--` where the command supports it.
 ## Run affected tests
 
 ```bash
-./devops test -Suite affected
+pwsh ./devops.ps1 test -Suite affected
 ```
 
 Affected selection:
@@ -142,7 +142,7 @@ Affected selection:
 ## Validate Native AOT
 
 ```bash
-./devops aot
+pwsh ./devops.ps1 aot
 ```
 
 The AOT route publishes and runs a smoke executable for both supported frameworks. It is not a normal VSTest project.
@@ -150,7 +150,7 @@ The AOT route publishes and runs a smoke executable for both supported framework
 ## Generate coverage
 
 ```bash
-./devops coverage -Clean -GenerateReport
+pwsh ./devops.ps1 coverage -Clean -GenerateReport
 ```
 
 Each invocation writes raw data and an optional HTML report under
@@ -163,19 +163,19 @@ Coverage proves that code executed. It does not prove that the assertions or ora
 List suites and strategy presets:
 
 ```bash
-./devops benchmark -List
+pwsh ./devops.ps1 benchmark -List
 ```
 
 Run a bounded smoke workload:
 
 ```bash
-./devops benchmark -Suite query -Strat fast
+pwsh ./devops.ps1 benchmark -Suite query -Strat fast
 ```
 
 Run the controlled preset:
 
 ```bash
-./devops benchmark -Suite query -Controlled
+pwsh ./devops.ps1 benchmark -Suite query -Controlled
 ```
 
 Record corpus, workload, commit, framework, host state and provenance before making a comparison claim.
@@ -183,16 +183,16 @@ Record corpus, workload, commit, framework, host state and provenance before mak
 ## Build documentation
 
 ```bash
-./devops docs build
+pwsh ./devops.ps1 docs build
 ```
 
 Skip expensive generated inputs when they are outside the documentation change:
 
 ```bash
-./devops docs build -SkipBenchmarks -SkipCoverage
+pwsh ./devops.ps1 docs build -SkipBenchmarks -SkipCoverage
 ```
 
-Serve the site locally with `./devops docs serve`.
+Serve the site locally with `pwsh ./devops.ps1 docs serve`.
 
 The docs command reads `docs/site-config/imports.json` and stages selected
 repository READMEs and contribution guides under

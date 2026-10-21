@@ -118,11 +118,11 @@ Keep the provider opt-in and experimental. It passes Orchard lifecycle, task rep
 The complete measurement record, including sample data and host provenance, is in [the raw run report](evidence/orchard-core-search-provider-runs.json). Run the phases in order; each command is a separate DevOps invocation and keeps the configured 100 second hang deadline:
 
 ```bash
-./devops test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase00_SeedSharedOrchardCorpus' -ExplicitOnly -HangTimeout 100s
-./devops test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase10_BuildAndRebuildLucene' -ExplicitOnly -HangTimeout 100s
-./devops test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase20_BuildAndRebuildLeanCorpus' -ExplicitOnly -HangTimeout 100s
-./devops test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase30_SearchAndSingleDocumentUpdates' -ExplicitOnly -HangTimeout 100s
-./devops test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase40_BatchMutationsAndIndexRestart' -ExplicitOnly -HangTimeout 100s
+pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase00_SeedSharedOrchardCorpus' -ExplicitOnly -HangTimeout 100s
+pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase10_BuildAndRebuildLucene' -ExplicitOnly -HangTimeout 100s
+pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase20_BuildAndRebuildLeanCorpus' -ExplicitOnly -HangTimeout 100s
+pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase30_SearchAndSingleDocumentUpdates' -ExplicitOnly -HangTimeout 100s
+pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase40_BatchMutationsAndIndexRestart' -ExplicitOnly -HangTimeout 100s
 ```
 
 The functional browser test installs a test Orchard site with paired Lucene and LeanCorpus profiles, then checks search results through publish, update, unpublish, hard removal, reset, and index-queue processing. The provider unit and integration suite covers schema mapping, persistence, replacement, cursor safety, and failure recovery.

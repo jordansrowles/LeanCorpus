@@ -170,7 +170,7 @@ function Invoke-DevOpsTest {
         }
 
         $displayName = if ($flaky) { 'Flaky test run' } else { 'Test run' }
-        $commandLine = ConvertTo-CommandLineText -Command './devops test' -Arguments $Arguments
+        $commandLine = ConvertTo-CommandLineText -Command 'pwsh ./devops.ps1 test' -Arguments $Arguments
         return Invoke-TestPipeline -Targets $targets -Options $options -CommandLine $commandLine `
             -DisplayName $displayName -RepoRoot $repoRoot
     } catch {

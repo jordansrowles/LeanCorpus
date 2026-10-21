@@ -42,7 +42,7 @@ internal static class Program
         }
 
         throw new InvalidOperationException(
-            "LeanCorpus repository root could not be found. Run this benchmark through ./devops benchmark or from inside the repository.");
+            "LeanCorpus repository root could not be found. Run this benchmark through pwsh ./devops.ps1 benchmark or from inside the repository.");
     }
 
     private static bool HasInvalidResults(IEnumerable<Summary> summaries)

@@ -3,8 +3,8 @@
 Run the fixed-seed filesystem investigation through DevOps:
 
 ```bash
-./devops test backup-restore-matrix -Framework net10.0 -NoRestore
-./devops test backup-restore-matrix -Framework net11.0 -NoRestore
+pwsh ./devops.ps1 test backup-restore-matrix -Framework net10.0 -NoRestore
+pwsh ./devops.ps1 test backup-restore-matrix -Framework net11.0 -NoRestore
 ```
 
 Each command runs three independent test processes per configuration: the

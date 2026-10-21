@@ -1,0 +1,182 @@
+
+  LeanCorpus devops
+  ================
+
+  Commands:
+
+    build                Build the solution (Release, net11.0 by default)
+      -Configuration      Debug or Release (default: Release)
+      -Framework          net10.0 or net11.0 for -Project builds (default: net11.0)
+
+    test                 Run test suites
+      -Suite              Comma-separated registered suite keys, all, or affected
+                          Registered keys: server-abstractions, server-core, sourcegen, architecture, docs-site, dataforge, server-integration, core, aot, text, server-orchard-functional, server-orchard
+      -Commit             Select only files changed by a commit (affected suite only)
+      -Range              Select only an explicit Git range; exclusive with -Commit
+      -ExplainAffected     Resolve affected files and targets, then exit without running tests
+      affected            Default: modified, staged and untracked files only
+                          Unmapped files and zero targets fail in every mode
+      -Framework          net10.0 or net11.0 (default: net10.0)
+      -Configuration      Debug or Release (default: Release)
+      -RuntimeIdentifier  NativeAOT RID for the aot suite (auto-detected if omitted)
+      -NoRestore           Use existing restored packages and skip restore
+      -Filter             xUnit filter expression (e.g. FullyQualifiedName~Writer)
+      -Verbosity          Test output detail: quiet, minimal, normal, detailed
+      -HangTimeout        Integration test hang timeout (default: 100s; use off to disable)
+      -Area               Comma-separated test areas
+      -Category           Comma-separated test categories
+      -Technique          Comma-separated test techniques: PropertyBased,StateMachine,Metamorphic
+      -Count              Sequential repetitions (default: 1)
+      backup-restore-matrix  Fixed-seed five-variant filesystem investigation
+        -Count            Independent launches per variant (default: 3)
+        -Iterations       Explicit FsCheck override (normal default: 100)
+        -TempRoot         Alternate source/backup/restore temporary root
+        -SourceManifest   Verify exported source against retained manifest
+      -Flaky              Repeat 30 times by default; use stress parallelism and summary telemetry
+      -FailFast            Stop scheduling after the first failed target
+      -Diagnostics        Enable full managed telemetry, MTP logging and bounded raw streams
+      -CI                 Use CI-prepared managed output and write run artefacts
+      -CollectCoverage    Collect coverage for registry-eligible suites
+      -Profile            unit, integration, or stress parallel execution profile
+      -Explicit           Include explicit tests
+      -ExplicitOnly       Run only explicit tests
+      -FailWarnings       Treat xUnit warnings as failures
+      -Timeout            Outer process timeout, for example 30s or off
+      -List               List available suites and exit
+
+    aot                  Run NativeAOT smoke tests for both frameworks
+      -RuntimeIdentifier  linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64 or win-arm64 (auto-detected if omitted)
+      -NoRestore           Use existing restored packages and skip restore
+
+    coverage             Run tests with code coverage collection
+      -Suite              core, sourcegen, or all (default: all)
+      -Framework          net10.0 or net11.0 (default: net10.0)
+      -Configuration      Debug or Release (default: Release)
+      -Clean              Remove previous coverage results before running
+      -IncludePerformance  Include tests marked Coverage=Skip
+      -GenerateReport     Generate HTML coverage report via ReportGenerator
+
+    diagnostics          Attach standard .NET diagnostics to a process
+      ps                  List process IDs and names
+      counters --pid ID  Monitor counters; use -- for tool arguments
+      trace --pid ID     Capture a trace under artifacts/diagnostics/runs
+      gcdump --pid ID    Capture a GC dump under artifacts/diagnostics/runs
+      dump --pid ID      Capture a dump (default type: Mini)
+      symbols ARTIFACT   Download symbols for an explicit artifact
+      capture --pid ID   Capture bounded counters and trace data
+
+    benchmark            Run BenchmarkDotNet suites
+      -Suite              Suite name (default: all). Use -List to see all suites
+      -Strat              Strategy preset: fast (500 docs, dry), default (20K, short),
+                          quick-compare (1K, short), intense (10K), stress (50K),
+                          exhaustive (100K) (default: default)
+      -DocCount           Override document count for the run
+      -Framework          net10.0 or net11.0 (default: net10.0)
+      -Dataset            synthetic or wikipedia (default: synthetic)
+      -ReferencePath      Wikipedia v1 reference directory
+      -PrepareData        Prepare Gutenberg for an explicitly selected Gutenberg suite
+      -BookCount          Gutenberg books to fetch with -PrepareData (default: 200)
+      -CorpusOnly         Skip Lucene.NET comparison; LeanCorpus methods only
+      -Controlled         Deterministic preset: 1K docs, short job, corpus-only
+      -Dry                Print the dotnet command without executing
+      -Area               Comma-separated benchmark areas for core or text
+      -Group              Comma-separated benchmark groups for core or text
+      -GcDump             Collect GC heap dumps (requires dotnet-gcdump)
+      -List               List available suites and strategies and exit
+      -SourceCommit       Git commit hash for provenance (when .git unavailable)
+      -SourceRef          Git ref for provenance
+      -SourceManifest     Path to source manifest for provenance
+      -- <args>           Arguments passed through to BenchmarkDotNet
+        benchmark remote  Run benchmarks on a remote host via SSH/tmux
+
+    data                 Prepare benchmark data or frozen release fixtures
+      gutenberg           Project Gutenberg ebooks
+        -BookCount        Number of books to download (default: 200)
+      migration-fixtures-311  Regenerate frozen 3.1.1 migration fixtures deliberately
+        -PackageSource    NuGet source containing LeanCorpus 3.1.1 (default: nuget.org)
+
+    dataforge            Deterministic datasets and frozen reference data
+      profiles            List available profiles and defaults
+        -Json              Emit profile descriptors as JSON for automation
+      generate            Generate and materialise a named profile
+      inspect             Read dataset manifest details
+      verify              Check materialised bytes and manifest hashes
+      reproduce           Regenerate and compare dataset identity
+      reference download  Fetch pinned Wikipedia source files
+      reference build     Build immutable Wikipedia v1 from the local cache
+      reference inspect   Read frozen Wikipedia identity and summaries
+      reference verify    Verify Wikipedia v1 without the source dump
+      qualify             Run synthetic and Wikipedia release qualification
+        -ReferencePath    Override the Wikipedia v1 reference directory
+        -Dry              Print qualification commands without running them
+
+    docs                 Build the documentation site
+      prepare             Stage canonical content, imports and generated sections
+      build               Full build: API metadata + static site (default)
+      metadata            API YAML metadata only, no site build
+      serve               Build and serve on http://0.0.0.0:8080
+      test                Run ADR/static validation and the docs-site Playwright suite
+      -SkipBenchmarks     Skip regenerating benchmark pages
+      -SkipCoverage       Skip regenerating coverage report
+      DocFX warnings are summarised; full logs are written to artifacts/docs
+
+    benchmarks           Benchmark documentation
+      docs                Generate benchmark result pages from retained results
+
+    setup                Verify dev environment and directories
+      -InstallUi          Install the pinned PwshSpectreConsole UI dependency for the current user
+    clean [target]       Remove owned artefacts; default preserves packages and benchmark data/runs
+    pack                 Build NuGet packages under artifacts/package/release
+      -CompressionOnly   Pack only Core and the three optional codecs
+      -ValidateCompression Inspect optional packages and run clean-consumer acceptance
+      -ValidatePackages  Run isolated consumers for every shipping package
+      -NoBuild           Pack existing builds
+      -Clean             Remove previous package output before packing
+    ui                   Open the interactive DevOps workbench (PowerShell 7.4+; run setup -InstallUi once)
+    report               Repository health report
+      git                 Repository/commit-level stats (default: all groups)
+      files               Per-file facts and history
+      code                Source-code health
+      -Top                Entries per list (default: 10)
+      -Path               Restrict file/code scans to a glob (e.g. src/core/**)
+      -Json               Emit a single JSON object instead of terminal output
+      -Strict             Exit non-zero on illegal names, severe god classes, or AOT-hostile patterns
+
+    server               Community Server commands
+      start               Start the local host on .NET 11
+        -Configuration    Debug or Release (default: Debug)
+        -NoBuild          Skip the build performed by dotnet run
+        -NoRestore        Skip restore performed by dotnet run
+        -External         Listen on all IPv4 interfaces at port 5080
+        -- <args>         Pass application arguments to the host
+
+  Examples:
+    devops build
+    devops test -Suite core -Category Integration -Framework net11.0
+    devops test -Suite core -Category Unit -Verbosity detailed
+    devops test -Suite core,text -Area Index,Search -Technique PropertyBased,Metamorphic
+    ./devops test affected
+    ./devops test affected -Commit HEAD
+    ./devops test affected -Commit caf4bd5
+    ./devops test affected -Range HEAD~3..HEAD
+    devops test core --count 2 --filter FullyQualifiedName~Writer
+    devops test core --flaky --count 5
+    devops diagnostics ps
+    devops aot
+    devops coverage -Clean -GenerateReport
+    devops benchmark -List
+    devops benchmark -Suite query -Strat fast
+    devops benchmark -Suite mlt -Strat exhaustive -- --filter *SingleSegment*
+    devops docs serve
+    devops docs test
+    devops docs metadata
+    devops docs prepare
+    devops data gutenberg -BookCount 500
+    devops data migration-fixtures-311
+    devops dataforge profiles
+    devops dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000
+    devops report
+    devops report code -Strict
+    devops server start
+    devops server start -External
+

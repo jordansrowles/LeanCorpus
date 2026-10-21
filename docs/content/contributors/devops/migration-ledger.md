@@ -1,0 +1,252 @@
+# Managed DevOps migration ledger
+
+> Baseline `4ccdf1ba7ae447ed982a34dc64478df47879baf3` on `issue-97`. The active scope is now the full issue #8 migration across Phases 0 through 9. First-milestone evidence remains valid; later phase gates are tracked as they are implemented and qualified.
+
+## Source and generated-document counts
+
+The pre-#11 snapshot (`7e5bf521d48da2df20a5bc7af1ec816022d4e9ce`) contained **445 tracked paths under `docs/`, including 274 Markdown files**. The generated `docs/benchmarks/` subtree accounted for **146 paths, including 76 Markdown pages**. Removing that subtree from the count leaves 299 paths and 198 Markdown files across the remaining mixed documentation, assets, configuration and templates; that remainder is not an authored-Markdown count.
+
+The post-#11 tracked tree (`4ccdf1ba7ae447ed982a34dc64478df47879baf3`) contains **272 paths, including 177 Markdown files**. Canonical `docs/content/` contains 179 paths, including 177 Markdown files; `docs/site-config/` contains 93 non-Markdown files. Generated API, benchmark, coverage and site output is staged beneath ignored `artifacts/docs/` and is not part of these current source-tree counts.
+
+## Environment
+
+| Item | Baseline |
+|---|---|
+| Revision | `4ccdf1ba7ae447ed982a34dc64478df47879baf3` |
+| Branch | `issue-97` |
+| OS / RID | Debian GNU/Linux 13 (trixie), `linux-x64` |
+| SDK selected | `11.0.100-preview.7.26381.103` |
+| Other installed SDK | `10.0.103`, `11.0.100-preview.6.26359.118` |
+| Runtimes | .NET 10.0.3; .NET 11 preview.6 and preview.7 |
+| MSBuild | `18.10.0.38203` |
+| PowerShell / Git | pwsh 7.5.4 / Git 2.47.3 |
+
+## Commands and phase ownership
+
+| Command | Legacy source | Planned phase | Current state |
+|---|---|---:|---|
+| `build` (`build`) | `scripts/devops/commands/build.ps1` | 1 | Managed BuildService is contract-tested and routed through the Linux-x64 apphost; Windows hosted CI job is configured but not run locally. |
+| `test` (`test`, `test affected`, `test backup-restore-matrix`) | `scripts/devops/commands/test.ps1` | 5 | Inventoried; not routed |
+| `aot` (`aot`) | `scripts/devops/commands/aot.ps1` | 5 | Inventoried; not routed |
+| `coverage` (`coverage`) | `scripts/devops/commands/coverage.ps1` | 6 | Inventoried; not routed |
+| `diagnostics` (`diagnostics ps`, `diagnostics counters`, `diagnostics trace`, `diagnostics gcdump`, `diagnostics dump`, `diagnostics symbols`, `diagnostics capture`) | `scripts/devops/commands/diagnostics.ps1` | 4 | Inventoried; not routed |
+| `benchmark` (`benchmark`, `benchmark remote`) | `scripts/devops/commands/benchmark.ps1` | 4 | Inventoried; not routed |
+| `data` (`data gutenberg`, `data migration-fixtures-311`) | `scripts/devops/commands/data.ps1` | 3 | Inventoried; not routed |
+| `dataforge` (`dataforge profiles`, `dataforge generate`, `dataforge inspect`, `dataforge verify`, `dataforge reproduce`, `dataforge reference download`, `dataforge reference build`, `dataforge reference inspect`, `dataforge reference verify`, `dataforge qualify`) | `scripts/devops/commands/dataforge.ps1` | 3 | Inventoried; not routed |
+| `docs` (`docs prepare`, `docs build`, `docs metadata`, `docs serve`, `docs test`) | `scripts/devops/commands/docs.ps1` | 6 | Inventoried; not routed |
+| `benchmarks` (`benchmarks docs`) | `scripts/devops/commands/benchmarks.ps1` | 4 | Inventoried; not routed |
+| `setup` (`setup`) | `scripts/devops/commands/setup.ps1` | 0 | Inventoried; not routed |
+| `clean` (`clean [target]`) | `scripts/devops/commands/clean.ps1` | 1 | Managed CleanService is tested on disposable fixtures and routed through the Linux-x64 apphost. |
+| `pack` (`pack`) | `scripts/devops/commands/pack.ps1` | 3 | Inventoried; not routed |
+| `ui` (`ui`) | `scripts/devops/commands/ui.ps1` | 7 | Inventoried; not routed |
+| `report` (`report git`, `report files`, `report code`) | `scripts/devops/commands/report.ps1` | 2 | Linux managed all-groups report passed with 50/50 child exits and 37 evaluated projects; promoted-host PowerShell forwarding passed with 8/8 child exits. Report tests cover versioned JSON, strict checks, unusual paths, rename-aware churn, shallow history and syntax-analysis limits. Windows/macOS and hosted parity gates remain open. |
+| `server` (`server start`) | `scripts/devops/commands/server.ps1` | 1 | Managed foreground server is tested and routed through the Linux-x64 apphost. |
+
+Managed routing currently covers `build`, `clean`, `report`, and foreground `server start`. `test` and `aot` remain on PowerShell until their complete Phase 5 slice. Every other command remains on its current path until its own phase and parity gate.
+
+## Legacy module inventory
+
+75 tracked files under `scripts/devops/` were inventoried. Each source file is individually listed below; common and artifact modules remain shared dependencies until every consuming command has migrated.
+
+| ID | Source path | Owner | Phase | Callers/state |
+|---|---|---|---:|---|
+| `SRC-001` | `scripts/devops/DevOps.psm1` | `composition:devops-psm1` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-002` | `scripts/devops/artifacts/clean.ps1` | `shared:artifacts` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-003` | `scripts/devops/artifacts/manifests.ps1` | `shared:artifacts` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-004` | `scripts/devops/artifacts/paths.ps1` | `shared:artifacts` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-005` | `scripts/devops/artifacts/runs.ps1` | `shared:artifacts` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-006` | `scripts/devops/commands/aot.ps1` | `command:aot` | 5 | CALL-002, CALL-005, CALL-006, CALL-007, CALL-008, CALL-015, CALL-018, CALL-019, CALL-032, CALL-033, CALL-040; inventoried |
+| `SRC-007` | `scripts/devops/commands/benchmark.ps1` | `command:benchmark` | 4 | CALL-001, CALL-005, CALL-008, CALL-010, CALL-013, CALL-015, CALL-016, CALL-025, CALL-026, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-036, CALL-039; inventoried |
+| `SRC-008` | `scripts/devops/commands/benchmarks.ps1` | `command:benchmarks` | 4 | CALL-008, CALL-015, CALL-028, CALL-033, CALL-036, CALL-039; inventoried |
+| `SRC-009` | `scripts/devops/commands/build.ps1` | `command:build` | 1 | CALL-002, CALL-003, CALL-004, CALL-005, CALL-008, CALL-015, CALL-016, CALL-017, CALL-018, CALL-020, CALL-023, CALL-025, CALL-026, CALL-032, CALL-033, CALL-034, CALL-037, CALL-041; inventoried |
+| `SRC-010` | `scripts/devops/commands/clean.ps1` | `command:clean` | 1 | CALL-002, CALL-015, CALL-016, CALL-032, CALL-033; inventoried |
+| `SRC-011` | `scripts/devops/commands/coverage.ps1` | `command:coverage` | 6 | CALL-002, CALL-007, CALL-008, CALL-015, CALL-032, CALL-033; inventoried |
+| `SRC-012` | `scripts/devops/commands/data.ps1` | `command:data` | 3 | CALL-008, CALL-014, CALL-015, CALL-016, CALL-021, CALL-038; inventoried |
+| `SRC-013` | `scripts/devops/commands/dataforge.ps1` | `command:dataforge` | 3 | CALL-008, CALL-016, CALL-025, CALL-026, CALL-034, CALL-035, CALL-044; inventoried |
+| `SRC-014` | `scripts/devops/commands/diagnostics.ps1` | `command:diagnostics` | 4 | CALL-003, CALL-032, CALL-033, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-015` | `scripts/devops/commands/docs.ps1` | `command:docs` | 6 | CALL-002, CALL-005, CALL-008, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-032, CALL-033, CALL-037; inventoried |
+| `SRC-016` | `scripts/devops/commands/pack.ps1` | `command:pack` | 3 | CALL-002, CALL-010, CALL-015, CALL-016; inventoried |
+| `SRC-017` | `scripts/devops/commands/report.ps1` | `command:report` | 2 | CALL-015; inventoried |
+| `SRC-018` | `scripts/devops/commands/server.ps1` | `command:server` | 1 | CALL-008, CALL-015, CALL-016, CALL-022, CALL-023, CALL-024, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-019` | `scripts/devops/commands/setup.ps1` | `command:setup` | 0 | CALL-005, CALL-016, CALL-018; inventoried |
+| `SRC-020` | `scripts/devops/commands/test.ps1` | `command:test` | 5 | CALL-002, CALL-003, CALL-004, CALL-005, CALL-007, CALL-008, CALL-010, CALL-011, CALL-012, CALL-015, CALL-016, CALL-018, CALL-019, CALL-023, CALL-024, CALL-027, CALL-030, CALL-032, CALL-033; inventoried |
+| `SRC-021` | `scripts/devops/common/arguments.ps1` | `shared:common` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-022` | `scripts/devops/common/output.ps1` | `shared:common` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-023` | `scripts/devops/common/paths.ps1` | `shared:common` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-024` | `scripts/devops/common/processes.ps1` | `shared:common` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-025` | `scripts/devops/common/tools.ps1` | `shared:common` | 0 | CALL-001, CALL-002, CALL-003, CALL-004, CALL-005, CALL-006, CALL-007, CALL-008, CALL-009, CALL-010, CALL-011, CALL-012, CALL-013, CALL-014, CALL-015, CALL-016, CALL-017, CALL-018, CALL-019, CALL-020, CALL-021, CALL-022, CALL-023, CALL-024, CALL-025, CALL-026, CALL-027, CALL-028, CALL-029, CALL-030, CALL-031, CALL-032, CALL-033, CALL-034, CALL-035, CALL-036, CALL-037, CALL-038, CALL-039, CALL-040, CALL-041, CALL-042, CALL-043, CALL-044; inventoried |
+| `SRC-026` | `scripts/devops/config/benchmark-datasets.psd1` | `config:benchmark` | 4 | See command/workflow inventory; inventoried |
+| `SRC-027` | `scripts/devops/config/benchmark-groups.psd1` | `config:benchmark` | 4 | See command/workflow inventory; inventoried |
+| `SRC-028` | `scripts/devops/config/benchmark-strategies.psd1` | `config:benchmark` | 4 | See command/workflow inventory; inventoried |
+| `SRC-029` | `scripts/devops/config/benchmark-suites.psd1` | `config:benchmark` | 4 | See command/workflow inventory; inventoried |
+| `SRC-030` | `scripts/devops/config/code-areas.psd1` | `config:code-areas` | 5 | See command/workflow inventory; inventoried |
+| `SRC-031` | `scripts/devops/config/test-suites.psd1` | `config:testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-032` | `scripts/devops/data/fixtures-311/Generator.csproj.template` | `data:migration-fixtures` | 3 | See command/workflow inventory; inventoried |
+| `SRC-033` | `scripts/devops/data/fixtures-311/Program.cs.template` | `data:migration-fixtures` | 3 | See command/workflow inventory; inventoried |
+| `SRC-034` | `scripts/devops/data/fixtures-311/global.json.template` | `data:migration-fixtures` | 3 | See command/workflow inventory; inventoried |
+| `SRC-035` | `scripts/devops/data/generate-migration-fixtures-311.ps1` | `data:migration-fixtures` | 3 | See command/workflow inventory; inventoried |
+| `SRC-036` | `scripts/devops/diagnostics/capture.ps1` | `diagnostics` | 4 | See command/workflow inventory; inventoried |
+| `SRC-037` | `scripts/devops/diagnostics/tools.ps1` | `diagnostics` | 4 | See command/workflow inventory; inventoried |
+| `SRC-038` | `scripts/devops/packaging/Consumer.csproj.template` | `packaging` | 3 | See command/workflow inventory; inventoried |
+| `SRC-039` | `scripts/devops/packaging/Program.cs.template` | `packaging` | 3 | See command/workflow inventory; inventoried |
+| `SRC-040` | `scripts/devops/packaging/package-policy.json` | `packaging` | 3 | See command/workflow inventory; inventoried |
+| `SRC-041` | `scripts/devops/packaging/validate-compression-package-archive.ps1` | `packaging` | 3 | See command/workflow inventory; inventoried |
+| `SRC-042` | `scripts/devops/packaging/validate-compression.ps1` | `packaging` | 3 | See command/workflow inventory; inventoried |
+| `SRC-043` | `scripts/devops/packaging/validate-package-archive.ps1` | `packaging` | 3 | See command/workflow inventory; inventoried |
+| `SRC-044` | `scripts/devops/packaging/validate-package-consumers.ps1` | `packaging` | 3 | See command/workflow inventory; inventoried |
+| `SRC-045` | `scripts/devops/support/benchmark.ps1` | `support:benchmark` | 4 | See command/workflow inventory; inventoried |
+| `SRC-046` | `scripts/devops/support/coverage.ps1` | `support:coverage` | 6 | See command/workflow inventory; inventoried |
+| `SRC-047` | `scripts/devops/support/docfx.ps1` | `support:docfx` | 6 | See command/workflow inventory; inventoried |
+| `SRC-048` | `scripts/devops/testing/artifacts.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-049` | `scripts/devops/testing/backup-restore-matrix.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-050` | `scripts/devops/testing/events.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-051` | `scripts/devops/testing/execution.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-052` | `scripts/devops/testing/preparation.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-053` | `scripts/devops/testing/reports.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-054` | `scripts/devops/testing/results.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-055` | `scripts/devops/testing/runner.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-056` | `scripts/devops/testing/targets.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-057` | `scripts/devops/testing/testconfig.json` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-058` | `scripts/devops/ui/components/commands.ps1` | `ui` | 7 | See command/workflow inventory; inventoried |
+| `SRC-059` | `scripts/devops/ui/dependencies.ps1` | `ui` | 7 | See command/workflow inventory; inventoried |
+| `SRC-060` | `scripts/devops/ui/pages/benchmarks.ps1` | `ui` | 7 | See command/workflow inventory; inventoried |
+| `SRC-061` | `scripts/devops/ui/pages/dataforge.ps1` | `ui` | 7 | See command/workflow inventory; inventoried |
+| `SRC-062` | `scripts/devops/ui/pages/observe.ps1` | `ui` | 7 | See command/workflow inventory; inventoried |
+| `SRC-063` | `scripts/devops/ui/pages/surface.ps1` | `ui` | 7 | See command/workflow inventory; inventoried |
+| `SRC-064` | `scripts/devops/ui/pages/tests.ps1` | `ui` | 7 | See command/workflow inventory; inventoried |
+| `SRC-065` | `scripts/devops/ui/ui.ps1` | `ui` | 7 | See command/workflow inventory; inventoried |
+| `SRC-066` | `scripts/devops/validation/adr-index-smoke.ps1` | `validation-oracle:adr-index-smoke` | 6 | See command/workflow inventory; inventoried |
+| `SRC-067` | `scripts/devops/validation/affected-selection-smoke.ps1` | `validation-oracle:affected-selection-smoke` | 5 | See command/workflow inventory; inventoried |
+| `SRC-068` | `scripts/devops/validation/artifacts-smoke.ps1` | `validation-oracle:artifacts-smoke` | 0 | See command/workflow inventory; inventoried |
+| `SRC-069` | `scripts/devops/validation/backup-restore-matrix-smoke.ps1` | `validation-oracle:backup-restore-matrix-smoke` | 5 | See command/workflow inventory; inventoried |
+| `SRC-070` | `scripts/devops/validation/docs-site-smoke.ps1` | `validation-oracle:docs-site-smoke` | 6 | See command/workflow inventory; inventoried |
+| `SRC-071` | `scripts/devops/validation/runtime-identifier-smoke.ps1` | `validation-oracle:runtime-identifier-smoke` | 5 | See command/workflow inventory; inventoried |
+| `SRC-072` | `scripts/devops/validation/test-progress-smoke.ps1` | `validation-oracle:test-progress-smoke` | 5 | See command/workflow inventory; inventoried |
+| `SRC-073` | `scripts/devops/validation/test-selection-smoke.ps1` | `validation-oracle:test-selection-smoke` | 5 | See command/workflow inventory; inventoried |
+| `SRC-074` | `scripts/devops/validation/ui-contract-smoke.ps1` | `validation-oracle:ui-contract-smoke` | 7 | See command/workflow inventory; inventoried |
+| `SRC-075` | `scripts/devops/validation/ui-smoke.ps1` | `validation-oracle:ui-smoke` | 7 | See command/workflow inventory; inventoried |
+
+## Root launchers and bootstrap
+
+| Path | Role | Milestone decision |
+|---|---|---|
+| `devops` | Ignored generated current-RID managed apphost | The tracked Bash wrapper has been removed from the index after Linux promotion and active Unix caller updates. `setup.ps1` regenerates this path. |
+| `devops.ps1` | PowerShell transition dispatcher | Forwards proven `build`, `clean`, `report` and `server start` calls to a fingerprint-validated host; unported commands remain on PowerShell and never fall back after a managed failure. |
+| `setup.ps1` | Checkout bootstrap | Preserves the pinned DocFX restore, then locked-restores/builds/tests/publishes, probes and atomically promotes the one-file apphost with bundled native libraries. Linux-x64 setup passed; a later full-suite rerun passed 92/92. |
+
+## External invocation inventory
+
+44 tracked files outside `scripts/devops/` matched launcher or legacy module patterns in the baseline. Active Unix calls for commands not yet migrated now invoke `pwsh ./devops.ps1`; managed build/clean/server calls use the apphost. Dated evidence, release history and the captured legacy help fixture retain their original command strings. The three Server test project matches are relative source paths containing `devops`, not launcher invocations.
+
+| ID | Path | Kind | Matches |
+|---|---|---|---:|
+| `CALL-001` | `.github/workflows/benchmark.yml` | workflow | 2 |
+| `CALL-002` | `.github/workflows/build.yml` | workflow | 13 |
+| `CALL-003` | `.github/workflows/test-diagnostics.yml` | workflow | 4 |
+| `CALL-004` | `.github/workflows/test-stress.yml` | workflow | 4 |
+| `CALL-005` | `CONTRIBUTING.md` | documentation | 18 |
+| `CALL-006` | `README.md` | documentation | 1 |
+| `CALL-007` | `changelog/3.0.0 - 2026-08-25.md` | source-message-or-example | 1 |
+| `CALL-008` | `devops` | source-message-or-example | 2 |
+| `CALL-009` | `devops.ps1` | source-message-or-example | 1 |
+| `CALL-010` | `docs/content/articles/ADRs/ADR030-unified-devops-artefact-and-test-evidence.md` | documentation | 2 |
+| `CALL-011` | `docs/content/articles/testing/backup-restore-measurement.md` | documentation | 2 |
+| `CALL-012` | `docs/content/articles/testing/backup-restore-results.md` | documentation | 1 |
+| `CALL-013` | `docs/content/contributors/benchmarking.md` | documentation | 3 |
+| `CALL-014` | `docs/content/contributors/codeckit/03-migrations.md` | documentation | 1 |
+| `CALL-015` | `docs/content/contributors/devops-entry-point.md` | documentation | 24 |
+| `CALL-016` | `docs/content/contributors/devops-ui.md` | documentation | 8 |
+| `CALL-017` | `docs/content/contributors/documentation.md` | documentation | 1 |
+| `CALL-018` | `docs/content/contributors/index.md` | documentation | 9 |
+| `CALL-019` | `docs/content/getting-started/01-installation.md` | documentation | 1 |
+| `CALL-020` | `docs/content/index-management/04-cli-checker.md` | documentation | 1 |
+| `CALL-021` | `docs/content/index-management/11-codec-migration-3-0.md` | documentation | 1 |
+| `CALL-022` | `docs/content/server/01-running.md` | documentation | 4 |
+| `CALL-023` | `docs/content/server/evidence/orchard-core-search-provider.md` | documentation | 1 |
+| `CALL-024` | `docs/content/server/orchard-core-search-provider.md` | documentation | 5 |
+| `CALL-025` | `docs/content/tips/03-benchmarking.md` | documentation | 13 |
+| `CALL-026` | `docs/content/tips/dataforge.md` | documentation | 11 |
+| `CALL-027` | `lexicons/README.md` | documentation | 3 |
+| `CALL-028` | `scripts/benchmarks/send-remote.ps1` | developer-script | 1 |
+| `CALL-029` | `scripts/nightly-benchmark.sh` | developer-script | 1 |
+| `CALL-030` | `src/core/Rowles.Text/CONTRIBUTING.md` | documentation | 7 |
+| `CALL-031` | `src/core/Rowles.Text/README.md` | documentation | 2 |
+| `CALL-032` | `src/devops/CONTRIBUTING.md` | documentation | 20 |
+| `CALL-033` | `src/devops/README.md` | documentation | 36 |
+| `CALL-034` | `src/devops/Rowles.DataForge.Tool/DataForgeCommandLine.cs` | source-message-or-example | 15 |
+| `CALL-035` | `src/devops/Rowles.DataForge.Tool/WikipediaReferenceSource.cs` | source-message-or-example | 1 |
+| `CALL-036` | `src/devops/Rowles.LeanCorpus.Benchmarks.Compression/Program.cs` | source-message-or-example | 1 |
+| `CALL-037` | `src/devops/Rowles.LeanCorpus.Tests.Docs/DocsSiteAcceptanceTests.cs` | source-message-or-example | 1 |
+| `CALL-038` | `src/devops/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/README.md` | documentation | 1 |
+| `CALL-039` | `src/devops/Rowles.Text.Benchmarks/Program.cs` | source-message-or-example | 1 |
+| `CALL-040` | `src/examples/README.md` | documentation | 1 |
+| `CALL-041` | `src/server/README.md` | documentation | 3 |
+| `CALL-042` | `src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj` | source-message-or-example | 2 |
+| `CALL-043` | `src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj` | source-message-or-example | 2 |
+| `CALL-044` | `src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj` | source-message-or-example | 3 |
+
+## CI workflows
+
+| Workflow | Current state and migration note |
+|---|---|
+| `.github/workflows/benchmark.yml` | Manual benchmark route remains PowerShell; its failure hint now names the explicit dispatcher. |
+| `.github/workflows/build.yml` | Adds a Linux/Windows managed-host qualification matrix and bootstraps before existing Linux/Windows managed builds; product test and package matrices remain intact. Hosted execution is pending. |
+| `.github/workflows/deploy.yml` | Documentation artefact deployment remains unchanged and does not invoke the root launcher. |
+| `.github/workflows/test-diagnostics.yml` | Linux and Windows jobs bootstrap the managed host before their managed build; test execution remains on PowerShell. Hosted execution is pending. |
+| `.github/workflows/test-stress.yml` | Linux and Windows jobs bootstrap the managed host before their managed build; test execution remains on PowerShell. Hosted execution is pending. |
+
+## Managed CLI foundation
+
+The dedicated `net10.0` solution contains only the managed host and its tests, with project-local output/intermediate paths and lock files under the separate `src/devops` package graph. The product solution and root central package metadata are unchanged. The first-milestone suite passed 77/77; the current full suite passes 92/92 with no skips. Linux `setup.ps1` passed locked restores, dedicated build, pre-publish tests, single-file publish with bundled native libraries and no sidecars, staged help/version/build probes, atomic promotion and promoted help/version checks. The root host is executable and ignored; its SHA-256 and source fingerprint are in `artifacts/devops/managed-host.json`. Direct apphost builds and PowerShell-forwarded builds both passed. The existing `Rowles.LeanCorpus.Cli` project also builds through the managed project route.
+
+`pwsh ./scripts/devops/validation/managed-bootstrap-smoke.ps1` passed 37 checks using isolated fake SDK and host commands. It covers the wrong-checkout and missing-SDK failures; tool, locked restore, build and publish failures; restore server-disable flags; native-library bundling; unexpected sidecars; staged validation failure; rollback after promoted validation failure; and successful staged probes/promotion. It changes only temporary checkouts and is wired into the Linux managed-host CI job.
+
+Final focused checks also passed: six PowerShell/JSON configuration pairs, 75 affected-selection assertions, 16 UI contract checks, the current 92-test managed suite, and root apphost `--help`/`--version`. The documentation build completed with benchmark scanning skipped and coverage skipped. With no retained benchmark runs, the generator emitted an empty overview; DocFX reported 37 metadata warnings (35 duplicate parameters and 2 duplicate source files) and 2 invalid-link warnings during site generation. A no-scan empty-array bug in the benchmark page generator was fixed and recorded in the canonical changelog.
+
+Bootstrap builds `src/devops/Rowles.LeanCorpus.DevOps.slnx` explicitly in locked mode; the legacy build route's lack of an alternate-solution option is not a remaining blocker. The managed test apphost is run directly by setup because the legacy suite registry remains on PowerShell. A new hosted CI matrix runs setup on Linux and Windows and probes direct plus dispatcher-forwarded builds; that workflow has not been run from this branch.
+
+The Phase 2 report service is implemented and routed. The all-groups run `19246c98-5c1d-4999-9a8e-4fbf6563ccd9` succeeded on Linux: all 50 child processes exited zero, all 37 solution projects were evaluated, and the versioned document contains Git, Files and Code sections with rename and syntax-analysis warnings. The promoted single-file host ran through `devops.ps1 report git -Json -Top 3` as run `2bdf88d7-085d-4319-9db8-d0187cbf0622`, with 8/8 child exits. A first run killed during the local sandbox restore was reconciled as `interrupted` (`714dd4f4-c07a-42ac-8880-6933ff746c9e`); it is not counted as passing evidence. The legacy report missed line changes on similarity-detected rename records because it parsed `old => new` as a literal path. Managed NUL-safe parsing retains those changes, so source churn is higher by 7,196 additions and 4,247 deletions on this baseline; the contract fixture records this intentional correction. Equal-ranked rows now have stable ordinal ordering. Windows/macOS and hosted parity gates remain open.
+
+## Build, clean and server contracts
+
+The exact captured help is retained in `src/devops/Rowles.LeanCorpus.DevOps.Tests/Fixtures/Legacy/legacy-help.txt` with exit code `0`. Machine-readable command cases are in `src/devops/Rowles.LeanCorpus.DevOps.Tests/Fixtures/Contracts/legacy-command-contracts.json`.
+
+| Command | Defaults and effective behavior to preserve |
+|---|---|
+| `build` | Release. A solution build uses `Rowles.LeanCorpus.slnx` and leaves each project on its declared target frameworks. A project build defaults to `net11.0`. Effective flags include `--disable-build-servers -m:1 -p:UseSharedCompilation=false --tl:off`, a per-run binlog and text log under `artifacts/build/runs`, and terminal run state. |
+| `clean` | Defaults to `default`; owned targets include `build`, `test`, `coverage`, `docs`, `diagnostics`, `benchmark`, `package`, `cache`, and `all`. Default preserves package output and benchmark data/runs. `all` owns the whole artefact root and is tested only on disposable fixtures. |
+| `server start` | Defaults to `net11.0` and `Debug`; foreground `dotnet run` for `src/server/Rowles.LeanCorpus.Server.Local`. Loopback is `127.0.0.1:5080`; `-External` binds `0.0.0.0:5080` with `--AllowedHosts=*`. Preserve `-NoBuild`, `-NoRestore`, and individual application passthrough tokens. |
+
+The current Linux managed suite passes 92/92. Build keeps each solution project's declared TFM, defaults explicit project builds to `net11.0`, records child output and terminal run state, and has passed through both direct and PowerShell-forwarded routes. Clean has only run destructive operations in disposable fixtures and covers root containment, no-follow deletion, active-run protection, bootstrap/apphost protection and the full target map. The foreground server ran on loopback at `127.0.0.1:5080`; `/` returned 404, then Ctrl+C produced exit 130, a cancelled manifest and retained stdout/stderr logs.
+
+The SDK 11/MSBuild API probe raised a `System.Runtime, Version=11.0.0.0` load error while resolving SDK workload components in the net10 host. The narrow `dotnet msbuild -getProperty:Configuration,TargetFrameworks,TargetFramework,TargetPath` fallback passed and retains diagnostics. This records the fallback result; the API probe itself did not pass.
+
+## Configuration and retained data
+
+The six PowerShell configuration files are `benchmark-datasets.psd1`, `benchmark-groups.psd1`, `benchmark-strategies.psd1`, `benchmark-suites.psd1`, `code-areas.psd1`, and `test-suites.psd1`. Convert by owning phase, retain `.psd1` as the authoritative source while legacy readers remain, and validate semantic equivalence before switching a managed reader. Package policy, test config, frozen migration fixtures and DataForge boundaries are separately inventoried in the JSON record.
+
+## ADR and evidence policy
+
+ADR context for this milestone: `docs/articles/ADRs/index.md` selected `docs/articles/ADRs/ADR030-unified-devops-artefact-and-test-evidence.md`. Keep ADR030’s unique run identity, source/SDK/framework/OS provenance, terminal outcome and artifact references in managed manifests. Additional ADRs are not read unless the task specification adds them or implementation reveals a direct uncovered conflict.
+
+## Baseline commands
+
+- `./devops --help` and `./devops --version`: passed after both Linux promotions; help and version remain independent of repository discovery.
+- `./devops build`: baseline-only run completed successfully from the recorded revision; 974 warnings and 0 errors. The run manifest and logs are in `artifacts/build/runs/20261021-072118-578e5e4b-linux/`. Warnings include unavailable NuGet vulnerability feeds and existing analyzer warnings.
+- `./devops build --project src/devops/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj --framework net10.0`: passed through both the root apphost and `pwsh ./devops.ps1` forwarding route.
+- `./devops server start`: loopback server started on `127.0.0.1:5080`; `/` returned HTTP 404, confirming the listener. Ctrl+C stopped it with exit 130; the run manifest records cancellation and both child logs.
+- Windows VM attempt: the guest is Windows Server 2025 build 26100 with SDK 10.0.400 and SDK 11.0.100-preview.7.26381.103, but `C:\source\leancorpus` has no `.git` directory and Git is not installed. Bootstrap and source-revision qualification were not run. The guest was left unchanged.
+- Windows hosted CI, macOS and non-`linux-x64` RID execution: not run; no qualification claim is made.
+- A final confirmatory `pwsh ./setup.ps1` attempt after the earlier two successful Linux runs was interrupted with exit 130 during locked restore. It is incomplete and does not count as a pass or replace the earlier successful bootstrap evidence.
+- `./devops test all -Framework net10.0`: not run.
+- `./devops pack -NoBuild`: not run.
+
+## Migration state rules
+
+- `inventoried`: source, command or caller is recorded.
+- `implemented`: code exists; parity is not implied.
+- `parity-proven`: contract, failure, evidence and required-platform comparisons are retained.
+- `routed`: dispatch uses the managed slice without legacy fallback.
+- `retired`: all active callers are migrated and the old source is removed after the zero-caller check.
+
+Generated JSON ledger: [`migration-ledger.json`](migration-ledger.json).

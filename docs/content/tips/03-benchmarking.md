@@ -5,25 +5,25 @@ LeanCorpus uses BenchmarkDotNet through the repository `devops` entry point. Use
 ## List suites and strategies
 
 ```powershell
-./devops benchmark -List
+pwsh ./devops.ps1 benchmark -List
 ```
 
 Run a quick query suite:
 
 ```powershell
-./devops benchmark -Suite query -Strat fast
+pwsh ./devops.ps1 benchmark -Suite query -Strat fast
 ```
 
 Preview the resolved command without running it:
 
 ```powershell
-./devops benchmark -Suite query -Strat quick-compare -Dry
+pwsh ./devops.ps1 benchmark -Suite query -Strat quick-compare -Dry
 ```
 
 Pass BenchmarkDotNet arguments after `--`:
 
 ```powershell
-./devops benchmark -Suite query -Strat quick-compare -- --filter "*LeanCorpus*"
+pwsh ./devops.ps1 benchmark -Suite query -Strat quick-compare -- --filter "*LeanCorpus*"
 ```
 
 ## Strategies
@@ -46,9 +46,9 @@ The names are presets, not a ranking of statistical quality. `intense` has fewer
 Ordinary benchmark runs use deterministic synthetic DataForge records. They do not download or discover a local corpus. Select a Gutenberg suite explicitly when measuring real ebook text:
 
 ```powershell
-./devops benchmark -Suite gutenberg-index -PrepareData -BookCount 200
-./devops benchmark -Suite gutenberg-search -PrepareData -BookCount 200
-./devops benchmark -Suite text -PrepareData -- --filter "*GutenbergAnalysisBenchmarks*"
+pwsh ./devops.ps1 benchmark -Suite gutenberg-index -PrepareData -BookCount 200
+pwsh ./devops.ps1 benchmark -Suite gutenberg-search -PrepareData -BookCount 200
+pwsh ./devops.ps1 benchmark -Suite text -PrepareData -- --filter "*GutenbergAnalysisBenchmarks*"
 ```
 
 The report records generated profile identity, version, seed, record count, parameters and content SHA-256. Explicit Gutenberg runs record the external data source. Compare the complete identity and workload parameters before comparing timings.
@@ -60,17 +60,17 @@ Rowles.Text benchmark artefacts also contain canonical DataForge identity sideca
 Wikipedia v1 is a separate release and deep-investigation dataset. Download its pinned source once, build the immutable reference, then inspect or verify it without network access:
 
 ```powershell
-./devops dataforge reference download
-./devops dataforge reference build
-./devops dataforge reference inspect
-./devops dataforge reference verify
+pwsh ./devops.ps1 dataforge reference download
+pwsh ./devops.ps1 dataforge reference build
+pwsh ./devops.ps1 dataforge reference inspect
+pwsh ./devops.ps1 dataforge reference verify
 ```
 
 Benchmark it explicitly. The runner verifies the reference before starting and fails if the selected directory is missing or invalid:
 
 ```powershell
-./devops benchmark -Suite query -Dataset wikipedia -Strat fast
-./devops benchmark -Suite index -Dataset wikipedia -ReferencePath ./artifacts/dataforge/reference/leancorpus-wikipedia-en-v1 -DocCount 1000 -Strat fast
+pwsh ./devops.ps1 benchmark -Suite query -Dataset wikipedia -Strat fast
+pwsh ./devops.ps1 benchmark -Suite index -Dataset wikipedia -ReferencePath ./artifacts/dataforge/reference/leancorpus-wikipedia-en-v1 -DocCount 1000 -Strat fast
 ```
 
 Reference mode accepts `index`, `query`, `boolean`, `phrase`, `prefix`, `fuzzy`, `wildcard`, `regexp`, `mlt`, `highlighter`, `combined`, `terminset`, `parallel`, `similarity`, and `async-index`. The `merge` suite runs its plain-text method only; `flush` runs its text-only method only. Suites that need generated structured fields or vectors are unavailable. The frozen reference contains 20,000 records, so a larger `-DocCount` or strategy fails instead of switching datasets.

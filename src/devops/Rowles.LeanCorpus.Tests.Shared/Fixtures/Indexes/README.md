@@ -9,7 +9,7 @@ membership, query expectations and every physical file hash.
 Regeneration is a deliberate maintainer operation:
 
 ```bash
-./devops data migration-fixtures-311
+pwsh ./devops.ps1 data migration-fixtures-311
 ```
 
 It requires .NET SDK 10.0.103, PowerShell and Python 3. An offline NuGet source

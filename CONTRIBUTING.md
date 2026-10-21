@@ -20,18 +20,18 @@ Most contributions affect one part of the monorepo. You do not need to understan
 From the repository root:
 
 ```bash
-./devops setup
+pwsh -NoProfile -File ./setup.ps1
 ./devops build
 ```
 
 On Windows PowerShell:
 
 ```powershell
-./devops.ps1 setup
+pwsh -NoProfile -File ./setup.ps1
 ./devops.ps1 build
 ```
 
-`setup` checks the development environment and required directories. `build` confirms that the normal Release configuration compiles.
+`setup.ps1` restores and validates the repository's managed host and pinned tools. `build` confirms that the normal Release configuration compiles.
 
 > [!TIP]
 > Run `./devops --help` for the current command contract. Use the repository entry point instead of assembling an undocumented sequence of `dotnet` commands.
@@ -56,19 +56,19 @@ When a change crosses boundaries, put the implementation with the subsystem that
 For a search change:
 
 ```bash
-./devops test -Suite core -Area Search
+pwsh ./devops.ps1 test -Suite core -Area Search
 ```
 
 For an indexing change:
 
 ```bash
-./devops test -Suite core -Area Index
+pwsh ./devops.ps1 test -Suite core -Area Index
 ```
 
 For a Rowles.Text filter:
 
 ```bash
-./devops test -Suite text -Area Filters
+pwsh ./devops.ps1 test -Suite text -Area Filters
 ```
 
 A focused selection should fail for the behaviour you are changing before it passes with the implementation.
@@ -91,10 +91,10 @@ Keep the change coherent:
 Before handing the change over:
 
 ```bash
-./devops test affected
-./devops test affected -Commit HEAD
-./devops test affected -Commit caf4bd5
-./devops test affected -Range HEAD~3..HEAD
+pwsh ./devops.ps1 test affected
+pwsh ./devops.ps1 test affected -Commit HEAD
+pwsh ./devops.ps1 test affected -Commit caf4bd5
+pwsh ./devops.ps1 test affected -Range HEAD~3..HEAD
 ```
 
 Plain `affected` uses only modified, staged and untracked non-ignored files.
@@ -112,17 +112,17 @@ If a new source path or subsystem is not mapped, update `code-areas.psd1` as par
 | Change | Additional validation |
 | --- | --- |
 | Public API or normal implementation | `./devops build` |
-| Native AOT-sensitive path | `./devops aot` |
-| Package or dependency boundary | `./devops test -Suite architecture` |
+| Native AOT-sensitive path | `pwsh ./devops.ps1 aot` |
+| Package or dependency boundary | `pwsh ./devops.ps1 test -Suite architecture` |
 | Both target frameworks | Build with `-Framework net10.0` and `-Framework net11.0` |
 | Performance claim | Relevant BenchmarkDotNet suite with controlled provenance |
-| Documentation or examples | `./devops docs build -SkipBenchmarks` |
+| Documentation or examples | `pwsh ./devops.ps1 docs build -SkipBenchmarks` |
 | Windows-specific behaviour | Validate on Windows and state the environment |
 
 For a quick benchmark smoke run:
 
 ```bash
-./devops benchmark -Suite query -Strat fast
+pwsh ./devops.ps1 benchmark -Suite query -Strat fast
 ```
 
 Use `-Controlled` when comparing a repeatable, bounded workload. Do not make performance claims from a Debug build or one noisy sample.
@@ -160,7 +160,7 @@ The detailed rules live in the [DevOps and tests guide](src/devops/CONTRIBUTING.
 
 - [ ] The change solves one coherent problem.
 - [ ] Tests protect observable behaviour.
-- [ ] `./devops test affected` has been run.
+- [ ] `pwsh ./devops.ps1 test affected` has been run.
 - [ ] Compatibility and platform claims have matching evidence.
 - [ ] Public documentation and examples remain accurate.
 - [ ] The changelog was updated when users should know.

@@ -84,7 +84,7 @@ Start with the bounded smoke flow in the [Linux kernel example README](e2e/Rowle
 Native AOT is validated by the repository smoke suite rather than a usage example:
 
 ```bash
-./devops aot
+pwsh ./devops.ps1 aot
 ```
 
 ## Add or update an example

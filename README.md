@@ -85,7 +85,7 @@ The core package already includes Deflate and Brotli. Add a compression package 
 Validate Native AOT paths in the repository with:
 
 ```bash
-./devops aot
+pwsh ./devops.ps1 aot
 ```
 
 Optional compression packages normally register themselves through module initialisers. Native AOT applications should call the package's `Register()` method explicitly at startup.

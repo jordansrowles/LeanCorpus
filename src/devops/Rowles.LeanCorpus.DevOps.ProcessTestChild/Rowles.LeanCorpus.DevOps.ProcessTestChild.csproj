@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>devops-process-test-child</AssemblyName>
+    <UseAppHost>true</UseAppHost>
+  </PropertyGroup>
+</Project>
