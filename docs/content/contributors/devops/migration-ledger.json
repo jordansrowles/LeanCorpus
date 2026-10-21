@@ -1498,9 +1498,9 @@
       ],
       "source": "scripts/devops/commands/diagnostics.ps1",
       "plannedPhase": 4,
-      "state": "inventoried",
-      "replacement": "Diagnostics capture services",
-      "routed": false,
+      "state": "routed",
+      "replacement": "Managed diagnostics command service with repository-pinned tools and run evidence",
+      "routed": true,
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {

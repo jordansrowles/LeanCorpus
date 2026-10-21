@@ -35,6 +35,10 @@ internal sealed record DataForgeCommandOptions(
     IReadOnlyList<string> Arguments,
     string? RepositoryPath = null);
 
+internal sealed record DiagnosticsCommandOptions(
+    IReadOnlyList<string> Arguments,
+    string? RepositoryPath = null);
+
 internal sealed record BenchmarkCommandOptions(
     string Suite,
     string Strategy,

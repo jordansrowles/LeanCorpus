@@ -77,6 +77,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Extend the managed DevOps host with package archive and isolated-consumer validation, plus Gutenberg downloads that record SHA-256 identities and atomically promote completed files.
 - Add managed DataForge dataset generation and reproducible migration-fixture archive generation to the DevOps CLI.
 - Add managed DataForge qualification with recorded build, test and benchmark runs, synthetic dataset identities, and frozen Wikipedia reference validation.
+- Route standalone .NET diagnostics through the managed apphost with pinned local tools, run manifests, capture timeouts and retained child logs.
 - Add managed repository, tracked-file and code-health reports with JSON run evidence, child-process logs, strict checks and explicit shallow-history and rename-analysis warnings.
 - Add managed local BenchmarkDotNet runs with suite, strategy, dataset and group selection, run provenance, bounded cancellation, result validation and scoped child-process environment overrides.
 - Disable MSBuild build servers during managed DevOps locked restores to avoid stale server or named-pipe delays during bootstrap.

@@ -7,8 +7,8 @@ single-file executable at the repository root.
 
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. `devops.ps1` remains the PowerShell transition dispatcher.
-It forwards `build`, `clean`, `report`, and `server start` to a fresh managed
-host. The managed apphost also supports local benchmark runs through
+It forwards `build`, `clean`, `report`, `diagnostics`, and `server start` to a
+fresh managed host. The apphost also supports local benchmark runs through
 `./devops benchmark` and DataForge qualification through
 `./devops dataforge qualify`; `pwsh ./devops.ps1 benchmark` remains on the
 legacy route while benchmark CI and remote workflows are migrated. Other
@@ -40,9 +40,9 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `aot` | PowerShell: publish and run Native AOT smoke validation | `pwsh ./devops.ps1 aot` |
 | `coverage` | PowerShell: collect coverage and optionally generate a report | `pwsh ./devops.ps1 coverage` |
 | `benchmark` | Managed apphost: list or run local BenchmarkDotNet suites; PowerShell: remote and affected runs | `./devops benchmark --list` |
+| `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
 | `data` | PowerShell: prepare a named benchmark corpus | `pwsh ./devops.ps1 data gutenberg` |
 | `dataforge` | Managed apphost: run qualification; PowerShell: manage datasets and reference data | `./devops dataforge qualify` |
-| `diagnostics` | PowerShell: collect diagnostics for a selected process | `pwsh ./devops.ps1 diagnostics ps` |
 | `docs` | PowerShell: prepare staged inputs, generate API metadata and build or serve DocFX | `pwsh ./devops.ps1 docs build -SkipBenchmarks` |
 | `server start` | Managed: start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
 | `benchmarks docs` | PowerShell: regenerate benchmark documentation pages | `pwsh ./devops.ps1 benchmarks docs` |

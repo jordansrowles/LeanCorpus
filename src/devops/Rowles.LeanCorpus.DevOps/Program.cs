@@ -28,6 +28,7 @@ internal static class Program
         var pack = BuildPackCommand(handler, repository);
         var data = BuildDataCommand(handler, repository);
         var dataForge = BuildDataForgeCommand(handler, repository);
+        var diagnostics = BuildDiagnosticsCommand(handler, repository);
         var benchmark = BuildBenchmarkCommand(handler, repository);
         root.Add(build);
         root.Add(clean);
@@ -36,6 +37,7 @@ internal static class Program
         root.Add(pack);
         root.Add(data);
         root.Add(dataForge);
+        root.Add(diagnostics);
         root.Add(benchmark);
 
         return root;
@@ -279,6 +281,21 @@ internal static class Program
         return command;
     }
 
+    private static Command BuildDiagnosticsCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var arguments = new Argument<string[]>("arguments")
+        {
+            Description = "Diagnostics subcommand and tool arguments.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+        var command = new Command("diagnostics", "Attach standard .NET diagnostics to a process.");
+        command.Add(repository);
+        command.Add(arguments);
+        command.SetAction(result => handler.Diagnostics(new DiagnosticsCommandOptions(
+            result.GetValue(arguments) ?? [], result.GetValue(repository))));
+        return command;
+    }
+
     private static Command BuildBenchmarkCommand(ICommandHandler handler, Option<string?> repository)
     {
         var suite = new Option<string>("--suite", ["-Suite"])
@@ -386,6 +403,11 @@ internal static class CommandLineApplication
             return commandHandler.DataForge(dataForgeOptions);
         }
 
+        if (TryGetDiagnosticsOptions(args, out var diagnosticsOptions))
+        {
+            return commandHandler.Diagnostics(diagnosticsOptions);
+        }
+
         if (args.Length > 0 && UnmigratedCommands.Contains(args[0], StringComparer.OrdinalIgnoreCase))
         {
             error.WriteLine($"The '{args[0]}' command remains on the PowerShell path during migration. Run `pwsh ./devops.ps1 {args[0]}` with the same arguments.");
@@ -416,7 +438,7 @@ internal static class CommandLineApplication
 
     private static readonly string[] UnmigratedCommands =
     [
-        "aot", "benchmarks", "coverage", "diagnostics", "docs", "setup", "test", "ui"
+        "aot", "benchmarks", "coverage", "docs", "setup", "test", "ui"
     ];
 
     private static string[] NormalizeBenchmarkSuiteArgument(string[] args)
@@ -458,6 +480,59 @@ internal static class CommandLineApplication
         options = new DataForgeCommandOptions(args.Skip(commandIndex + 1).ToArray(), repositoryPath);
         return true;
     }
+
+    private static bool TryGetDiagnosticsOptions(string[] args, out DiagnosticsCommandOptions options)
+    {
+        string? repositoryPath = null;
+        var commandIndex = -1;
+        if (args.Length >= 3 && args[0].Equals("--repo", StringComparison.OrdinalIgnoreCase) &&
+            args[2].Equals("diagnostics", StringComparison.OrdinalIgnoreCase))
+        {
+            repositoryPath = args[1];
+            commandIndex = 2;
+        }
+        else if (args.Length > 0 && args[0].Equals("diagnostics", StringComparison.OrdinalIgnoreCase))
+        {
+            commandIndex = 0;
+        }
+
+        if (commandIndex < 0)
+        {
+            options = null!;
+            return false;
+        }
+
+        var arguments = new List<string>();
+        var passthrough = false;
+        for (var index = commandIndex + 1; index < args.Length; index++)
+        {
+            var argument = args[index];
+            if (argument == "--")
+            {
+                passthrough = true;
+                arguments.Add(argument);
+                continue;
+            }
+
+            if (!passthrough && repositoryPath is null &&
+                argument.Equals("--repo", StringComparison.OrdinalIgnoreCase) ||
+                !passthrough && repositoryPath is null && argument.Equals("-Repo", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 >= args.Length || string.IsNullOrWhiteSpace(args[index + 1]))
+                {
+                    options = null!;
+                    return false;
+                }
+                repositoryPath = args[++index];
+                continue;
+            }
+
+            arguments.Add(argument);
+        }
+
+        options = new DiagnosticsCommandOptions(arguments, repositoryPath);
+        return true;
+    }
 }
 
 internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHandler
@@ -475,6 +550,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int Data(DataCommandOptions options) => Missing("data");
 
     public int DataForge(DataForgeCommandOptions options) => Missing("dataforge");
+
+    public int Diagnostics(DiagnosticsCommandOptions options) => Missing("diagnostics");
 
     public int Benchmark(BenchmarkCommandOptions options) => Missing("benchmark");
 

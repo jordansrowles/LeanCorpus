@@ -241,6 +241,11 @@ try {
             Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell report invocation should reach the promoted managed host'
             $forwarded = [System.IO.File]::ReadAllLines($capturePath)
             Assert-BootstrapContract (($forwarded -join '|') -ceq 'report|git|-Json|-Top|3') 'PowerShell report invocation should preserve argument token boundaries and ordering'
+
+            & $powerShell.Source -NoProfile -File $dispatcher diagnostics trace --pid 42 -- --providers Microsoft-DotNETRuntime
+            Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell diagnostics invocation should reach the promoted managed host'
+            $forwarded = [System.IO.File]::ReadAllLines($capturePath)
+            Assert-BootstrapContract (($forwarded -join '|') -ceq 'diagnostics|trace|--pid|42|--|--providers|Microsoft-DotNETRuntime') 'PowerShell diagnostics invocation should preserve argument token boundaries and ordering'
         } finally {
             $env:DEVOPS_CAPTURE_PATH = $previousCapturePath
         }

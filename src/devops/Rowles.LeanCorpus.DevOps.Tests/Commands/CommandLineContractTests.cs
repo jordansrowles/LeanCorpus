@@ -283,6 +283,73 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
+    public void DiagnosticsCommandRoutesToTheManagedHandler()
+    {
+        var handler = new RecordingCommandHandler();
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        var exitCode = CommandLineApplication.Run(
+            ["diagnostics", "trace", "--pid", "42", "--", "--providers", "Microsoft-DotNETRuntime"],
+            output, error, handler);
+
+        Assert.Equal(0, exitCode);
+        var actual = Assert.IsType<DiagnosticsCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal(["trace", "--pid", "42", "--", "--providers", "Microsoft-DotNETRuntime"], actual.Arguments);
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
+    public void RootHelpListsDiagnosticsAfterItsManagedRouteIsEnabled()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        var exitCode = CommandLineApplication.Run(["--help"], output, error, new RecordingCommandHandler());
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("diagnostics", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
+    public void DiagnosticsProcessListIncludesTheCurrentProcess()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new ManagedCommandHandler(output, error);
+
+        var exitCode = handler.Diagnostics(new DiagnosticsCommandOptions(["ps"]));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), output.ToString(), StringComparison.Ordinal);
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
+    public void DiagnosticsRejectsInvalidPidBeforeCreatingRunArtifacts()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"DevOps invalid diagnostics {Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new ManagedCommandHandler(output, error);
+
+        try
+        {
+            var exitCode = handler.Diagnostics(new DiagnosticsCommandOptions(["trace", "--pid", "0"], directory));
+
+            Assert.Equal(2, exitCode);
+            Assert.Contains("--pid must be a positive process ID", error.ToString(), StringComparison.Ordinal);
+            Assert.False(Directory.Exists(Path.Combine(directory, "artifacts")));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void LegacyCommandFixtureIsValidAndCoversMigratedSlices()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Contracts", "legacy-command-contracts.json");
@@ -386,6 +453,12 @@ public sealed class CommandLineContractTests
         }
 
         public int DataForge(DataForgeCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int Diagnostics(DiagnosticsCommandOptions options)
         {
             Calls.Add(options);
             return 0;

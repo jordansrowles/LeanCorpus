@@ -13,6 +13,7 @@ Use this directory when you need to run or extend LeanCorpus tests, benchmarks, 
 | Repeat a focused target with artefacts | `pwsh ./devops.ps1 test core --count 3 --filter 'FullyQualifiedName~Writer'` |
 | Capture managed test diagnostics | `pwsh ./devops.ps1 test core --diagnostics` |
 | Validate Native AOT | `pwsh ./devops.ps1 aot` |
+| Attach standard .NET diagnostics | `./devops diagnostics ps` |
 | Generate coverage and HTML | `pwsh ./devops.ps1 coverage -Clean -GenerateReport` |
 | List benchmark suites | `pwsh ./devops.ps1 benchmark -List` |
 | Build documentation | `pwsh ./devops.ps1 docs build` |
@@ -110,14 +111,18 @@ Use `--diagnostics` to enable MTP diagnostic logging for a test process. For
 an explicitly selected .NET process, use the standard diagnostic tools:
 
 ```bash
-pwsh ./devops.ps1 diagnostics ps
-pwsh ./devops.ps1 diagnostics counters --pid 1234
-pwsh ./devops.ps1 diagnostics trace --pid 1234
-pwsh ./devops.ps1 diagnostics gcdump --pid 1234
-pwsh ./devops.ps1 diagnostics dump --pid 1234 --type Mini
-pwsh ./devops.ps1 diagnostics symbols path/to/core.dmp
-pwsh ./devops.ps1 diagnostics capture --pid 1234 --duration 5s
+./devops diagnostics ps
+./devops diagnostics counters --pid 1234
+./devops diagnostics trace --pid 1234
+./devops diagnostics gcdump --pid 1234
+./devops diagnostics dump --pid 1234 --type Mini
+./devops diagnostics symbols path/to/core.dmp
+./devops diagnostics capture --pid 1234 --duration 5s
 ```
+
+On Windows, run the managed apphost as `./devops.exe diagnostics ...` after
+`pwsh ./setup.ps1` publishes it. `pwsh ./devops.ps1 diagnostics ...` forwards
+the same arguments through the checked apphost.
 
 Trace, GC dump, dump and capture output is written under
 `artifacts/diagnostics/runs/<run-id>/`. Dumps can contain sensitive application

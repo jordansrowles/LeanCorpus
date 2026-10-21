@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Benchmarks;
 using Rowles.LeanCorpus.DevOps.Build;
 using Rowles.LeanCorpus.DevOps.Data;
+using Rowles.LeanCorpus.DevOps.Diagnostics;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Packaging;
 using Rowles.LeanCorpus.DevOps.Repository;
@@ -494,6 +496,110 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         {
             Console.CancelKeyPress -= cancelHandler;
         }
+    }
+
+    public int Diagnostics(DiagnosticsCommandOptions options)
+    {
+        var parsed = DiagnosticsArgumentParser.Parse(options.Arguments, Environment.CurrentDirectory);
+        if (!parsed.Success || parsed.Request is null)
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, parsed.Failure ?? "Invalid diagnostics arguments."), output, error);
+        if (parsed.Request.Operation == DiagnosticsOperation.Help)
+        {
+            ShowDiagnosticsHelp();
+            return 0;
+        }
+        if (parsed.Request.Operation == DiagnosticsOperation.ProcessList)
+            return ListProcesses();
+
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var service = new DiagnosticsCommandService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "diagnostics"),
+                processRunner,
+                new DotNetSdkResolver(processRunner),
+                new GitRepositoryProvenanceReader(processRunner),
+                progress: message => output.WriteLine(message),
+                errorOutput: message => error.WriteLine(message));
+            var result = service.RunAsync(new DiagnosticsCommandRequest(checkout, parsed.Request), cancellation.Token)
+                .GetAwaiter().GetResult();
+            var commandResult = result.RunDirectory is null
+                ? result.CommandResult
+                : result.CommandResult with
+                {
+                    Message = result.CommandResult.Outcome == OutcomeKind.Success
+                        ? $"{result.CommandResult.Message} Run evidence: {result.RunDirectory}"
+                        : result.CommandResult.Message,
+                    Details = JoinDetails(result.RunDirectory, result.CommandResult.Details)
+                };
+            return _renderer.Render(commandResult, output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Diagnostics were cancelled."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run managed diagnostics.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    private void ShowDiagnosticsHelp()
+    {
+        output.WriteLine();
+        output.WriteLine("  Diagnostics commands:");
+        output.WriteLine();
+        output.WriteLine("    ./devops diagnostics ps");
+        output.WriteLine("    ./devops diagnostics counters --pid <pid> [-- <tool arguments>]");
+        output.WriteLine("    ./devops diagnostics trace --pid <pid> [-- <tool arguments>]");
+        output.WriteLine("    ./devops diagnostics gcdump --pid <pid> [-- <tool arguments>]");
+        output.WriteLine("    ./devops diagnostics dump --pid <pid> [--type Mini|Heap|Full|Triage]");
+        output.WriteLine("    ./devops diagnostics symbols <artifact> [-- <tool arguments>]");
+        output.WriteLine("    ./devops diagnostics capture --pid <pid> [--duration 5s]");
+        output.WriteLine();
+        output.WriteLine("  Trace, GC dump, dump and capture output is written under artifacts/diagnostics/runs.");
+        output.WriteLine("  Dumps may contain sensitive application memory.");
+        output.WriteLine();
+    }
+
+    private int ListProcesses()
+    {
+        output.WriteLine("Id\tProcessName");
+        foreach (var process in Process.GetProcesses().OrderBy(static process => process.Id))
+        {
+            using (process)
+            {
+                try
+                {
+                    output.WriteLine($"{process.Id}\t{process.ProcessName}");
+                }
+                catch (InvalidOperationException)
+                {
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                }
+            }
+        }
+        return 0;
     }
 
     public int Benchmark(BenchmarkCommandOptions options)

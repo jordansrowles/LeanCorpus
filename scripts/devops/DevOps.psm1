@@ -81,7 +81,7 @@ function Invoke-DevOpsHelp {
     Write-Host ''
     Write-Host '  LeanCorpus devops'
     Write-Host '  ================'
-    Write-Host '  The root managed apphost handles build, clean and server start.'
+    Write-Host '  The root managed apphost handles build, clean, report, diagnostics and server start.'
     Write-Host '  Run this PowerShell-only surface as: pwsh ./devops.ps1 <command>.'
     Write-Host '  Bootstrap or rebuild the managed host with: pwsh ./setup.ps1.'
     Write-Host ''
