@@ -296,7 +296,7 @@ public sealed class DocsSiteAcceptanceTests
 
         try
         {
-            var routes = new[]
+            var routes = new List<string>
             {
             "index.html",
             "getting-started/01-installation.html",
@@ -311,9 +311,19 @@ public sealed class DocsSiteAcceptanceTests
             "articles/ADRs/ADR041-physical-index-runtime-lifecycle.html",
             "changelog/index.html",
             "changelog/3.1.0 - 2026-09-03.html",
-            "benchmarks/overview.html",
-            "benchmarks/nearest.html"
+            "benchmarks/overview.html"
             };
+
+            var benchmarkDirectory = Path.Combine(site.SiteDirectory, "benchmarks");
+            var generatedBenchmarkPage = Directory.EnumerateFiles(benchmarkDirectory, "*.html", SearchOption.TopDirectoryOnly)
+                .Select(path => Path.GetFileName(path)!)
+                .Where(fileName => fileName is not ("overview.html" or "toc.html"))
+                .OrderBy(fileName => fileName, StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (generatedBenchmarkPage is not null)
+            {
+                routes.Add($"benchmarks/{Uri.EscapeDataString(generatedBenchmarkPage)}");
+            }
 
             foreach (var route in routes)
             {
@@ -498,6 +508,7 @@ internal sealed class BrowserSite : IAsyncDisposable
 
     private string BaseAddress { get; }
     public string RepositoryRoot => _repositoryRoot;
+    public string SiteDirectory => _siteDirectory;
 
     public static async Task<BrowserSite> StartAsync()
     {
