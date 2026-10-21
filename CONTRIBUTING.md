@@ -9,9 +9,9 @@ Most contributions affect one part of the monorepo. You do not need to understan
 | Indexing, search, codecs, storage, mapping or diagnostics | Continue with this guide |
 | Analysers, tokenisers, filters, stemmers or languages | [Contributing to Rowles.Text](src/core/Rowles.Text/CONTRIBUTING.md) |
 | Tests, benchmarks, profiling or repository tooling | [Contributing to DevOps and tests](src/devops/CONTRIBUTING.md) |
-| Documentation | [Documentation contributor guide](docs/contributors/documentation.md) |
+| Documentation | [Documentation contributor guide](docs/content/contributors/documentation.md) |
 | A runnable example | [Examples guide](src/examples/README.md) |
-| Internal architecture | [Contributor documentation](docs/contributors/index.md) |
+| Internal architecture | [Contributor documentation](docs/content/contributors/index.md) |
 
 ## Make your first change
 

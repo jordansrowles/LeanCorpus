@@ -1,0 +1,26 @@
+- name: Home
+  href: index.md
+- name: About
+  href: about/index.md
+- name: Get started
+  href: getting-started/index.md
+- name: Concepts
+  href: concepts/index.md
+- name: Guides
+  href: guides/index.md
+- name: Examples
+  href: generated/examples/index.md
+- name: Performance
+  href: performance.md
+- name: Reference
+  href: reference/index.md
+- name: API reference
+  href: api/index.md
+- name: Articles
+  href: articles/index.md
+- name: Benchmarks
+  href: benchmarks/overview.md
+- name: Changelog
+  href: changelog/index.md
+- name: Contribute
+  href: contributors/index.md

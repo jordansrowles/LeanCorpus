@@ -176,17 +176,21 @@ try {
         @('| Method | Mean |', '| --- | --- |', '| COMPRESSION-PASSED | 1 ns |') |
             Set-Content -LiteralPath (Join-Path $compressionResults 'compression-report-github.md') -Encoding UTF8
 
-        $publishedRoot = Join-Path $Root 'published-benchmark-docs'
-        [void][System.IO.Directory]::CreateDirectory($publishedRoot)
-        Set-Content -LiteralPath (Join-Path $publishedRoot 'unrelated.md') -Value 'PUBLISHED-BASELINE' -Encoding UTF8
         $outputRoot = Join-Path $Root 'generated-benchmark-docs'
-        & $Generator -BenchDir (Join-Path $artifactRoot 'benchmark/runs') -OutputDir $outputRoot -PublishedDir $publishedRoot
+        [void][System.IO.Directory]::CreateDirectory($outputRoot)
+        Set-Content -LiteralPath (Join-Path $outputRoot 'stale.md') -Value 'STALE-OUTPUT' -Encoding UTF8
+        $chartBundle = Join-Path $Root 'chart.umd.js'
+        Set-Content -LiteralPath $chartBundle -Value 'CHART-BUNDLE' -Encoding UTF8
+        & $Generator -BenchDir (Join-Path $artifactRoot 'benchmark/runs') -OutputDir $outputRoot -ChartJsPath $chartBundle
         Assert-Smoke (Test-Path (Join-Path $outputRoot 'query.md')) 'Core benchmark page was not generated.'
         $textPage = Get-Content -LiteralPath (Join-Path $outputRoot 'text.md') -Raw
         Assert-Smoke ($textPage.Contains('OLDER-PASSED')) 'older passed text evidence was not selected.'
         Assert-Smoke (-not $textPage.Contains('NEWER-FAILED')) 'newer failed text evidence replaced passed evidence.'
         Assert-Smoke ((Get-Content -LiteralPath (Join-Path $outputRoot 'compression.md') -Raw).Contains('COMPRESSION-PASSED')) 'compression-only evidence was not generated.'
-        Assert-Smoke (Test-Path (Join-Path $outputRoot 'unrelated.md')) 'published baseline page was erased.'
+        Assert-Smoke (-not (Test-Path (Join-Path $outputRoot 'stale.md'))) 'stale generated benchmark output was retained.'
+        Assert-Smoke (Test-Path (Join-Path $outputRoot 'overview.md')) 'benchmark overview was not generated.'
+        Assert-Smoke (Test-Path (Join-Path $outputRoot 'toc.yml')) 'benchmark TOC was not generated.'
+        Assert-Smoke (Test-Path (Join-Path $outputRoot 'chart.umd.js')) 'pinned Chart.js runtime asset was not staged.'
 
         # E. One-shot and repeated test classifications.
         . (Join-Path $RepositoryRoot 'scripts/devops/commands/pack.ps1')

@@ -130,5 +130,5 @@ The generated map uses concrete code rather than runtime reflection. This makes 
 ## Next steps
 
 - Return to [generating your first document map](#generate-your-first-document-map).
-- Use generated fields with [LINQ queries](../../../docs/searching/07-linq-queries.md).
-- Learn about [stored round-tripping](../../../docs/index-management/05-stored-round-tripping.md).
+- Use generated fields with [LINQ queries](../../../docs/content/searching/07-linq-queries.md).
+- Learn about [stored round-tripping](../../../docs/content/index-management/05-stored-round-tripping.md).

@@ -263,7 +263,7 @@ List registered suites with:
 > [!WARNING]
 > Generated coverage, benchmark and DocFX output must not be hand-edited. Change the inputs or generator and regenerate it through `./devops`.
 
-Repository guides copied into the site are mapped by `Copy-RepositoryDocumentation`. Add the canonical source and its site destination there, then update `docs/toc.yml`. Do not introduce a second metadata file when the repository README already contains the required catalogue or workflow.
+Repository guides copied into the site are mapped by `docs/site-config/imports.json`. Add the canonical source and its site destination there, then update `docs/content/toc.yml` when the page belongs in the top-level navigation. Do not introduce a second metadata file when the repository README already contains the required catalogue or workflow.
 
 ## Before submitting
 

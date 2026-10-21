@@ -39,6 +39,15 @@
         Coverage = $false
         Capabilities = @('Trx')
     }
+    'docs-site' = @{
+        Name = 'Documentation Site'
+        Project = 'src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj'
+        Runner = 'Mtp'
+        Frameworks = @('net10.0', 'net11.0')
+        Coverage = $false
+        Capabilities = @('Trx')
+        IncludeInAll = $false
+    }
     'server-abstractions' = @{
         Name = 'Server Abstractions'
         Project = 'src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj'

@@ -71,6 +71,11 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Pin DocFX 2.78.5 in the repository-local .NET tool manifest and add root `setup.ps1` checks for PowerShell 7, Git and the `global.json` SDK family.
+- Move canonical documentation and site configuration into `docs/content/` and `docs/site-config/`; stage generated API, import, ADR, changelog, benchmark and site outputs under `artifacts/docs/`.
+- Retire tracked benchmark and changelog copies after verifying their staged replacements, and load the pinned Chart.js bundle locally.
+- Add provenance and link validation plus docs-site Playwright coverage with six visual baselines; make CI produce the site artefact that deployment publishes without rebuilding.
+- Restore the withdrawn field-length decision as ADR040 and assign the physical-index lifecycle decision ADR041, preserving history and correcting references.
 - Bring standalone Rowles.Text up to the graph-aware token API already included in LeanCorpus 3.1.1: `Token`, span sinks and span filters carry positive position lengths so shingles, synonyms and quoted analysis retain complete graph edges, and graph-producing indexing pipelines must flatten non-unit edges before postings. This adds `Token.PositionLength` and the corresponding constructor/API surface to the standalone package. ([6b702a035](https://github.com/jordansrowles/LeanCorpus/commit/6b702a035c035d587f81c161a8d6dd0aff81cb15))
 - Advance the LZ4, Snappy and Zstandard optional packages to 2.0.0, require LeanCorpus `[4.0.0,5.0.0)`, and publish matching symbol packages. ([7f7427d93](https://github.com/jordansrowles/LeanCorpus/commit/7f7427d93c9fc0210cbf11b423a3ab4e102b6993), [5608a1859](https://github.com/jordansrowles/LeanCorpus/commit/5608a18593c55f8c902f31bbfe0c66b9687f3505))
 - Define `ComplexPhraseQueryParser.InOrder` as controlling ordering only for multi-slot flat-alternative phrases; ordinary analysed phrases remain graph-aware and ordered. ([e93bc0e66](https://github.com/jordansrowles/LeanCorpus/commit/e93bc0e663c1761033dd79ddf01f695aaaa798c8))

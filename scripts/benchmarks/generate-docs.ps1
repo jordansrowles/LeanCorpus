@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     Scans completed runs under artifacts/benchmark/runs and keeps the
-    newest run per suite and writes one markdown page per suite into docs/benchmarks/.
+    newest run per suite and writes benchmark pages plus a local index and TOC
+    into the documentation staging tree.
 
     Run this before docfx build; docs.ps1 calls it automatically.
 
@@ -12,7 +13,10 @@
     Path to the benchmark run directory. Defaults to artifacts/benchmark/runs.
 
 .PARAMETER OutputDir
-    Path to write the generated files. Defaults to ../docs/benchmarks.
+    Path to write the generated files. Defaults to artifacts/docs/content/benchmarks.
+
+.PARAMETER SkipRunScan
+    Create an empty benchmark overview and TOC without scanning retained runs.
 
 .EXAMPLE
     .\scripts\generate-benchmark-docs.ps1
@@ -21,7 +25,8 @@
 param(
     [string]$BenchDir  = '',
     [string]$OutputDir = '',
-    [string]$PublishedDir = ''
+    [string]$ChartJsPath = '',
+    [switch]$SkipRunScan
 )
 
 Set-StrictMode -Version Latest
@@ -30,21 +35,67 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 
 if ([string]::IsNullOrEmpty($BenchDir))  { $BenchDir  = Join-Path $repoRoot 'artifacts/benchmark/runs' }
-if ([string]::IsNullOrEmpty($OutputDir)) { $OutputDir = Join-Path $repoRoot 'artifacts\docs\generated\benchmarks' }
-if ([string]::IsNullOrEmpty($PublishedDir)) { $PublishedDir = Join-Path $repoRoot 'docs/benchmarks' }
+if ([string]::IsNullOrEmpty($OutputDir)) { $OutputDir = Join-Path $repoRoot 'artifacts/docs/content/benchmarks' }
+if ([string]::IsNullOrEmpty($ChartJsPath)) {
+    $ChartJsPath = Join-Path $repoRoot 'docs/site-config/diagrams/node_modules/chart.js/dist/chart.umd.js'
+}
 
 $BenchDir  = [System.IO.Path]::GetFullPath($BenchDir)
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
-$PublishedDir = [System.IO.Path]::GetFullPath($PublishedDir)
+$ChartJsPath = [System.IO.Path]::GetFullPath($ChartJsPath)
+if (-not (Test-Path -LiteralPath $ChartJsPath -PathType Leaf)) {
+    throw "Pinned Chart.js browser bundle not found at '$ChartJsPath'. Restore the site dependencies with npm ci --prefix docs/site-config/diagrams."
+}
 
-# Preserve the last published benchmark documentation until a newer run exists.
-# This keeps a clean checkout buildable while moving generated output out of docs/.
 [void][System.IO.Directory]::CreateDirectory($OutputDir)
 foreach ($stagedItem in @(Get-ChildItem $OutputDir -Force -ErrorAction SilentlyContinue)) {
     Remove-Item -LiteralPath $stagedItem.FullName -Recurse -Force
 }
-foreach ($publishedFile in @(Get-ChildItem $PublishedDir -File -ErrorAction SilentlyContinue)) {
-    Copy-Item -LiteralPath $publishedFile.FullName -Destination (Join-Path $OutputDir $publishedFile.Name) -Force
+
+function ConvertTo-BenchmarkYamlString([string]$Value) {
+    return "'$($Value.Replace("'", "''"))'"
+}
+
+function New-BenchmarkCatalog {
+    $pages = @(Get-ChildItem -LiteralPath $OutputDir -File -Filter '*.md' |
+        Where-Object { $_.Name -notin @('overview.md', 'toc.yml') } |
+        Sort-Object Name)
+    $markdown = [System.Collections.Generic.List[string]]::new()
+    $markdown.Add('# Benchmarks')
+    $markdown.Add('')
+    if ($pages.Count -eq 0) {
+        $markdown.Add('No benchmark reports are available in the retained run artefacts for this build.')
+    } else {
+        $markdown.Add('Generated reports from the latest successful retained benchmark runs.')
+        $markdown.Add('')
+        foreach ($page in $pages) {
+            $heading = Get-Content -LiteralPath $page.FullName -Encoding UTF8 |
+                Where-Object { $_ -match '^#\s+(.+?)\s*$' } |
+                Select-Object -First 1
+            $title = if ($heading -match '^#\s+(.+?)\s*$') { $Matches[1].Trim() } else { $page.BaseName }
+            $link = [Uri]::EscapeDataString($page.Name)
+            $markdown.Add("- [$title]($link)")
+        }
+    }
+
+    $toc = [System.Collections.Generic.List[string]]::new()
+    $toc.Add('- name: Benchmarks')
+    $toc.Add('  href: overview.md')
+    if ($pages.Count -gt 0) {
+        $toc.Add('  items:')
+        foreach ($page in $pages) {
+            $heading = Get-Content -LiteralPath $page.FullName -Encoding UTF8 |
+                Where-Object { $_ -match '^#\s+(.+?)\s*$' } |
+                Select-Object -First 1
+            $title = if ($heading -match '^#\s+(.+?)\s*$') { $Matches[1].Trim() } else { $page.BaseName }
+            $toc.Add("    - name: $(ConvertTo-BenchmarkYamlString $title)")
+            $toc.Add("      href: $(ConvertTo-BenchmarkYamlString $page.Name)")
+        }
+    }
+
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllLines((Join-Path $OutputDir 'overview.md'), $markdown, $utf8NoBom)
+    [System.IO.File]::WriteAllLines((Join-Path $OutputDir 'toc.yml'), $toc, $utf8NoBom)
 }
 
 # ── Suite display names ───────────────────────────────────────────────────────
@@ -145,7 +196,7 @@ function Test-CoreReportShape($Report) {
 
 $newestPerSuite = @{}
 $newestProjectEvidence = @{}
-$runDirectories = if (Test-Path $BenchDir) { @(Get-ChildItem $BenchDir -Directory) } else { @() }
+$runDirectories = if (-not $SkipRunScan -and (Test-Path $BenchDir)) { @(Get-ChildItem $BenchDir -Directory) } else { @() }
 if ($runDirectories.Count -eq 0) {
     Write-Warning "No benchmark runs found in $BenchDir"
 }
@@ -375,7 +426,7 @@ status.textContent = "Loading chart…";
 canvas.before(status);
 
 var chartJs = document.createElement("script");
-chartJs.src = "https://cdn.jsdelivr.net/npm/chart.js@4";
+chartJs.src = "chart.umd.js";
 chartJs.onload = function(){ fetch(jsonUrl).then(function(r){if(!r.ok)throw new Error("Benchmark data request failed");return r.json();}).then(render).catch(showError); };
 chartJs.onerror = showError;
 document.head.appendChild(chartJs);
@@ -526,6 +577,11 @@ function showError(){
 
 $benchmarkChartsJs | Set-Content (Join-Path $OutputDir 'benchmark-charts.js') -Encoding UTF8
 Write-Host "Written: benchmark-charts.js" -ForegroundColor Green
+Copy-Item -LiteralPath $ChartJsPath -Destination (Join-Path $OutputDir 'chart.umd.js') -Force
+Write-Host 'Copied pinned Chart.js browser bundle.' -ForegroundColor Green
+
+New-BenchmarkCatalog
+Write-Host 'Written: overview.md and toc.yml' -ForegroundColor Green
 
 if ($pageCount -eq 0) {
     Write-Warning "No pages generated."

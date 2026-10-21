@@ -7,11 +7,13 @@ function Show-TestSuites {
     Write-Host ''
     Write-Host '  Available test suites (-Suite):'
     Write-Host ''
-    foreach ($key in Get-OrderedTestSuiteKeys -TestSuites $TestSuites) {
+    foreach ($key in Get-OrderedTestSuiteKeys -TestSuites $TestSuites -IncludeExplicitOnly) {
         $suite = $TestSuites[$key]
         $frameworks = @(Get-TestSuiteFrameworks -Suite $suite -SuiteKey $key)
         $runner = Get-TestSuiteRunnerKind -Suite $suite -SuiteKey $key
-        Write-Host ("    {0,-20} {1} ({2}; {3})" -f $key, $suite.Name, $runner, ($frameworks -join ', '))
+        $explicitOnly = $suite.ContainsKey('IncludeInAll') -and -not [bool]$suite.IncludeInAll
+        $scope = if ($explicitOnly) { 'explicit only' } else { 'all' }
+        Write-Host ("    {0,-20} {1} ({2}; {3}; {4})" -f $key, $suite.Name, $runner, ($frameworks -join ', '), $scope)
     }
     Write-Host '    all                  All test suites'
     Write-Host '    affected             Test suites for selected source areas'

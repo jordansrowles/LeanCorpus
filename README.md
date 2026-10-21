@@ -54,13 +54,13 @@ Found 1 document(s).
 ```
 
 > [!TIP]
-> Start with [Installation and first index](docs/getting-started/01-installation.md), then learn when to use each [field type](docs/getting-started/02-fields.md).
+> Start with [Installation and first index](docs/content/getting-started/01-installation.md), then learn when to use each [field type](docs/content/getting-started/02-fields.md).
 
 ## Choose the package that matches your job
 
 | I want to... | Package | Start here |
 | --- | --- | --- |
-| Embed indexing and search in a .NET application | `LeanCorpus` | [First index](docs/getting-started/01-installation.md) |
+| Embed indexing and search in a .NET application | `LeanCorpus` | [First index](docs/content/getting-started/01-installation.md) |
 | Tokenise, analyse or stem text without the search engine | `Rowles.Text` | [Rowles.Text README](src/core/Rowles.Text/README.md) |
 | Generate typed, reflection-free document mappings | `LeanCorpus.SourceGen` | [SourceGen README](src/core/Rowles.LeanCorpus.SourceGen/README.md) |
 | Use fast LZ4 stored-field compression | `LeanCorpus.Compression.LZ4` | [LZ4 README](src/core/Rowles.LeanCorpus.Compression.LZ4/README.md) |
@@ -75,9 +75,9 @@ The core package already includes Deflate and Brotli. Add a compression package 
 
 - Build a typed model with the [source generator](src/core/Rowles.LeanCorpus.SourceGen/README.md).
 - Run a complete application from the [examples guide](src/examples/README.md).
-- Understand documents, commits, segments and readers in the [architecture guide](docs/architecture.md).
-- Add metrics, tracing and slow-query logging through [observability](docs/observability/index.md).
-- Compare features and trade-offs in [Why LeanCorpus?](docs/why-leancorpus.md).
+- Understand documents, commits, segments and readers in the [architecture guide](docs/content/architecture.md).
+- Add metrics, tracing and slow-query logging through [observability](docs/content/observability/index.md).
+- Compare features and trade-offs in [Why LeanCorpus?](docs/content/why-leancorpus.md).
 - Work on the repository using [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Native AOT

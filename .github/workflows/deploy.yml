@@ -1,4 +1,4 @@
-﻿name: Deploy to Cloudflare Pages
+name: Deploy to Cloudflare Pages
 
 on:
   workflow_run:
@@ -6,10 +6,9 @@ on:
     types: [completed]
   workflow_dispatch:
     inputs:
-      ref:
-        description: Branch, tag or commit to deploy
+      run_id:
+        description: Successful Build workflow run ID with a validated docs-site artefact
         required: true
-        default: main
         type: string
 
 jobs:
@@ -20,41 +19,63 @@ jobs:
        startsWith(github.event.workflow_run.head_commit.message, '[deploy]'))
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       deployments: write
     steps:
-      - name: Check out requested ref
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v6
+      - name: Resolve successful Build run
+        id: source
+        uses: actions/github-script@v7
         with:
-          ref: ${{ inputs.ref }}
-      - name: Set up .NET 10
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '10.0.x'
-      - name: Set up .NET 11
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: preview
-      - name: Build requested documentation
-        if: github.event_name == 'workflow_dispatch'
-        shell: pwsh
-        run: ./devops docs build -SkipBenchmarks -SkipCoverage
-      - name: Download docs artifact
-        if: github.event_name == 'workflow_run'
+          script: |
+            const runId = context.eventName === 'workflow_run'
+              ? context.payload.workflow_run.id
+              : Number(context.payload.inputs.run_id);
+            if (!Number.isSafeInteger(runId) || runId <= 0) {
+              throw new Error('run_id must be a positive Build workflow run ID.');
+            }
+
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+            });
+            if (run.name !== 'Build' || run.conclusion !== 'success') {
+              throw new Error(`Run ${runId} is not a successful Build workflow run.`);
+            }
+            if (run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              throw new Error(`Run ${runId} was produced by a different repository.`);
+            }
+            if (!/^[A-Za-z0-9._/-]+$/.test(run.head_branch)) {
+              throw new Error(`Build branch is not a safe Cloudflare branch name: ${run.head_branch}`);
+            }
+
+            core.setOutput('run-id', String(run.id));
+            core.setOutput('head-sha', run.head_sha);
+            core.setOutput('branch', run.head_branch);
+            core.setOutput('run-number', String(run.run_number));
+      - name: Download validated documentation artefact
         uses: actions/download-artifact@v8
         with:
           name: leancorpus-docs-site
           path: docs-site
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.source.outputs.run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Deploy to Cloudflare Pages
+      - name: Verify artefact revision
+        shell: pwsh
+        env:
+          EXPECTED_COMMIT: ${{ steps.source.outputs.head-sha }}
+        run: |
+          $provenancePath = Join-Path $PWD 'docs-site/generated/provenance.json'
+          $sitePath = Join-Path $PWD 'docs-site/site'
+          if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) { throw 'The docs artefact has no provenance manifest.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $sitePath 'index.html') -PathType Leaf)) { throw 'The docs artefact has no generated site.' }
+          $provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
+          if ($provenance.commit -ne $env:EXPECTED_COMMIT) { throw "Docs artefact commit '$($provenance.commit)' does not match Build commit '$env:EXPECTED_COMMIT'." }
+          Write-Host "Verified Build run ${{ steps.source.outputs.run-number }} at $($provenance.commit)."
+      - name: Deploy validated site to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ${{ github.event_name == 'workflow_dispatch' && 'artifacts/docs/site' || 'docs-site' }} --project-name=leanlucene --branch=${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_branch }} --commit-dirty=true
+          command: pages deploy docs-site/site --project-name=leanlucene --branch=${{ steps.source.outputs.branch }} --commit-dirty=true

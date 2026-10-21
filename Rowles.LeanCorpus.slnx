@@ -7,6 +7,7 @@
   <Project Path="src/devops/Rowles.DataForge.Tool/Rowles.DataForge.Tool.csproj" />
   <Project Path="src/devops/Rowles.DataForge.Tests/Rowles.DataForge.Tests.csproj" />
   <Project Path="src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj" />
   <Project Path="src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj" />
   <Project Path="src/core/Rowles.LeanCorpus.Compression.LZ4/Rowles.LeanCorpus.Compression.LZ4.csproj" />
   <Project Path="src/core/Rowles.LeanCorpus.Compression.Snappy/Rowles.LeanCorpus.Compression.Snappy.csproj" />

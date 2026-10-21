@@ -194,10 +194,12 @@ Skip expensive generated inputs when they are outside the documentation change:
 
 Serve the site locally with `./devops docs serve`.
 
-The docs command stages selected repository READMEs and contribution guides under
-`artifacts/docs/generated/repository/` before DocFX runs. Edit the canonical
-repository file, not the generated site copy. API metadata, coverage pages and
-the site are also written beneath `artifacts/docs/`.
+The docs command reads `docs/site-config/imports.json` and stages selected
+repository READMEs and contribution guides under
+`artifacts/docs/content/generated/` before DocFX runs. Edit the canonical
+repository file, not the generated site copy. API metadata, changelogs,
+benchmarks, coverage pages and the site are also written beneath
+`artifacts/docs/`.
 
 ## Project map
 

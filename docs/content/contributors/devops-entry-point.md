@@ -1,0 +1,219 @@
+# DevOps entry point
+
+The repository-level `devops` command is the supported router for build, test, AOT, coverage, benchmark, data, and documentation workflows.
+
+On Linux and macOS, `devops` is a small Bash wrapper that invokes PowerShell:
+
+```text
+./devops <command> [arguments]
+        |
+        +-- pwsh -NoProfile -File devops.ps1 ...
+```
+
+On Windows, the equivalent entry point is `devops.ps1`. Keep behaviour in the PowerShell implementation so both routes stay aligned.
+
+## Why it exists
+
+The entry point centralises:
+
+- project and framework selection;
+- suite and strategy aliases;
+- generated-output locations;
+- benchmark provenance;
+- documentation metadata and report generation;
+- tool discovery;
+- consistent failure handling across local use and CI.
+
+Callers should not need to reproduce long `dotnet` command lines or know which generated directories must be prepared first.
+
+## Command map
+
+| Command | Purpose | Typical example |
+|---|---|---|
+| `build` | Restore and build the supported solution targets | `./devops build` |
+| `test` | Run one or more registered test suites | `./devops test` |
+| `aot` | Publish and run Native AOT smoke validation | `./devops aot` |
+| `coverage` | Collect coverage and optionally generate a report | `./devops coverage` |
+| `benchmark` | List or run BenchmarkDotNet suites | `./devops benchmark -List` |
+| `data` | Prepare a named benchmark corpus | `./devops data gutenberg` |
+| `docs` | Prepare staged inputs, generate API metadata and build or serve DocFX | `./devops docs build -SkipBenchmarks` |
+| `server start` | Start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
+| `benchmarks docs` | Regenerate benchmark documentation pages | `./devops benchmarks docs` |
+| `clean` | Remove selected DevOps-owned output | `./devops clean test` |
+| `pack` | Pack release artefacts and write a checksum manifest | `./devops pack` |
+
+Use `benchmark` for running measurements and `benchmarks docs` for publishing existing result artefacts. The plural command is intentionally not a second benchmark runner.
+
+## Argument handling
+
+The script combines two styles:
+
+- command or subcommand tokens such as `docs serve`, `server start` and `dataforge reference download`;
+- PowerShell-style named options such as `-Suite query`, `-Framework net10.0`, and `-SkipBenchmarks`.
+
+BenchmarkDotNet arguments follow a `--` separator:
+
+```powershell
+./devops benchmark -Suite query -Strat quick-compare -- --filter "*TermQuery*"
+```
+
+Keep repository arguments before `--`. Everything after it is passed to the benchmark process.
+
+## Test suites
+
+`scripts/devops/config/test-suites.psd1` is the canonical alias map. It maps short names to project paths or, for Native AOT, to the dedicated command route. The current suites are `core`, `text`, `sourcegen`, `architecture`, `server-abstractions`, `server-core`, `server-integration`, and `aot`. The server suites are fixed to their net11.0-only projects even when the general test framework remains net10.0.
+
+When adding a test project:
+
+1. add it to the solution and normal build wiring;
+2. add a clear alias to `test-suites.psd1`;
+3. make the default test selection explicit;
+4. update CI only when the suite belongs in required validation;
+5. update contributor documentation when its role is not obvious.
+
+Do not bypass the central map with a second list in another script.
+
+## Benchmarks
+
+`scripts/devops/config/benchmark-suites.psd1` maps public aliases such as `query`, `hnsw`, `blockjoin`, and `query-cache` to benchmark suite selections. `benchmark-strategies.psd1` and `Resolve-BenchmarkStrategy` define workload and BenchmarkDotNet job presets.
+
+```mermaid
+flowchart LR
+    C[benchmark command] --> S[Resolve suite alias]
+    C --> P[Resolve strategy]
+    P --> D[Document count]
+    P --> J[BenchmarkDotNet job arguments]
+    C --> X[Arguments after --]
+    S --> R[dotnet run benchmark project]
+    D --> R
+    J --> R
+    X --> R
+    R --> O[one artifacts benchmark run]
+```
+
+`-Dry` prints the resolved command. Use it when changing routing or investigating a remote invocation.
+
+`-Controlled` applies a deterministic diagnostic preset and selects corpus-only cases. It does not make different hardware or runtime environments equivalent.
+
+When adding an alias, keep its name short and stable. Point it at an existing benchmark-suite selector rather than adding benchmark logic to `devops.ps1`.
+
+## Documentation workflow
+
+The `docs` command has `prepare`, `build`, `metadata`, and `serve` paths.
+
+`prepare` recreates `artifacts/docs/content/` from canonical `docs/content/`,
+imports repository-owned guides from `docs/site-config/imports.json`, copies
+canonical changelog entries, generates ADR and section indexes/TOCs, derives
+site metadata, and generates benchmark reports from retained runs.
+
+The `build` and `serve` paths then:
+
+1. generate coverage HTML when current-commit source data exists unless `-SkipCoverage` is set;
+2. clear and generate DocFX API metadata under `artifacts/docs/api/`;
+3. remove inherited external members from generated API YAML;
+4. build the DocFX site under `artifacts/docs/site/`.
+
+`-SkipBenchmarks` creates the benchmark overview without scanning retained
+runs. It does not skip conceptual pages or API metadata. `metadata` also stages
+the complete content tree before generating API YAML; `prepare` stops before
+invoking DocFX.
+
+DocFX warnings are grouped by code in the console. Complete metadata and build
+diagnostics are written as JSON lines under `artifacts/docs/diagnostics/`. A
+status line is printed every 30 seconds while DocFX is running so a slow API
+pass does not appear stuck.
+
+Generated repository copies, API, site, benchmark, and coverage output must remain generated. Change their canonical source or generator instead of patching the output.
+
+## Tool discovery
+
+The documentation workflow uses the repository-pinned DocFX tool restored by
+`./setup.ps1`. Coverage commands use ReportGenerator when needed. Keep tool use
+narrow and version decisions deliberate.
+
+The current DocFX tool release bundles its own frontend dependencies. The documentation diagram pipeline separately pins authoring dependencies under `docs/site-config/diagrams` where a version must be controlled by the repository.
+
+## Adding a command
+
+Add a top-level command only when it represents a durable repository workflow. Prefer extending an existing command when the new behaviour shares its inputs and outputs.
+
+A new command should:
+
+- parse arguments before doing work;
+- validate aliases and paths with a useful error;
+- use existing helper functions and repository scripts;
+- return the underlying process exit code;
+- avoid changing generated or source directories outside its stated scope;
+- work through the Bash wrapper and direct PowerShell invocation;
+- have one concise example in contributor documentation;
+- remain non-interactive in CI.
+
+Keep download and data-preparation logic in `scripts`, with `devops.ps1` acting as the router.
+
+## CI contract
+
+`.github/workflows/build.yml` is the required validation contract. The DevOps entry point and CI should use equivalent commands where practical, but local-only diagnostics and expensive repeated benchmarks should remain opt-in unless they are intentionally promoted to merge validation.
+
+When changing routing, inspect both local callers and workflow callers before removing an option or alias.
+
+## Validate optional compression packages for release
+
+The 4.0 release matrix is LeanCorpus 4.0.0, Rowles.Text 2.0.0 and
+LeanCorpus.Compression.LZ4, Snappy and Zstandard 2.0.0. The optional packages
+require Core `[4.0.0,5.0.0)` and do not directly depend on Rowles.Text.
+
+```bash
+./devops pack -CompressionOnly -ValidateCompression
+# After a full solution build, reuse those binaries:
+./devops pack -CompressionOnly -NoBuild -ValidateCompression
+```
+
+The gate inspects the generated `.nupkg` and `.snupkg` identities, both TFM
+dependency groups and an explicit asset allow-list. Symbol packages contain
+portable PDBs matching the normal assembly names; source files are not embedded
+as separate package content. No build or test artefacts belong in these packages.
+
+One isolated temporary consumer project installs each local optional package in
+turn on .NET 10 and .NET 11. Local source mapping supplies Core and the optional
+package, with normal configured feeds supplying third-party dependencies. Each
+codec registers before index access. Separate processes create/commit and reopen
+an index and verify stored fields, codec policy, resolved Core version and
+assembly/file versions. An exact Core 3.1.1 pairing must fail NuGet resolution.
+The negative probe may restore the historical package from a configured feed.
+
+Review `artifacts/package/release/manifest.json` and the acceptance evidence under
+`artifacts/temp/compression-consumer`; the standard test `run.json` records
+status and the consumer evidence path. The scoped pack manifest lists only the
+current Core and optional packages, preserving older local artefacts separately. Packing and validation do not publish any
+package. Run focused compression/registration tests, the architecture suite,
+the full build, docs build and `git diff --check` before release.
+
+## Select affected tests
+
+```powershell
+./devops test affected
+./devops test affected -Commit HEAD
+./devops test affected -Commit caf4bd5
+./devops test affected -Range HEAD~3..HEAD
+```
+
+Plain `affected` selects only modified tracked, staged and untracked non-ignored
+files. `-Commit` selects only the chosen commit's changes against its first
+parent, or the empty tree for a root commit. Abbreviated SHAs and normal Git
+commit-ish values are supported. `-Range` selects only the supplied explicit
+Git revision range. Both history modes ignore unrelated dirty state. DevOps
+neither infers a branch base nor fetches remote revisions.
+
+`-Commit` and `-Range` are mutually exclusive and valid only with `affected`.
+Invalid revisions, unmapped paths and selections producing zero test targets
+are hard failures. Selection paths are normalised, de-duplicated and sorted
+before the existing code-area mapper runs. The console shows the source,
+changed-file count and targets. Runs producing artefacts retain the source,
+supplied revision, resolved commit and first parent where applicable, current
+HEAD, selected paths and targets in `run.json` under `affectedSelection`.
+
+The tooling regressions use real temporary Git repositories. Run them with
+`pwsh ./scripts/devops/validation/affected-selection-smoke.ps1`; the build
+workflow also runs this smoke. The DevOps test command currently registers .NET
+suites only, so this PowerShell validation script follows the existing artefact
+smoke route. A future tooling suite could expose both through `./devops test`.

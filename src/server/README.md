@@ -42,7 +42,7 @@ curl -X PUT http://127.0.0.1:5080/v1/indices/books \
 
 Bulk writes accept `Memory` or `LocalFsync` independently of `refresh`. `Memory` acknowledges an accepted local writer operation; `LocalFsync` waits for a local durable commit. `refresh: true` makes committed data visible before the response. Successful writes return a versioned `writeToken`; send that token with `consistency: "ReadYourWrites"` when a search must wait for the write.
 
-The complete alpha guide is in [`docs/server`](../../docs/server/index.md), including schema rules, cursor paging, REST/gRPC examples, Studio and persistence details.
+The complete alpha guide is in [`docs/server`](../../docs/content/server/index.md), including schema rules, cursor paging, REST/gRPC examples, Studio and persistence details.
 
 ## Package boundaries
 

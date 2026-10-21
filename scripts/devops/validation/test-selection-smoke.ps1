@@ -57,6 +57,18 @@ try {
 
         Assert-Selection ($null -eq (Get-Module -Name PwshSpectreConsole)) `
             'loading the normal DevOps module does not import the optional UI dependency'
+
+        $registeredSuites = Get-TestSuiteRegistry
+        $allSuiteKeys = @(Get-OrderedTestSuiteKeys -TestSuites $registeredSuites)
+        $allListedSuiteKeys = @(Get-OrderedTestSuiteKeys -TestSuites $registeredSuites -IncludeExplicitOnly)
+        Assert-Selection ('docs-site' -notin $allSuiteKeys) `
+            'the docs browser suite is excluded from all because it requires a freshly built site'
+        Assert-Selection ('docs-site' -in $allListedSuiteKeys) `
+            'the docs browser suite remains available for explicit runs'
+        $docsTargets = @(Resolve-TestTargets -Suite @('docs-site') -Framework 'net10.0' `
+            -FrameworkExplicit $true -TestSuites $registeredSuites)
+        Assert-Selection ($docsTargets.Count -eq 1 -and $docsTargets[0].Suite -eq 'docs-site') `
+            'the docs browser suite resolves explicitly through the test registry'
         Write-Host "Test selection smoke passed ($script:checks checks)."
     }
 } finally {

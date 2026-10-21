@@ -44,4 +44,4 @@ Use `config` when constructing the `IndexWriter`. The policy is stored in the se
 - interoperability with an existing Snappy-oriented deployment matters;
 - a modest compression ratio is acceptable.
 
-The core package already includes Deflate and Brotli. See [stored-field compression](../../../docs/tips/01-compression.md) for policy trade-offs and block-size guidance.
+The core package already includes Deflate and Brotli. See [stored-field compression](../../../docs/content/tips/01-compression.md) for policy trade-offs and block-size guidance.

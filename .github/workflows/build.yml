@@ -54,6 +54,8 @@ jobs:
         run: |
           pwsh ./scripts/devops/validation/artifacts-smoke.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh ./scripts/devops/validation/test-selection-smoke.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pwsh ./scripts/devops/validation/runtime-identifier-smoke.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pwsh ./scripts/devops/validation/test-progress-smoke.ps1
@@ -227,11 +229,10 @@ jobs:
           path: artifacts/test/runs
           if-no-files-found: warn
 
-  deploy:
-    needs: [linux-tests, coverage, windows-tests, platform-smoke]
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[deploy]')
+  docs-site:
+    needs: [linux-tests, coverage]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
@@ -240,14 +241,46 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.23.3'
+          cache: npm
+          cache-dependency-path: docs/site-config/diagrams/package-lock.json
+      - name: Restore repository tools
+        shell: pwsh
+        run: ./setup.ps1
       - uses: actions/download-artifact@v7
         with:
           name: coverage-runs
           path: artifacts/coverage/runs
-      - name: Build docs
+      - name: Build docs test target
         shell: pwsh
-        run: ./devops docs build -SkipBenchmarks
+        run: ./devops build -Project src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj -Framework net10.0
+      - name: Install Playwright Chromium
+        shell: pwsh
+        run: |
+          $playwrightScript = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0/playwright.ps1'
+          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
+          pwsh $playwrightScript install --with-deps chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build documentation site
+        shell: pwsh
+        run: ./devops docs build
+      - name: Validate documentation site
+        shell: pwsh
+        run: ./devops docs test -Framework net10.0 -NoRestore
       - uses: actions/upload-artifact@v7
         with:
           name: leancorpus-docs-site
-          path: artifacts/docs/site
+          path: |
+            artifacts/docs/site
+            artifacts/docs/generated/provenance.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload documentation diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-site-diagnostics
+          path: artifacts/docs/diagnostics
+          if-no-files-found: warn

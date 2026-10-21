@@ -57,7 +57,7 @@ A runnable version lives in [Rowles.Text.Example.Tokenise](../../examples/Rowles
 | Segment Chinese, Japanese or Thai text | The relevant language tokeniser and lexicon |
 | Preserve phrases, synonyms or graphs | Token positions, position lengths and graph-aware filters |
 
-The [analysis documentation](../../../docs/analysis/index.md) describes the available components and language support.
+The [analysis documentation](../../../docs/content/analysis/index.md) describes the available components and language support.
 
 ## Use a lexicon-backed component
 
@@ -93,6 +93,6 @@ Performance-sensitive changes should be checked with the registered analysis ben
 ## Next steps
 
 - Run the [tokenisation example](../../examples/Rowles.Text.Example.Tokenise/).
-- Browse the [analysis guides](../../../docs/analysis/index.md).
+- Browse the [analysis guides](../../../docs/content/analysis/index.md).
 - Learn how lexicon files are used in the [lexicons README](../../../lexicons/README.md).
 - Contribute an analyser, filter, stemmer or tokeniser using [CONTRIBUTING.md](CONTRIBUTING.md).

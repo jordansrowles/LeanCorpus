@@ -35,12 +35,12 @@ function Invoke-DevOpsSetup {
         (Get-BenchmarkDataRoot -RepoRoot $repoRoot),
         (Get-ArtifactRunsRoot -Kind diagnostics -RepoRoot $repoRoot),
         (Get-DocsArtifactPath -Name api -RepoRoot $repoRoot),
+        (Join-Path (Get-ArtifactKindRoot -Kind docs -RepoRoot $repoRoot) 'content'),
         (Get-DocsArtifactPath -Name coverage -RepoRoot $repoRoot),
         (Get-DocsArtifactPath -Name site -RepoRoot $repoRoot),
         (Get-DocsArtifactPath -Name diagnostics -RepoRoot $repoRoot),
         (Get-ArtifactKindRoot -Kind package -RepoRoot $repoRoot),
-        (Get-ArtifactKindRoot -Kind temp -RepoRoot $repoRoot),
-        (Join-Path $repoRoot 'docs/changelog')
+        (Get-ArtifactKindRoot -Kind temp -RepoRoot $repoRoot)
     )
 
     Write-Heading 'Directories'
@@ -80,13 +80,18 @@ function Invoke-DevOpsSetup {
 
     Write-Host ''
 
-    # Tools
+    # Repository-pinned tools
     Write-Heading 'Tools'
-    $docfx = Get-Command docfx -ErrorAction SilentlyContinue
-    if ($docfx) {
-        Write-Success '  docfx: installed'
+    $toolManifest = Join-Path $repoRoot '.config/dotnet-tools.json'
+    if (Test-Path -LiteralPath $toolManifest -PathType Leaf) {
+        $manifest = Get-Content -LiteralPath $toolManifest -Raw | ConvertFrom-Json
+        if ($manifest.tools.docfx) {
+            Write-Info "  DocFX $($manifest.tools.docfx.version): pinned locally (run ./setup.ps1 to restore)"
+        } else {
+            Write-Failure '  DocFX: missing from the local tool manifest (run ./setup.ps1 after correcting the manifest)'
+        }
     } else {
-        Write-Failure '  docfx: not installed (run: dotnet tool install -g docfx)'
+        Write-Failure '  repository tool manifest: not found (run ./setup.ps1 after restoring the repository files)'
     }
 
     if (Test-DevOpsUiDependency) {

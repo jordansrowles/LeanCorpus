@@ -44,4 +44,4 @@ Use `config` when constructing the `IndexWriter`. The selected policy is recorde
 - stored fields are read frequently;
 - a modest compression ratio is acceptable.
 
-The core package already includes Deflate and Brotli. See [stored-field compression](../../../docs/tips/01-compression.md) for policy trade-offs and block-size guidance.
+The core package already includes Deflate and Brotli. See [stored-field compression](../../../docs/content/tips/01-compression.md) for policy trade-offs and block-size guidance.
