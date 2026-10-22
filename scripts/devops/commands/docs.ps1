@@ -135,7 +135,7 @@ function Invoke-DevOpsDocs {
 
         Copy-Changelog -RepoRoot $repoRoot -DocsDir $contentDir
         New-DocsSectionCatalog -Directory (Join-Path $contentDir 'changelog') `
-            -Title 'Changelog' -Description 'Versioned LeanCorpus, Rowles.Text and Community Server release notes.' `
+            -Title 'Changelog' -Description 'Versioned LeanCorpus, Rowles.Text, Community Server and managed DevOps release notes.' `
             -SeparateServerChangelog
 
         $adrDirectory = Join-Path $docsSourceDir 'articles/ADRs'

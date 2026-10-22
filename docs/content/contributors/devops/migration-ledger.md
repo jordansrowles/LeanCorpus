@@ -8,6 +8,8 @@ The pre-#11 snapshot (`7e5bf521d48da2df20a5bc7af1ec816022d4e9ce`) contained **44
 
 The post-#11 tracked tree (`4ccdf1ba7ae447ed982a34dc64478df47879baf3`) contains **272 paths, including 177 Markdown files**. Canonical `docs/content/` contains 179 paths, including 177 Markdown files; `docs/site-config/` contains 93 non-Markdown files. Generated API, benchmark, coverage and site output is staged beneath ignored `artifacts/docs/` and is not part of these current source-tree counts.
 
+At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree contains **276 paths, including 180 Markdown files**. Four DevOps migration records were added under `docs/content/` after the post-#11 snapshot. The old generated `docs/benchmarks/` subtree remains absent; the only paths with “benchmark” in their names at that revision are two authored guides. Generated benchmark output remains under ignored `artifacts/docs/`.
+
 ## Environment
 
 | Item | Baseline |
@@ -410,3 +412,24 @@ dirty worktree.
 This verifies basic managed Core telemetry capture and reporting on Linux.
 Full legacy Markdown/JSON field parity, other report consumers, Windows/Linux
 parity, isolated stress and public `test`/`aot` routing remain open.
+
+### Post-pull bootstrap preflight
+
+At issue-97 base `4244928c4539e986dedaa974b6045b27f8435be3`, the bootstrap
+preflight was extended to reject missing managed projects and each required
+`.config/devops` JSON file before restore, build or publish. The first real
+setup attempt exposed that root `Directory.Build.targets` is optional in this
+checkout; the smoke fixture was corrected to omit it and setup now checks only
+inputs the project graph requires. The regression smoke passed 77/77 checks.
+
+The real Linux setup passed with SDK `11.0.100-preview.7.26381.103` on Debian
+13 x64: locked restores, managed test-project graph build (0 warnings, 0
+errors), 235/238 managed tests passed with three explicit qualification tests
+skipped, single-file host publication, staged help/version/build probes,
+promotion and promoted help/version probes. Managed build smoke run
+`e65171ec-1573-4934-b106-4d980a626df4` succeeded. The promoted executable and
+manifest hashes are recorded in `latestBootstrapPreflight` in the adjacent
+JSON ledger. This run used a dirty worktree based on `4244928c4`; final-SHA,
+Windows and hosted bootstrap qualification remain open. The sandboxed restore
+attempt exited 130 before project restore and is incomplete, not passing
+evidence.

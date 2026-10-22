@@ -259,9 +259,30 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     Stop-Setup "The repository tool manifest was not found: $manifestPath"
 }
 
-$rid = Get-CurrentRuntimeIdentifier
 $testProject = Join-Path $repositoryRoot 'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj'
 $hostProject = Join-Path $repositoryRoot 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
+$requiredBootstrapInputs = @(
+    'Directory.Build.props',
+    'Directory.Packages.props',
+    'src/devops/Directory.Build.props',
+    'src/devops/Directory.Packages.props',
+    'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj',
+    'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj',
+    '.config/devops/benchmark-datasets.json',
+    '.config/devops/benchmark-groups.json',
+    '.config/devops/benchmark-strategies.json',
+    '.config/devops/benchmark-suites.json',
+    '.config/devops/code-areas.json',
+    '.config/devops/test-suites.json'
+)
+foreach ($relativePath in $requiredBootstrapInputs) {
+    $inputPath = Join-Path $repositoryRoot ($relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+    if (-not (Test-Path -LiteralPath $inputPath -PathType Leaf)) {
+        Stop-Setup "A required bootstrap input was not found: $relativePath"
+    }
+}
+
+$rid = Get-CurrentRuntimeIdentifier
 $testApphostName = if ($IsWindows) { 'Rowles.LeanCorpus.DevOps.Tests.exe' } else { 'Rowles.LeanCorpus.DevOps.Tests' }
 $testApphost = Join-Path $repositoryRoot (Join-Path 'artifacts/devops/bin/Rowles.LeanCorpus.DevOps.Tests/release' $testApphostName)
 $outputRoot = Join-Path $repositoryRoot 'artifacts/devops'

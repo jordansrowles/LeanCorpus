@@ -20,8 +20,46 @@ $ContentDirectory = [System.IO.Path]::GetFullPath($ContentDirectory)
 $ApiDirectory = [System.IO.Path]::GetFullPath($ApiDirectory)
 $SiteDirectory = [System.IO.Path]::GetFullPath($SiteDirectory)
 
+. (Join-Path $RepoRoot 'scripts/devops/support/docfx.ps1')
+
 function Assert-DocsSmoke([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw "Documentation site smoke failed: $Message" }
+}
+
+function Get-DocsProjectVersion([string]$ProjectPath) {
+    $output = @(& dotnet msbuild $ProjectPath '-getProperty:Version' '-nologo' 2>&1)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "Documentation site smoke failed: could not evaluate Version from '$ProjectPath': $($output -join [Environment]::NewLine)"
+    }
+    $versions = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -match '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$' })
+    if ($versions.Count -ne 1) {
+        throw "Documentation site smoke failed: expected one evaluated SemVer Version from '$ProjectPath'; received: $($output -join [Environment]::NewLine)"
+    }
+    return $versions[0]
+}
+
+function Test-DocsMetadataWithoutDevOpsProject {
+    $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('leancorpus-docs-version-smoke-' + [Guid]::NewGuid().ToString('N'))
+    $coreProject = Join-Path $fixtureRoot 'src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj'
+    [void][System.IO.Directory]::CreateDirectory((Split-Path $coreProject -Parent))
+    try {
+        [System.IO.File]::WriteAllText($coreProject, '<Project><PropertyGroup><Version>4.2.3</Version></PropertyGroup></Project>', [System.Text.UTF8Encoding]::new($false))
+        & git -C $fixtureRoot init --quiet
+        if ($LASTEXITCODE -ne 0) { throw 'Documentation site smoke failed: could not initialise the no-DevOps metadata fixture.' }
+        & git -C $fixtureRoot -c 'user.name=Docs Fixture' -c 'user.email=docs-fixture@example.invalid' commit --allow-empty --quiet -m 'metadata smoke fixture'
+        if ($LASTEXITCODE -ne 0) { throw 'Documentation site smoke failed: could not create the no-DevOps metadata fixture revision.' }
+
+        Write-DocsSiteMetadata -RepoRoot $fixtureRoot
+        $fixtureMetadataDirectory = Join-Path $fixtureRoot 'artifacts/docs/generated'
+        $fixtureProvenance = Get-Content -LiteralPath (Join-Path $fixtureMetadataDirectory 'provenance.json') -Raw | ConvertFrom-Json
+        $fixtureMetadata = Get-Content -LiteralPath (Join-Path $fixtureMetadataDirectory 'site-metadata.json') -Raw | ConvertFrom-Json
+        Assert-DocsSmoke ($fixtureMetadata.productVersion -eq '4.2.3') 'The no-DevOps fixture did not retain its evaluated Core version.'
+        Assert-DocsSmoke ($null -eq $fixtureMetadata.devOpsVersion -and $null -eq $fixtureProvenance.devOpsVersion) `
+            'The no-DevOps fixture borrowed another product version.'
+    } finally {
+        if (Test-Path -LiteralPath $fixtureRoot) { Remove-Item -LiteralPath $fixtureRoot -Recurse -Force }
+    }
 }
 
 function Get-TocTargets([string]$Path) {
@@ -41,10 +79,19 @@ Assert-DocsSmoke (Test-Path -LiteralPath $siteMetadataPath -PathType Leaf) 'Gene
 $provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
 $siteMetadata = Get-Content -LiteralPath $siteMetadataPath -Raw | ConvertFrom-Json
 Assert-DocsSmoke ($provenance.commit -match '^[0-9a-f]{40}$') 'The repository revision is missing or malformed.'
+Test-DocsMetadataWithoutDevOpsProject
 $projectPath = Join-Path $RepoRoot 'src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj'
-[xml]$project = Get-Content -LiteralPath $projectPath -Raw
-$version = $project.SelectSingleNode('/Project/PropertyGroup/Version').InnerText.Trim()
+$version = Get-DocsProjectVersion $projectPath
 Assert-DocsSmoke ($siteMetadata.productVersion -eq $version) 'Site version does not match the LeanCorpus project version.'
+$devOpsProjectPath = Join-Path $RepoRoot 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
+if (Test-Path -LiteralPath $devOpsProjectPath -PathType Leaf) {
+    $devOpsVersion = Get-DocsProjectVersion $devOpsProjectPath
+    Assert-DocsSmoke ($siteMetadata.devOpsVersion -eq $devOpsVersion -and $provenance.devOpsVersion -eq $devOpsVersion) `
+        'Site metadata does not preserve the independently evaluated DevOps version.'
+} else {
+    Assert-DocsSmoke ($null -eq $siteMetadata.devOpsVersion -and $null -eq $provenance.devOpsVersion) `
+        'Site metadata borrowed a version when no DevOps project exists.'
+}
 
 $requiredContent = @(
     'index.md',
@@ -56,6 +103,7 @@ $requiredContent = @(
     'articles/ADRs/Server/ADR-S005-aot-and-framework-compatibility-boundary.md',
     'changelog/index.md',
     'changelog/toc.yml',
+    'changelog/devops/unreleased.md',
     'benchmarks/overview.md',
     'benchmarks/toc.yml'
 )
@@ -63,6 +111,10 @@ foreach ($relativePath in $requiredContent) {
     Assert-DocsSmoke (Test-Path -LiteralPath (Join-Path $ContentDirectory $relativePath) -PathType Leaf) `
         "Required staged document is missing: $relativePath"
 }
+$changelogIndex = [System.IO.File]::ReadAllText((Join-Path $ContentDirectory 'changelog/index.md'))
+$changelogToc = [System.IO.File]::ReadAllText((Join-Path $ContentDirectory 'changelog/toc.yml'))
+Assert-DocsSmoke ($changelogIndex.Contains('## LeanCorpus DevOps')) 'The changelog index does not keep the DevOps release stream independent.'
+Assert-DocsSmoke ($changelogToc.Contains("name: 'LeanCorpus DevOps'")) 'The changelog TOC does not keep the DevOps release stream independent.'
 Assert-DocsSmoke (Test-Path -LiteralPath (Join-Path $SiteDirectory 'index.html') -PathType Leaf) 'The generated site homepage is missing.'
 Assert-DocsSmoke (Test-Path -LiteralPath (Join-Path $SiteDirectory 'api/index.html') -PathType Leaf) 'The API landing page is missing.'
 

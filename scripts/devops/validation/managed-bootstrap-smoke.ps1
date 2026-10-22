@@ -30,7 +30,7 @@ if [ "$1" = "restore" ]; then
     if [ "$BOOTSTRAP_FAKE_FAIL_STAGE" = "restore" ]; then exit 32; fi
 fi
 if [ "$1" = "build" ]; then
-    if [ -n "$BOOTSTRAP_BUILD_CAPTURE_PATH" ]; then printf '%s\\n' "$*" >> "$BOOTSTRAP_BUILD_CAPTURE_PATH"; fi
+    if [ -n "$BOOTSTRAP_BUILD_CAPTURE_PATH" ]; then printf '%s\n' "$*" >> "$BOOTSTRAP_BUILD_CAPTURE_PATH"; fi
     if [ "$BOOTSTRAP_FAKE_FAIL_STAGE" = "build" ]; then exit 33; fi
     test_app='artifacts/devops/bin/Rowles.LeanCorpus.DevOps.Tests/release/Rowles.LeanCorpus.DevOps.Tests'
     mkdir -p "$(dirname "$test_app")"
@@ -88,7 +88,7 @@ function New-BootstrapFixture {
     [void][System.IO.Directory]::CreateDirectory($fakeBin)
     [void][System.IO.Directory]::CreateDirectory($fakeHome)
     foreach ($relative in @(
-        '.config', 'src/devops', 'src/devops/Rowles.LeanCorpus.DevOps', '.config/devops',
+        '.config', 'src/devops', 'src/devops/Rowles.LeanCorpus.DevOps', 'src/devops/Rowles.LeanCorpus.DevOps.Tests', '.config/devops',
         'scripts/devops')) {
         [void][System.IO.Directory]::CreateDirectory((Join-Path $root $relative))
     }
@@ -100,13 +100,17 @@ function New-BootstrapFixture {
         'global.json' = '{"sdk":{"version":"11.0.100-preview.7.26381.103","allowPrerelease":true}}'
         '.config/dotnet-tools.json' = '{"version":1,"isRoot":true,"tools":{}}'
         'Directory.Build.props' = '<Project />'
-        'Directory.Build.targets' = '<Project />'
         'Directory.Packages.props' = '<Project />'
         'src/devops/Directory.Build.props' = '<Project />'
         'src/devops/Directory.Packages.props' = '<Project />'
         'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj' = '<Project />'
         'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj' = '<Project />'
         'src/devops/Rowles.LeanCorpus.DevOps/Program.cs' = 'fixture source'
+        '.config/devops/benchmark-datasets.json' = '{}'
+        '.config/devops/benchmark-groups.json' = '{}'
+        '.config/devops/benchmark-strategies.json' = '{}'
+        '.config/devops/benchmark-suites.json' = '{}'
+        '.config/devops/code-areas.json' = '{}'
         '.config/devops/test-suites.json' = '{"version":1}'
     }
     foreach ($entry in $files.GetEnumerator()) {
@@ -183,19 +187,35 @@ function Test-BootstrapFailurePreservesHost {
         [Parameter(Mandatory = $true)][string]$Name,
         [string]$FailureStage = '',
         [string]$ExpectedText,
+        [string]$MissingInput = '',
         [switch]$WithoutGit,
         [switch]$UnexpectedSidecar
     )
 
     $fixture = New-BootstrapFixture -Name $Name -WithoutGit:$WithoutGit
     try {
+        if ($MissingInput) {
+            Remove-Item -LiteralPath (Join-Path $fixture.Root $MissingInput) -Force
+        }
         $sentinel = Set-BootstrapSentinel -Fixture $fixture
-        $result = Invoke-BootstrapFixture -Fixture $fixture -FailureStage $FailureStage -UnexpectedSidecar:$UnexpectedSidecar
+        $restoreCapturePath = ''
+        $buildCapturePath = ''
+        $publishCapturePath = ''
+        if ($MissingInput) {
+            $restoreCapturePath = Join-Path $fixture.Root 'restore-calls.txt'
+            $buildCapturePath = Join-Path $fixture.Root 'build-calls.txt'
+            $publishCapturePath = Join-Path $fixture.Root 'publish-calls.txt'
+        }
+        $result = Invoke-BootstrapFixture -Fixture $fixture -FailureStage $FailureStage -UnexpectedSidecar:$UnexpectedSidecar -RestoreCapturePath $restoreCapturePath -BuildCapturePath $buildCapturePath -PublishCapturePath $publishCapturePath
         Assert-BootstrapContract ($result.ExitCode -ne 0) "$Name should fail"
         $outputForAssertion = [regex]::Replace($result.Output, '[\r\n|]+', ' ')
         $outputForAssertion = [regex]::Replace($outputForAssertion, '\s+', ' ')
         if ($ExpectedText -and $outputForAssertion -notlike "*$ExpectedText*") {
             throw "Managed bootstrap contract regression: $Name should report '$ExpectedText'. Actual output: $($result.Output)"
+        }
+        if ($MissingInput) {
+            $capturedCommands = @(@($restoreCapturePath, $buildCapturePath, $publishCapturePath) | Where-Object { Test-Path -LiteralPath $_ })
+            Assert-BootstrapContract ($capturedCommands.Count -eq 0) "$Name should fail before restore, build or publish"
         }
         Assert-BootstrapContract ([System.IO.File]::ReadAllText($sentinel.Host) -ceq 'previous apphost sentinel') "$Name must preserve the previous root apphost"
         Assert-BootstrapContract ([System.IO.File]::ReadAllText($sentinel.Manifest) -ceq 'previous manifest sentinel') "$Name must preserve the previous promotion manifest"
@@ -206,6 +226,11 @@ function Test-BootstrapFailurePreservesHost {
 
 try {
     Test-BootstrapFailurePreservesHost -Name 'wrong checkout' -WithoutGit -ExpectedText 'not a LeanCorpus checkout'
+    Test-BootstrapFailurePreservesHost -Name 'missing managed test project' -MissingInput 'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj' -ExpectedText 'required bootstrap input'
+    Test-BootstrapFailurePreservesHost -Name 'missing managed host project' -MissingInput 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj' -ExpectedText 'required bootstrap input'
+    foreach ($configuration in @('benchmark-datasets.json', 'benchmark-groups.json', 'benchmark-strategies.json', 'benchmark-suites.json', 'code-areas.json', 'test-suites.json')) {
+        Test-BootstrapFailurePreservesHost -Name "missing $configuration" -MissingInput ".config/devops/$configuration" -ExpectedText 'required bootstrap input'
+    }
     Test-BootstrapFailurePreservesHost -Name 'missing SDK' -FailureStage 'missing-sdk' -ExpectedText 'SDK required by global.json was not found'
     Test-BootstrapFailurePreservesHost -Name 'tool restore failure' -FailureStage 'tool-restore' -ExpectedText 'Repository tool restore failed'
     Test-BootstrapFailurePreservesHost -Name 'locked restore failure' -FailureStage 'restore' -ExpectedText 'failed with exit code 32'
@@ -230,7 +255,9 @@ try {
         $hostProject = 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
         Assert-BootstrapContract (@($restoreCalls | Where-Object { $_ -like "*$testProject*" }).Count -eq 1 -and @($restoreCalls | Where-Object { $_ -like "*$hostProject*" }).Count -eq 1) 'setup should restore the test graph and host project independently'
         $buildCalls = [System.IO.File]::ReadAllLines($buildCapturePath)
-        Assert-BootstrapContract ($buildCalls.Count -eq 1 -and $buildCalls[0] -like "*$testProject*" -and $buildCalls[0] -notmatch '\\.slnx( |$)') 'setup should build the test project graph without a solution file'
+        Assert-BootstrapContract ('build src/devops/Rowles.LeanCorpus.DevOps.slnx --configuration Release' -match '\.slnx(?:\s|$)') 'solution target detector should recognise a .slnx command'
+        Assert-BootstrapContract ($buildCalls.Count -eq 1 -and $buildCalls[0] -like "*$testProject*" -and $buildCalls[0] -notmatch '\.slnx(?:\s|$)') 'setup should build the test project graph without a solution file'
+        Assert-BootstrapContract ($buildCalls[0] -notmatch '\\n') 'build command capture should write a real line terminator, not a literal backslash-n'
         $publishCalls = [System.IO.File]::ReadAllLines($publishCapturePath)
         Assert-BootstrapContract ($publishCalls.Count -eq 1 -and $publishCalls[0] -match '(^| )-p:IncludeNativeLibrariesForSelfExtract=true( |$)') 'single-file publish should bundle native libraries without root sidecars'
         if ($result.Output -notmatch 'Staged managed host --help probe' -or $result.Output -notmatch 'Staged managed host --version probe') {

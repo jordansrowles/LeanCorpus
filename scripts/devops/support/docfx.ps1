@@ -263,8 +263,9 @@ function New-DocsSectionCatalog {
 
     $groups = if ($SeparateServerChangelog) {
         @(
-            [pscustomobject]@{ Name = 'LeanCorpus and Rowles.Text'; Pages = @($pages | Where-Object { -not $_.RelativePath.StartsWith('server/', [StringComparison]::OrdinalIgnoreCase) }) }
+            [pscustomobject]@{ Name = 'LeanCorpus and Rowles.Text'; Pages = @($pages | Where-Object { -not $_.RelativePath.StartsWith('server/', [StringComparison]::OrdinalIgnoreCase) -and -not $_.RelativePath.StartsWith('devops/', [StringComparison]::OrdinalIgnoreCase) }) }
             [pscustomobject]@{ Name = 'Community Server'; Pages = @($pages | Where-Object { $_.RelativePath.StartsWith('server/', [StringComparison]::OrdinalIgnoreCase) }) }
+            [pscustomobject]@{ Name = 'LeanCorpus DevOps'; Pages = @($pages | Where-Object { $_.RelativePath.StartsWith('devops/', [StringComparison]::OrdinalIgnoreCase) }) }
         )
     } else {
         @([pscustomobject]@{ Name = $Title; Pages = $pages })
@@ -307,19 +308,47 @@ function New-DocsSectionCatalog {
     Write-Info "Generated $Title index and TOC for $($pages.Count) pages."
 }
 
+function Get-EvaluatedProjectVersion {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$ProjectPath
+    )
+
+    $fullProjectPath = Join-Path $RepoRoot ($ProjectPath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+    if (-not (Test-Path -LiteralPath $fullProjectPath -PathType Leaf)) {
+        throw "Version source project not found: $fullProjectPath"
+    }
+    $dotnet = Get-Command dotnet -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    Push-Location $RepoRoot
+    try {
+        $output = @(& $dotnet.Source msbuild $fullProjectPath '-getProperty:Version' '-nologo' 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+    if ($exitCode -ne 0) {
+        throw "Could not evaluate Version from '$ProjectPath': $($output -join [Environment]::NewLine)"
+    }
+
+    $versions = @($output | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ -match '^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$' })
+    if ($versions.Count -ne 1) {
+        throw "Expected one evaluated SemVer Version from '$ProjectPath'; received: $($output -join [Environment]::NewLine)"
+    }
+    return $versions[0]
+}
+
 function Write-DocsSiteMetadata {
     param([string]$RepoRoot)
 
-    $projectPath = Join-Path $RepoRoot 'src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj'
-    if (-not (Test-Path -LiteralPath $projectPath -PathType Leaf)) {
-        throw "Version source project not found: $projectPath"
+    $projectPath = 'src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj'
+    $version = Get-EvaluatedProjectVersion -RepoRoot $RepoRoot -ProjectPath $projectPath
+    $devOpsProjectPath = 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
+    $devOpsProject = Join-Path $RepoRoot ($devOpsProjectPath.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+    $devOpsVersion = if (Test-Path -LiteralPath $devOpsProject -PathType Leaf) {
+        Get-EvaluatedProjectVersion -RepoRoot $RepoRoot -ProjectPath $devOpsProjectPath
+    } else {
+        $null
     }
-    [xml]$project = Get-Content -LiteralPath $projectPath -Raw
-    $versionNode = $project.SelectSingleNode('/Project/PropertyGroup/Version')
-    if ($null -eq $versionNode -or [string]::IsNullOrWhiteSpace($versionNode.InnerText)) {
-        throw "Could not derive the documentation product version from '$projectPath'."
-    }
-    $version = $versionNode.InnerText.Trim()
 
     $commit = (& git -C $RepoRoot rev-parse --verify HEAD 2>$null | Select-Object -First 1)
     if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-fA-F]{40}$') {
@@ -333,6 +362,7 @@ function Write-DocsSiteMetadata {
     $provenance = [ordered]@{
         schemaVersion = 1
         productVersion = $version
+        devOpsVersion = $devOpsVersion
         repository = 'https://github.com/jordansrowles/LeanCorpus'
         commit = $commit
         commitUrl = "https://github.com/jordansrowles/LeanCorpus/commit/$commit"
@@ -345,6 +375,7 @@ function Write-DocsSiteMetadata {
         _enableSearch = $true
         categoryLayout = 'nested'
         productVersion = $version
+        devOpsVersion = $devOpsVersion
         repositoryCommit = $commit
         repositoryUrl = 'https://github.com/jordansrowles/LeanCorpus'
         sourceRevisionUrl = "https://github.com/jordansrowles/LeanCorpus/commit/$commit"

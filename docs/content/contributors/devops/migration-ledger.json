@@ -38,7 +38,13 @@
       "canonicalContentMarkdown": 177,
       "siteConfigPaths": 93,
       "siteConfigMarkdown": 0,
-      "note": "The pre-#11 inventory included 146 generated docs/benchmarks paths (76 Markdown). Post-#11 counts describe docs/content and docs/site-config; generated API, benchmark, coverage and site outputs are staged under ignored artifacts/docs. The non-benchmark remainder is mixed content, assets, configuration and templates, not an authored-Markdown count."
+      "postPullIssue97Revision": "4244928c4539e986dedaa974b6045b27f8435be3",
+      "postPullIssue97TrackedDocsPaths": 276,
+      "postPullIssue97TrackedDocsMarkdown": 180,
+      "postPullIssue97CanonicalContentPaths": 183,
+      "postPullIssue97CanonicalContentMarkdown": 180,
+      "postPullIssue97GeneratedBenchmarkPaths": 0,
+      "note": "The pre-#11 inventory included 146 generated docs/benchmarks paths (76 Markdown). Post-#11 counts describe docs/content and docs/site-config; generated API, benchmark, coverage and site outputs are staged under ignored artifacts/docs. The non-benchmark remainder is mixed content, assets, configuration and templates, not an authored-Markdown count. At post-pull issue-97 revision 4244928c, the tree contains 276 tracked docs paths and 180 Markdown files after four DevOps migration records were added; docs/benchmarks is absent and the two benchmark-named source paths are authored guides."
     }
   },
   "scope": {
@@ -1441,7 +1447,7 @@
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation.",
       "cliParser": "implemented",
       "service": "passed",
-      "evidence": "Linux-x64 direct apphost and PowerShell-forwarded project builds passed; setup builds the dedicated solution in locked mode."
+      "evidence": "Linux-x64 direct apphost and PowerShell-forwarded project builds passed; setup restores and builds the managed test-project graph in locked mode, then separately verifies the host multi-RID restore."
     },
     {
       "id": "CMD-TEST",
@@ -2175,10 +2181,10 @@
       "powershellForwardedBuild": "Passed through pwsh ./devops.ps1 with exact argument forwarding.",
       "unsupportedCommands": "Remain explicit PowerShell routes; managed host reports unsupported commands without fallback."
     },
-    "solutionBoundary": "The dedicated solution contains only the managed host and its tests; Rowles.LeanCorpus.slnx is unchanged and contains no managed DevOps project.",
+    "solutionBoundary": "No dedicated DevOps solution is required. setup.ps1 builds the test-project graph, whose references include the managed host and process-test child; Rowles.LeanCorpus.slnx remains unchanged and contains no managed DevOps project.",
     "toolingGap": {
       "status": "resolved-for-milestone",
-      "note": "setup.ps1 explicitly builds the dedicated managed solution in locked mode. No product solution selector was added because that solution is a bootstrap-owned implementation detail."
+      "note": "setup.ps1 restores and builds the managed test-project graph in locked mode and separately verifies the host's multi-RID restore. No dedicated managed solution or product solution selector is required."
     },
     "legacyPropsBoundary": "Existing Rowles.LeanCorpus.Cli still builds through ./devops build -Project with root target/package settings imported by the new src/devops props.",
     "milestoneEvidence": {
@@ -2244,10 +2250,13 @@
       "macOsAndOtherRids": "Not run; not qualified.",
       "bootstrapFailureSmoke": {
         "status": "passed",
-        "checks": 37,
+        "checks": 77,
         "script": "scripts/devops/validation/managed-bootstrap-smoke.ps1",
         "coverage": [
           "wrong checkout",
+          "missing managed test and host projects fail before restore/build/publish",
+          "each of the six required .config/devops JSON files fails early when missing",
+          "fixture matches the repository by omitting optional Directory.Build.targets",
           "missing SDK",
           "tool restore failure",
           "locked restore failure",
@@ -2261,6 +2270,32 @@
           "single-file publish bundles native libraries"
         ],
         "hostPlatform": "Linux"
+      },
+      "latestBootstrapPreflight": {
+        "status": "passed-linux",
+        "sourceCommit": "4244928c4539e986dedaa974b6045b27f8435be3",
+        "sourceDirty": true,
+        "os": "Debian GNU/Linux 13 (trixie)",
+        "rid": "linux-x64",
+        "sdk": "11.0.100-preview.7.26381.103",
+        "command": "pwsh -NoProfile -File ./setup.ps1",
+        "lockedRestore": true,
+        "buildWarnings": 0,
+        "buildErrors": 0,
+        "managedTests": {
+          "total": 238,
+          "passed": 235,
+          "failed": 0,
+          "intentionalExplicitSkips": 3
+        },
+        "bootstrapSmokeChecks": 77,
+        "buildSmokeRunId": "e65171ec-1573-4934-b106-4d980a626df4",
+        "promotedHostSha256": "9bb00827ae9a77b9f20e9314951a68cd7e2c12e92256c4219c04e3562bd85d96",
+        "manifestSha256": "72c7ec0217a1ab0e330696cbb207bb0637b19a03cf04c40a522323e06260ac4b",
+        "open": [
+          "Repeat at the final candidate SHA.",
+          "Windows and hosted bootstrap qualification remain open."
+        ]
       },
       "report": {
         "status": "passed-linux-all-groups-and-apphost-git",
