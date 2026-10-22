@@ -18,7 +18,7 @@ function Get-ManagedHostSourceEntries {
     $paths = [System.Collections.Generic.List[string]]::new()
     $requiredFiles = @(
         'global.json', 'Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props',
-        'src/devops/Directory.Build.props', 'src/devops/Directory.Packages.props', 'src/devops/Rowles.LeanCorpus.DevOps.slnx'
+        'src/devops/Directory.Build.props', 'src/devops/Directory.Packages.props'
     )
     foreach ($relative in $requiredFiles) {
         $path = Join-Path $root ($relative.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
@@ -32,7 +32,7 @@ function Get-ManagedHostSourceEntries {
     }
 
     $extensions = @('.cs', '.csproj', '.json', '.props', '.targets', '.slnx')
-    foreach ($relativeDirectory in @('src/devops/Rowles.LeanCorpus.DevOps', 'config/devops')) {
+    foreach ($relativeDirectory in @('src/devops/Rowles.LeanCorpus.DevOps', '.config/devops')) {
         $directory = Join-Path $root ($relativeDirectory.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) { continue }
         $pending = [System.Collections.Generic.Stack[string]]::new()

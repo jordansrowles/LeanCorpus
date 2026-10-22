@@ -22,6 +22,20 @@ public sealed class ManagedHostFingerprintTests
     }
 
     [Fact]
+    public void RejectsChangedManagedConfiguration()
+    {
+        using var checkout = TemporaryCheckout.Create();
+        var executable = Path.Combine(checkout.Root, OperatingSystem.IsWindows() ? "devops.exe" : "devops");
+        File.WriteAllText(executable, "managed host bytes");
+        WriteManifest(checkout.Root, executable, Path.Combine(checkout.Root, "artifacts", "devops", "managed-host.json"));
+
+        Assert.Null(ManagedHostFingerprint.Validate(checkout.Root, executable));
+        File.AppendAllText(Path.Combine(checkout.Root, ".config", "devops", "test-suites.json"), " changed");
+
+        Assert.Contains("stale", ManagedHostFingerprint.Validate(checkout.Root, executable), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void RejectsApphostBytesThatDifferFromPromotionManifest()
     {
         using var checkout = TemporaryCheckout.Create();
@@ -81,7 +95,7 @@ public sealed class ManagedHostFingerprintTests
         foreach (var relative in new[]
         {
             "global.json", "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props",
-            "src/devops/Directory.Build.props", "src/devops/Directory.Packages.props", "src/devops/Rowles.LeanCorpus.DevOps.slnx"
+            "src/devops/Directory.Build.props", "src/devops/Directory.Packages.props"
         })
         {
             if (File.Exists(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar))))
@@ -90,7 +104,7 @@ public sealed class ManagedHostFingerprintTests
             }
         }
 
-        foreach (var directory in new[] { "src/devops/Rowles.LeanCorpus.DevOps", "config/devops" })
+        foreach (var directory in new[] { "src/devops/Rowles.LeanCorpus.DevOps", ".config/devops" })
         {
             var fullDirectory = Path.Combine(root, directory.Replace('/', Path.DirectorySeparatorChar));
             if (!Directory.Exists(fullDirectory))
@@ -123,12 +137,12 @@ public sealed class ManagedHostFingerprintTests
         {
             var root = Path.Combine(Path.GetTempPath(), "DevOps fingerprint checkout " + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.Combine(root, "src", "devops", "Rowles.LeanCorpus.DevOps"));
-            Directory.CreateDirectory(Path.Combine(root, "config", "devops"));
+            Directory.CreateDirectory(Path.Combine(root, ".config", "devops"));
             foreach (var relative in new[]
             {
                 "global.json", "src/devops/Directory.Build.props", "src/devops/Directory.Packages.props",
-                "src/devops/Rowles.LeanCorpus.DevOps.slnx", "src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj",
-                "src/devops/Rowles.LeanCorpus.DevOps/Program.cs", "src/devops/Rowles.LeanCorpus.DevOps/packages.lock.json", "config/devops/test-suites.json"
+                "src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj",
+                "src/devops/Rowles.LeanCorpus.DevOps/Program.cs", "src/devops/Rowles.LeanCorpus.DevOps/packages.lock.json", ".config/devops/test-suites.json"
             })
             {
                 var path = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));

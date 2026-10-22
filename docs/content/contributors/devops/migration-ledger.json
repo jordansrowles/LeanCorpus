@@ -2146,7 +2146,8 @@
     "retired": "No active callers; source removal and regression coverage are reviewed."
   },
   "managedFoundation": {
-    "solution": "src/devops/Rowles.LeanCorpus.DevOps.slnx",
+    "solution": null,
+    "bootstrapProject": "src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj",
     "projects": [
       {
         "path": "src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj",

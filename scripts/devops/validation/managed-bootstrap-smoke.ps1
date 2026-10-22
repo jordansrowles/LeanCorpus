@@ -30,6 +30,7 @@ if [ "$1" = "restore" ]; then
     if [ "$BOOTSTRAP_FAKE_FAIL_STAGE" = "restore" ]; then exit 32; fi
 fi
 if [ "$1" = "build" ]; then
+    if [ -n "$BOOTSTRAP_BUILD_CAPTURE_PATH" ]; then printf '%s\\n' "$*" >> "$BOOTSTRAP_BUILD_CAPTURE_PATH"; fi
     if [ "$BOOTSTRAP_FAKE_FAIL_STAGE" = "build" ]; then exit 33; fi
     test_app='artifacts/devops/bin/Rowles.LeanCorpus.DevOps.Tests/release/Rowles.LeanCorpus.DevOps.Tests'
     mkdir -p "$(dirname "$test_app")"
@@ -87,7 +88,7 @@ function New-BootstrapFixture {
     [void][System.IO.Directory]::CreateDirectory($fakeBin)
     [void][System.IO.Directory]::CreateDirectory($fakeHome)
     foreach ($relative in @(
-        '.config', 'src/devops', 'src/devops/Rowles.LeanCorpus.DevOps', 'config/devops',
+        '.config', 'src/devops', 'src/devops/Rowles.LeanCorpus.DevOps', '.config/devops',
         'scripts/devops')) {
         [void][System.IO.Directory]::CreateDirectory((Join-Path $root $relative))
     }
@@ -103,10 +104,10 @@ function New-BootstrapFixture {
         'Directory.Packages.props' = '<Project />'
         'src/devops/Directory.Build.props' = '<Project />'
         'src/devops/Directory.Packages.props' = '<Project />'
-        'src/devops/Rowles.LeanCorpus.DevOps.slnx' = '<Solution />'
+        'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj' = '<Project />'
         'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj' = '<Project />'
         'src/devops/Rowles.LeanCorpus.DevOps/Program.cs' = 'fixture source'
-        'config/devops/test-suites.json' = '{"version":1}'
+        '.config/devops/test-suites.json' = '{"version":1}'
     }
     foreach ($entry in $files.GetEnumerator()) {
         $path = Join-Path $root $entry.Key
@@ -142,6 +143,7 @@ function Invoke-BootstrapFixture {
         [string]$FailureStage = '',
         [switch]$UnexpectedSidecar,
         [string]$RestoreCapturePath = '',
+        [string]$BuildCapturePath = '',
         [string]$PublishCapturePath = ''
     )
 
@@ -151,6 +153,7 @@ function Invoke-BootstrapFixture {
     $previousSidecar = $env:BOOTSTRAP_FAKE_SIDECAR
     $previousCapturePath = $env:DEVOPS_CAPTURE_PATH
     $previousRestoreCapturePath = $env:BOOTSTRAP_RESTORE_CAPTURE_PATH
+    $previousBuildCapturePath = $env:BOOTSTRAP_BUILD_CAPTURE_PATH
     $previousPublishCapturePath = $env:BOOTSTRAP_PUBLISH_CAPTURE_PATH
     try {
         $env:PATH = $Fixture.FakeBin + [System.IO.Path]::PathSeparator + $previousPath
@@ -159,6 +162,7 @@ function Invoke-BootstrapFixture {
         $env:BOOTSTRAP_FAKE_SIDECAR = if ($UnexpectedSidecar) { '1' } else { '0' }
         $env:DEVOPS_CAPTURE_PATH = ''
         $env:BOOTSTRAP_RESTORE_CAPTURE_PATH = $RestoreCapturePath
+        $env:BOOTSTRAP_BUILD_CAPTURE_PATH = $BuildCapturePath
         $env:BOOTSTRAP_PUBLISH_CAPTURE_PATH = $PublishCapturePath
         $output = (& $powerShell.Source -NoProfile -File $Fixture.Setup 2>&1 | Out-String)
         return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
@@ -169,6 +173,7 @@ function Invoke-BootstrapFixture {
         $env:BOOTSTRAP_FAKE_SIDECAR = $previousSidecar
         $env:DEVOPS_CAPTURE_PATH = $previousCapturePath
         $env:BOOTSTRAP_RESTORE_CAPTURE_PATH = $previousRestoreCapturePath
+        $env:BOOTSTRAP_BUILD_CAPTURE_PATH = $previousBuildCapturePath
         $env:BOOTSTRAP_PUBLISH_CAPTURE_PATH = $previousPublishCapturePath
     }
 }
@@ -214,12 +219,18 @@ try {
     try {
         $sentinel = Set-BootstrapSentinel -Fixture $fixture
         $restoreCapturePath = Join-Path $fixture.Root 'restore-calls.txt'
+        $buildCapturePath = Join-Path $fixture.Root 'build-calls.txt'
         $publishCapturePath = Join-Path $fixture.Root 'publish-calls.txt'
-        $result = Invoke-BootstrapFixture -Fixture $fixture -RestoreCapturePath $restoreCapturePath -PublishCapturePath $publishCapturePath
+        $result = Invoke-BootstrapFixture -Fixture $fixture -RestoreCapturePath $restoreCapturePath -BuildCapturePath $buildCapturePath -PublishCapturePath $publishCapturePath
         Assert-BootstrapContract ($result.ExitCode -eq 0) 'successful bootstrap should complete'
         $restoreCalls = [System.IO.File]::ReadAllLines($restoreCapturePath)
         Assert-BootstrapContract ($restoreCalls.Count -eq 2) 'setup should perform both locked restores'
         Assert-BootstrapContract (@($restoreCalls | Where-Object { $_ -notmatch '(^| )--locked-mode( |$)' -or $_ -notmatch '(^| )--disable-build-servers( |$)' }).Count -eq 0) 'both locked restore calls should disable build servers'
+        $testProject = 'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj'
+        $hostProject = 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
+        Assert-BootstrapContract (@($restoreCalls | Where-Object { $_ -like "*$testProject*" }).Count -eq 1 -and @($restoreCalls | Where-Object { $_ -like "*$hostProject*" }).Count -eq 1) 'setup should restore the test graph and host project independently'
+        $buildCalls = [System.IO.File]::ReadAllLines($buildCapturePath)
+        Assert-BootstrapContract ($buildCalls.Count -eq 1 -and $buildCalls[0] -like "*$testProject*" -and $buildCalls[0] -notmatch '\\.slnx( |$)') 'setup should build the test project graph without a solution file'
         $publishCalls = [System.IO.File]::ReadAllLines($publishCapturePath)
         Assert-BootstrapContract ($publishCalls.Count -eq 1 -and $publishCalls[0] -match '(^| )-p:IncludeNativeLibrariesForSelfExtract=true( |$)') 'single-file publish should bundle native libraries without root sidecars'
         if ($result.Output -notmatch 'Staged managed host --help probe' -or $result.Output -notmatch 'Staged managed host --version probe') {

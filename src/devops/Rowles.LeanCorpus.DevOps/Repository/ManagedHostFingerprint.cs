@@ -89,7 +89,7 @@ internal static class ManagedHostFingerprint
         var repositoryFiles = new[]
         {
             "global.json", "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props",
-            "src/devops/Directory.Build.props", "src/devops/Directory.Packages.props", "src/devops/Rowles.LeanCorpus.DevOps.slnx"
+            "src/devops/Directory.Build.props", "src/devops/Directory.Packages.props"
         };
         foreach (var relativePath in repositoryFiles)
         {
@@ -100,7 +100,7 @@ internal static class ManagedHostFingerprint
         }
 
         AddDirectoryFiles(repositoryRoot, "src/devops/Rowles.LeanCorpus.DevOps", paths);
-        AddDirectoryFiles(repositoryRoot, "config/devops", paths);
+        AddDirectoryFiles(repositoryRoot, ".config/devops", paths);
         if (!paths.Contains("src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj"))
         {
             throw new InvalidDataException("The managed DevOps host project is missing from the selected checkout.");

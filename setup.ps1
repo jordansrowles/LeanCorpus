@@ -260,7 +260,7 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 
 $rid = Get-CurrentRuntimeIdentifier
-$solutionPath = Join-Path $repositoryRoot 'src/devops/Rowles.LeanCorpus.DevOps.slnx'
+$testProject = Join-Path $repositoryRoot 'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj'
 $hostProject = Join-Path $repositoryRoot 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
 $testApphostName = if ($IsWindows) { 'Rowles.LeanCorpus.DevOps.Tests.exe' } else { 'Rowles.LeanCorpus.DevOps.Tests' }
 $testApphost = Join-Path $repositoryRoot (Join-Path 'artifacts/devops/bin/Rowles.LeanCorpus.DevOps.Tests/release' $testApphostName)
@@ -288,9 +288,9 @@ try {
         Stop-Setup 'Repository tool restore failed. Check NuGet connectivity and the local tool manifest, then retry setup.'
     }
 
-    Invoke-SetupCommand $dotnetCommand.Source @('restore', $solutionPath, '--locked-mode', '--disable-build-servers') 'Restoring the dedicated managed DevOps solution in locked mode'
+    Invoke-SetupCommand $dotnetCommand.Source @('restore', $testProject, '--locked-mode', '--disable-build-servers') 'Restoring the managed DevOps test project graph in locked mode'
     Invoke-SetupCommand $dotnetCommand.Source @('restore', $hostProject, '--locked-mode', '--disable-build-servers') 'Verifying the managed host multi-RID lock in locked mode'
-    Invoke-SetupCommand $dotnetCommand.Source @('build', $solutionPath, '--configuration', 'Release', '--no-restore', '--disable-build-servers', '-m:1', '-p:UseSharedCompilation=false', '--tl:off') 'Building the dedicated managed DevOps solution'
+    Invoke-SetupCommand $dotnetCommand.Source @('build', $testProject, '--configuration', 'Release', '--no-restore', '--disable-build-servers', '-m:1', '-p:UseSharedCompilation=false', '--tl:off') 'Building the managed DevOps test project graph'
 
     if (-not (Test-Path -LiteralPath $testApphost -PathType Leaf)) {
         Stop-Setup "The managed DevOps test apphost was not produced: $testApphost"

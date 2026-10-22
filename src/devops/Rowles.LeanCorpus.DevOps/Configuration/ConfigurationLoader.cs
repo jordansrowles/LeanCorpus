@@ -21,7 +21,7 @@ internal sealed class ConfigurationLoader
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
         _repositoryRoot = Path.GetFullPath(repositoryRoot);
-        _configurationRoot = Path.Combine(_repositoryRoot, "config", "devops");
+        _configurationRoot = Path.Combine(_repositoryRoot, ".config", "devops");
         _projectExists = projectExists ?? File.Exists;
     }
 

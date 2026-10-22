@@ -95,17 +95,17 @@ public sealed class ConfigurationLoaderTests
 
         public string Path { get; }
 
-        public string ConfigPath(string fileName) => System.IO.Path.Combine(Path, "config", "devops", fileName);
+        public string ConfigPath(string fileName) => System.IO.Path.Combine(Path, ".config", "devops", fileName);
 
         public static TemporaryConfiguration Create()
         {
             var checkout = RepositoryPaths.Resolve(explicitRepositoryPath: null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
             var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "DevOps config " + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(System.IO.Path.Combine(path, "config", "devops"));
-            var sourceRoot = System.IO.Path.Combine(checkout.RepositoryRoot, "config", "devops");
+            Directory.CreateDirectory(System.IO.Path.Combine(path, ".config", "devops"));
+            var sourceRoot = System.IO.Path.Combine(checkout.RepositoryRoot, ".config", "devops");
             foreach (var source in Directory.EnumerateFiles(sourceRoot, "*.json"))
             {
-                File.Copy(source, System.IO.Path.Combine(path, "config", "devops", System.IO.Path.GetFileName(source)));
+                File.Copy(source, System.IO.Path.Combine(path, ".config", "devops", System.IO.Path.GetFileName(source)));
             }
 
             return new TemporaryConfiguration(path, sourceRoot);
@@ -119,7 +119,7 @@ public sealed class ConfigurationLoaderTests
         {
             foreach (var source in Directory.EnumerateFiles(_sourceRoot, "*.json"))
             {
-                File.Copy(source, System.IO.Path.Combine(Path, "config", "devops", System.IO.Path.GetFileName(source)), overwrite: true);
+                File.Copy(source, System.IO.Path.Combine(Path, ".config", "devops", System.IO.Path.GetFileName(source)), overwrite: true);
             }
         }
 

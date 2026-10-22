@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $legacyRoot = Join-Path $repositoryRoot 'scripts/devops/config'
-$managedRoot = Join-Path $repositoryRoot 'config/devops'
+$managedRoot = Join-Path $repositoryRoot '.config/devops'
 $configurationNames = @(
     'test-suites',
     'code-areas',
