@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.Net;
+using System.Text.Json;
 using Microsoft.Playwright;
 
 namespace Rowles.LeanCorpus.Tests.Docs;
@@ -580,6 +582,70 @@ internal sealed class BrowserSite : IAsyncDisposable
         Directory.CreateDirectory(outputDirectory);
         var path = Path.Combine(outputDirectory, $"{testName}.png");
         await page.ScreenshotAsync(new PageScreenshotOptions { Path = path, FullPage = true });
+
+        var diagnosticsPath = Path.Combine(outputDirectory, $"{testName}.browser-fonts.json");
+        try
+        {
+            var session = await page.Context.NewCDPSessionAsync(page);
+            try
+            {
+                await session.SendAsync("DOM.enable", new Dictionary<string, object>());
+                await session.SendAsync("CSS.enable", new Dictionary<string, object>());
+
+                var document = await session.SendAsync("DOM.getDocument", new Dictionary<string, object>())
+                    ?? throw new InvalidOperationException("Chromium did not return the document node.");
+                var rootNodeId = document.GetProperty("root").GetProperty("nodeId").GetInt32();
+                var body = await session.SendAsync("DOM.querySelector", new Dictionary<string, object>
+                {
+                    ["nodeId"] = rootNodeId,
+                    ["selector"] = "body"
+                }) ?? throw new InvalidOperationException("Chromium did not return the body node.");
+                var bodyNodeId = body.GetProperty("nodeId").GetInt32();
+                var nav = await session.SendAsync("DOM.querySelector", new Dictionary<string, object>
+                {
+                    ["nodeId"] = rootNodeId,
+                    ["selector"] = "#autocollapse"
+                }) ?? throw new InvalidOperationException("Chromium did not return the navbar node.");
+                var article = await session.SendAsync("DOM.querySelector", new Dictionary<string, object>
+                {
+                    ["nodeId"] = rootNodeId,
+                    ["selector"] = "article"
+                }) ?? throw new InvalidOperationException("Chromium did not return the article node.");
+                var pageMetrics = await page.EvaluateAsync<string>(
+                    "() => JSON.stringify({ userAgent: navigator.userAgent, viewportWidth: innerWidth, documentWidth: document.documentElement.scrollWidth, bodyFontFamily: getComputedStyle(document.body).fontFamily, bodyFontSize: getComputedStyle(document.body).fontSize })");
+                using var pageDocument = JsonDocument.Parse(pageMetrics);
+                var platformFonts = new
+                {
+                    body = await GetPlatformFontsAsync(session, bodyNodeId),
+                    navbar = await GetPlatformFontsAsync(session, nav.GetProperty("nodeId").GetInt32()),
+                    article = await GetPlatformFontsAsync(session, article.GetProperty("nodeId").GetInt32())
+                };
+
+                var diagnostics = JsonSerializer.Serialize(new
+                {
+                    page = pageDocument.RootElement,
+                    platformFonts
+                }, new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(diagnosticsPath, diagnostics);
+            }
+            finally
+            {
+                await session.DetachAsync();
+            }
+        }
+        catch (Exception exception)
+        {
+            await File.WriteAllTextAsync(diagnosticsPath, $"Browser font diagnostics failed: {exception}");
+        }
+    }
+
+    private static async Task<JsonElement> GetPlatformFontsAsync(ICDPSession session, int nodeId)
+    {
+        var result = await session.SendAsync("CSS.getPlatformFontsForNode", new Dictionary<string, object>
+        {
+            ["nodeId"] = nodeId
+        });
+        return result ?? throw new InvalidOperationException("Chromium did not return platform-font details.");
     }
 
     public async ValueTask DisposeAsync()
