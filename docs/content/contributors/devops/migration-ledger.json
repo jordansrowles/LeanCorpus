@@ -2101,7 +2101,7 @@
       "path": ".github/workflows/build.yml",
       "state": "updated",
       "phase": "0-8",
-      "action": "Adds Linux and Windows managed-host qualification plus bootstrap before existing managed builds; product matrices remain unchanged. Hosted execution is pending."
+      "action": "Adds Linux and Windows managed-host qualification plus bootstrap before existing managed builds; product matrices remain unchanged. Coverage bootstraps and calls the managed host directly; missing optional product-build diagnostics warn instead of adding a secondary failure."
     },
     {
       "path": ".github/workflows/deploy.yml",
@@ -2565,27 +2565,61 @@
         "open": "Other legacy report consumers, remaining report output parity, Windows skip-reason output parity, platform qualification and final cutover."
       }
     },
-    "latestHostedBuild": {
+    "previousHostedBuild": {
       "runId": "39775959860",
       "url": "https://github.com/jordansrowles/LeanCorpus/actions/runs/39775959860",
       "sourceCommit": "228812dfea363e9ef41c5c2ed12864d840a711f6",
       "state": "completed",
       "conclusion": "failure",
-      "passedJobs": [
-        "managed-devops-foundation Linux and Windows",
-        "platform-smoke Linux x64 and arm64, Windows x64, macOS ARM64",
-        "package-validation",
-        "package-consumer",
-        "linux-tests net10.0 and net11.0",
-        "windows-tests"
-      ],
       "failedJob": "coverage",
       "failedTest": "Rowles.LeanCorpus.Tests.Core.Index.PhysicalIndexRuntimeResourceTests.CloseDrainsARealAdmittedWriteAtItsFlushSubmissionBarrier",
       "failureEvidence": "The test timed out at its 10-second release.Wait barrier; 4290 Core tests passed, 1 failed and 1 skipped; 63 SourceGen tests passed.",
+      "qualificationBoundary": "Hosted run was on the clean 228812d base before the current managed matrix changes."
+    },
+    "latestHostedBuild": {
+      "runId": "39813635823",
+      "url": "https://github.com/jordansrowles/LeanCorpus/actions/runs/39813635823",
+      "sourceCommit": "68815b95cbeedd5a2ad0bed294eeb11bf7da03ec",
+      "passedJobs": [
+        "managed-devops-foundation Linux x64",
+        "platform-smoke Linux x64 and arm64, Windows x64, macOS ARM64",
+        "package-validation",
+        "package-consumer",
+        "linux-tests net10.0 and net11.0"
+      ],
+      "failedJobs": [
+        "managed-devops-foundation Windows x64: pre-publish suite failed 1 test, passed 273 and intentionally skipped 8",
+        "windows-tests: bootstrap failed on the same test; product build and suite did not start",
+        "coverage: PowerShell dispatcher ran without setup.ps1 and could not find the managed apphost"
+      ],
+      "state": "completed",
+      "conclusion": "failure",
+      "failure": {
+        "test": "Rowles.LeanCorpus.DevOps.Tests.Documentation.RepositoryDocumentationImporterTests.GeneratesAdrGraphIndexAndStagedRelationshipLinksWithoutEditingSources",
+        "source": "src/devops/Rowles.LeanCorpus.DevOps.Tests/Documentation/RepositoryDocumentationImporterTests.cs:296",
+        "cause": "The assertion regex did not allow the carriage return in generated Windows CRLF lines.",
+        "localChange": "Assertion now uses (?m)^## Relationships\\r?$; the generator remains unchanged."
+      },
+      "secondaryFailure": {
+        "step": "windows-tests: Upload build diagnostics",
+        "cause": "artifacts/build/runs was absent because setup failed before the product build.",
+        "localChange": "Missing optional build-run output now warns instead of failing the upload step."
+      },
+      "coverageFailure": {
+        "step": "Collect MTP coverage",
+        "cause": "The workflow called ./devops.ps1 coverage without bootstrapping the managed ./devops apphost.",
+        "localChange": "The coverage job now runs setup.ps1 and then calls ./devops coverage --framework net10.0 --clean."
+      },
       "skippedJobs": [
         "docs-site (coverage dependency failed)"
       ],
-      "qualificationBoundary": "Hosted run was on the clean 228812d base before the current managed matrix changes."
+      "windowsTestResultsArtifactSha256": "f323a2615f24636b10573e7abb3c09fdff86c6102ecacdba0e71e5183d202be9",
+      "localFocusedVerification": {
+        "buildRunId": "ef8b577a-b900-4546-a2da-420b262e3468",
+        "testResult": "1 passed, 0 failed, 0 skipped on Debian 13 x64",
+        "hostedWindowsRerun": "pending"
+      },
+      "qualificationBoundary": "Local changes are uncommitted and this pre-repair source run does not verify them."
     }
   }
 }

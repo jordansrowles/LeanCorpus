@@ -468,3 +468,39 @@ passed a Git inventory probe with a tab and newline in a filename. Setup run
 matrix is not a public command route. Windows matrix parity, normal and stress
 counts, the complete §18 gates and later migration phases remain open. The
 hosted run above predates these dirty local matrix changes.
+
+### Current-SHA hosted Build failure analysis and repair (2026-10-22)
+
+Manual Build run `39813635823` checked out exact source
+`68815b95cbeedd5a2ad0bed294eeb11bf7da03ec` and is now terminal with overall
+failure. Linux managed foundation, Linux net10/net11 tests, Linux x64/ARM64,
+Windows x64 and macOS ARM64 platform smoke, package validation and package
+consumer passed. Both Windows bootstrap jobs failed as described below.
+Coverage failed because the job invoked `./devops.ps1 coverage` without first
+running `setup.ps1`; the dispatcher reported that the managed `./devops`
+apphost was missing. The dependent docs-site job was skipped.
+
+Both Windows managed-foundation and Windows-test bootstrap runs failed on the
+same managed DevOps test:
+`RepositoryDocumentationImporterTests.GeneratesAdrGraphIndexAndStagedRelationshipLinksWithoutEditingSources`.
+The test generated the relationship section using `Environment.NewLine`, then
+counted it with `(?m)^## Relationships$`. On Windows the generated CRLF leaves
+the carriage return before the line terminator, so the assertion found no
+match. This was a test assertion portability defect; the generator's repeated
+write removes existing CRLF sections with its CRLF-aware pattern. The Windows
+setup summary was 273 passed, 1 failed, 8 intentionally filtered skips. The
+Windows full product build and test suite did not start.
+
+The assertion now accepts an optional carriage return. The focused test passed
+1/1 on Debian 13 x64 after a successful DevOps project build (build run
+`ef8b577a-b900-4546-a2da-420b262e3468`). The coverage job now bootstraps the
+managed host and invokes `./devops coverage` directly; hosted verification is
+still required. In the Windows-test job, the follow-up build-diagnostics upload
+also failed because `artifacts/build/runs` did not exist before setup
+completed; that step now warns when that optional build-run path is absent.
+The separate `windows-test-results` artifact did upload: SHA-256
+`f323a2615f24636b10573e7abb3c09fdff86c6102ecacdba0e71e5183d202be9`.
+
+The repairs are local and uncommitted at this ledger revision. Commit and push
+them to `issue-97`, then dispatch a new Build against that exact commit. Run
+`39813635823` remains pre-repair evidence; do not use it to qualify the fixes.

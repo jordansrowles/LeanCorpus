@@ -293,7 +293,7 @@ public sealed class RepositoryDocumentationImporterTests
 
         var repeatedCount = new AdrIndexGenerator().Generate(source, outputPath, staged);
         Assert.Equal(3, repeatedCount);
-        Assert.Single(Regex.Matches(File.ReadAllText(Path.Combine(staged, "ADR001-prior.md")), "(?m)^## Relationships$").Cast<Match>());
+        Assert.Single(Regex.Matches(File.ReadAllText(Path.Combine(staged, "ADR001-prior.md")), "(?m)^## Relationships\\r?$").Cast<Match>());
     }
 
     [Fact]

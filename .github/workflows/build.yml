@@ -91,7 +91,7 @@ jobs:
         with:
           name: linux-${{ matrix.framework }}-build-diagnostics
           path: artifacts/build/runs
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Install Playwright Chromium
         shell: pwsh
         run: |
@@ -137,9 +137,12 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./setup.ps1
       - name: Collect MTP coverage
         shell: pwsh
-        run: ./devops.ps1 coverage -Framework net10.0 -Clean
+        run: ./devops coverage --framework net10.0 --clean
       - uses: actions/upload-artifact@v7
         with:
           name: coverage-runs
@@ -169,7 +172,7 @@ jobs:
         with:
           name: windows-build-diagnostics
           path: artifacts/build/runs
-          if-no-files-found: error
+          if-no-files-found: warn
       - name: Install Playwright Chromium
         shell: pwsh
         run: |
