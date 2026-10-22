@@ -16,6 +16,7 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch') ||
       (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
        startsWith(github.event.workflow_run.head_commit.message, '[deploy]'))
     runs-on: ubuntu-latest
     permissions:
@@ -23,56 +24,49 @@ jobs:
       contents: read
       deployments: write
     steps:
+      - name: Check out trusted deployment validator
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.23.3'
       - name: Resolve successful Build run
         id: source
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const runId = context.eventName === 'workflow_run'
-              ? context.payload.workflow_run.id
-              : Number(context.payload.inputs.run_id);
-            if (!Number.isSafeInteger(runId) || runId <= 0) {
-              throw new Error('run_id must be a positive Build workflow run ID.');
-            }
-
-            const { data: run } = await github.rest.actions.getWorkflowRun({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: runId,
-            });
-            if (run.name !== 'Build' || run.conclusion !== 'success') {
-              throw new Error(`Run ${runId} is not a successful Build workflow run.`);
-            }
-            if (run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
-              throw new Error(`Run ${runId} was produced by a different repository.`);
-            }
-            if (!/^[A-Za-z0-9._/-]+$/.test(run.head_branch)) {
-              throw new Error(`Build branch is not a safe Cloudflare branch name: ${run.head_branch}`);
-            }
-
-            core.setOutput('run-id', String(run.id));
-            core.setOutput('head-sha', run.head_sha);
-            core.setOutput('branch', run.head_branch);
-            core.setOutput('run-number', String(run.run_number));
+        shell: pwsh
+        run: node scripts/devops/validation/resolve-docs-deployment-run.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_API_URL: ${{ github.api_url }}
       - name: Download validated documentation artefact
         uses: actions/download-artifact@v8
         with:
-          name: leancorpus-docs-site
+          artifact-ids: ${{ steps.source.outputs.artifact-id }}
           path: docs-site
           run-id: ${{ steps.source.outputs.run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          digest-mismatch: error
       - name: Verify artefact revision
         shell: pwsh
         env:
           EXPECTED_COMMIT: ${{ steps.source.outputs.head-sha }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact-digest }}
+          EXPECTED_ARTIFACT_ID: ${{ steps.source.outputs.artifact-id }}
+          EXPECTED_BUILD_RUN_ID: ${{ steps.source.outputs.run-id }}
+          EXPECTED_BUILD_RUN_NUMBER: ${{ steps.source.outputs.run-number }}
         run: |
           $provenancePath = Join-Path $PWD 'docs-site/generated/provenance.json'
           $sitePath = Join-Path $PWD 'docs-site/site'
           if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) { throw 'The docs artefact has no provenance manifest.' }
           if (-not (Test-Path -LiteralPath (Join-Path $sitePath 'index.html') -PathType Leaf)) { throw 'The docs artefact has no generated site.' }
           $provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
+          if ($provenance.schemaVersion -ne 1) { throw 'The docs artefact provenance schema is unsupported.' }
+          if ($provenance.repository -ne 'https://github.com/jordansrowles/LeanCorpus') { throw 'The docs artefact belongs to an unexpected repository.' }
+          if ($provenance.workingTreeDirty -ne $false) { throw 'The docs artefact was built from a dirty working tree.' }
           if ($provenance.commit -ne $env:EXPECTED_COMMIT) { throw "Docs artefact commit '$($provenance.commit)' does not match Build commit '$env:EXPECTED_COMMIT'." }
-          Write-Host "Verified Build run ${{ steps.source.outputs.run-number }} at $($provenance.commit)."
+          if ($env:EXPECTED_ARTIFACT_DIGEST -notmatch '^sha256:[0-9a-f]{64}$') { throw 'The selected docs artefact has no valid SHA-256 digest.' }
+          Write-Host "Verified immutable docs artefact $env:EXPECTED_ARTIFACT_ID ($env:EXPECTED_ARTIFACT_DIGEST) from Build run $env:EXPECTED_BUILD_RUN_NUMBER/$env:EXPECTED_BUILD_RUN_ID at $($provenance.commit)."
       - name: Deploy validated site to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:

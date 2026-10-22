@@ -25,3 +25,4 @@
 ## Deprecated
 
 ## Security
+- Reject docs deployments from pull-request Build runs and select the immutable, digest-verified site artefact from an exact successful run.

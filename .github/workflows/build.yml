@@ -306,6 +306,8 @@ jobs:
           node-version: '22.23.3'
           cache: npm
           cache-dependency-path: docs/site-config/diagrams/package-lock.json
+      - name: Validate docs deployment admission rules
+        run: node scripts/devops/validation/resolve-docs-deployment-run.test.mjs
       - name: Restore repository tools
         shell: pwsh
         run: ./setup.ps1
