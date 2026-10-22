@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
@@ -172,12 +173,12 @@ public sealed class ReportServiceTests
         var tabPath = "docs/with\t tab.md";
         var newlinePath = "docs/with\nnewline.md";
         var renamedPath = "docs/α renamed.md";
-        await repository.CommitAsync(
+        await repository.CommitTreeAsync(
             "docs: add unusual paths",
             DateTimeOffset.UtcNow.AddDays(-1),
             (tabPath, "first revision\n"),
             (newlinePath, "newline path\n"));
-        await repository.CommitAsync(
+        await repository.CommitTreeAsync(
             "docs: rename unusual path",
             DateTimeOffset.UtcNow,
             (renamedPath, "first revision\n"),
@@ -201,7 +202,7 @@ public sealed class ReportServiceTests
     public async Task StrictReportReturnsFailureWhenTrackedNamesBreakCrossPlatformRules()
     {
         using var repository = await TemporaryGitRepository.CreateAsync();
-        await repository.CommitAsync(
+        await repository.CommitTreeAsync(
             "feat: add a non-portable file name",
             DateTimeOffset.UtcNow,
             ("src/core/Bad?.cs", "namespace Example; public sealed class BadName { }\n"));
@@ -364,14 +365,9 @@ public sealed class ReportServiceTests
             await File.WriteAllTextAsync(path, content);
         }
 
-        public async Task CommitAsync(string subject, DateTimeOffset time, params (string RelativePath, string Content)[] indexOnlyFiles)
+        public async Task CommitAsync(string subject, DateTimeOffset time)
         {
             await RunGitAsync(Path, "add", "--all");
-            foreach (var (relativePath, content) in indexOnlyFiles)
-            {
-                await StageIndexOnlyFileAsync(relativePath, content);
-            }
-
             await RunGitAsync(Path, new Dictionary<string, string>
                 {
                     ["GIT_AUTHOR_DATE"] = time.ToString("O"),
@@ -379,19 +375,83 @@ public sealed class ReportServiceTests
                 }, "-c", "user.name=Report Test", "-c", "user.email=report-test@example.invalid", "commit", "--date", time.ToString("O"), "-m", subject);
         }
 
-        private async Task StageIndexOnlyFileAsync(string relativePath, string content)
+        public async Task CommitTreeAsync(string subject, DateTimeOffset time, params (string RelativePath, string Content)[] files)
         {
-            var blobPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"devops-report-blob-{Guid.NewGuid():N}.tmp");
-            try
+            var blobs = new List<(string RelativePath, string BlobId)>(files.Length);
+            foreach (var (relativePath, content) in files)
             {
-                await File.WriteAllTextAsync(blobPath, content);
-                var blobId = await RunGitForOutputAsync(Path, null, "hash-object", "-w", blobPath);
-                await RunGitAsync(Path, "update-index", "--add", "--cacheinfo", $"100644,{blobId.Trim()},{relativePath}");
+                var blobId = await RunGitWithInputForOutputAsync(Path, Encoding.UTF8.GetBytes(content), "hash-object", "-w", "--stdin");
+                blobs.Add((relativePath, blobId.Trim()));
             }
-            finally
+
+            var tree = await CreateTreeAsync(blobs);
+            var environment = new Dictionary<string, string>
             {
-                File.Delete(blobPath);
+                ["GIT_AUTHOR_NAME"] = "Report Test",
+                ["GIT_AUTHOR_EMAIL"] = "report-test@example.invalid",
+                ["GIT_AUTHOR_DATE"] = time.ToString("O"),
+                ["GIT_COMMITTER_NAME"] = "Report Test",
+                ["GIT_COMMITTER_EMAIL"] = "report-test@example.invalid",
+                ["GIT_COMMITTER_DATE"] = time.ToString("O")
+            };
+            var arguments = new List<string> { "commit-tree", tree };
+            if (_treeHead is not null)
+            {
+                arguments.AddRange(["-p", _treeHead]);
             }
+
+            arguments.AddRange(["-m", subject]);
+            _treeHead = (await RunGitForOutputAsync(Path, environment, arguments.ToArray())).Trim();
+            await RunGitAsync(Path, "update-ref", "refs/heads/main", _treeHead);
+            await RunGitAsync(Path, "config", "core.protectNTFS", "false");
+            await RunGitAsync(Path, "read-tree", "HEAD");
+        }
+
+        private string? _treeHead;
+
+        private async Task<string> CreateTreeAsync(IReadOnlyList<(string RelativePath, string BlobId)> files)
+        {
+            var entries = new StringBuilder();
+            var groups = files.GroupBy(file =>
+            {
+                var separator = file.RelativePath.IndexOf('/');
+                return separator < 0 ? file.RelativePath : file.RelativePath[..separator];
+            }, StringComparer.Ordinal).OrderBy(group => group.Key, StringComparer.Ordinal);
+
+            foreach (var group in groups)
+            {
+                var directFiles = new List<(string RelativePath, string BlobId)>();
+                var nestedFiles = new List<(string RelativePath, string BlobId)>();
+                foreach (var file in group)
+                {
+                    var separator = file.RelativePath.IndexOf('/');
+                    if (separator < 0)
+                    {
+                        directFiles.Add(file);
+                    }
+                    else
+                    {
+                        nestedFiles.Add((file.RelativePath[(separator + 1)..], file.BlobId));
+                    }
+                }
+
+                if (directFiles.Count > 0)
+                {
+                    if (directFiles.Count != 1 || nestedFiles.Count != 0)
+                    {
+                        throw new InvalidOperationException($"Conflicting Git tree fixture path '{group.Key}'.");
+                    }
+
+                    entries.Append("100644 blob ").Append(directFiles[0].BlobId).Append('\t').Append(group.Key).Append('\0');
+                }
+                else
+                {
+                    var nestedTree = await CreateTreeAsync(nestedFiles);
+                    entries.Append("040000 tree ").Append(nestedTree).Append('\t').Append(group.Key).Append('\0');
+                }
+            }
+
+            return (await RunGitWithInputForOutputAsync(Path, Encoding.UTF8.GetBytes(entries.ToString()), "mktree", "-z")).Trim();
         }
 
         public void Move(string sourceRelativePath, string targetRelativePath)
@@ -444,6 +504,40 @@ public sealed class ReportServiceTests
             process.Start();
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            var output = await stdout;
+            var error = await stderr;
+            if (process.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"git {string.Join(' ', arguments)} failed: {error}");
+            }
+
+            return output;
+        }
+
+        private static async Task<string> RunGitWithInputForOutputAsync(string workingDirectory, byte[] input, params string[] arguments)
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo("git")
+                {
+                    WorkingDirectory = workingDirectory,
+                    RedirectStandardInput = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false
+                }
+            };
+            foreach (var argument in arguments)
+            {
+                process.StartInfo.ArgumentList.Add(argument);
+            }
+
+            process.Start();
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            await process.StandardInput.BaseStream.WriteAsync(input);
+            process.StandardInput.Close();
             await process.WaitForExitAsync();
             var output = await stdout;
             var error = await stderr;
