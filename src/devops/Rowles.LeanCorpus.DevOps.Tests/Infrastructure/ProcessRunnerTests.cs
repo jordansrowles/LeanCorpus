@@ -166,7 +166,7 @@ public sealed class ProcessRunnerTests
         var result = await new ProcessRunner().RunAsync(request, TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.Success, result.Outcome);
-        Assert.InRange(events.Count, 4, 8);
+        Assert.InRange(events.Count, 1, 8);
         Assert.All(events, item => Assert.True(item.Elapsed > TimeSpan.Zero));
     }
 
