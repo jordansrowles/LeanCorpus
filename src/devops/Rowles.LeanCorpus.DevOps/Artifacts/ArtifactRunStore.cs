@@ -192,9 +192,13 @@ internal sealed class ArtifactRunStore
             path = historicalPath;
         }
 
-        await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16_384, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        var manifest = await JsonSerializer.DeserializeAsync<RunManifest>(stream, JsonOptions, cancellationToken).ConfigureAwait(false)
-            ?? throw new InvalidDataException($"Run manifest '{path}' is empty.");
+        RunManifest manifest;
+        await using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 16_384, FileOptions.Asynchronous | FileOptions.SequentialScan))
+        {
+            manifest = await JsonSerializer.DeserializeAsync<RunManifest>(stream, JsonOptions, cancellationToken).ConfigureAwait(false)
+                ?? throw new InvalidDataException($"Run manifest '{path}' is empty.");
+        }
+
         ValidateManifest(manifest, runId, path);
         if (manifest.State is RunState.Created or RunState.Running && !IsOwnerAlive(manifest))
         {

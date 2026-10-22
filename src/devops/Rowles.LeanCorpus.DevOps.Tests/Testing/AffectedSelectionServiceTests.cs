@@ -278,6 +278,21 @@ public sealed class AffectedSelectionServiceTests
             Assert.True(process.ExitCode == 0, $"git {string.Join(' ', arguments)} failed: {error}");
         }
 
-        public void Dispose() => Directory.Delete(_path, recursive: true);
+        public void Dispose()
+        {
+            if (OperatingSystem.IsWindows() && Directory.Exists(_path))
+            {
+                foreach (var file in Directory.EnumerateFiles(_path, "*", SearchOption.AllDirectories))
+                {
+                    var attributes = File.GetAttributes(file);
+                    if ((attributes & FileAttributes.ReadOnly) != 0)
+                    {
+                        File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+                    }
+                }
+            }
+
+            Directory.Delete(_path, recursive: true);
+        }
     }
 }

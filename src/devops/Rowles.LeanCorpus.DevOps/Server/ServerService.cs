@@ -94,7 +94,7 @@ internal sealed class ServerService(
                 },
                 cancellationToken).ConfigureAwait(false);
 
-            var arguments = BuildArguments(request, Path.Combine(request.Checkout.RepositoryRoot, LocalServerProject));
+            var arguments = BuildArguments(request, ResolveProjectPath(request.Checkout));
             manifest = await runStore.UpdateRunningAsync(
                 manifest,
                 git.Commit,
@@ -167,7 +167,7 @@ internal sealed class ServerService(
             return $"Unknown configuration '{request.Configuration}'. Valid: Debug, Release.";
         }
 
-        var projectPath = Path.GetFullPath(Path.Combine(request.Checkout.RepositoryRoot, LocalServerProject));
+        var projectPath = ResolveProjectPath(request.Checkout);
         if (!projectPath.StartsWith(Path.GetFullPath(request.Checkout.RepositoryRoot) + Path.DirectorySeparatorChar, PathComparison) || !File.Exists(projectPath))
         {
             return $"Community Server project '{LocalServerProject}' is missing from the selected checkout.";
@@ -180,6 +180,11 @@ internal sealed class ServerService(
 
         return null;
     }
+
+    private static string ResolveProjectPath(CheckoutIdentity checkout)
+        => Path.GetFullPath(Path.Combine(
+            checkout.RepositoryRoot,
+            LocalServerProject.Replace('/', Path.DirectorySeparatorChar)));
 
     private static IReadOnlyList<string> BuildArguments(ServerStartRequest request, string projectPath)
     {

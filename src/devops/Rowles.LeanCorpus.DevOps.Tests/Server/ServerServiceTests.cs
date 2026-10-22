@@ -19,7 +19,7 @@ public sealed class ServerServiceTests
         var result = await service.StartAsync(new ServerStartRequest { Checkout = checkout.Identity }, TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
-        Assert.Equal(["run", "--project", Path.Combine(checkout.Root, "src", "server", "Rowles.LeanCorpus.Server.Local", "Rowles.LeanCorpus.Server.Local.csproj"), "--framework", "net11.0", "--configuration", "Debug"], process.Request!.Arguments);
+        Assert.Equal(["run", "--project", Path.GetFullPath(Path.Combine(checkout.Root, "src", "server", "Rowles.LeanCorpus.Server.Local", "Rowles.LeanCorpus.Server.Local.csproj")), "--framework", "net11.0", "--configuration", "Debug"], process.Request!.Arguments);
         Assert.Equal(checkout.Root, process.Request.WorkingDirectory);
         Assert.Equal(RunState.Succeeded, result.Manifest!.State);
     }
@@ -59,7 +59,7 @@ public sealed class ServerServiceTests
         Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
         Assert.Equal(
         [
-            "run", "--project", Path.Combine(checkout.Root, "src", "server", "Rowles.LeanCorpus.Server.Local", "Rowles.LeanCorpus.Server.Local.csproj"),
+            "run", "--project", Path.GetFullPath(Path.Combine(checkout.Root, "src", "server", "Rowles.LeanCorpus.Server.Local", "Rowles.LeanCorpus.Server.Local.csproj")),
             "--framework", "net10.0", "--configuration", "Release", "--no-build", "--no-restore", "--",
             "--urls=http://0.0.0.0:5080", "--AllowedHosts=*", "--urls=http://127.0.0.1:5081", "--custom", "value with spaces"
         ], process.Request!.Arguments);

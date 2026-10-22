@@ -172,11 +172,16 @@ public sealed class ReportServiceTests
         var tabPath = "docs/with\t tab.md";
         var newlinePath = "docs/with\nnewline.md";
         var renamedPath = "docs/α renamed.md";
-        await repository.WriteAsync(tabPath, "first revision\n");
-        await repository.WriteAsync(newlinePath, "newline path\n");
-        await repository.CommitAsync("docs: add unusual paths", DateTimeOffset.UtcNow.AddDays(-1));
-        repository.Move(tabPath, renamedPath);
-        await repository.CommitAsync("docs: rename unusual path", DateTimeOffset.UtcNow);
+        await repository.CommitAsync(
+            "docs: add unusual paths",
+            DateTimeOffset.UtcNow.AddDays(-1),
+            (tabPath, "first revision\n"),
+            (newlinePath, "newline path\n"));
+        await repository.CommitAsync(
+            "docs: rename unusual path",
+            DateTimeOffset.UtcNow,
+            (renamedPath, "first revision\n"),
+            (newlinePath, "newline path\n"));
 
         var result = await new ReportService(new ProcessRunner()).GenerateAsync(new ReportRequest
         {
@@ -196,8 +201,10 @@ public sealed class ReportServiceTests
     public async Task StrictReportReturnsFailureWhenTrackedNamesBreakCrossPlatformRules()
     {
         using var repository = await TemporaryGitRepository.CreateAsync();
-        await repository.WriteAsync("src/core/Bad?.cs", "namespace Example; public sealed class BadName { }\n");
-        await repository.CommitAsync("feat: add a non-portable file name", DateTimeOffset.UtcNow);
+        await repository.CommitAsync(
+            "feat: add a non-portable file name",
+            DateTimeOffset.UtcNow,
+            ("src/core/Bad?.cs", "namespace Example; public sealed class BadName { }\n"));
 
         var result = await new ReportService(new ProcessRunner()).GenerateAsync(new ReportRequest
         {
@@ -357,14 +364,34 @@ public sealed class ReportServiceTests
             await File.WriteAllTextAsync(path, content);
         }
 
-        public async Task CommitAsync(string subject, DateTimeOffset time)
+        public async Task CommitAsync(string subject, DateTimeOffset time, params (string RelativePath, string Content)[] indexOnlyFiles)
         {
             await RunGitAsync(Path, "add", "--all");
+            foreach (var (relativePath, content) in indexOnlyFiles)
+            {
+                await StageIndexOnlyFileAsync(relativePath, content);
+            }
+
             await RunGitAsync(Path, new Dictionary<string, string>
                 {
                     ["GIT_AUTHOR_DATE"] = time.ToString("O"),
                     ["GIT_COMMITTER_DATE"] = time.ToString("O")
                 }, "-c", "user.name=Report Test", "-c", "user.email=report-test@example.invalid", "commit", "--date", time.ToString("O"), "-m", subject);
+        }
+
+        private async Task StageIndexOnlyFileAsync(string relativePath, string content)
+        {
+            var blobPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"devops-report-blob-{Guid.NewGuid():N}.tmp");
+            try
+            {
+                await File.WriteAllTextAsync(blobPath, content);
+                var blobId = await RunGitForOutputAsync(Path, null, "hash-object", "-w", blobPath);
+                await RunGitAsync(Path, "update-index", "--add", "--cacheinfo", $"100644,{blobId.Trim()},{relativePath}");
+            }
+            finally
+            {
+                File.Delete(blobPath);
+            }
         }
 
         public void Move(string sourceRelativePath, string targetRelativePath)
@@ -388,6 +415,9 @@ public sealed class ReportServiceTests
             => await RunGitAsync(workingDirectory, null, arguments);
 
         private static async Task RunGitAsync(string workingDirectory, IReadOnlyDictionary<string, string>? environment, params string[] arguments)
+            => _ = await RunGitForOutputAsync(workingDirectory, environment, arguments);
+
+        private static async Task<string> RunGitForOutputAsync(string workingDirectory, IReadOnlyDictionary<string, string>? environment, params string[] arguments)
         {
             using var process = new Process
             {
@@ -415,12 +445,14 @@ public sealed class ReportServiceTests
             var stdout = process.StandardOutput.ReadToEndAsync();
             var stderr = process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
+            var output = await stdout;
             var error = await stderr;
-            _ = await stdout;
             if (process.ExitCode != 0)
             {
                 throw new InvalidOperationException($"git {string.Join(' ', arguments)} failed: {error}");
             }
+
+            return output;
         }
     }
 
@@ -436,15 +468,21 @@ public sealed class ReportServiceTests
 
         public void Dispose()
         {
-            try
+            if (Directory.Exists(Path))
             {
+                if (OperatingSystem.IsWindows())
+                {
+                    foreach (var file in Directory.EnumerateFiles(Path, "*", SearchOption.AllDirectories))
+                    {
+                        var attributes = File.GetAttributes(file);
+                        if ((attributes & FileAttributes.ReadOnly) != 0)
+                        {
+                            File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+                        }
+                    }
+                }
+
                 Directory.Delete(Path, recursive: true);
-            }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
             }
         }
     }
