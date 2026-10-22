@@ -135,6 +135,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- Resolve coverage source paths from the repository root and limit generated HTML to first-party assemblies, keeping coverage links valid in the documentation site.
 - Keep benchmark-run discovery as an array when documentation generation skips the scan or finds no runs.
 - Include linked DevOps migration-ledger JSON files in the generated documentation site.
 - Close managed run-manifest read handles before recording interrupted runs, so Windows can atomically replace the manifest; normalise the server project path before forwarding it to `dotnet`.

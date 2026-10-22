@@ -112,7 +112,7 @@ function Invoke-DevOpsDocs {
             }
         )
         if ($xmlFiles.Count -gt 0) {
-            New-CoverageReport -XmlFiles $xmlFiles -OutputDir $coverageOutput
+            New-CoverageReport -RepoRoot $repoRoot -XmlFiles $xmlFiles -OutputDir $coverageOutput
         } else {
             Remove-OwnedArtifactPath -Path $coverageOutput -ArtifactRoot (Get-ArtifactRoot -RepoRoot $repoRoot)
             Write-Info 'Current-commit coverage evidence is unavailable; continuing without a coverage report.'

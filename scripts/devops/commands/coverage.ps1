@@ -78,7 +78,7 @@ function Invoke-DevOpsCoverage {
         Write-Host "  Found $($xmlFiles.Count) coverage file(s)."
 
         if ($generateReport -and $xmlFiles.Count -gt 0) {
-            New-CoverageReport -XmlFiles $xmlFiles -OutputDir (Join-Path $coverageRun.RunDirectory 'html')
+            New-CoverageReport -RepoRoot $repoRoot -XmlFiles $xmlFiles -OutputDir (Join-Path $coverageRun.RunDirectory 'html')
         }
 
         $coverageStatus = if ($exitCode -eq 0 -and $xmlFiles.Count -gt 0) { 'Passed' } else { 'Failed' }
