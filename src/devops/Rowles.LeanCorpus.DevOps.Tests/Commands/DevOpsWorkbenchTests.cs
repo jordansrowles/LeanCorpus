@@ -23,6 +23,20 @@ public sealed class DevOpsWorkbenchTests
     }
 
     [Fact]
+    public void Run_ProvidesCommandFallbackWhenInteractiveConsoleDoesNotSupportAnsi()
+    {
+        var console = new TestConsole().Interactive().SupportsAnsi(false);
+        var operations = new RecordingWorkbenchOperations();
+
+        int exitCode = CreateWorkbench(console, operations).Run();
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("ANSI", console.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("documented DevOps commands", console.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(operations.Calls);
+    }
+
+    [Fact]
     public void TestSelection_PassesConfiguredChoicesToManagedOperation()
     {
         var console = new TestConsole().Interactive();

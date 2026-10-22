@@ -40,6 +40,13 @@ internal sealed class DevOpsWorkbench(IAnsiConsole console, DevOpsConfiguration 
             return 2;
         }
 
+        if (!console.Profile.Capabilities.Ansi)
+        {
+            console.Write(new Text("The DevOps workbench requires an ANSI-capable terminal for interactive selections. Run the documented DevOps commands directly or use an ANSI-capable terminal."));
+            console.WriteLine();
+            return 2;
+        }
+
         try
         {
             while (true)

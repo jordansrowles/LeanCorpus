@@ -34,7 +34,7 @@ A test selection combines independent dimensions:
 | Category | What role does the test have? | `Unit`, `Integration`, `Chaos` |
 | Filter | Which runner-level name or expression matches? | `FullyQualifiedName~Writer` |
 
-The Core JSON metadata area is named `Serialisation` in test and affected-source selectors. The former `Serialization` selector is no longer accepted.
+The Core JSON metadata area is named `Serialisation` in source paths, namespaces, test selectors, affected-source selectors and benchmark area/group selectors. The former `Serialization` selector is no longer accepted. The interactive workbench also needs an ANSI-capable terminal; use the documented commands directly when ANSI selection is unavailable.
 
 Examples:
 
