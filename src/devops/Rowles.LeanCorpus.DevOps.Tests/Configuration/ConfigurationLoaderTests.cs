@@ -22,6 +22,34 @@ public sealed class ConfigurationLoaderTests
     }
 
     [Fact]
+    public void LoadsBritishSerialisationSelectorsAndRejectsAmericanAliases()
+    {
+        var checkout = RepositoryPaths.Resolve(explicitRepositoryPath: null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        Assert.Contains("serialisation", configuration.CodeAreas.Keys);
+        Assert.False(configuration.CodeAreas.ContainsKey("serialization"));
+        var codeArea = configuration.CodeAreas["serialisation"];
+        Assert.Contains("src/core/Rowles.LeanCorpus/Serialisation/**", codeArea.Globs);
+        Assert.Equal("core:Serialisation", Assert.Single(codeArea.Targets));
+
+        Assert.Contains("Serialisation", configuration.BenchmarkGroups.Keys);
+        Assert.False(configuration.BenchmarkGroups.ContainsKey("Serialization"));
+        var benchmarkGroup = configuration.BenchmarkGroups["Serialisation"];
+        Assert.Equal("Serialisation", benchmarkGroup.Area);
+        Assert.Contains("src/core/Rowles.LeanCorpus/Serialisation/**", benchmarkGroup.Globs);
+
+        var legacyCodeAreas = File.ReadAllText(Path.Combine(checkout.RepositoryRoot, "scripts/devops/config/code-areas.psd1"));
+        Assert.Contains("'serialisation'", legacyCodeAreas, StringComparison.Ordinal);
+        Assert.Contains("'core:Serialisation'", legacyCodeAreas, StringComparison.Ordinal);
+        Assert.DoesNotContain("'serialization'", legacyCodeAreas, StringComparison.Ordinal);
+
+        var legacyBenchmarkGroups = File.ReadAllText(Path.Combine(checkout.RepositoryRoot, "scripts/devops/config/benchmark-groups.psd1"));
+        Assert.Contains("'Serialisation' = @{ Area = 'Serialisation'", legacyBenchmarkGroups, StringComparison.Ordinal);
+        Assert.DoesNotContain("'Serialization' = @{ Area = 'Serialization'", legacyBenchmarkGroups, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RejectsUnknownPropertiesAndDuplicateJsonKeys()
     {
         using var root = TemporaryConfiguration.Create();

@@ -39,12 +39,12 @@
         "core:Search"
       ]
     },
-    "serialization": {
+    "serialisation": {
       "Globs": [
-        "src/core/Rowles.LeanCorpus/Serialization/**"
+        "src/core/Rowles.LeanCorpus/Serialisation/**"
       ],
       "Targets": [
-        "core:Serialization"
+        "core:Serialisation"
       ]
     },
     "mapping": {

@@ -71,6 +71,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Rename the internal Core JSON metadata namespace and source area to British `Serialisation`; preserve Core JSON payload shapes and property names, with Server wire-contract types untouched.
 - Pin DocFX 2.78.5 in the repository-local .NET tool manifest and add root `setup.ps1` checks for PowerShell 7, Git and the `global.json` SDK family.
 - Move canonical documentation and site configuration into `docs/content/` and `docs/site-config/`; stage generated API, import, ADR, changelog, benchmark and site outputs under `artifacts/docs/`.
 - Add an isolated managed DevOps host for `build`, `clean` and foreground `server start`; bootstrap it with `pwsh ./setup.ps1` and keep unmigrated commands on the PowerShell dispatcher.

@@ -34,6 +34,8 @@ A test selection combines independent dimensions:
 | Category | What role does the test have? | `Unit`, `Integration`, `Chaos` |
 | Filter | Which runner-level name or expression matches? | `FullyQualifiedName~Writer` |
 
+The Core JSON metadata area is named `Serialisation` in test and affected-source selectors. The former `Serialization` selector is no longer accepted.
+
 Examples:
 
 ```bash

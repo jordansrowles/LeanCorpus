@@ -4,7 +4,7 @@ using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;

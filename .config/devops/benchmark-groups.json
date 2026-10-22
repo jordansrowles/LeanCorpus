@@ -168,11 +168,11 @@
         "SynonymBenchmarks"
       ]
     },
-    "Serialization": {
+    "Serialisation": {
       "Globs": [
-        "src/core/Rowles.LeanCorpus/Serialization/**"
+        "src/core/Rowles.LeanCorpus/Serialisation/**"
       ],
-      "Area": "Serialization",
+      "Area": "Serialisation",
       "Project": "core",
       "Benchmarks": [
         "SchemaAndJsonBenchmarks"

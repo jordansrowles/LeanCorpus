@@ -3,7 +3,7 @@ using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index;

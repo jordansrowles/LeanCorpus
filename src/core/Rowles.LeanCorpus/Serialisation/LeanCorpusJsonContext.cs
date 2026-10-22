@@ -7,7 +7,7 @@ using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Search.Scoring;
 
-namespace Rowles.LeanCorpus.Serialization;
+namespace Rowles.LeanCorpus.Serialisation;
 
 [JsonSerializable(typeof(CommitData))]
 [JsonSerializable(typeof(SegmentCommitState))]

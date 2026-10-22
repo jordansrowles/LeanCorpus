@@ -20,7 +20,7 @@
     'linq'           = @{ Globs = @('src/core/Rowles.LeanCorpus/Linq/**');                           Targets = @('core:Linq') }
     'mapping'        = @{ Globs = @('src/core/Rowles.LeanCorpus/Mapping/**');                        Targets = @('core:Mapping') }
     'search'         = @{ Globs = @('src/core/Rowles.LeanCorpus/Search/**');                         Targets = @('core:Search') }
-    'serialization'  = @{ Globs = @('src/core/Rowles.LeanCorpus/Serialization/**');                  Targets = @('core:Serialization') }
+    'serialisation'  = @{ Globs = @('src/core/Rowles.LeanCorpus/Serialisation/**');                  Targets = @('core:Serialisation') }
     'util'           = @{ Globs = @('src/core/Rowles.LeanCorpus/Util/**');                           Targets = @('core:Util') }
     'core-root'      = @{ Globs = @('src/core/Rowles.LeanCorpus/*.cs', 'src/core/Rowles.LeanCorpus/*.csproj'); Targets = @('core:Foundation') }
     'core-configuration' = @{ Globs = @('src/core/Rowles.LeanCorpus/Configuration/**');             Targets = @('core:Foundation', 'core:Search') }

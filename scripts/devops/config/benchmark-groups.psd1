@@ -22,7 +22,7 @@
     'Document'      = @{ Area = 'Document';      Globs = @('src/core/Rowles.LeanCorpus/Document/**');              Project = 'core'; Benchmarks = @('IndexingBenchmarks') }
     'Linq'          = @{ Area = 'Linq';          Globs = @('src/core/Rowles.LeanCorpus/Linq/**');                  Project = 'core'; Benchmarks = @('TermQueryBenchmarks') }
     'Mapping'       = @{ Area = 'Mapping';       Globs = @('src/core/Rowles.LeanCorpus/Mapping/**');               Project = 'core'; Benchmarks = @('IndexingBenchmarks') }
-    'Serialization' = @{ Area = 'Serialization'; Globs = @('src/core/Rowles.LeanCorpus/Serialization/**');         Project = 'core'; Benchmarks = @('SchemaAndJsonBenchmarks') }
+    'Serialisation' = @{ Area = 'Serialisation'; Globs = @('src/core/Rowles.LeanCorpus/Serialisation/**');         Project = 'core'; Benchmarks = @('SchemaAndJsonBenchmarks') }
     'Util'          = @{ Area = 'Util';          Globs = @('src/core/Rowles.LeanCorpus/Util/**');                  Project = 'core'; Benchmarks = @('PackedIntCodecBenchmarks') }
 
     'Analysers'     = @{ Area = 'Analysers';     Globs = @('src/core/Rowles.Text/Analysis/Analysers/**');          Project = 'text'; Benchmarks = @('AnalysisBenchmarks', 'AnalyserParityBenchmarks') }

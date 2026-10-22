@@ -32,6 +32,15 @@ public sealed class TestMetadataContractTests
                 Assert.Equal("Area", trait.Key);
                 Assert.Equal("Foundation", trait.Value);
             });
+
+        var serialisationAttribute = new AreaAttribute(TestArea.Serialisation);
+        Assert.Collection(
+            serialisationAttribute.GetTraits(),
+            trait =>
+            {
+                Assert.Equal("Area", trait.Key);
+                Assert.Equal("Serialisation", trait.Value);
+            });
     }
 
     [Fact]

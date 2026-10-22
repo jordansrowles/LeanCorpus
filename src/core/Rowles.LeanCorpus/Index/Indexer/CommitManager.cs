@@ -5,7 +5,7 @@ using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Indexer;

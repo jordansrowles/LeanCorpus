@@ -9,7 +9,7 @@ internal sealed class ConfigurationLoader
     private static readonly HashSet<string> TestAreas = new(StringComparer.OrdinalIgnoreCase)
     {
         "Foundation", "CodecKit", "Diagnostics", "Document", "Index", "Linq", "Mapping", "Search",
-        "Serialization", "Store", "TextIntegration", "Util", "Analysers", "Filters", "Stemmers",
+        "Serialisation", "Store", "TextIntegration", "Util", "Analysers", "Filters", "Stemmers",
         "Tokenisers", "Dictionaries", "Languages", "Architecture", "Functional", "Orchard", "Server"
     };
 
