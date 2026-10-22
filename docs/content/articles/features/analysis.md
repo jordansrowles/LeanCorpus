@@ -79,7 +79,7 @@ Return to the [feature comparison overview](index.md) for status definitions and
 
 ## Unicode scalars and source offsets
 
-Rowles.Text 3.0 and LeanCorpus 4.0 use Unicode scalar values for letter, digit,
+Rowles.Text 2.0 and LeanCorpus 4.0 use Unicode scalar values for letter, digit,
 case and punctuation classification. NGram and EdgeNGram gram sizes, LengthFilter
 bounds and TruncateTokenFilter limits count scalars, not UTF-16 code units.
 Token offsets remain UTF-16 indices into the original source. Truncation preserves
