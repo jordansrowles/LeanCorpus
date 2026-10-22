@@ -89,7 +89,9 @@ public sealed class TestRunPlannerTests
         var manifest = Assert.IsType<RunManifest>(result.Manifest);
         Assert.Equal(RunState.Succeeded, manifest.State);
         Assert.Equal("11.0.100-preview.7.26381.103", manifest.ToolVersions["dotnet-sdk-requested"]);
-        Assert.Equal("11.0.100-preview.7.26381.103", manifest.ToolVersions["dotnet-sdk-selected"]);
+        var selectedSdkOutput = await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "sdk-version.stdout.log"),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(selectedSdkOutput.Trim(), manifest.ToolVersions["dotnet-sdk-selected"]);
         Assert.Equal("latestPatch", manifest.ToolVersions["dotnet-sdk-roll-forward"]);
     }
 
