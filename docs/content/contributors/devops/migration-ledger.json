@@ -1496,8 +1496,8 @@
       "state": "routed",
       "replacement": "Coverage service and ReportGenerator adapter",
       "routed": true,
-      "service": "passed-linux-sourcegen-net10-reportgenerator",
-      "evidence": "Managed coverage run f2461933-9b7c-4c11-9539-be3c847103a6 passed sourcegen/net10.0 on Debian 13 x64 with one Cobertura report, pinned ReportGenerator 5.5.11, HTML output and linked test run 3e2e552d-b0ba-4dd1-b257-e8bbddd38761. The current setup run fc3e3f0a-3871-4a82-a119-d6eff7ede107 built with zero warnings/errors and passed 259/265 managed tests with six intentional explicit-test skips and zero failures, then published and promoted the linux-x64 host. Coverage service tests cover registry eligibility, Coverage=Skip, missing Cobertura, invalid or missing ReportGenerator manifest, report failure and empty HTML output. Windows/macOS, hosted, clean-source and full core/sourcegen matrix parity remain open.",
+      "service": "passed-linux-all-net10-reportgenerator",
+      "evidence": "Clean-source managed coverage run a81b4160-9800-4a18-a549-96eca9eeb0df passed both eligible suites, core/net10.0 and sourcegen/net10.0, on Debian 13 x64 at source commit 53a7a36832f5d81a52bbbb637c2f55cb776ed514. It produced two Cobertura reports, retained HTML via pinned ReportGenerator 5.5.11, and linked test run 17e777f3-e6ac-44ed-8fcc-1bfcf83bedb1; parent and child manifests both record clean source and zero child exit codes. Setup run e0854f5a-7670-494c-a590-92948d118d1b built with zero warnings/errors, passed 259/265 managed tests with six intentional explicit-test skips and zero failures, then published and promoted the Linux x64 host. Coverage service tests cover registry eligibility, Coverage=Skip, missing Cobertura, invalid or missing ReportGenerator manifest, report failure and empty HTML output. Net11, Windows/macOS and hosted parity remain open.",
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {
