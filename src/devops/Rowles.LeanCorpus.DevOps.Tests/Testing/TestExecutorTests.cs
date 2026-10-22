@@ -81,6 +81,38 @@ public sealed class TestExecutorTests
     }
 
     [Fact]
+    public async Task RejectsOverridesOfDevOpsOwnedEnvironmentBeforeCreatingRun()
+    {
+        using var checkout = TemporaryCheckout.Create();
+        var target = checkout.CreateTarget("core");
+        var processRunner = checkout.CreateRunner();
+        var paths = new ArtifactPaths(checkout.Root);
+        var service = new TestExecutor(paths, new ArtifactRunStore(paths, runCategory: "test"), processRunner,
+            new DotNetSdkResolver(processRunner), new FixedProvenanceReader());
+        var request = Request(checkout, [target]) with
+        {
+            RunnerOptions = new TestRunnerOptions(checkout.Root)
+            {
+                Ci = true,
+                ParallelProfile = "integration",
+                ArtifactsEnabled = true,
+                EnvironmentOverrides = new Dictionary<string, string?>(StringComparer.Ordinal)
+                {
+                    ["LEANCORPUS_RUN_ID"] = "caller-value"
+                }
+            }
+        };
+
+        var result = await service.RunAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.ValidationFailure, result.CommandResult.Outcome);
+        Assert.Null(result.Manifest);
+        Assert.Null(result.Aggregate);
+        Assert.Empty(processRunner.TestInvocations);
+        Assert.False(Directory.Exists(paths.GetRunRoot("test")));
+    }
+
+    [Fact]
     public async Task FailFastPreservesFailedAttemptAndRecordsUnscheduledTargets()
     {
         using var checkout = TemporaryCheckout.Create();

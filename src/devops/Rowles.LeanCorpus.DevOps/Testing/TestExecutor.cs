@@ -15,6 +15,7 @@ internal sealed record TestExecutorRequest
     public required CheckoutIdentity Checkout { get; init; }
     public required IReadOnlyList<TestTarget> Targets { get; init; }
     public required TestRunnerOptions RunnerOptions { get; init; }
+    public Guid? ParentRunId { get; init; }
     public AffectedTestSelection? AffectedSelection { get; init; }
     public string CommandLine { get; init; } = "devops test";
     public int Count { get; init; } = 1;
@@ -85,6 +86,10 @@ internal sealed class TestExecutor(
         {
             return Validation("Every MTP target must declare the TRX capability when result artefacts are enabled.");
         }
+        if (TestProcessEnvironmentBuilder.ValidateOverrides(request.RunnerOptions.EnvironmentOverrides) is { } environmentError)
+        {
+            return Validation(environmentError);
+        }
 
         var inputs = new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -101,7 +106,8 @@ internal sealed class TestExecutor(
             ["parallelProfile"] = request.RunnerOptions.ParallelProfile,
             ["explicitMode"] = request.RunnerOptions.ExplicitMode,
             ["hangTimeout"] = request.RunnerOptions.HangTimeout,
-            ["processTimeout"] = request.ProcessTimeout?.ToString() ?? "off"
+            ["processTimeout"] = request.ProcessTimeout?.ToString() ?? "off",
+            ["environmentOverrideNames"] = JsonSerializer.Serialize(request.RunnerOptions.EnvironmentOverrides.Keys.Order(StringComparer.Ordinal))
         };
         if (request.AffectedSelection is { } affectedSelection)
         {
@@ -111,7 +117,8 @@ internal sealed class TestExecutor(
             inputs["affectedHead"] = affectedSelection.Head;
             inputs["affectedPaths"] = JsonSerializer.Serialize(affectedSelection.Paths);
         }
-        var manifest = await artifactRunStore.StartAsync("test", inputs, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var manifest = await artifactRunStore.StartAsync("test", inputs, request.ParentRunId,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
         var runDirectory = artifactPaths.GetRunDirectory("test", manifest.RunId);
         var attempts = new List<TestExecutionAttempt>();
         IReadOnlyList<TestPreparationTiming> preparationTimings = [];

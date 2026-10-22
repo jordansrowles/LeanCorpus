@@ -1171,9 +1171,10 @@
       "path": "scripts/devops/testing/backup-restore-matrix.ps1",
       "owner": "testing",
       "plannedPhase": 5,
-      "state": "inventoried",
+      "state": "implemented",
       "callerRefs": [],
-      "replacement": "Managed C# service and tests according to the owning command/shared responsibility; see specification sections 5-7.",
+      "replacement": "Internal managed BackupRestoreMatrixService and BackupRestoreSourceManifestReader; public test command routing remains gated.",
+      "evidence": "Linux net10.0 explicit qualification run 80a6cb0a-ff62-4d66-827b-88cc4213e13d passed all five variants with one launch and two FsCheck iterations; source fingerprint f0b1749a060ab7aa098c0acac8d4b160f9ae2544371ba369c1921f274b3c971c. Git inventory preserved tab and newline filenames. The complete test route remains closed pending §18 parity and stress gates.",
       "retirementGate": "Retain until all dependent slices are parity-proven and all callers are migrated; delete only after a zero-caller check."
     },
     {
@@ -1464,9 +1465,11 @@
       ],
       "source": "scripts/devops/commands/test.ps1",
       "plannedPhase": 5,
-      "state": "inventoried",
+      "state": "implemented",
       "replacement": "Testing services and direct MTP/AOT runners",
       "routed": false,
+      "service": "passed-linux-five-cell-backup-restore-matrix; public route gated",
+      "evidence": "Internal managed backup/restore matrix parent run 80a6cb0a-ff62-4d66-827b-88cc4213e13d passed all five legacy variants on Linux net10.0 with one launch and two FsCheck iterations. Each cell has a linked child run and validated measurement report; source inventory fingerprint remained stable. The public test/AOT route remains closed pending the full §18 Windows/Linux parity, stress and skip-evidence gates.",
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {
@@ -2326,7 +2329,7 @@
         ],
         "branch": "issue-97",
         "remoteRef": "origin/issue-97",
-        "hostedCi": "not-run; workflow_dispatch awaits valid GitHub workflow authentication",
+        "hostedCi": "Build workflow_dispatch run 39775959860 completed on 228812dfea363e9ef41c5c2ed12864d840a711f6 with overall failure: platform smoke, managed DevOps foundation Linux/Windows, package validation/consumer and Linux net10/net11 jobs passed; coverage failed on Core PhysicalIndexRuntimeResourceTests.CloseDrainsARealAdmittedWriteAtItsFlushSubmissionBarrier; dependent docs-site was skipped. This run predates the current dirty matrix changes.",
         "linuxPromotedHostVersion": "1.0.0+a37cb13e0a79f33a2550fdb22a8950d1a77b79db",
         "linuxSourceFingerprint": "a02837b45e095d24c42a8bd74e65e459afbea99bf3f31ee8aac7d6b0abb3012d",
         "windows": {
@@ -2485,6 +2488,48 @@
             "sourceDirty": true
           },
           "open": "Full legacy Markdown/JSON field parity and other report-consumer compatibility."
+        },
+        "backupRestoreMatrix": {
+          "status": "passed-linux-internal-route-closed",
+          "runId": "80a6cb0a-ff62-4d66-827b-88cc4213e13d",
+          "framework": "net10.0",
+          "count": 1,
+          "iterations": 2,
+          "completedCells": 5,
+          "expectedCells": 5,
+          "variants": [
+            "baseline",
+            "compound",
+            "source-nondurable",
+            "combined",
+            "alternate-temp"
+          ],
+          "sourceCommit": "228812dfea363e9ef41c5c2ed12864d840a711f6",
+          "sourceDirty": true,
+          "sourceFingerprint": "f0b1749a060ab7aa098c0acac8d4b160f9ae2544371ba369c1921f274b3c971c",
+          "linkedChildRunIds": [
+            "39b2ccc9-3fac-4bdb-aadc-4cbf2466ac2b",
+            "f0a60b10-b416-4687-acd4-655415799256",
+            "09597b73-57fb-4a20-baa5-bc01f4e1c865",
+            "e59703e3-0f7c-41b1-9912-0292e9a27637",
+            "b85135a3-43b9-4aac-a9a0-c54fa157e316"
+          ],
+          "gitPathProbe": "Passed 1/1 after temporary log cleanup; inventory preserved a filename containing a tab and newline.",
+          "latestSetupBuildRunId": "92eb9c68-b881-444c-96f2-80aef2e9505b",
+          "latestManagedSetupTests": {
+            "total": 254,
+            "passed": 248,
+            "failed": 0,
+            "intentionalExplicitSkips": 6,
+            "buildWarnings": 0,
+            "buildErrors": 0
+          },
+          "publicRouting": false,
+          "open": [
+            "Windows and Linux parity for this matrix service",
+            "normal and isolated stress matrix counts",
+            "public test command integration after all §18 gates pass"
+          ]
         }
       },
       "runEnvelopeMigration": {
@@ -2502,6 +2547,28 @@
         "sourceDirty": true,
         "open": "Other legacy report consumers, remaining report output parity, Windows skip-reason output parity, platform qualification and final cutover."
       }
+    },
+    "latestHostedBuild": {
+      "runId": "39775959860",
+      "url": "https://github.com/jordansrowles/LeanCorpus/actions/runs/39775959860",
+      "sourceCommit": "228812dfea363e9ef41c5c2ed12864d840a711f6",
+      "state": "completed",
+      "conclusion": "failure",
+      "passedJobs": [
+        "managed-devops-foundation Linux and Windows",
+        "platform-smoke Linux x64 and arm64, Windows x64, macOS ARM64",
+        "package-validation",
+        "package-consumer",
+        "linux-tests net10.0 and net11.0",
+        "windows-tests"
+      ],
+      "failedJob": "coverage",
+      "failedTest": "Rowles.LeanCorpus.Tests.Core.Index.PhysicalIndexRuntimeResourceTests.CloseDrainsARealAdmittedWriteAtItsFlushSubmissionBarrier",
+      "failureEvidence": "The test timed out at its 10-second release.Wait barrier; 4290 Core tests passed, 1 failed and 1 skipped; 63 SourceGen tests passed.",
+      "skippedJobs": [
+        "docs-site (coverage dependency failed)"
+      ],
+      "qualificationBoundary": "Hosted run was on the clean 228812d base before the current managed matrix changes."
     }
   }
 }

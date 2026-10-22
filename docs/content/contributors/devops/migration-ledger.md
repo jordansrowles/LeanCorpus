@@ -28,7 +28,7 @@ At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree conta
 | Command | Legacy source | Planned phase | Current state |
 |---|---|---:|---|
 | `build` (`build`) | `scripts/devops/commands/build.ps1` | 1 | Managed BuildService is contract-tested and routed through the Linux-x64 apphost; Windows hosted CI job is configured but not run locally. |
-| `test` (`test`, `test affected`, `test backup-restore-matrix`) | `scripts/devops/commands/test.ps1` | 5 | Inventoried; not routed |
+| `test` (`test`, `test affected`, `test backup-restore-matrix`) | `scripts/devops/commands/test.ps1` | 5 | Managed MTP/AOT execution services and the internal five-cell backup/restore matrix are implemented and qualified on Linux; the public route remains closed pending the full §18 parity and stress gates. |
 | `aot` (`aot`) | `scripts/devops/commands/aot.ps1` | 5 | Inventoried; not routed |
 | `coverage` (`coverage`) | `scripts/devops/commands/coverage.ps1` | 6 | Inventoried; not routed |
 | `diagnostics` (`diagnostics ps`, `diagnostics counters`, `diagnostics trace`, `diagnostics gcdump`, `diagnostics dump`, `diagnostics symbols`, `diagnostics capture`) | `scripts/devops/commands/diagnostics.ps1` | 4 | All seven variants route through the managed apphost. Fake-runner lifecycle tests and a bounded Linux capture pass; live attach parity on other platforms remains open. |
@@ -100,7 +100,7 @@ The PowerShell transition dispatcher currently forwards `build`, `clean`, `repor
 | `SRC-046` | `scripts/devops/support/coverage.ps1` | `support:coverage` | 6 | See command/workflow inventory; inventoried |
 | `SRC-047` | `scripts/devops/support/docfx.ps1` | `support:docfx` | 6 | See command/workflow inventory; inventoried |
 | `SRC-048` | `scripts/devops/testing/artifacts.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
-| `SRC-049` | `scripts/devops/testing/backup-restore-matrix.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
+| `SRC-049` | `scripts/devops/testing/backup-restore-matrix.ps1` | `testing` | 5 | Replaced internally by `BackupRestoreMatrixService` and `BackupRestoreSourceManifestReader`; five Linux net10.0 variants passed with matched source/workload/binary evidence, while public command routing stays closed. |
 | `SRC-050` | `scripts/devops/testing/events.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
 | `SRC-051` | `scripts/devops/testing/execution.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
 | `SRC-052` | `scripts/devops/testing/preparation.ps1` | `testing` | 5 | See command/workflow inventory; inventoried |
@@ -442,4 +442,29 @@ The exact same clean source passed Windows Server 2025 Standard Evaluation build
 
 At `a37cb13e`, the docs build passed with 37 existing DocFX metadata warnings and no site warnings; static validation covered 217 Markdown pages, 4 TOCs, 1,745 HTML pages, 23,853 local references and 4,098 fragments, and the browser suite passed 11/11. The `docs/` source tree has 276 tracked paths / 180 Markdown files; its two benchmark-named tracked paths are authored guides. The historical 445 / 274 count includes 146 generated benchmark paths / 76 Markdown pages.
 
-Hosted Build remains unrun. `build.yml` supports `workflow_dispatch`, but `issue-97` is not a push-triggered branch and no PR-triggered run was found for this SHA. GitHub CLI authentication reports an invalid token and the connected GitHub tool does not expose workflow dispatch. macOS/other RID parity and later #8 phase gates also remain open; this setup evidence does not close them. This evidence-only ledger update has no separate release changelog entry.
+At the `a37cb13e` candidate, Hosted Build remained unrun. `build.yml` supports `workflow_dispatch`, but `issue-97` is not a push-triggered branch and no PR-triggered run was found for that SHA. GitHub CLI authentication was unavailable at the time. macOS/other RID parity and later #8 phase gates also remained open; this setup evidence did not close them. That evidence-only ledger update had no separate release changelog entry.
+
+### Hosted Build and managed matrix continuation (2026-10-22)
+
+Manual Build run `39775959860` was dispatched against clean issue-97 commit
+`228812dfea363e9ef41c5c2ed12864d840a711f6` and is terminal with overall
+failure. Linux and Windows managed DevOps foundation, Linux/Windows/macOS
+platform smoke, Linux net10/net11 tests, Windows tests, package validation and
+package consumer jobs passed. Coverage failed only on
+`PhysicalIndexRuntimeResourceTests.CloseDrainsARealAdmittedWriteAtItsFlushSubmissionBarrier`,
+which timed out at its 10-second flush submission barrier; 4,290 Core tests
+passed, one failed and one skipped, and all 63 SourceGen tests passed. The
+dependent docs-site job was skipped. This failure is in Core test code outside
+the managed DevOps change boundary. [Hosted run](https://github.com/jordansrowles/LeanCorpus/actions/runs/39775959860).
+
+The final-source explicit qualification passed all five legacy variants on
+Debian 13 x64, framework net10.0, with one launch and two FsCheck iterations.
+Parent run `80a6cb0a-ff62-4d66-827b-88cc4213e13d` retained source manifest
+fingerprint `f0b1749a060ab7aa098c0acac8d4b160f9ae2544371ba369c1921f274b3c971c`,
+five measurement reports and five linked child runs. The source manifest reader
+passed a Git inventory probe with a tab and newline in a filename. Setup run
+`92eb9c68-b881-444c-96f2-80aef2e9505b` passed a zero-warning/error build and
+248/254 managed tests; six tests were intentional explicit skips. The managed
+matrix is not a public command route. Windows matrix parity, normal and stress
+counts, the complete §18 gates and later migration phases remain open. The
+hosted run above predates these dirty local matrix changes.

@@ -24,6 +24,8 @@ internal sealed record TestRunOptions
     public string Commit { get; init; } = string.Empty;
     public string Range { get; init; } = string.Empty;
     public string CommandLine { get; init; } = "devops test";
+    public IReadOnlyDictionary<string, string?> EnvironmentOverrides { get; init; }
+        = new Dictionary<string, string?>(StringComparer.Ordinal);
 }
 
 internal sealed class TestRunPlanner(DevOpsConfiguration configuration, AffectedSelectionService affectedSelection)
@@ -92,7 +94,8 @@ internal sealed class TestRunPlanner(DevOpsConfiguration configuration, Affected
                 ParallelProfile = profile,
                 ExplicitMode = options.ExplicitOnly ? "only" : options.Explicit ? "on" : "off",
                 Verbosity = options.Verbosity,
-                HangTimeout = options.HangTimeout.ToLowerInvariant()
+                HangTimeout = options.HangTimeout.ToLowerInvariant(),
+                EnvironmentOverrides = options.EnvironmentOverrides
             }
         };
     }

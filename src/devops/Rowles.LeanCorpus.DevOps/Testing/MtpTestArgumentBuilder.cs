@@ -14,6 +14,8 @@ internal sealed record TestRunnerOptions(string RepositoryRoot)
     public string ExplicitMode { get; init; } = "off";
     public string Verbosity { get; init; } = string.Empty;
     public string HangTimeout { get; init; } = "100s";
+    public IReadOnlyDictionary<string, string?> EnvironmentOverrides { get; init; }
+        = new Dictionary<string, string?>(StringComparer.Ordinal);
 }
 
 internal static class MtpTestArgumentBuilder
@@ -127,6 +129,45 @@ internal static class MtpTestArgumentBuilder
 
 internal static class TestProcessEnvironmentBuilder
 {
+    private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "LEANCORPUS_TELEMETRY",
+        "LEANCORPUS_RUN_ID",
+        "LEANCORPUS_RUN_KIND",
+        "LEANCORPUS_ARTIFACT_DIR",
+        "LEANCORPUS_TARGET",
+        "LEANCORPUS_SUITE",
+        "LEANCORPUS_ITERATION",
+        "LEANCORPUS_CI",
+        "LEANCORPUS_DIAGNOSTICS"
+    };
+
+    public static string? ValidateOverrides(IReadOnlyDictionary<string, string?>? overrides)
+    {
+        if (overrides is null)
+        {
+            return "Test environment overrides cannot be null.";
+        }
+
+        foreach (var (name, value) in overrides)
+        {
+            if (string.IsNullOrWhiteSpace(name) || name.Contains('=') || name.Contains('\0') || name.Contains('\r') || name.Contains('\n'))
+            {
+                return "Test environment override names must be non-empty and cannot contain '=', NUL or line breaks.";
+            }
+            if (ReservedNames.Contains(name))
+            {
+                return $"Test environment variable '{name}' is owned by DevOps and cannot be overridden.";
+            }
+            if (value?.Contains('\0') == true)
+            {
+                return $"Test environment override '{name}' cannot contain NUL.";
+            }
+        }
+
+        return null;
+    }
+
     public static IReadOnlyDictionary<string, string?> Build(
         TestRunnerOptions options,
         Guid runId,
@@ -136,6 +177,11 @@ internal static class TestProcessEnvironmentBuilder
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(target);
+        if (ValidateOverrides(options.EnvironmentOverrides) is { } validationError)
+        {
+            throw new InvalidOperationException(validationError);
+        }
+
         var variables = new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["LEANCORPUS_TELEMETRY"] = options.Diagnostics ? "full" : options.Ci || options.Flaky ? "summary" : "off"
@@ -151,6 +197,11 @@ internal static class TestProcessEnvironmentBuilder
             variables["LEANCORPUS_ITERATION"] = iteration.ToString(CultureInfo.InvariantCulture);
             variables["LEANCORPUS_CI"] = options.Ci ? "true" : "false";
             variables["LEANCORPUS_DIAGNOSTICS"] = options.Diagnostics ? "true" : "false";
+        }
+
+        foreach (var (name, value) in options.EnvironmentOverrides)
+        {
+            variables[name] = value;
         }
 
         return variables;

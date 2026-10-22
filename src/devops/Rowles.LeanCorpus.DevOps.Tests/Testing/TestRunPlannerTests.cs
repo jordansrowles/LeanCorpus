@@ -95,6 +95,43 @@ public sealed class TestRunPlannerTests
         Assert.Equal("latestPatch", manifest.ToolVersions["dotnet-sdk-roll-forward"]);
     }
 
+    [Fact]
+    public async Task RunsRealManagedChildWithEnvironmentOverrideWithoutPersistingValue()
+    {
+        var (checkout, configuration) = Load();
+        var suite = new TestSuiteConfiguration("Managed DevOps", "src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj",
+            "Mtp", ["net10.0"], null, false, ["Trx"], false, false, null);
+        configuration = configuration with { TestSuites = configuration.TestSuites.SetItem("devops-probe", suite) };
+        var runner = new ProcessRunner();
+        var request = await new TestRunPlanner(configuration, new AffectedSelectionService(runner)).PlanAsync(checkout,
+            new TestRunOptions
+            {
+                Selection = new TestTargetRequest
+                {
+                    Suites = ["devops-probe"], ContinuousIntegration = true,
+                    Filter = "FullyQualifiedName~TestProcessEnvironmentBuilderTests.ManagedChildReceivesOverride"
+                },
+                Count = 1,
+                Explicit = true,
+                EnvironmentOverrides = new Dictionary<string, string?>(StringComparer.Ordinal)
+                {
+                    ["LEANCORPUS_TEST_ENV_PROBE"] = "managed-child-probe"
+                },
+                HangTimeout = "off",
+                ProcessTimeout = "1m"
+            }, TestContext.Current.CancellationToken);
+        var paths = new ArtifactPaths(checkout.RepositoryRoot);
+        var result = await new TestExecutor(paths, new ArtifactRunStore(paths, runCategory: "test"), runner,
+            new DotNetSdkResolver(runner), new GitRepositoryProvenanceReader(runner))
+            .RunAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
+        Assert.Equal(TestExecutionOutcome.Passed, Assert.Single(result.Aggregate!.Attempts).Outcome);
+        var manifest = Assert.IsType<RunManifest>(result.Manifest);
+        Assert.Equal("[\"LEANCORPUS_TEST_ENV_PROBE\"]", manifest.Inputs["environmentOverrideNames"]);
+        Assert.DoesNotContain("managed-child-probe", JsonSerializer.Serialize(manifest));
+    }
+
     [Theory(Explicit = true)]
     [InlineData("net10.0")]
     public async Task CapturesCoreMtpTelemetryInManagedReports(string framework)
