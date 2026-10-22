@@ -1,5 +1,6 @@
 ﻿using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Server.Core.Execution;
 
 namespace Rowles.LeanCorpus.Server.Core.Runtime;
@@ -14,6 +15,9 @@ internal sealed class IndexRuntime : IDisposable, IAsyncDisposable
     private long _nextServerSequence;
     private int _flags;
     private int _disposed;
+    private Exception? _lastRefreshFailure;
+
+    internal Action? BeforeRefreshForTesting { get; set; }
 
     internal IndexRuntime(string path, CompiledIndexSchema schema, TimeSpan commitInterval, TimeSpan refreshInterval, LocalIndexOpenMode mode = LocalIndexOpenMode.ReadWrite, Func<LocalCommitReceipt, ValueTask>? onCommitted = null)
     {
@@ -65,12 +69,14 @@ internal sealed class IndexRuntime : IDisposable, IAsyncDisposable
 
     internal long CurrentServerSequence => Volatile.Read(ref _nextServerSequence);
 
-    internal bool IsDegraded => (Volatile.Read(ref _flags) & (int)LocalRuntimeFlags.Degraded) != 0
+    internal bool IsDegraded => Volatile.Read(ref _lastRefreshFailure) is not null
+        || (Volatile.Read(ref _flags) & (int)LocalRuntimeFlags.Degraded) != 0
         || _physical.GetDiagnostics().Health != PhysicalIndexRuntimeHealth.Healthy;
 
     internal bool RequiresReopen => _physical.GetDiagnostics().ReopenRequired;
     internal bool SearchesAllowed => _physical.GetDiagnostics().SearchesAllowed;
     internal Exception? PhysicalFailure => _physical.GetDiagnostics().LastFailure?.Exception;
+    internal Exception? LastRefreshFailure => Volatile.Read(ref _lastRefreshFailure);
 
     internal void MarkDegraded() => Interlocked.Or(ref _flags, (int)LocalRuntimeFlags.Degraded);
 
@@ -101,9 +107,21 @@ internal sealed class IndexRuntime : IDisposable, IAsyncDisposable
             bool visible = false;
             if (refresh)
             {
-                _physical.RefreshUnderOperation(operation);
-                using var lease = _physical.AcquireSearcherUnderOperation(operation);
-                visible = _physical.ConsecutiveRefreshFailures == 0 && lease.ContentToken == contentToken;
+                try
+                {
+                    BeforeRefreshForTesting?.Invoke();
+                    _physical.RefreshUnderOperation(operation);
+                    using var lease = _physical.AcquireSearcherUnderOperation(operation);
+                    visible = _physical.ConsecutiveRefreshFailures == 0 && lease.ContentToken == contentToken;
+                    if (_physical.ConsecutiveRefreshFailures == 0)
+                        Volatile.Write(ref _lastRefreshFailure, null);
+                }
+                catch (Exception failure) when (!IsFatalRefreshFailure(failure))
+                {
+                    visible = false;
+                    Volatile.Write(ref _lastRefreshFailure, failure);
+                    LeanCorpusActivitySource.TraceSwallowed(failure, "server post-commit refresh");
+                }
             }
             return new LocalCommitReceipt(first, last, generation, contentToken, true, visible);
         }
@@ -114,6 +132,7 @@ internal sealed class IndexRuntime : IDisposable, IAsyncDisposable
         Searchers.Refresh();
         if (Searchers.ConsecutiveRefreshFailures > 0 && Searchers.LastRefreshError is { } failure)
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        Volatile.Write(ref _lastRefreshFailure, null);
     }
 
     public void Dispose() => DisposeAsync().AsTask().GetAwaiter().GetResult();
@@ -138,4 +157,7 @@ internal sealed class IndexRuntime : IDisposable, IAsyncDisposable
         if (failures.Count == 0) _closed.TrySetResult();
         else _closed.TrySetException(new AggregateException("Server index shutdown failed.", failures));
     }
+
+    private static bool IsFatalRefreshFailure(Exception failure) =>
+        failure is OutOfMemoryException or StackOverflowException or AccessViolationException;
 }

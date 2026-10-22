@@ -195,6 +195,50 @@ public sealed class RuntimeFailureTests
         }
     }
 
+    [Fact]
+    public async Task UnexpectedRefreshExceptionAfterPhysicalCommitDoesNotHideDurableReceipt()
+    {
+        string path = NewPath();
+        var handle = OpenHandle(path);
+        var runtime = handle.Runtime;
+        var refreshFailure = new InvalidOperationException("controlled unexpected post-commit refresh failure");
+        try
+        {
+            runtime.Writer.AddDocument(Document());
+            long sequence = runtime.MarkWrite();
+            Task<LocalCommitReceipt> waiting = runtime.Commits.WaitUntilCommittedAsync(sequence, TestContext.Current.CancellationToken).AsTask();
+            runtime.BeforeRefreshForTesting = () => throw refreshFailure;
+
+            CommitResult result = runtime.Commits.Commit(refresh: true);
+
+            Assert.Equal(0, runtime.PendingOperations);
+            Assert.True(runtime.Writer.CurrentCommitGeneration > 0);
+            if (result is CommitFailed failed)
+                Assert.Same(refreshFailure, failed.Exception);
+            Assert.True(result is CommitPublished, $"Expected a durable receipt after the physical commit, but received {result}.");
+            var published = result switch { CommitPublished value => value, _ => throw new InvalidOperationException() };
+            Assert.True(published.Receipt.IsDurable);
+            Assert.False(published.Receipt.IsVisible);
+            Assert.True(waiting.IsCompletedSuccessfully, "A durable post-commit receipt must complete its sequence waiter.");
+            Assert.Equal(published.Receipt, await waiting);
+            Assert.Same(refreshFailure, runtime.LastRefreshFailure);
+            Assert.True(handle.Health.IsDegraded);
+
+            runtime.BeforeRefreshForTesting = null;
+            runtime.Refresh();
+            Assert.Null(runtime.LastRefreshFailure);
+            Assert.False(handle.Health.IsDegraded);
+            using var visible = runtime.Searchers.AcquireLease();
+            Assert.Equal(1, visible.Searcher.Search(new MatchAllDocsQuery(), 10, TestContext.Current.CancellationToken).TotalHits);
+        }
+        finally
+        {
+            runtime.BeforeRefreshForTesting = null;
+            await handle.DisposeAsync();
+            Directory.Delete(path, recursive: true);
+        }
+    }
+
     private static LeanDocument Document()
     {
         var document = new LeanDocument();
