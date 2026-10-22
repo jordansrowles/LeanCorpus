@@ -204,11 +204,19 @@ public sealed class DocsSiteAcceptanceTests
         await using var site = await BrowserSite.StartAsync();
         var page = await site.NewPageAsync(javaScriptEnabled: false);
 
-        await page.GotoAsync(site.Url("index.html"));
+        try
+        {
+            await page.GotoAsync(site.Url("index.html"));
 
-        Assert.Equal(1, await page.Locator("article .lc-hero").CountAsync());
-        Assert.Contains("Build your first search", await page.Locator("article").InnerTextAsync(), StringComparison.Ordinal);
-        Assert.True(await page.Locator("article a[href='getting-started/01-installation.html']").CountAsync() > 0);
+            Assert.Equal(1, await page.Locator("article .lc-hero").CountAsync());
+            Assert.Contains("Build your first search", await page.Locator("article").InnerTextAsync(), StringComparison.Ordinal);
+            Assert.True(await page.Locator("article a[href='getting-started/01-installation.html']").CountAsync() > 0);
+        }
+        catch
+        {
+            await site.CaptureFailureAsync(page, nameof(LandingPage_RemainsUsefulWithoutJavaScript));
+            throw;
+        }
     }
 
     [Fact(DisplayName = "Docs Site: Native Navigation And Search Work")]
