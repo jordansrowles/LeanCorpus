@@ -1673,9 +1673,10 @@
       ],
       "source": "scripts/devops/commands/ui.ps1",
       "plannedPhase": 7,
-      "state": "inventoried",
+      "state": "routed",
       "replacement": "Spectre.Console workbench over shared services",
-      "routed": false,
+      "routed": true,
+      "latestEvidence": "On the dirty issue-97 tree based on 3718a8c5704ff020b11ebcc68ba2dff658916f4c, the managed workbench setup passed with 291 total DevOps tests: 283 passed, 8 explicitly skipped, 0 failed; Linux x64 apphost promoted and build smoke passed. Dispatcher smoke passed 81 checks. Docs build dee19494-e5fd-4fc3-8de7-c3e8cc00dd66 and docs acceptance a1109831-4ffe-4216-8667-722e21ae007a passed; docs-site child run e3a4c0c9-0515-40df-8586-bd3d8fd6386c passed 11/11. Full UI parity and cross-platform/hosted acceptance remain open.",
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {
@@ -2246,9 +2247,9 @@
           "version"
         ],
         "manifest": "artifacts/devops/managed-host.json",
-        "lastPrePublishTestCount": 238,
+        "lastPrePublishTestCount": 291,
         "nativeLibrariesBundled": true,
-        "latestEvidence": "At clean code candidate a37cb13e0a79f33a2550fdb22a8950d1a77b79db on Debian 13 x64, locked setup passed with 235/238 managed tests, three explicit filter skips, zero build warnings/errors, single-file publication and staged/promoted probes. Managed child-build smoke run 7bb8c9ee-2c81-4ccb-9c0c-4075c24fffda succeeded. Linux host SHA-256 ed24764d0f7fc02d04a64a27e75ec8a417152667c36dd550ddd0392290eb100e; manifest SHA-256 67b0654b91d075e2512849b06a35bebd243f4f511e3a17bf4cdf98d8fe378276."
+        "latestEvidence": "On the dirty issue-97 tree based on pushed commit 3718a8c5704ff020b11ebcc68ba2dff658916f4c, locked setup passed on Debian 13 x64 with 291 total tests (283 passed, 8 explicitly skipped, 0 failed), zero build warnings/errors, single-file publication and staged/promoted probes. Build smoke fc453048-f54a-4f32-b32d-38f076e40b8a succeeded. This local dirty-tree evidence does not replace exact-SHA hosted or cross-platform qualification."
       },
       "rootRouting": {
         "status": "passed",

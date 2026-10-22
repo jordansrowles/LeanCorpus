@@ -13,6 +13,7 @@ using Rowles.LeanCorpus.DevOps.Reporting;
 using Rowles.LeanCorpus.DevOps.Server;
 using Rowles.LeanCorpus.DevOps.Terminal;
 using Rowles.LeanCorpus.DevOps.Testing;
+using Spectre.Console;
 
 namespace Rowles.LeanCorpus.DevOps.Commands;
 
@@ -839,6 +840,33 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         finally
         {
             Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int Ui(UiCommandOptions options)
+    {
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+            return new DevOpsWorkbench(
+                AnsiConsole.Console,
+                configuration,
+                new ManagedWorkbenchOperations(this, checkout, output, error)).Run();
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
+                "Could not start the managed DevOps workbench.", Details: exception.Message), output, error);
         }
     }
 

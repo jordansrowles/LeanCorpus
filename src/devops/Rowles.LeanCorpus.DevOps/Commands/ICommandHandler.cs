@@ -25,4 +25,6 @@ internal interface ICommandHandler
     int Benchmark(BenchmarkCommandOptions options);
 
     int BenchmarkRemote(BenchmarkRemoteCommandOptions options);
+
+    int Ui(UiCommandOptions options);
 }

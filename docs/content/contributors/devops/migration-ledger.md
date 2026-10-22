@@ -1,6 +1,6 @@
 # Managed DevOps migration ledger
 
-> Historical #11 baseline `4ccdf1ba7ae447ed982a34dc64478df47879baf3` on `issue-97`; the latest runtime-tested code candidate is `a37cb13e0a79f33a2550fdb22a8950d1a77b79db`, which was clean and equal to `origin/issue-97` when qualified. The active scope is the full issue #8 migration across Phases 0 through 9. First-milestone evidence remains valid; later phase gates are tracked as they are implemented and qualified.
+> Historical #11 baseline `4ccdf1ba7ae447ed982a34dc64478df47879baf3` on `issue-97`; the latest local runtime-tested source tree is dirty and based on pushed commit `3718a8c5704ff020b11ebcc68ba2dff658916f4c`. The Phase 7 workbench and docs evidence below was collected from that tree. The active scope is the full issue #8 migration across Phases 0 through 9. First-milestone evidence remains valid; later phase gates are tracked as they are implemented and qualified.
 
 ## Source and generated-document counts
 
@@ -40,11 +40,11 @@ At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree conta
 | `setup` (`setup`) | `scripts/devops/commands/setup.ps1` | 0 | Inventoried; not routed |
 | `clean` (`clean [target]`) | `scripts/devops/commands/clean.ps1` | 1 | Managed CleanService is tested on disposable fixtures and routed through the Linux-x64 apphost. |
 | `pack` (`pack`) | `scripts/devops/commands/pack.ps1` | 3 | Inventoried; not routed |
-| `ui` (`ui`) | `scripts/devops/commands/ui.ps1` | 7 | Inventoried; not routed |
+| `ui` (`ui`) | `scripts/devops/commands/ui.ps1` | 7 | Managed Spectre.Console workbench is implemented; the PowerShell dispatcher forwards to the fingerprint-validated host and its smoke passes. Full functional parity, terminal interaction and cross-platform/hosted acceptance remain open. |
 | `report` (`report git`, `report files`, `report code`) | `scripts/devops/commands/report.ps1` | 2 | Linux managed all-groups report passed with 50/50 child exits and 37 evaluated projects; promoted-host PowerShell forwarding passed with 8/8 child exits. Report tests cover versioned JSON, strict checks, unusual paths, rename-aware churn, shallow history and syntax-analysis limits. Windows/macOS and hosted parity gates remain open. |
 | `server` (`server start`) | `scripts/devops/commands/server.ps1` | 1 | Managed foreground server is tested and routed through the Linux-x64 apphost. |
 
-The PowerShell transition dispatcher currently forwards `build`, `clean`, `report`, `coverage`, `benchmark`, `diagnostics`, and foreground `server start`. The managed coverage host preserves registry eligibility and the `Coverage!=Skip` default, links its test run, and retains raw Cobertura plus optional ReportGenerator HTML output. Clean-source Linux coverage for both eligible suites passed on net10.0 in run `a81b4160-9800-4a18-a549-96eca9eeb0df`; Net11, Windows/macOS and hosted parity remain open. The managed benchmark host runs local suites, selects affected benchmark classes from staged, modified, renamed and untracked paths, and manages remote SSH/tmux start, status and cancellation. Remote cancellation remains uncertain until a terminal status is returned. The manual workflow now bootstraps and calls the managed host, but hosted workflow runs, benchmark documentation generation and non-Linux parity remain open. `test` and `aot` remain on PowerShell until their complete Phase 5 slice. Every other command remains on its current path until its own phase and parity gate.
+The PowerShell transition dispatcher currently forwards `build`, `clean`, `report`, `coverage`, `benchmark`, `diagnostics`, `ui`, and foreground `server start`. The managed coverage host preserves registry eligibility and the `Coverage!=Skip` default, links its test run, and retains raw Cobertura plus optional ReportGenerator HTML output. Clean-source Linux coverage for both eligible suites passed on net10.0 in run `a81b4160-9800-4a18-a549-96eca9eeb0df`; Net11, Windows/macOS and hosted parity remain open. The managed benchmark host runs local suites, selects affected benchmark classes from staged, modified, renamed and untracked paths, and manages remote SSH/tmux start, status and cancellation. Remote cancellation remains uncertain until a terminal status is returned. The manual workflow now bootstraps and calls the managed host, but hosted workflow runs, benchmark documentation generation and non-Linux parity remain open. `test` and `aot` remain on PowerShell until their complete Phase 5 slice. Every other command remains on its current path until its own phase and parity gate.
 
 ## Legacy module inventory
 
@@ -468,6 +468,37 @@ passed a Git inventory probe with a tab and newline in a filename. Setup run
 matrix is not a public command route. Windows matrix parity, normal and stress
 counts, the complete §18 gates and later migration phases remain open. The
 hosted run above predates these dirty local matrix changes.
+
+### Managed interactive workbench candidate (2026-10-22)
+
+On the dirty `issue-97` source tree based on pushed commit
+`3718a8c5704ff020b11ebcc68ba2dff658916f4c`, `pwsh -NoProfile -File
+./setup.ps1` completed on Debian 13 x64 with SDK
+`11.0.100-preview.7.26381.103`. The managed project graph built with zero
+warnings/errors; all 291 DevOps tests completed, with 283 passed, 8 explicitly
+skipped and zero failed. The `linux-x64` host was published, promoted and
+passed build smoke `fc453048-f54a-4f32-b32d-38f076e40b8a`. The managed
+bootstrap dispatcher smoke passed 81 checks. `./devops ui` under redirected
+I/O returned the documented exit code 2 and explanation.
+
+The workbench currently provides managed test selection/execution, benchmark
+suite/strategy/framework/area/group selection, DataForge operations and recent
+run observation. Its benchmark selection test confirms configured
+`Serialisation` area/group labels pass unchanged. Linux local implementation
+evidence does not close the specified terminal-resize/focus/cancellation and
+historical-route comparisons, Windows/macOS parity, hosted validation or later
+Phase 8 retirement gates.
+
+After updating the source-controlled migration ledger, docs build `dee19494-e5fd-4fc3-8de7-c3e8cc00dd66` passed. DocFX metadata
+reported 37 existing warnings and the site build reported zero warnings.
+Docs acceptance run `a1109831-4ffe-4216-8667-722e21ae007a` passed on net10.0;
+static checks covered 217 Markdown pages, 4 TOCs, 858 HTML pages, 20,267 local
+references and 4,078 fragments. Its linked docs-site test run
+`e3a4c0c9-0515-40df-8586-bd3d8fd6386c` passed 11/11. Initial sandbox attempts
+were excluded: locked restore/DocFX worker IPC and browser local-bind were
+denied by the restricted environment; both workflows passed with the required
+access enabled. The workbench diff and docs content were still uncommitted at
+this evidence point; hosted exact-commit qualification remains open.
 
 ### Current-SHA hosted Build failure analysis and repair (2026-10-22)
 

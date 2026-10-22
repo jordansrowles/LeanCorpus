@@ -27,6 +27,7 @@ public sealed class CommandLineContractTests
         Assert.Contains("dataforge", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("benchmark", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("docs", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ui", output.ToString(), StringComparison.OrdinalIgnoreCase);
         var helpLines = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
         Assert.DoesNotContain(helpLines, line => line.TrimStart().StartsWith("test ", StringComparison.OrdinalIgnoreCase));
         Assert.Empty(error.ToString());
@@ -505,6 +506,17 @@ public sealed class CommandLineContractTests
         Assert.True(actual.GenerateReport);
     }
 
+    [Fact]
+    public void UiCommandForwardsTheExplicitRepository()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+
+        Assert.Equal(0, Invoke(["--repo", repository, "ui"], handler));
+
+        Assert.Equal(new UiCommandOptions(repository), Assert.IsType<UiCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
     private static int Invoke(string[] args, RecordingCommandHandler handler)
         => CommandLineApplication.Run(args, TextWriter.Null, TextWriter.Null, handler);
 
@@ -597,6 +609,12 @@ public sealed class CommandLineContractTests
         }
 
         public int BenchmarkRemote(BenchmarkRemoteCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int Ui(UiCommandOptions options)
         {
             Calls.Add(options);
             return 0;

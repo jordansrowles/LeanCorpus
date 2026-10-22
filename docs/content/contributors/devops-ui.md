@@ -1,48 +1,50 @@
-# Interactive DevOps workbench
+# Managed DevOps workbench
 
-The DevOps workbench is an interactive front end over the existing `./devops` commands. It is optional and does not load PwshSpectreConsole during builds, tests, CI or other normal DevOps commands.
+The managed `ui` command provides an interactive Spectre.Console workbench over
+the DevOps services. It calls the managed test planner/executor, benchmark and
+DataForge handlers directly. It does not start the legacy public CLI to reuse
+those operations.
 
-## Install and start
+## Start
 
-The supported PowerShell runtime is 7.4 or newer. Install the pinned UI module once for the current user, then launch the workbench in an interactive terminal:
+After cloning or changing the managed DevOps source, build and promote the
+current apphost:
 
 ```powershell
-pwsh ./devops.ps1 setup -InstallUi
-pwsh ./devops.ps1 ui
+pwsh -NoProfile -File ./setup.ps1
+./devops ui
 ```
 
-`pwsh ./devops.ps1 setup` reports whether the UI dependency is installed but does not install or import it. `pwsh ./devops.ps1 ui --help` reports the runtime and pinned module version. Managed `./devops` commands remain available when the module is absent or the terminal cannot support the UI.
+On Windows, run `./devops.exe ui`. The transition dispatcher also forwards
+`pwsh ./devops.ps1 ui` to the fingerprint-validated managed host. No PowerShell
+UI module is required.
+
+The workbench requires an interactive terminal. When input or output is
+redirected, it prints a short explanation and exits with code 2 without waiting
+for input. Ctrl+C during a prompt exits with code 130.
 
 ## Workflows
 
-The home page groups the normal DevOps surface into Run and Validate, Observe, Data, Build and Distribution, Server, and Maintenance.
+- **Tests** selects one configured suite, framework, build configuration and
+  execution profile, then confirms before calling `TestRunPlanner` and
+  `TestExecutor`. Test run manifests, logs and result files use the normal
+  managed test artefact paths.
+- **Benchmarks** selects a configured suite, strategy, framework, area, group
+  and either a Dry smoke or the full selected strategy. Areas and groups come
+  from `.config/devops/benchmark-groups.json`; their configured names, including
+  `Serialisation`, are passed unchanged to the benchmark service.
+- **DataForge** previews or runs managed release qualification, or accepts a
+  DataForge command as separate argument tokens. It shows the selection and
+  asks before starting the operation.
+- **Observe** lists up to 40 recent managed runs across the registered artefact
+  categories. A selected run shows its state, source identity, inputs, run
+  directory, failure summary and full artefact references.
 
-Every page identifies itself as **LeanCorpus DevOps**. The separate index browser identifies itself as **LeanCorpus CLI Workbench**. Command review uses a bordered panel; execution and destructive confirmations default to **no**.
+The workbench uses ordinary terminal prompts rather than a fixed full-screen
+layout. It recalculates each menu's page size from the current terminal width;
+long operations continue to retain their normal full logs and run evidence.
+For command-line, CI and redirected use, invoke the equivalent documented
+`./devops` command directly.
 
-Test repetition is selected before the run count. Choose the flaky preset to start with 30 repetitions, then enter the count you need. The dedicated **Test options** screen selects Diagnostics, CollectCoverage, FailFast, CI, FailWarnings and NoRestore together. Press Space to toggle options and Enter to continue; all are initially clear. Explicit-test policy is selected separately.
-
-Timeouts accept units such as `120s` or `2m`, or `off`. Bare numbers in the UI mean seconds: entering `120` produces `-HangTimeout 120s` in the command review.
-
-- Test runs select multiple registered suites, areas, categories and techniques. Values come from the test registry and metadata enum. Affected tests show the changed-file and target selection returned by the normal affected-test resolver.
-- Test execution displays target lifecycle events and TRX-derived counts. The event stream is versioned NDJSON written only when the UI starts a test run; it does not derive status from formatted console text.
-- Benchmark discovery uses the benchmark suite, strategy and group registries. Users can narrow named suites before multi-selection or choose registered area/group combinations.
-- Runs show retained test, coverage, diagnostics and benchmark manifests, test reports, timings, failures and an artefact tree.
-- Diagnostics choose from detected .NET processes and dispatch the selected existing diagnostics command.
-- DataForge profiles are read from `pwsh ./devops.ps1 dataforge profiles -Json`. Generation, inspection, verification, reproduction and reference operations still use normal DataForge orchestration.
-- Build, pack, documentation, benchmark publication, server, setup, clean, repository health and benchmark-data workflows dispatch their matching `./devops` command.
-
-Each executable workflow prints its normal command before it runs. Clean, overwrite, package cleanup and remote benchmark actions require explicit confirmation.
-
-## Test event contract
-
-When `LEANCORPUS_DEVOPS_UI_EVENTS_FILE` is set by the UI, `pwsh ./devops.ps1 test` appends schema version 1 NDJSON events such as `TargetsResolved`, `RunStarted`, `TargetsPrepared`, `TargetDiscovered`, `TargetStarted`, `TargetProgress`, `TargetCompleted`, `RunWarning`, `RunError` and `RunCompleted`. Event writing is observational. A failure to write an event does not change the test result.
-
-See [DevOps entry point](devops-entry-point.md) for the regular command contract. The owning tooling and test projects are listed in `src/devops/CONTRIBUTING.md`.
-
-The UI regression smoke uses the pinned Spectre module and an isolated child process to exercise command capture, live progress, bracketed output and failure exit codes:
-
-This standalone check follows the existing DevOps validation-script convention. A future `pwsh ./devops.ps1 setup -ValidateUi` route would make it available directly from the PowerShell entry point.
-
-```powershell
-pwsh -NoProfile -File scripts/devops/validation/ui-smoke.ps1
-```
+See [DevOps entry point](devops-entry-point.md) for the managed command map and
+argument contracts.

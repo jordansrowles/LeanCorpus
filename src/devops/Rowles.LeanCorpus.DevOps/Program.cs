@@ -32,6 +32,7 @@ internal static class Program
         var dataForge = BuildDataForgeCommand(handler, repository);
         var diagnostics = BuildDiagnosticsCommand(handler, repository);
         var benchmark = BuildBenchmarkCommand(handler, repository);
+        var ui = BuildUiCommand(handler, repository);
         root.Add(build);
         root.Add(clean);
         root.Add(docs);
@@ -43,8 +44,16 @@ internal static class Program
         root.Add(dataForge);
         root.Add(diagnostics);
         root.Add(benchmark);
+        root.Add(ui);
 
         return root;
+    }
+
+    private static Command BuildUiCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var command = new Command("ui", "Open the interactive LeanCorpus DevOps workbench.");
+        command.SetAction(result => handler.Ui(new UiCommandOptions(result.GetValue(repository))));
+        return command;
     }
 
     private static Command BuildBuildCommand(ICommandHandler handler, Option<string?> repository)
@@ -546,7 +555,7 @@ internal static class CommandLineApplication
 
     private static readonly string[] UnmigratedCommands =
     [
-        "aot", "benchmarks", "setup", "test", "ui"
+        "aot", "benchmarks", "setup", "test"
     ];
 
     private const string RemoteBenchmarkHelp = """
@@ -873,6 +882,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int Benchmark(BenchmarkCommandOptions options) => Missing("benchmark");
 
     public int BenchmarkRemote(BenchmarkRemoteCommandOptions options) => Missing("benchmark remote");
+
+    public int Ui(UiCommandOptions options) => Missing("ui");
 
     private int Missing(string command)
     {

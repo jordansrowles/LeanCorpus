@@ -7,7 +7,7 @@ single-file executable at the repository root.
 
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. `devops.ps1` remains the PowerShell transition dispatcher.
-It forwards `build`, `clean`, `report`, `benchmark`, `diagnostics`, and
+It forwards `build`, `clean`, `report`, `benchmark`, `diagnostics`, `ui`, and
 `server start` to a fresh managed host. Run documentation commands directly
 through `./devops docs`; the PowerShell docs implementation remains available
 as a rollback path until the later retirement phase. The apphost supports local and
@@ -50,12 +50,15 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `clean` | Managed: remove selected DevOps-owned output | `./devops clean test` |
 | `pack` | PowerShell: pack release artefacts and write a checksum manifest | `pwsh ./devops.ps1 pack` |
 | `report` | Managed: report repository history, tracked files or code health; `--json` writes a versioned evidence envelope | `./devops report git --json` |
-| `setup` | PowerShell: inspect the development environment and optional UI dependency | `pwsh ./devops.ps1 setup` |
-| `ui` | PowerShell: open the optional interactive workbench | `pwsh ./devops.ps1 ui` |
+| `setup` | PowerShell: inspect the development environment | `pwsh ./devops.ps1 setup` |
+| `ui` | Managed apphost: open the interactive Spectre.Console workbench | `./devops ui` |
 
 The bootstrap is separate from the legacy `setup` command: run
 `pwsh -NoProfile -File ./setup.ps1` to restore tools and publish the managed
 host.
+
+The optional workbench is included in the managed apphost and does not require
+a PowerShell UI module.
 
 Managed reports accept `all`, `git`, `files` or `code`; use `--top`, `--path`,
 `--strict` and `--json` to select the view and output contract. Each run is

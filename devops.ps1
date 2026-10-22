@@ -8,7 +8,7 @@ Set-StrictMode -Version Latest
 $command = if ($args.Count -gt 0) { $args[0] } else { '' }
 $remaining = if ($args.Count -gt 1) { $args[1..($args.Count - 1)] } else { @() }
 
-if ($command -in @('build', 'clean', 'server', 'report', 'coverage', 'benchmark', 'diagnostics')) {
+if ($command -in @('build', 'clean', 'server', 'report', 'coverage', 'benchmark', 'diagnostics', 'ui')) {
     $managedHost = Join-Path $PSScriptRoot (Get-ManagedHostExecutableName)
     $hostStatus = Test-ManagedHost -RepositoryRoot $PSScriptRoot -ExecutablePath $managedHost
     if (-not $hostStatus.IsCurrent) {

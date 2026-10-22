@@ -294,6 +294,11 @@ try {
             Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell benchmark invocation should reach the promoted managed host'
             $forwarded = [System.IO.File]::ReadAllLines($capturePath)
             Assert-BootstrapContract (($forwarded -join '|') -ceq 'benchmark|remote|start|--host|jordan@bench|--path|/srv/LeanCorpus checkout|--branch|issue-97|--|--suite|query|--filter|*Term Query*') 'PowerShell benchmark invocation should preserve exact remote and benchmark argument tokens'
+
+            & $powerShell.Source -NoProfile -File $dispatcher ui
+            Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell workbench invocation should reach the promoted managed host'
+            $forwarded = [System.IO.File]::ReadAllLines($capturePath)
+            Assert-BootstrapContract (($forwarded -join '|') -ceq 'ui') 'PowerShell workbench invocation should preserve the managed command token'
         } finally {
             $env:DEVOPS_CAPTURE_PATH = $previousCapturePath
         }

@@ -4,6 +4,7 @@
 
 - Add managed backup/restore matrix qualification with Git source fingerprints, five legacy variants and linked child-run evidence.
 - Add managed documentation preparation, metadata, build, static/browser validation and serve commands through the DevOps apphost.
+- Add an interactive Spectre.Console workbench for managed tests, benchmark suites and area/group selectors, DataForge qualification and recent run inspection.
 
 ## Changed
 

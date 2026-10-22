@@ -87,3 +87,5 @@ internal sealed record BenchmarkRemoteCommandOptions(
     Guid? RunId,
     IReadOnlyList<string> BenchmarkArguments,
     string? RepositoryPath = null);
+
+internal sealed record UiCommandOptions(string? RepositoryPath = null);
