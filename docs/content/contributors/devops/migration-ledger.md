@@ -1,6 +1,6 @@
 # Managed DevOps migration ledger
 
-> Baseline `4ccdf1ba7ae447ed982a34dc64478df47879baf3` on `issue-97`. The active scope is now the full issue #8 migration across Phases 0 through 9. First-milestone evidence remains valid; later phase gates are tracked as they are implemented and qualified.
+> Historical #11 baseline `4ccdf1ba7ae447ed982a34dc64478df47879baf3` on `issue-97`; the latest runtime-tested code candidate is `a37cb13e0a79f33a2550fdb22a8950d1a77b79db`, which was clean and equal to `origin/issue-97` when qualified. The active scope is the full issue #8 migration across Phases 0 through 9. First-milestone evidence remains valid; later phase gates are tracked as they are implemented and qualified.
 
 ## Source and generated-document counts
 
@@ -8,7 +8,7 @@ The pre-#11 snapshot (`7e5bf521d48da2df20a5bc7af1ec816022d4e9ce`) contained **44
 
 The post-#11 tracked tree (`4ccdf1ba7ae447ed982a34dc64478df47879baf3`) contains **272 paths, including 177 Markdown files**. Canonical `docs/content/` contains 179 paths, including 177 Markdown files; `docs/site-config/` contains 93 non-Markdown files. Generated API, benchmark, coverage and site output is staged beneath ignored `artifacts/docs/` and is not part of these current source-tree counts.
 
-At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree contains **276 paths, including 180 Markdown files**. Four DevOps migration records were added under `docs/content/` after the post-#11 snapshot. The old generated `docs/benchmarks/` subtree remains absent; the only paths with “benchmark” in their names at that revision are two authored guides. Generated benchmark output remains under ignored `artifacts/docs/`.
+At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree contains **276 paths, including 180 Markdown files**. Four DevOps migration records were added under `docs/content/` after the post-#11 snapshot. At clean candidate `a37cb13e0a79f33a2550fdb22a8950d1a77b79db`, the same 276 / 180 count remains. The old generated `docs/benchmarks/` subtree is absent; the only two benchmark-named tracked paths are authored guides. Generated benchmark output remains under ignored `artifacts/docs/`.
 
 ## Environment
 
@@ -235,7 +235,7 @@ The six PowerShell configuration files are `benchmark-datasets.psd1`, `benchmark
 
 ## ADR and evidence policy
 
-ADR context for this milestone: `docs/articles/ADRs/index.md` selected `docs/articles/ADRs/ADR030-unified-devops-artefact-and-test-evidence.md`. Keep ADR030’s unique run identity, source/SDK/framework/OS provenance, terminal outcome and artifact references in managed manifests. Additional ADRs are not read unless the task specification adds them or implementation reveals a direct uncovered conflict.
+ADR context for this milestone: the docs workflow generates `artifacts/docs/content/articles/ADRs/index.md` from `docs/content/articles/ADRs/`; the task-selected record is `docs/content/articles/ADRs/ADR030-unified-devops-artefact-and-test-evidence.md`. Keep ADR030’s unique run identity, source/SDK/framework/OS provenance, terminal outcome and artifact references in managed manifests. Additional ADRs are not read unless the task specification adds them or implementation reveals a direct uncovered conflict.
 
 ## Baseline commands
 
@@ -243,7 +243,7 @@ ADR context for this milestone: `docs/articles/ADRs/index.md` selected `docs/art
 - `./devops build`: baseline-only run completed successfully from the recorded revision; 974 warnings and 0 errors. The run manifest and logs are in `artifacts/build/runs/20261021-072118-578e5e4b-linux/`. Warnings include unavailable NuGet vulnerability feeds and existing analyzer warnings.
 - `./devops build --project src/devops/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj --framework net10.0`: passed through both the root apphost and `pwsh ./devops.ps1` forwarding route.
 - `./devops server start`: loopback server started on `127.0.0.1:5080`; `/` returned HTTP 404, confirming the listener. Ctrl+C stopped it with exit 130; the run manifest records cancellation and both child logs.
-- Windows VM attempt: the guest is Windows Server 2025 build 26100 with SDK 10.0.400 and SDK 11.0.100-preview.7.26381.103, but `C:\source\leancorpus` has no `.git` directory and Git is not installed. Bootstrap and source-revision qualification were not run. The guest was left unchanged.
+- Historical Windows pre-provisioning probe: the guest checkout had no `.git` marker and Git was absent, so that probe did not run setup. A later isolated full-history bundle at exact clean candidate `a37cb13e` passed Windows setup; see the final candidate receipt below. The VM was reverted to its recorded snapshot after qualification.
 - Windows hosted CI, macOS and non-`linux-x64` RID execution: not run; no qualification claim is made.
 - A final confirmatory `pwsh ./setup.ps1` attempt after the earlier two successful Linux runs was interrupted with exit 130 during locked restore. It is incomplete and does not count as a pass or replace the earlier successful bootstrap evidence.
 - `./devops test all -Framework net10.0`: not run.
@@ -429,7 +429,17 @@ skipped, single-file host publication, staged help/version/build probes,
 promotion and promoted help/version probes. Managed build smoke run
 `e65171ec-1573-4934-b106-4d980a626df4` succeeded. The promoted executable and
 manifest hashes are recorded in `latestBootstrapPreflight` in the adjacent
-JSON ledger. This run used a dirty worktree based on `4244928c4`; final-SHA,
-Windows and hosted bootstrap qualification remain open. The sandboxed restore
-attempt exited 130 before project restore and is incomplete, not passing
-evidence.
+JSON ledger. At that time, this run used a dirty worktree based on `4244928c4`;
+its final-SHA, Windows and hosted gates were still open. The sandboxed restore
+attempt exited 130 before project restore and remains incomplete, not passing
+evidence. The later clean-candidate qualification is recorded below.
+
+### Clean code candidate bootstrap qualification (2026-10-22)
+
+Code candidate `a37cb13e0a79f33a2550fdb22a8950d1a77b79db` was clean on `issue-97` and equal to `origin/issue-97` when qualified. Linux setup passed locked restore, a managed build with 0 warnings/errors, 235/238 tests with three explicit filter skips and zero failures, single-file publication, staged/promoted help/version probes and project-build smoke run `7bb8c9ee-2c81-4ccb-9c0c-4075c24fffda` (terminal succeeded). Linux promoted executable SHA-256: `ed24764d0f7fc02d04a64a27e75ec8a417152667c36dd550ddd0392290eb100e`; manifest SHA-256: `67b0654b91d075e2512849b06a35bebd243f4f511e3a17bf4cdf98d8fe378276`. Version reports `1.0.0+a37cb13e0a79f33a2550fdb22a8950d1a77b79db`. Linux bootstrap failure fixture passed 77 checks.
+
+The exact same clean source passed Windows Server 2025 Standard Evaluation build 26100 x64 setup using PowerShell 7.6.5 and SDK `11.0.100-preview.7.26381.103`. Terminal exit was 0; 235/238 managed tests passed, three explicit filter cases were skipped, and the build had zero warnings/errors. Build smoke run `915169e3-cf44-4b7f-988a-c0bbbdb2d96e`; promoted host SHA-256 `66641dead997a03ad1dc5584d9e84ce27163281a11521ef5ee61234aeee0652e` matched manifest SHA-256 `e2b3d2adca89a6cf95f7b3b017fddadb008ea132929db9b4c8b5285294709550`. The outcome receipt and logs are under the workspace path `.notes/Issues/#8 Rowles.LeanCorpus.DevOps/evidence/windows-20261022/a37cb13e/`. The disposable VM returned to snapshot `issue-97-qualification-20261022`.
+
+At `a37cb13e`, the docs build passed with 37 existing DocFX metadata warnings and no site warnings; static validation covered 217 Markdown pages, 4 TOCs, 1,745 HTML pages, 23,853 local references and 4,098 fragments, and the browser suite passed 11/11. The `docs/` source tree has 276 tracked paths / 180 Markdown files; its two benchmark-named tracked paths are authored guides. The historical 445 / 274 count includes 146 generated benchmark paths / 76 Markdown pages.
+
+Hosted Build remains unrun. `build.yml` supports `workflow_dispatch`, but `issue-97` is not a push-triggered branch and no PR-triggered run was found for this SHA. GitHub CLI authentication reports an invalid token and the connected GitHub tool does not expose workflow dispatch. macOS/other RID parity and later #8 phase gates also remain open; this setup evidence does not close them. This evidence-only ledger update has no separate release changelog entry.
