@@ -1,7 +1,11 @@
 using Rowles.LeanCorpus.DevOps.Benchmarks;
+using Rowles.LeanCorpus.DevOps.Artifacts;
+using Rowles.LeanCorpus.DevOps.Build;
 using Rowles.LeanCorpus.DevOps.Commands;
 using Rowles.LeanCorpus.DevOps.Configuration;
+using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Repository;
+using Rowles.LeanCorpus.DevOps.Terminal;
 
 namespace Rowles.LeanCorpus.DevOps.Tests.Benchmarks;
 
@@ -75,6 +79,30 @@ public sealed class BenchmarkCommandPlannerTests
         Assert.Contains("20,000", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task DryRunShowsBenchmarkChildBuildServersAreDisabled()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var paths = new ArtifactPaths(checkout.RepositoryRoot);
+        var processRunner = new ProcessRunner();
+        var progress = new List<string>();
+        var service = new BenchmarkCommandService(
+            paths,
+            new ArtifactRunStore(paths, runCategory: "benchmark"),
+            processRunner,
+            new DotNetSdkResolver(processRunner),
+            new GitRepositoryProvenanceReader(processRunner),
+            progress.Add);
+
+        var result = await service.RunAsync(new BenchmarkCommandRequest(
+            checkout,
+            Options(suite: "core", arguments: ["--filter", "*FuzzyQueryBenchmarks*"], dry: true)),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
+        Assert.Contains("--disable-build-servers", Assert.Single(progress), StringComparison.Ordinal);
+    }
+
     private static BenchmarkCommandOptions Options(
         string suite = "query",
         string strategy = "fast",
@@ -82,7 +110,8 @@ public sealed class BenchmarkCommandPlannerTests
         string dataset = "synthetic",
         int documentCount = 0,
         string? area = null,
-        IReadOnlyList<string>? arguments = null)
+        IReadOnlyList<string>? arguments = null,
+        bool dry = false)
         => new(
             suite,
             strategy,
@@ -100,7 +129,7 @@ public sealed class BenchmarkCommandPlannerTests
             GcDump: false,
             PrepareData: false,
             BookCount: 200,
-            Dry: false,
+            Dry: dry,
             List: false,
             arguments ?? []);
 }

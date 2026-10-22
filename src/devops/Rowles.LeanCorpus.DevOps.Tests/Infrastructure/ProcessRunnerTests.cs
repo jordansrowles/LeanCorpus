@@ -171,6 +171,26 @@ public sealed class ProcessRunnerTests
     }
 
     [Fact]
+    public async Task IncludesLatestChildOutputInProgressHeartbeat()
+    {
+        using var directory = TemporaryDirectory.Create("DevOps child output heartbeat ");
+        var events = new ConcurrentQueue<ProcessProgressEvent>();
+        var request = CreateRequest(directory.Path, "noisy", "30000") with
+        {
+            ProgressInterval = TimeSpan.FromMilliseconds(50),
+            Progress = events.Enqueue
+        };
+
+        var result = await new ProcessRunner().RunAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.Outcome);
+        Assert.NotEmpty(events);
+        var heartbeat = events.Last();
+        Assert.StartsWith("out-", Assert.IsType<string>(heartbeat.LastStandardOutputLine));
+        Assert.StartsWith("err-", Assert.IsType<string>(heartbeat.LastStandardErrorLine));
+    }
+
+    [Fact]
     public async Task ClassifiesInvalidLogPathAsValidationFailure()
     {
         using var directory = TemporaryDirectory.Create("DevOps invalid process path ");

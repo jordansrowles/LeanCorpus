@@ -61,6 +61,12 @@ the same workload and environment checks as local comparisons.
 
 Add or identify a focused correctness test for the path before optimising it. Search optimisation requires matching document IDs, ordering, total hits, and scores where the public contract promises score equivalence.
 
+The Core `geo` suite compares Geo distance and bounding-box filters against Lucene.NET using the same deterministic synthetic coordinates and stored fixture IDs. It converts LeanCorpus metres to Lucene.NET kilometres with the same 6,371 km Earth radius, sets Lucene.NET's prefix-tree distance error percentage to zero, checks total hits and ordered IDs in global setup, and prepares both query forms before timing. The check warms each index, and BenchmarkDotNet warm-up continues that state, so these results describe warm-query performance only. Distance and bounding-box methods use separate baselines. The implementations use different index algorithms, so treat each operation as a focused comparison rather than a general product ranking. Run it with `./devops benchmark -Suite geo -Strat fast` for a development smoke; use the default strategy and controlled host for performance evidence.
+
+The Geo comparison covers point-distance and point-bounding-box queries only. Geo nearest benchmarks compare LeanCorpus's exhaustive and best-first execution strategies, while the Geo aggregation and shape metadata benchmarks measure separate LeanCorpus operations. Those workloads do not share a Lucene.NET comparator in this suite: using the point geohash index as a stand-in for shape topology, aggregation results, or spatial metadata would compare different work.
+
+The fuzzy `nohit-edit2` case uses a unique miss term on every measured invocation. LeanCorpus caches empty fuzzy expansions, so reusing one no-hit term would make later calls warm on one side while Lucene.NET continues doing the expansion work. Global setup checks that the scenario returns zero hits in both engines before timing.
+
 For approximate vector search, report recall as well as latency. For cache work, include cold and warm cases. For indexing, include index size and merge or commit effects when they change.
 
 ## Interpret results

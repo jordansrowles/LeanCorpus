@@ -408,6 +408,7 @@ internal sealed class BenchmarkCommandService(
             progress?.Invoke("Waiting for the exclusive benchmark host lease.");
             await using var hostLease = await ExecutionLease.AcquireExclusiveAsync(
                 BenchmarkHostLeaseRoot, BenchmarkLeaseWait, runToken).ConfigureAwait(false);
+            progress?.Invoke("Benchmark host lease acquired; waiting for the exclusive repository lease.");
             await using var repositoryLease = await ExecutionLease.AcquireExclusiveAsync(
                 artifactPaths.RepositoryRoot, BenchmarkLeaseWait, runToken).ConfigureAwait(false);
             progress?.Invoke("Exclusive benchmark host and repository leases acquired.");
@@ -433,7 +434,11 @@ internal sealed class BenchmarkCommandService(
                     EnvironmentVariables = BuildEnvironment(manifest.RunId, projectDirectory, request.Options, plan),
                     Timeout = BenchmarkRunLimit,
                     ProgressInterval = TimeSpan.FromSeconds(60),
-                    Progress = value => progress?.Invoke($"Benchmark {invocation.ProjectKey} is still running ({value.Elapsed:hh\\:mm\\:ss}; {value.StandardOutputLineCount} stdout and {value.StandardErrorLineCount} stderr lines).")
+                    Progress = value => progress?.Invoke(
+                        $"Benchmark target {invocationName} is still running " +
+                        $"({value.Elapsed:hh\\:mm\\:ss}; {value.StandardOutputLineCount} stdout and {value.StandardErrorLineCount} stderr lines; " +
+                        $"last stdout: {value.LastStandardOutputLine ?? "<none>"}; " +
+                        $"last stderr: {value.LastStandardErrorLine ?? "<none>"}).")
                 }, runToken).ConfigureAwait(false);
                 if (process.RawExitCode is int exitCode)
                     childExitCodes.Add(exitCode);
@@ -569,7 +574,7 @@ internal sealed class BenchmarkCommandService(
     }
 
     private IReadOnlyList<string> BuildDotNetArguments(BenchmarkInvocation invocation, BenchmarkExecutionPlan plan)
-        => ["run", "--configuration", "Release", "--framework", plan.Framework, "--project", invocation.ProjectPath, "--", .. invocation.Arguments];
+        => ["run", "--disable-build-servers", "--configuration", "Release", "--framework", plan.Framework, "--project", invocation.ProjectPath, "--", .. invocation.Arguments];
 
     internal static string? ValidateResults(string project, string projectDirectory)
     {

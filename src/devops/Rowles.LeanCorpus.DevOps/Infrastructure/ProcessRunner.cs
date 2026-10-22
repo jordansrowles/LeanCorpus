@@ -215,7 +215,12 @@ internal sealed class ProcessRunner : IProcessRunner
         {
             try
             {
-                request.Progress(new ProcessProgressEvent(stopwatch.Elapsed, stdout.LineCount, stderr.LineCount));
+                request.Progress(new ProcessProgressEvent(
+                    stopwatch.Elapsed,
+                    stdout.LineCount,
+                    stderr.LineCount,
+                    stdout.LastLine,
+                    stderr.LastLine));
             }
             catch (Exception exception)
             {
@@ -242,6 +247,15 @@ internal sealed class ProcessRunner : IProcessRunner
         private int _lineCount;
 
         public int LineCount => Volatile.Read(ref _lineCount);
+
+        public string? LastLine
+        {
+            get
+            {
+                lock (_gate)
+                    return _lines.Count == 0 ? null : _lines.Last();
+            }
+        }
 
         public void Add(string value)
         {

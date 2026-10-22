@@ -28,6 +28,7 @@ public class FuzzyQueryBenchmarks
     private LeanIndexSearcher? _leanSearcher;
     private Rowles.LeanCorpus.Search.Queries.FuzzyQuery? _leanQuery;
     private Lucene.Net.Search.FuzzyQuery? _luceneQuery;
+    private long _noHitQueryOrdinal;
 
     [GlobalSetup]
     public void Setup()
@@ -37,6 +38,10 @@ public class FuzzyQueryBenchmarks
         var scenario = ResolveScenario(Scenario);
         _leanQuery = new Rowles.LeanCorpus.Search.Queries.FuzzyQuery("body", scenario.QueryTerm, scenario.MaxEdits);
         _luceneQuery = new Lucene.Net.Search.FuzzyQuery(new Term("body", scenario.QueryTerm), scenario.MaxEdits);
+        if (Scenario == "nohit-edit2"
+            && (_leanSearcher.Search(_leanQuery!, TopN).TotalHits != 0
+                || SharedStandardIndex.LuceneSearcher.Search(_luceneQuery!, TopN).TotalHits != 0))
+            throw new InvalidOperationException("The no-hit fuzzy benchmark setup query returned a result.");
     }
 
     [GlobalCleanup]
@@ -49,6 +54,12 @@ public class FuzzyQueryBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_FuzzyQuery()
     {
+        if (Scenario == "nohit-edit2")
+        {
+            // Core caches empty fuzzy expansions, so give each measured query a fresh term.
+            var query = new Rowles.LeanCorpus.Search.Queries.FuzzyQuery("body", NextNoHitTerm(), maxEdits: 2);
+            return _leanSearcher!.Search(query, TopN).TotalHits;
+        }
         return _leanSearcher!.Search(_leanQuery!, TopN).TotalHits;
     }
 
@@ -56,8 +67,15 @@ public class FuzzyQueryBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_FuzzyQuery()
     {
+        if (Scenario == "nohit-edit2")
+        {
+            var query = new Lucene.Net.Search.FuzzyQuery(new Term("body", NextNoHitTerm()), maxEdits: 2);
+            return SharedStandardIndex.LuceneSearcher.Search(query, TopN).TotalHits;
+        }
         return SharedStandardIndex.LuceneSearcher.Search(_luceneQuery!, TopN).TotalHits;
     }
+
+    private string NextNoHitTerm() => $"zzzznomatch{Interlocked.Increment(ref _noHitQueryOrdinal):x16}";
 
     private static (string QueryTerm, int MaxEdits) ResolveScenario(string scenario) => scenario switch
     {

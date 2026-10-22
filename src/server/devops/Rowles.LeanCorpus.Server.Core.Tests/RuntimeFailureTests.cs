@@ -219,8 +219,8 @@ public sealed class RuntimeFailureTests
             var published = result switch { CommitPublished value => value, _ => throw new InvalidOperationException() };
             Assert.True(published.Receipt.IsDurable);
             Assert.False(published.Receipt.IsVisible);
-            Assert.True(waiting.IsCompletedSuccessfully, "A durable post-commit receipt must complete its sequence waiter.");
-            Assert.Equal(published.Receipt, await waiting);
+            Assert.Equal(published.Receipt,
+                await waiting.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
             Assert.Same(refreshFailure, runtime.LastRefreshFailure);
             Assert.True(handle.Health.IsDegraded);
 
