@@ -143,11 +143,13 @@ jobs:
       - name: Collect MTP coverage
         shell: pwsh
         run: ./devops coverage --framework net10.0 --clean
-      - uses: actions/upload-artifact@v7
+      - name: Upload coverage run evidence
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-runs
           path: artifacts/coverage/runs
-          if-no-files-found: error
+          if-no-files-found: warn
 
   windows-tests:
     runs-on: windows-2025
@@ -342,3 +344,14 @@ jobs:
           name: docs-site-diagnostics
           path: artifacts/docs/diagnostics
           if-no-files-found: warn
+      - name: Upload documentation validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-site-validation
+          path: |
+            artifacts/docs/runs
+            artifacts/test/runs
+            artifacts/build/runs
+          if-no-files-found: warn
+          retention-days: 30

@@ -17,6 +17,7 @@
 
 - Make the generated ADR relationship idempotence assertion recognise Windows line endings.
 - Allow CI jobs to report bootstrap failures when no product-build diagnostics exist.
+- Preserve managed coverage and documentation test run evidence when their CI jobs fail.
 
 ## Removed
 
