@@ -70,7 +70,7 @@ pages do not load Chart.js from a CDN.
 Build the site:
 
 ```powershell
-pwsh ./devops.ps1 docs build -SkipBenchmarks
+./devops docs build --skip-benchmarks
 ```
 
 The console groups DocFX warnings by code rather than printing every instance. Full JSON-lines diagnostics are retained under `artifacts/docs/diagnostics`, and long DocFX stages report elapsed time every 30 seconds.

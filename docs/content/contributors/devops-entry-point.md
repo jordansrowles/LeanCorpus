@@ -8,7 +8,9 @@ single-file executable at the repository root.
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. `devops.ps1` remains the PowerShell transition dispatcher.
 It forwards `build`, `clean`, `report`, `benchmark`, `diagnostics`, and
-`server start` to a fresh managed host. The apphost supports local and
+`server start` to a fresh managed host. Run documentation commands directly
+through `./devops docs`; the PowerShell docs implementation remains available
+as a rollback path until the later retirement phase. The apphost supports local and
 affected-source benchmark runs, managed SSH/tmux start, status and cancellation,
 and DataForge qualification through `./devops dataforge qualify`. Other
 commands remain on the legacy PowerShell implementation and must be invoked as
@@ -42,7 +44,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
 | `data` | PowerShell: prepare a named benchmark corpus | `pwsh ./devops.ps1 data gutenberg` |
 | `dataforge` | Managed apphost: run qualification; PowerShell: manage datasets and reference data | `./devops dataforge qualify` |
-| `docs` | PowerShell: prepare staged inputs, generate API metadata and build or serve DocFX | `pwsh ./devops.ps1 docs build -SkipBenchmarks` |
+| `docs` | Managed: prepare inputs, generate API metadata, build, validate or serve DocFX | `./devops docs build --skip-benchmarks` |
 | `server start` | Managed: start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
 | `benchmarks docs` | PowerShell: regenerate benchmark documentation pages | `pwsh ./devops.ps1 benchmarks docs` |
 | `clean` | Managed: remove selected DevOps-owned output | `./devops clean test` |

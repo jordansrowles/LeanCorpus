@@ -320,10 +320,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build documentation site
         shell: pwsh
-        run: pwsh ./devops.ps1 docs build
+        run: ./devops docs build
       - name: Validate documentation site
         shell: pwsh
-        run: pwsh ./devops.ps1 docs test -Framework net10.0 -NoRestore
+        run: ./devops docs test --framework net10.0 --no-restore
       - uses: actions/upload-artifact@v7
         with:
           name: leancorpus-docs-site

@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.DevOps.Build;
 using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Data;
 using Rowles.LeanCorpus.DevOps.Diagnostics;
+using Rowles.LeanCorpus.DevOps.Documentation;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Packaging;
 using Rowles.LeanCorpus.DevOps.Repository;
@@ -404,6 +405,81 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         {
             return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
                 "Could not run managed coverage.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int Docs(DocsCommandOptions options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var provenanceReader = new GitRepositoryProvenanceReader(processRunner);
+            var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+            var service = new DocumentationCommandService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "docs"),
+                processRunner,
+                provenanceReader,
+                new DocumentationSiteMetadataWriter(processRunner),
+                new TestRunPlanner(configuration, new AffectedSelectionService(processRunner)),
+                new TestExecutor(
+                    paths,
+                    new ArtifactRunStore(paths, runCategory: "test"),
+                    processRunner,
+                    new DotNetSdkResolver(processRunner),
+                    provenanceReader,
+                    progress: progress => output.WriteLine($"{progress.Kind}: {progress.Message ?? progress.TargetKey ?? string.Empty}")),
+                progress: output.WriteLine);
+            var commandLine = new List<string> { "./devops", "docs", options.Action };
+            if (options.SkipBenchmarks) commandLine.Add("--skip-benchmarks");
+            if (options.SkipCoverage) commandLine.Add("--skip-coverage");
+            if (options.Action.Equals("test", StringComparison.OrdinalIgnoreCase))
+            {
+                commandLine.AddRange(["--framework", options.Framework]);
+                if (options.NoRestore) commandLine.Add("--no-restore");
+            }
+            var result = service.RunAsync(new DocumentationCommandRequest
+            {
+                Checkout = checkout,
+                Action = options.Action,
+                SkipBenchmarks = options.SkipBenchmarks,
+                SkipCoverage = options.SkipCoverage,
+                Framework = options.Framework,
+                NoRestore = options.NoRestore,
+                CommandLine = string.Join(' ', commandLine)
+            }, cancellation.Token).GetAwaiter().GetResult();
+            return _renderer.Render(result.CommandResult, output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Managed docs command was cancelled."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
+                "Could not run managed documentation.", Details: exception.Message), output, error);
         }
         finally
         {

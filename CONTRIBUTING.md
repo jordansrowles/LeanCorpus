@@ -116,7 +116,7 @@ If a new source path or subsystem is not mapped, update `code-areas.psd1` as par
 | Package or dependency boundary | `pwsh ./devops.ps1 test -Suite architecture` |
 | Both target frameworks | Build with `-Framework net10.0` and `-Framework net11.0` |
 | Performance claim | Relevant BenchmarkDotNet suite with controlled provenance |
-| Documentation or examples | `pwsh ./devops.ps1 docs build -SkipBenchmarks` |
+| Documentation or examples | `./devops docs build --skip-benchmarks` |
 | Windows-specific behaviour | Validate on Windows and state the environment |
 
 For a quick benchmark smoke run:

@@ -416,13 +416,13 @@ function Set-DocsContributionMetadata {
         if ($importsByDestination.ContainsKey($relativePath)) {
             $sourcePath = $importsByDestination[$relativePath]
         } elseif ($relativePath -eq 'articles/ADRs/index.md') {
-            $sourcePath = 'scripts/docs/generate-adr-index.ps1'
+            $sourcePath = 'src/devops/Rowles.LeanCorpus.DevOps/Documentation/AdrIndexGenerator.cs'
         } elseif ($relativePath -eq 'changelog/index.md') {
-            $sourcePath = 'scripts/devops/support/docfx.ps1'
+            $sourcePath = 'src/devops/Rowles.LeanCorpus.DevOps/Documentation/DocumentationSectionCatalogWriter.cs'
         } elseif ($relativePath.StartsWith('changelog/', [StringComparison]::OrdinalIgnoreCase)) {
             $sourcePath = "changelog/$($relativePath.Substring('changelog/'.Length))"
         } elseif ($relativePath.StartsWith('benchmarks/', [StringComparison]::OrdinalIgnoreCase)) {
-            $sourcePath = 'scripts/benchmarks/generate-docs.ps1'
+            $sourcePath = 'src/devops/Rowles.LeanCorpus.DevOps/Documentation/BenchmarkDocumentationGenerator.cs'
         } else {
             $sourcePath = "docs/content/$relativePath"
         }

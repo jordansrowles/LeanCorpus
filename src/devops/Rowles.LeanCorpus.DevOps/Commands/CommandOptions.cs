@@ -4,6 +4,14 @@ internal sealed record BuildCommandOptions(string Configuration, string? Project
 
 internal sealed record CleanCommandOptions(string Target, string? RepositoryPath = null);
 
+internal sealed record DocsCommandOptions(
+    string Action,
+    bool SkipBenchmarks,
+    bool SkipCoverage,
+    string Framework = "net10.0",
+    bool NoRestore = false,
+    string? RepositoryPath = null);
+
 internal sealed record ServerStartCommandOptions(
     string Framework,
     string Configuration,

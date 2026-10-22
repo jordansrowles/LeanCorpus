@@ -1590,9 +1590,24 @@
       ],
       "source": "scripts/devops/commands/docs.ps1",
       "plannedPhase": 6,
-      "state": "inventoried",
-      "replacement": "Documentation service and DocFX adapter",
-      "routed": false,
+      "state": "routed",
+      "replacement": "Managed documentation services and pinned DocFX adapter",
+      "routed": true,
+      "implementedVariants": [
+        "docs prepare",
+        "docs build",
+        "docs metadata",
+        "docs serve",
+        "docs test"
+      ],
+      "routedVariants": [
+        "docs prepare",
+        "docs build",
+        "docs metadata",
+        "docs serve",
+        "docs test"
+      ],
+      "evidence": "Managed CLI contract passed 36/36; Linux setup built and promoted the managed apphost with 0 warnings/errors and 274/282 DevOps tests passed (8 explicit skips). Managed docs integration run d0e439bd-1870-438a-8679-42156a90c775 succeeded at base commit 5444ef35a14e5eb167f01590b1ccf01af9b9f880 with a dirty worktree; child docs-site run 7fcb8250-80bd-47ca-864d-45ef12d50481 passed. Static validation covered 217 Markdown pages, 4 TOCs, 1,745 HTML pages, 23,853 local references and 4,098 fragments. Hosted current-SHA validation and cross-platform docs parity remain open.",
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {

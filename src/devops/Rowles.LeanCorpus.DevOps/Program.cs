@@ -23,6 +23,7 @@ internal static class Program
 
         var build = BuildBuildCommand(handler, repository);
         var clean = BuildCleanCommand(handler, repository);
+        var docs = BuildDocsCommand(handler, repository);
         var server = BuildServerCommand(handler, repository);
         var report = BuildReportCommand(handler, repository);
         var coverage = BuildCoverageCommand(handler, repository);
@@ -33,6 +34,7 @@ internal static class Program
         var benchmark = BuildBenchmarkCommand(handler, repository);
         root.Add(build);
         root.Add(clean);
+        root.Add(docs);
         root.Add(server);
         root.Add(report);
         root.Add(coverage);
@@ -84,6 +86,47 @@ internal static class Program
         var command = new Command("clean", "Remove owned LeanCorpus artefacts.");
         command.Add(target);
         command.SetAction(result => handler.Clean(new CleanCommandOptions(result.GetValue(target) ?? "default", result.GetValue(repository))));
+        return command;
+    }
+
+    private static Command BuildDocsCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var action = new Argument<string>("action")
+        {
+            Description = "Documentation action: prepare, metadata, build, test or serve (default: build).",
+            Arity = ArgumentArity.ZeroOrOne,
+            DefaultValueFactory = _ => "build"
+        };
+        var skipBenchmarks = new Option<bool>("--skip-benchmarks", ["-SkipBenchmarks"])
+        {
+            Description = "Do not scan retained benchmark runs or publish benchmark report pages."
+        };
+        var skipCoverage = new Option<bool>("--skip-coverage", ["-SkipCoverage"])
+        {
+            Description = "Do not prepare a current-commit coverage report."
+        };
+        var framework = new Option<string>("--framework", ["-Framework"])
+        {
+            Description = "Target framework for the docs-site test suite (default: net10.0).",
+            DefaultValueFactory = _ => "net10.0"
+        };
+        var noRestore = new Option<bool>("--no-restore", ["-NoRestore"])
+        {
+            Description = "Run docs-site tests without restoring packages."
+        };
+        var command = new Command("docs", "Prepare, build, validate or serve the documentation site.");
+        command.Add(action);
+        command.Add(skipBenchmarks);
+        command.Add(skipCoverage);
+        command.Add(framework);
+        command.Add(noRestore);
+        command.SetAction(result => handler.Docs(new DocsCommandOptions(
+            result.GetValue(action) ?? "build",
+            result.GetValue(skipBenchmarks),
+            result.GetValue(skipCoverage),
+            result.GetValue(framework) ?? "net10.0",
+            result.GetValue(noRestore),
+            result.GetValue(repository))));
         return command;
     }
 
@@ -503,7 +546,7 @@ internal static class CommandLineApplication
 
     private static readonly string[] UnmigratedCommands =
     [
-        "aot", "benchmarks", "docs", "setup", "test", "ui"
+        "aot", "benchmarks", "setup", "test", "ui"
     ];
 
     private const string RemoteBenchmarkHelp = """
@@ -810,6 +853,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int Build(BuildCommandOptions options) => Missing("build");
 
     public int Clean(CleanCommandOptions options) => Missing("clean");
+
+    public int Docs(DocsCommandOptions options) => Missing("docs");
 
     public int StartServer(ServerStartCommandOptions options) => Missing("server");
 

@@ -6,6 +6,8 @@ internal interface ICommandHandler
 
     int Clean(CleanCommandOptions options);
 
+    int Docs(DocsCommandOptions options);
+
     int StartServer(ServerStartCommandOptions options);
 
     int Report(ReportCommandOptions options);

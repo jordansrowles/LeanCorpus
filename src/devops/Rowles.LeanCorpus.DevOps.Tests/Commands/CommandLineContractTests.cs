@@ -26,6 +26,7 @@ public sealed class CommandLineContractTests
         Assert.Contains("data", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("dataforge", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("benchmark", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("docs", output.ToString(), StringComparison.OrdinalIgnoreCase);
         var helpLines = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
         Assert.DoesNotContain(helpLines, line => line.TrimStart().StartsWith("test ", StringComparison.OrdinalIgnoreCase));
         Assert.Empty(error.ToString());
@@ -45,6 +46,42 @@ public sealed class CommandLineContractTests
         Assert.False(string.IsNullOrWhiteSpace(output.ToString()));
         Assert.Empty(error.ToString());
         Assert.Empty(handler.Calls);
+    }
+
+    [Fact]
+    public void DocsCommandDefaultsToBuildAndAcceptsLegacySkipAliases()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(["docs", "prepare", "-SkipBenchmarks", "-SkipCoverage"], handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(new DocsCommandOptions("prepare", true, true),
+            Assert.IsType<DocsCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void DocsCommandDefaultsToBuildWhenActionIsOmitted()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(["docs"], handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(new DocsCommandOptions("build", false, false),
+            Assert.IsType<DocsCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void DocsTestPreservesFrameworkAndNoRestoreOptions()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(["docs", "test", "-Framework", "net10.0", "-NoRestore"], handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(new DocsCommandOptions("test", false, false, "net10.0", true),
+            Assert.IsType<DocsCommandOptions>(Assert.Single(handler.Calls)));
     }
 
     [Fact]
@@ -500,6 +537,12 @@ public sealed class CommandLineContractTests
         }
 
         public int Clean(CleanCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int Docs(DocsCommandOptions options)
         {
             Calls.Add(options);
             return 0;
