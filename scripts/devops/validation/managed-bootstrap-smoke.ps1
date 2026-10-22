@@ -280,6 +280,11 @@ try {
             $forwarded = [System.IO.File]::ReadAllLines($capturePath)
             Assert-BootstrapContract (($forwarded -join '|') -ceq 'report|git|-Json|-Top|3') 'PowerShell report invocation should preserve argument token boundaries and ordering'
 
+            & $powerShell.Source -NoProfile -File $dispatcher coverage -Suite sourcegen -Framework net11.0 -GenerateReport
+            Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell coverage invocation should reach the promoted managed host'
+            $forwarded = [System.IO.File]::ReadAllLines($capturePath)
+            Assert-BootstrapContract (($forwarded -join '|') -ceq 'coverage|-Suite|sourcegen|-Framework|net11.0|-GenerateReport') 'PowerShell coverage invocation should preserve argument token boundaries and ordering'
+
             & $powerShell.Source -NoProfile -File $dispatcher diagnostics trace --pid 42 -- --providers Microsoft-DotNETRuntime
             Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell diagnostics invocation should reach the promoted managed host'
             $forwarded = [System.IO.File]::ReadAllLines($capturePath)

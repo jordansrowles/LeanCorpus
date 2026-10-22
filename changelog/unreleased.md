@@ -78,6 +78,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Add managed DataForge dataset generation and reproducible migration-fixture archive generation to the DevOps CLI.
 - Add managed DataForge qualification with recorded build, test and benchmark runs, synthetic dataset identities, and frozen Wikipedia reference validation.
 - Route standalone .NET diagnostics through the managed apphost with pinned local tools, run manifests, capture timeouts and retained child logs.
+- Route coverage through the managed test pipeline, preserve suite eligibility and performance exclusions, and retain Cobertura and optional HTML reports under coverage run artefacts using pinned ReportGenerator 5.5.11.
 - Add managed repository, tracked-file and code-health reports with JSON run evidence, child-process logs, strict checks and explicit shallow-history and rename-analysis warnings.
 - Add managed local BenchmarkDotNet runs with suite, strategy, dataset and group selection, run provenance, bounded cancellation, result validation and scoped child-process environment overrides.
 - Route local, affected-source and remote SSH/tmux benchmark commands through the managed host; bootstrap that host in the manual benchmark workflow, record affected paths and remote session state, and leave cancellation unconfirmed until remote status is terminal.

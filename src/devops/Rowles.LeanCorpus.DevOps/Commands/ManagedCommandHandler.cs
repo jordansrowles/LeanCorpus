@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Benchmarks;
 using Rowles.LeanCorpus.DevOps.Build;
+using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Data;
 using Rowles.LeanCorpus.DevOps.Diagnostics;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
@@ -10,6 +11,7 @@ using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Reporting;
 using Rowles.LeanCorpus.DevOps.Server;
 using Rowles.LeanCorpus.DevOps.Terminal;
+using Rowles.LeanCorpus.DevOps.Testing;
 
 namespace Rowles.LeanCorpus.DevOps.Commands;
 
@@ -332,6 +334,76 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
         {
             return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run the managed package command.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int Coverage(CoverageCommandOptions options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+            var result = new CoverageService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "coverage"),
+                new CleanService(paths, new ArtifactRunStore(paths)),
+                new TestRunPlanner(configuration, new AffectedSelectionService(processRunner)),
+                new TestExecutor(
+                    paths,
+                    new ArtifactRunStore(paths, runCategory: "test"),
+                    processRunner,
+                    new DotNetSdkResolver(processRunner),
+                    new GitRepositoryProvenanceReader(processRunner),
+                    progress: progress => output.WriteLine($"{progress.Kind}: {progress.Message ?? progress.TargetKey ?? string.Empty}")),
+                processRunner).RunAsync(new CoverageRequest(
+                    checkout,
+                    options.Suite,
+                    options.Framework,
+                    options.Configuration,
+                    options.Clean,
+                    options.IncludePerformance,
+                    options.GenerateReport,
+                    "./devops coverage"), cancellation.Token).GetAwaiter().GetResult();
+
+            var commandResult = result.CommandResult with
+            {
+                Message = result.CommandResult.Outcome == OutcomeKind.Success
+                    ? $"Coverage run completed with {result.CoverageFileCount} Cobertura file(s). Evidence: {result.RunDirectory}"
+                    : result.CommandResult.Message,
+                Details = JoinDetails(result.RunDirectory, result.CommandResult.Details)
+            };
+            return _renderer.Render(commandResult, output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Coverage was cancelled."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
+                "Could not run managed coverage.", Details: exception.Message), output, error);
         }
         finally
         {

@@ -30,6 +30,11 @@ internal sealed record TestExecutorResult(
     TestRunAggregate? Aggregate,
     RunManifest? Manifest);
 
+internal interface IManagedTestExecutor
+{
+    Task<TestExecutorResult> RunAsync(TestExecutorRequest request, CancellationToken cancellationToken = default);
+}
+
 internal enum TestEventKind
 {
     RunStarted,
@@ -66,7 +71,7 @@ internal sealed class TestExecutor(
     IProcessRunner processRunner,
     IDotNetSdkResolver sdkResolver,
     IRepositoryProvenanceReader provenanceReader,
-    Action<TestProgressEvent>? progress = null)
+    Action<TestProgressEvent>? progress = null) : IManagedTestExecutor
 {
     private readonly TestArtifactService _artifacts = new();
 

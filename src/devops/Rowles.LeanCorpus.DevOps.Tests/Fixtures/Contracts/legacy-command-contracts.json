@@ -7,7 +7,9 @@
     "scripts/devops/commands/server.ps1",
     "scripts/devops/artifacts/clean.ps1",
     "scripts/devops/common/processes.ps1",
-    "scripts/devops/commands/report.ps1"
+    "scripts/devops/commands/report.ps1",
+    "scripts/devops/commands/coverage.ps1",
+    "scripts/devops/support/coverage.ps1"
   ],
   "cases": [
     {
@@ -360,6 +362,34 @@
       },
       "platformRestrictions": [],
       "intentionalChange": "NUL-safe Git parsing retains churn from similarity-detected renames that the legacy text parser dropped; deterministic tie ordering is used for ranked files and commits."
+    },
+    {
+      "id": "coverage-core-default",
+      "command": "coverage",
+      "legacyTokens": [
+        "-Suite",
+        "core",
+        "-Framework",
+        "net10.0"
+      ],
+      "expectedRequest": {
+        "suite": "core",
+        "framework": "net10.0",
+        "configuration": "Release",
+        "clean": false,
+        "includePerformance": false,
+        "generateReport": false
+      },
+      "expectedExternalCommand": null,
+      "expectedOutcome": "coverage-outcome-with-versioned-run-envelope",
+      "expectedEvidence": {
+        "runRoot": "artifacts/coverage/runs/<run-id>",
+        "testRunIsLinkedAsChild": true,
+        "rawCoverage": "raw/**/*.coverage.cobertura.*.xml",
+        "coverageFilter": "Coverage!=Skip"
+      },
+      "platformRestrictions": [],
+      "intentionalChange": null
     },
     {
       "id": "report-files-path-glob",

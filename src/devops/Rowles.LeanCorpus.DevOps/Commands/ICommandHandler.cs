@@ -10,6 +10,8 @@ internal interface ICommandHandler
 
     int Report(ReportCommandOptions options);
 
+    int Coverage(CoverageCommandOptions options);
+
     int Pack(PackCommandOptions options);
 
     int Data(DataCommandOptions options);

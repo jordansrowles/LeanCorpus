@@ -25,6 +25,7 @@ internal static class Program
         var clean = BuildCleanCommand(handler, repository);
         var server = BuildServerCommand(handler, repository);
         var report = BuildReportCommand(handler, repository);
+        var coverage = BuildCoverageCommand(handler, repository);
         var pack = BuildPackCommand(handler, repository);
         var data = BuildDataCommand(handler, repository);
         var dataForge = BuildDataForgeCommand(handler, repository);
@@ -34,6 +35,7 @@ internal static class Program
         root.Add(clean);
         root.Add(server);
         root.Add(report);
+        root.Add(coverage);
         root.Add(pack);
         root.Add(data);
         root.Add(dataForge);
@@ -183,6 +185,54 @@ internal static class Program
             result.GetValue(path),
             result.GetValue(strict),
             result.GetValue(json),
+            result.GetValue(repository))));
+        return command;
+    }
+
+    private static Command BuildCoverageCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var framework = new Option<string>("--framework", ["-Framework"])
+        {
+            Description = "Target framework (default: net10.0).",
+            DefaultValueFactory = _ => "net10.0"
+        };
+        var configuration = new Option<string>("--configuration", ["-Configuration"])
+        {
+            Description = "Build configuration (default: Release).",
+            DefaultValueFactory = _ => "Release"
+        };
+        var suite = new Option<string>("--suite", ["-Suite"])
+        {
+            Description = "Coverage-eligible test suite: core, sourcegen, or all (default: all).",
+            DefaultValueFactory = _ => "all"
+        };
+        var clean = new Option<bool>("--clean", ["-Clean"])
+        {
+            Description = "Remove previous coverage artefacts before running."
+        };
+        var includePerformance = new Option<bool>("--include-performance", ["-IncludePerformance"])
+        {
+            Description = "Include tests marked Coverage=Skip."
+        };
+        var generateReport = new Option<bool>("--generate-report", ["-GenerateReport"])
+        {
+            Description = "Generate an HTML report with the repository-pinned ReportGenerator."
+        };
+
+        var command = new Command("coverage", "Run eligible test suites with code coverage collection.");
+        command.Add(framework);
+        command.Add(configuration);
+        command.Add(suite);
+        command.Add(clean);
+        command.Add(includePerformance);
+        command.Add(generateReport);
+        command.SetAction(result => handler.Coverage(new CoverageCommandOptions(
+            result.GetValue(framework) ?? "net10.0",
+            result.GetValue(configuration) ?? "Release",
+            result.GetValue(suite) ?? "all",
+            result.GetValue(clean),
+            result.GetValue(includePerformance),
+            result.GetValue(generateReport),
             result.GetValue(repository))));
         return command;
     }
@@ -453,7 +503,7 @@ internal static class CommandLineApplication
 
     private static readonly string[] UnmigratedCommands =
     [
-        "aot", "benchmarks", "coverage", "docs", "setup", "test", "ui"
+        "aot", "benchmarks", "docs", "setup", "test", "ui"
     ];
 
     private const string RemoteBenchmarkHelp = """
@@ -764,6 +814,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int StartServer(ServerStartCommandOptions options) => Missing("server");
 
     public int Report(ReportCommandOptions options) => Missing("report");
+
+    public int Coverage(CoverageCommandOptions options) => Missing("coverage");
 
     public int Pack(PackCommandOptions options) => Missing("pack");
 

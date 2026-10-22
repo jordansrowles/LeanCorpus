@@ -37,7 +37,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `build` | Managed: restore and build the supported solution targets | `./devops build` |
 | `test` | PowerShell: run one or more registered test suites | `pwsh ./devops.ps1 test` |
 | `aot` | PowerShell: publish and run Native AOT smoke validation | `pwsh ./devops.ps1 aot` |
-| `coverage` | PowerShell: collect coverage and optionally generate a report | `pwsh ./devops.ps1 coverage` |
+| `coverage` | Managed apphost: run coverage-eligible suites and optionally generate a pinned HTML report | `./devops coverage -Suite sourcegen -GenerateReport` |
 | `benchmark` | Managed apphost: local and affected BenchmarkDotNet suites plus remote SSH/tmux lifecycle | `./devops benchmark --list` |
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
 | `data` | PowerShell: prepare a named benchmark corpus | `pwsh ./devops.ps1 data gutenberg` |
@@ -73,6 +73,12 @@ run and validates every Wikipedia report against the verified reference
 identity. This is qualification evidence, not a performance comparison. Other
 DataForge commands remain on the PowerShell route while their managed slices
 are migrated.
+
+Coverage selects suites marked eligible in the managed test registry. `all`
+skips ineligible suites, and tests marked `Coverage=Skip` remain excluded unless
+`-IncludePerformance` is supplied. Raw Cobertura files and optional HTML output
+are retained under `artifacts/coverage/runs/`; `-GenerateReport` uses the pinned
+repository-local ReportGenerator tool.
 
 ## Argument handling
 
@@ -194,8 +200,8 @@ Generated repository copies, API, site, benchmark, and coverage output must rema
 ## Tool discovery
 
 The documentation workflow uses the repository-pinned DocFX tool restored by
-`pwsh -NoProfile -File ./setup.ps1`. Coverage commands use ReportGenerator when needed. Keep tool use
-narrow and version decisions deliberate.
+`pwsh -NoProfile -File ./setup.ps1`. Coverage reports use the repository-pinned
+ReportGenerator tool restored by the same bootstrap.
 
 The current DocFX tool release bundles its own frontend dependencies. The documentation diagram pipeline separately pins authoring dependencies under `docs/site-config/diagrams` where a version must be controlled by the repository.
 

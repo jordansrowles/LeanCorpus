@@ -412,12 +412,15 @@ public sealed class CommandLineContractTests
         using var document = JsonDocument.Parse(File.ReadAllText(path));
         var cases = document.RootElement.GetProperty("cases").EnumerateArray().ToArray();
 
-        Assert.Equal(13, cases.Length);
+        Assert.Equal(14, cases.Length);
         Assert.Equal(cases.Length, cases.Select(item => item.GetProperty("id").GetString()).Distinct().Count());
-        var managedCommands = new[] { "build", "clean", "report", "server" };
+        var managedCommands = new[] { "build", "clean", "coverage", "report", "server" };
         Assert.All(cases, item => Assert.Contains(item.GetProperty("command").GetString(), managedCommands));
         Assert.Equal(new[] { "report-code-strict-json", "report-files-path-glob", "report-git-json" },
             cases.Where(item => item.GetProperty("command").GetString() == "report")
+                .Select(item => item.GetProperty("id").GetString()).Order(StringComparer.Ordinal));
+        Assert.Equal(new[] { "coverage-core-default" },
+            cases.Where(item => item.GetProperty("command").GetString() == "coverage")
                 .Select(item => item.GetProperty("id").GetString()).Order(StringComparer.Ordinal));
     }
 
@@ -445,6 +448,24 @@ public sealed class CommandLineContractTests
         Assert.Equal(0, exitCode);
         var actual = Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls));
         Assert.Equal(["--filter", "*Term*"], actual.Arguments);
+    }
+
+    [Fact]
+    public void CoverageCommandRoutesThroughManagedHandler()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(["coverage", "-Suite", "core", "-Framework", "net10.0", "-Configuration", "Debug",
+            "-Clean", "-IncludePerformance", "-GenerateReport"], handler);
+
+        Assert.Equal(0, exitCode);
+        var actual = Assert.IsType<CoverageCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal("net10.0", actual.Framework);
+        Assert.Equal("Debug", actual.Configuration);
+        Assert.Equal("core", actual.Suite);
+        Assert.True(actual.Clean);
+        Assert.True(actual.IncludePerformance);
+        Assert.True(actual.GenerateReport);
     }
 
     private static int Invoke(string[] args, RecordingCommandHandler handler)
@@ -491,6 +512,12 @@ public sealed class CommandLineContractTests
         }
 
         public int Report(ReportCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int Coverage(CoverageCommandOptions options)
         {
             Calls.Add(options);
             return 0;

@@ -15,6 +15,15 @@ internal sealed record ServerStartCommandOptions(
 
 internal sealed record ReportCommandOptions(string Group, int Top, string? Path, bool Strict, bool Json, string? RepositoryPath = null);
 
+internal sealed record CoverageCommandOptions(
+    string Framework,
+    string Configuration,
+    string Suite,
+    bool Clean,
+    bool IncludePerformance,
+    bool GenerateReport,
+    string? RepositoryPath = null);
+
 internal sealed record PackCommandOptions(
     string Configuration,
     bool CompressionOnly,
