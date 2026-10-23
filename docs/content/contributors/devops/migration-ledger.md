@@ -32,7 +32,7 @@ At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree conta
 | `aot` (`aot`) | `scripts/devops/commands/aot.ps1` | 5 | Inventoried; not routed |
 | `coverage` (`coverage`) | `scripts/devops/commands/coverage.ps1` | 6 | Managed test pipeline and pinned ReportGenerator route through the apphost; clean-source Linux `all` coverage passed for Core and SourceGen on net10.0 with two Cobertura reports and HTML output. Net11, Windows/macOS and hosted parity remain open. |
 | `diagnostics` (`diagnostics ps`, `diagnostics counters`, `diagnostics trace`, `diagnostics gcdump`, `diagnostics dump`, `diagnostics symbols`, `diagnostics capture`) | `scripts/devops/commands/diagnostics.ps1` | 4 | All seven variants route through the managed apphost. Fake-runner lifecycle tests and a bounded Linux capture pass; live attach parity on other platforms remains open. |
-| `benchmark` (`benchmark`, `benchmark affected`, `benchmark remote start/status/cancel`) | `scripts/devops/commands/benchmark.ps1` | 4 | Local suites, changed-path group selection and SSH/tmux lifecycle route through the managed apphost. The manual benchmark workflow now invokes the checked-out host directly after bootstrap; hosted workflow, live remote and non-Linux parity evidence remain open. |
+| `benchmark` (`benchmark`, `benchmark affected`, `benchmark remote start/status/cancel`) | `scripts/devops/commands/benchmark.ps1` | 4 | Local suites, changed-path group selection and SSH/tmux lifecycle route through the managed apphost. The manual workflow's Core dry-run passed through the checked-out host after bootstrap on SHA `6c610fd57` (Build `39879445230`); real measurements, live remote and non-Linux parity remain open. |
 | `data` (`data gutenberg`, `data migration-fixtures-311`) | `scripts/devops/commands/data.ps1` | 3 | Inventoried; not routed |
 | `dataforge` (`dataforge profiles`, `dataforge generate`, `dataforge inspect`, `dataforge verify`, `dataforge reproduce`, `dataforge reference download`, `dataforge reference build`, `dataforge reference inspect`, `dataforge reference verify`, `dataforge qualify`) | `scripts/devops/commands/dataforge.ps1` | 3 | `dataforge qualify` is implemented and routed through the managed apphost; other variants remain on PowerShell. Linux qualification passed; cross-platform parity remains open. |
 | `docs` (`docs prepare`, `docs build`, `docs metadata`, `docs serve`, `docs test`) | `scripts/devops/commands/docs.ps1` | 6 | Managed documentation services implement and route all five actions through `./devops`; Linux output parity, static checks and the 11-case browser suite pass. The PowerShell implementation remains as rollback; hosted current-SHA validation is pending. |
@@ -44,7 +44,7 @@ At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree conta
 | `report` (`report git`, `report files`, `report code`) | `scripts/devops/commands/report.ps1` | 2 | Linux managed all-groups report passed with 50/50 child exits and 37 evaluated projects; promoted-host PowerShell forwarding passed with 8/8 child exits. Report tests cover versioned JSON, strict checks, unusual paths, rename-aware churn, shallow history and syntax-analysis limits. Windows/macOS and hosted parity gates remain open. |
 | `server` (`server start`) | `scripts/devops/commands/server.ps1` | 1 | Managed foreground server is tested and routed through the Linux-x64 apphost. |
 
-The PowerShell transition dispatcher currently forwards `build`, `clean`, `report`, `coverage`, `benchmark`, `diagnostics`, `ui`, and foreground `server start`. The Build, stress and diagnostics workflows now invoke the checked-out root apphost directly for product builds after setup. The managed coverage host preserves registry eligibility and the `Coverage!=Skip` default, links its test run, and retains raw Cobertura plus optional ReportGenerator HTML output. Clean-source Linux coverage for both eligible suites passed on net10.0 in run `a81b4160-9800-4a18-a549-96eca9eeb0df`; Net11, Windows/macOS and hosted parity remain open. The managed benchmark host runs local suites, selects affected benchmark classes from staged, modified, renamed and untracked paths, and manages remote SSH/tmux start, status and cancellation. Remote cancellation remains uncertain until a terminal status is returned. The manual benchmark workflow now calls the checked-out host directly after setup; a hosted dry-run and benchmark documentation generation remain to be validated, as do live remote use and non-Linux parity. `test` and `aot` remain on PowerShell until their complete Phase 5 slice. Every other command remains on its current path until its own phase and parity gate.
+The PowerShell transition dispatcher currently forwards `build`, `clean`, `report`, `coverage`, `benchmark`, `diagnostics`, `ui`, and foreground `server start`. The Build, stress and diagnostics workflows now invoke the checked-out root apphost directly for product builds after setup. The managed coverage host preserves registry eligibility and the `Coverage!=Skip` default, links its test run, and retains raw Cobertura plus optional ReportGenerator HTML output. Clean-source Linux coverage for both eligible suites passed on net10.0 in run `a81b4160-9800-4a18-a549-96eca9eeb0df`; Net11, Windows/macOS and hosted parity remain open. The managed benchmark host runs local suites, selects affected benchmark classes from staged, modified, renamed and untracked paths, and manages remote SSH/tmux start, status and cancellation. Remote cancellation remains uncertain until a terminal status is returned. The manual benchmark workflow's Core dry-run passed through the checked-out host after setup on SHA `6c610fd57` (Build `39879445230`); real measurements, benchmark documentation, live remote use and non-Linux parity remain open. `test` and `aot` remain on PowerShell until their complete Phase 5 slice. Every other command remains on its current path until its own phase and parity gate.
 
 ## Legacy module inventory
 
@@ -191,7 +191,7 @@ The PowerShell transition dispatcher currently forwards `build`, `clean`, `repor
 
 | Workflow | Current state and migration note |
 |---|---|
-| `.github/workflows/benchmark.yml` | The manual benchmark command now invokes the checked-out root apphost after setup; benchmark execution and non-Linux parity remain pending hosted validation. |
+| `.github/workflows/benchmark.yml` | The manual Core dry-run passed after setup through the checked-out root apphost at SHA `6c610fd57` (Build `39879445230`); actual benchmark execution, live remote and non-Linux parity remain open. |
 | `.github/workflows/build.yml` | Adds a Linux/Windows managed-host qualification matrix. Linux/Windows product build steps and coverage call the checked-out host directly after bootstrap; product test and package matrices remain at their current acceptance boundary. Hosted exact-SHA verification is pending. |
 | `.github/workflows/deploy.yml` | Documentation artefact deployment remains unchanged and does not invoke the root launcher. |
 | `.github/workflows/test-diagnostics.yml` | Linux and Windows jobs bootstrap the managed host and invoke it directly for product builds; test execution remains on PowerShell pending Phase 5 parity. Hosted exact-SHA verification is pending. |
@@ -535,3 +535,27 @@ The separate `windows-test-results` artifact did upload: SHA-256
 The repairs are local and uncommitted at this ledger revision. Commit and push
 them to `issue-97`, then dispatch a new Build against that exact commit. Run
 `39813635823` remains pre-repair evidence; do not use it to qualify the fixes.
+
+### Direct managed CI workflow hand-offs (2026-10-23)
+
+Commit `6c610fd57493e8a9abb7d3032c19949fc6c6c397` on `issue-97` changes the
+product-build steps in Build, stress and diagnostics workflows to select the
+checked-out `./devops` or `./devops.exe` after setup. It also changes the
+manual benchmark workflow to invoke that apphost directly. The artefact
+infrastructure smoke's workflow-contract checks failed against the previous
+workflow content and passed after the change on Debian 13 x64 with PowerShell
+7.5.4. All four changed workflow files parsed with PyYAML, and the source
+ledger JSON and `git diff --check` passed.
+
+Hosted Benchmark run [39879445230](https://github.com/jordansrowles/LeanCorpus/actions/runs/39879445230)
+completed successfully at the exact source SHA above on `ubuntu-latest`, with
+suite `core`, strategy `fast`, framework `net10.0` and `dry_run=true`. Setup
+completed for `linux-x64`; 285 managed DevOps tests passed, 8 explicit filters
+were skipped and none failed. The `Run benchmarks` step passed and logged
+`Benchmark dry run completed; no benchmark targets were executed.` The
+`core` selector resolved to the Core benchmark project with its internal
+`--suite all` selection, as the managed planner specifies. This is launcher,
+setup and argument-path evidence only; no benchmark measurements were made.
+The subsequent Build run at this SHA and the Windows/macOS stress/diagnostics
+workflows remain outstanding. No additional changelog entry was added for
+this evidence-only ledger update.

@@ -2096,7 +2096,7 @@
       "path": ".github/workflows/benchmark.yml",
       "state": "updated",
       "phase": "0-8",
-      "action": "The manual benchmark command invokes the checked-out root apphost after setup; hosted dry-run, live remote and non-Linux parity evidence remain open."
+      "action": "The manual Core dry-run passed through the checked-out root apphost after setup at source SHA 6c610fd57493e8a9abb7d3032c19949fc6c6c397 (Build 39879445230); actual benchmark execution, live remote and non-Linux parity remain open."
     },
     {
       "path": ".github/workflows/build.yml",
