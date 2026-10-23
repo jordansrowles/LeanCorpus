@@ -53,6 +53,39 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           pwsh ./devops.ps1 build --project $project --framework net10.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run report all through the promoted host
+        shell: pwsh
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          $reportOutputPath = Join-Path $env:RUNNER_TEMP 'managed-report-all.stdout.json'
+          & $managedHost report all --json > $reportOutputPath
+          $reportExitCode = $LASTEXITCODE
+          if ($reportExitCode -ne 0) {
+            Get-Content -LiteralPath $reportOutputPath
+            exit $reportExitCode
+          }
+          $report = Get-Content -LiteralPath $reportOutputPath -Raw | ConvertFrom-Json -Depth 100
+          if ($report.contractVersion -ne 1 -or
+              $report.command -cne 'report' -or
+              $report.requestSummary.group -cne 'all' -or
+              $report.state -cne 'succeeded' -or
+              $report.outcome -cne 'Success' -or
+              [string]::IsNullOrWhiteSpace($report.runId) -or
+              @($report.childAttempts).Count -eq 0) {
+            throw 'Managed report all returned an incomplete or unsuccessful JSON contract.'
+          }
+          $reportArtifactPath = Join-Path $PWD "artifacts/report/runs/$($report.runId)/report.json"
+          if (-not (Test-Path -LiteralPath $reportArtifactPath -PathType Leaf)) {
+            throw "Managed report run artifact is missing: $reportArtifactPath"
+          }
+          Write-Host "Managed report run $($report.runId) succeeded with $(@($report.childAttempts).Count) child commands."
+      - name: Upload managed report evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: managed-report-${{ matrix.platform }}
+          path: artifacts/report/runs
+          if-no-files-found: warn
       - name: Upload managed DevOps diagnostics
         if: failure()
         uses: actions/upload-artifact@v7

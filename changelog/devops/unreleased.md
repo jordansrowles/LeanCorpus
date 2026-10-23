@@ -21,6 +21,7 @@
 - Fail setup early with the exact missing DevOps project or configuration path, before restore, build or publish, and verify that the previous apphost is preserved. Keep the optional root `Directory.Build.targets` out of the required-input list and correct the bootstrap smoke's command capture and solution-path assertions.
 - Import managed DevOps release notes as an independent changelog stream and derive its displayed project version separately from Core and Server versions.
 - Bootstrap the managed host before collecting hosted coverage and call its coverage command directly.
+- Run `report all --json` through promoted Linux and Windows hosts in Build CI and retain the full report run evidence.
 
 ## Fixed
 

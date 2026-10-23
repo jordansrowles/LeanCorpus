@@ -1683,6 +1683,7 @@
       "id": "CMD-REPORT",
       "name": "report",
       "variants": [
+        "report all",
         "report git",
         "report files",
         "report code"
@@ -1694,8 +1695,8 @@
       "routed": true,
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation.",
       "cliParser": "implemented",
-      "service": "passed-linux-all-groups-and-apphost-git",
-      "evidence": "Linux all-groups run 19246c98-5c1d-4999-9a8e-4fbf6563ccd9 succeeded with 50/50 child exits, all 37 solution projects evaluated, and Git/Files/Code sections. Promoted single-file PowerShell forwarding run 2bdf88d7-085d-4319-9db8-d0187cbf0622 succeeded with 8/8 child exits. The legacy parser omitted similarity-rename line changes; NUL-safe managed parsing retains them. Contract fixtures record the baseline churn difference and deterministic tie ordering. Windows/macOS and hosted parity gates remain open."
+      "service": "passed-linux-and-windows-all-groups; hosted-workflow-pending",
+      "evidence": "Exact-source Linux all-groups run b34ff093-f727-445c-ab5d-4310348d001f succeeded with 59/59 child exits and 45 evaluated projects (37 solution projects plus 45 tracked projects). Windows all-groups run fc447497-b7ad-44af-943e-8fc1bd704a5e also succeeded with 59/59 child exits; a same-source PowerShell comparison matched project identities and reference sets after order normalisation. The full comparison and raw runs are recorded in the #8 tracker evidence pack. Build CI now invokes report all --json through both promoted hosts and uploads report run evidence; hosted execution is pending the next exact-source Build. macOS execution remains open."
     },
     {
       "id": "CMD-SERVER",
