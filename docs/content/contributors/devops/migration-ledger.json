@@ -2102,7 +2102,7 @@
       "path": ".github/workflows/build.yml",
       "state": "updated",
       "phase": "0-8",
-      "action": "Adds Linux and Windows managed-host qualification. Product-build steps and coverage call the checked-out root apphost directly after bootstrap; product test and package matrices remain at their current acceptance boundary. Missing optional product-build diagnostics warn instead of adding a secondary failure."
+      "action": "Adds Linux and Windows managed-host qualification. Product builds, coverage, package archive validation and package consumer checks call the checked-out root apphost after bootstrap. Test execution remains on PowerShell pending Phase 5 parity. Missing optional product-build diagnostics warn instead of adding a secondary failure; the package workflow change awaits exact-SHA hosted verification."
     },
     {
       "path": ".github/workflows/deploy.yml",

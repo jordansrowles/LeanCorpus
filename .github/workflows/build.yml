@@ -216,9 +216,15 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./setup.ps1
       - name: Validate shipping package APIs and archives
         shell: pwsh
-        run: ./devops.ps1 pack -Clean
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost pack --clean
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload package validation artefacts
         if: failure()
         uses: actions/upload-artifact@v7
@@ -238,9 +244,15 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./setup.ps1
       - name: Validate generated package consumers
         shell: pwsh
-        run: ./devops.ps1 pack -Clean -ValidatePackages
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost pack --clean --validate-packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload package consumer artefacts
         if: failure()
         uses: actions/upload-artifact@v7

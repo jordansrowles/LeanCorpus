@@ -9,6 +9,7 @@
 ## Changed
 
 - Run CI product builds and the manual benchmark command through the checked-out managed DevOps apphost after setup.
+- Bootstrap the checked-out managed DevOps host before package validation and consumer checks in Build CI.
 - Use British spelling for Core serialisation source paths, namespaces and affected-test, code-area and benchmark selectors; the former selector values are no longer accepted.
 - Record managed test environment override names in run manifests without persisting their values.
 - Fail setup early with the exact missing DevOps project or configuration path, before restore, build or publish, and verify that the previous apphost is preserved. Keep the optional root `Directory.Build.targets` out of the required-input list and correct the bootstrap smoke's command capture and solution-path assertions.

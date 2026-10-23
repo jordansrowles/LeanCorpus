@@ -192,7 +192,7 @@ The PowerShell transition dispatcher currently forwards `build`, `clean`, `repor
 | Workflow | Current state and migration note |
 |---|---|
 | `.github/workflows/benchmark.yml` | The manual Core dry-run passed after setup through the checked-out root apphost at SHA `6c610fd57` (Build `39879445230`); actual benchmark execution, live remote and non-Linux parity remain open. |
-| `.github/workflows/build.yml` | Adds a Linux/Windows managed-host qualification matrix. Linux/Windows product build steps and coverage call the checked-out host directly after bootstrap; product test and package matrices remain at their current acceptance boundary. Hosted exact-SHA verification is pending. |
+| `.github/workflows/build.yml` | Adds a Linux/Windows managed-host qualification matrix. Product builds, coverage, package archive validation and package consumer checks call the checked-out host after bootstrap. Test commands remain on PowerShell pending Phase 5 parity; the package workflow change awaits exact-SHA hosted verification. |
 | `.github/workflows/deploy.yml` | Documentation artefact deployment remains unchanged and does not invoke the root launcher. |
 | `.github/workflows/test-diagnostics.yml` | Linux and Windows jobs bootstrap the managed host and invoke it directly for product builds; test execution remains on PowerShell pending Phase 5 parity. Hosted exact-SHA verification is pending. |
 | `.github/workflows/test-stress.yml` | Linux and Windows jobs bootstrap the managed host and invoke it directly for product builds; test execution remains on PowerShell pending Phase 5 parity. Hosted exact-SHA verification is pending. |

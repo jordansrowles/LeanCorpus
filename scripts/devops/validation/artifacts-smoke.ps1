@@ -455,6 +455,33 @@ try {
         Assert-Smoke ($benchmarkStepBody -match '(?m)^\s*&\s*\$managedHost\s+@benchmarkArguments\b') 'the benchmark workflow does not invoke its arguments through the checked-out host.'
         Assert-Smoke ($benchmarkStepBody -notmatch '(?im)^\s*&\s*\./devops\.ps1\s+@benchmarkArguments') 'the benchmark workflow still invokes the PowerShell dispatcher.'
 
+        $buildWorkflow = Get-Content -LiteralPath (Join-Path $RepositoryRoot '.github/workflows/build.yml') -Raw
+        foreach ($packageJob in @(
+            @{ Name = 'package-validation'; StepName = 'Validate shipping package APIs and archives'; Expected = 'pack --clean' },
+            @{ Name = 'package-consumer'; StepName = 'Validate generated package consumers'; Expected = 'pack --clean --validate-packages' }
+        )) {
+            $jobMatch = [regex]::Match(
+                $buildWorkflow,
+                "(?ms)^  $([regex]::Escape($packageJob.Name)):\s*\r?\n(?<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*$|\z)"
+            )
+            Assert-Smoke $jobMatch.Success "Build workflow is missing the '$($packageJob.Name)' job."
+            $jobBody = $jobMatch.Groups['body'].Value
+            Assert-Smoke ($jobBody -match '(?m)^\s{6}- name: Bootstrap managed DevOps host\s*\r?\n\s{8}shell: pwsh\s*\r?\n\s{8}run: pwsh -NoProfile -File \./setup\.ps1\s*$') "package job '$($packageJob.Name)' does not bootstrap the checked-out managed host."
+            $bootstrapIndex = $jobBody.IndexOf('- name: Bootstrap managed DevOps host', [StringComparison]::Ordinal)
+            $packIndex = $jobBody.IndexOf("- name: $($packageJob.StepName)", [StringComparison]::Ordinal)
+            Assert-Smoke ($bootstrapIndex -ge 0 -and $packIndex -gt $bootstrapIndex) "package job '$($packageJob.Name)' does not bootstrap before package validation."
+            $packStep = [regex]::Match(
+                $jobBody,
+                "(?ms)^\s{6}- name: $([regex]::Escape($packageJob.StepName))\s*\r?\n(?<body>.*?)(?=^\s{6}- name:|\z)"
+            )
+            Assert-Smoke $packStep.Success "package job '$($packageJob.Name)' is missing its package validation step."
+            $packStepBody = $packStep.Groups['body'].Value
+            Assert-Smoke ($packStepBody -match '(?m)^\s{10}\$managedHost\s*=\s*if \(\$IsWindows\)') "package job '$($packageJob.Name)' does not select the checked-out host for the current OS."
+            $packageCommandPattern = '(?m)^\s{10}&\s*\$managedHost\s+' + [regex]::Escape($packageJob.Expected) + '(?:\s|$)'
+            Assert-Smoke ($packStepBody -match $packageCommandPattern) "package job '$($packageJob.Name)' does not invoke the managed package route '$($packageJob.Expected)'."
+            Assert-Smoke ($packStepBody -notmatch '(?i)devops\.ps1\s+pack') "package job '$($packageJob.Name)' still invokes the PowerShell dispatcher."
+        }
+
         # I. Orchard functional and explicit performance suite separation.
         $testSuites = Get-TestSuiteRegistry
         $functionalProject = 'src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj'

@@ -48,7 +48,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `server start` | Managed: start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
 | `benchmarks docs` | PowerShell: regenerate benchmark documentation pages | `pwsh ./devops.ps1 benchmarks docs` |
 | `clean` | Managed: remove selected DevOps-owned output | `./devops clean test` |
-| `pack` | PowerShell: pack release artefacts and write a checksum manifest | `pwsh ./devops.ps1 pack` |
+| `pack` | Managed apphost: build release packages, validate APIs and archives, or run isolated package consumers | `./devops pack --clean --validate-packages` |
 | `report` | Managed: report repository history, tracked files or code health; `--json` writes a versioned evidence envelope | `./devops report git --json` |
 | `setup` | PowerShell: inspect the development environment | `pwsh ./devops.ps1 setup` |
 | `ui` | Managed apphost: open the interactive Spectre.Console workbench | `./devops ui` |
@@ -231,7 +231,7 @@ Keep download and data-preparation logic in `scripts`, with `devops.ps1` acting 
 
 `.github/workflows/build.yml` is the required validation contract. The DevOps entry point and CI should use equivalent commands where practical, but local-only diagnostics and expensive repeated benchmarks should remain opt-in unless they are intentionally promoted to merge validation.
 
-CI bootstraps the checked-out DevOps host with `setup.ps1` and invokes the root apphost directly for product builds and the manual benchmark command. Test and package workflow routes remain governed by their own migration acceptance gates.
+CI bootstraps the checked-out DevOps host with `setup.ps1` and invokes the root apphost directly for product builds, package archive validation, package consumers and the manual benchmark command. Test workflow routes remain governed by their own migration acceptance gate.
 
 When changing routing, inspect both local callers and workflow callers before removing an option or alias.
 
