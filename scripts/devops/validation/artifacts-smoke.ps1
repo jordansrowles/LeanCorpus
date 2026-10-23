@@ -456,6 +456,19 @@ try {
         Assert-Smoke ($benchmarkStepBody -notmatch '(?im)^\s*&\s*\./devops\.ps1\s+@benchmarkArguments') 'the benchmark workflow still invokes the PowerShell dispatcher.'
 
         $buildWorkflow = Get-Content -LiteralPath (Join-Path $RepositoryRoot '.github/workflows/build.yml') -Raw
+        $foundationJob = [regex]::Match(
+            $buildWorkflow,
+            '(?ms)^  managed-devops-foundation:\s*\r?\n(?<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*$|\z)'
+        )
+        Assert-Smoke $foundationJob.Success 'Build workflow is missing the managed DevOps foundation job.'
+        $foundationBody = $foundationJob.Groups['body'].Value
+        foreach ($platform in @(
+            @{ Name = 'linux-arm64'; Runner = 'ubuntu-24.04-arm' },
+            @{ Name = 'osx-arm64'; Runner = 'macos-15' }
+        )) {
+            $platformPattern = '(?m)^\s{10}- platform: ' + [regex]::Escape($platform.Name) + '\s*\r?\n\s{12}runner: ' + [regex]::Escape($platform.Runner) + '\s*$'
+            Assert-Smoke ($foundationBody -match $platformPattern) "managed DevOps foundation does not bootstrap '$($platform.Name)' on '$($platform.Runner)'."
+        }
         foreach ($packageJob in @(
             @{ Name = 'package-validation'; StepName = 'Validate shipping package APIs and archives'; Expected = 'pack --clean' },
             @{ Name = 'package-consumer'; StepName = 'Validate generated package consumers'; Expected = 'pack --clean --validate-packages' }

@@ -8,6 +8,7 @@
 - Add a framework-dependent .NET 10 tool distribution profile for the managed DevOps command, with package readme and licence metadata.
 - Add managed RID-specific single-file DevOps release archives with source manifests, third-party notices, payload checksums and archive SHA-256 sidecars.
 - Add an interactive Spectre.Console workbench for managed tests, benchmark suites and area/group selectors, DataForge qualification and recent run inspection.
+- Exercise managed DevOps bootstrap and `report all` on Linux ARM64 and macOS ARM64 in Build CI.
 
 ## Changed
 

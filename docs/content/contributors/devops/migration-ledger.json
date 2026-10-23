@@ -1695,8 +1695,8 @@
       "routed": true,
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation.",
       "cliParser": "implemented",
-      "service": "passed-linux-and-windows-all-groups; hosted-workflow-pending",
-      "evidence": "Exact-source Linux all-groups run b34ff093-f727-445c-ab5d-4310348d001f succeeded with 59/59 child exits and 45 evaluated projects (37 solution projects plus 45 tracked projects). Windows all-groups run fc447497-b7ad-44af-943e-8fc1bd704a5e also succeeded with 59/59 child exits; a same-source PowerShell comparison matched project identities and reference sets after order normalisation. The full comparison and raw runs are recorded in the #8 tracker evidence pack. Build CI now invokes report all --json through both promoted hosts and uploads report run evidence; hosted execution is pending the next exact-source Build. macOS execution remains open."
+      "service": "passed-linux-and-windows-all-groups; hosted-linux-and-windows-passed; arm64-and-macos-open",
+      "evidence": "Exact-source Linux all-groups run b34ff093-f727-445c-ab5d-4310348d001f succeeded with 59/59 child exits and 45 evaluated projects (37 solution projects plus 45 tracked projects). Windows all-groups run fc447497-b7ad-44af-943e-8fc1bd704a5e also succeeded with 59/59 child exits; a same-source PowerShell comparison matched project identities and reference sets after order normalisation. Hosted Build 39911787375 passed report all --json through promoted Linux and Windows hosts at exact SHA 2e2fd6cbc537b75021264a9f376f8c9fbb951ae1, with 59 successful child commands on each and retained artifacts 12482988694 and 12483133165. The managed foundation matrix now adds fresh Linux ARM64 and macOS ARM64 bootstrap/report execution; exact-source qualification remains pending. The full comparison and raw runs are recorded in the #8 tracker evidence pack."
     },
     {
       "id": "CMD-SERVER",
@@ -2394,7 +2394,7 @@
         "sourceFingerprint": "98746ef033ae0a28c8c01b7bf3763e3319799207a0c20929254a7d198596bb9a"
       },
       "report": {
-        "status": "passed-linux-and-windows-report-execution;macos-and-hosted-open",
+        "status": "passed-linux-and-windows-report-execution-and-hosted;linux-arm64-and-macos-open",
         "allGroupsRunId": "b34ff093-f727-445c-ab5d-4310348d001f",
         "allGroupsChildExits": {
           "passed": 59,
@@ -2420,7 +2420,7 @@
         "windowsLegacyExplicitPackageRefs": 119,
         "recoveredInterruptedRunId": "714dd4f4-c07a-42ac-8880-6933ff746c9e",
         "legacyDifferences": "The Windows same-source report comparison matches all 45 project identities, reference sets, inbound counts and cycles after ordering normalisation. The managed report includes one SDK-implicit NETStandard.Library reference absent from the legacy XML scan. NUL-safe rename attribution adds 7,197 additions and 4,248 deletions; UTC date buckets and stable tie ordering account for documented history/ranking differences. Detailed normalised comparison is in the issue #8 evidence note.",
-        "open": "macOS report parity, hosted report-command execution, and broader report-consumer compatibility."
+        "open": "Linux ARM64 and macOS report parity and bootstrap, plus broader report-consumer compatibility."
       },
       "testing": {
         "status": "linux-test-services-aot-sdk-and-skip-reasons-passed-routing-gates-open",
