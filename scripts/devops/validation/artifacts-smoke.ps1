@@ -426,6 +426,35 @@ try {
         Assert-Smoke ($diagnosticsWorkflow.Contains("'--diagnostics',") -and $diagnosticsWorkflow.Contains("'--profile',") -and $diagnosticsWorkflow.Contains("'integration',")) 'diagnostics workflow does not pass --diagnostics and --profile integration.'
         Assert-Smoke ($diagnosticsWorkflow.Contains('name: test-diagnostics-linux') -and $diagnosticsWorkflow.Contains('name: test-diagnostics-windows')) 'diagnostics workflow artefact names are incorrect.'
 
+        foreach ($workflowPath in @(
+            '.github/workflows/build.yml',
+            '.github/workflows/test-diagnostics.yml',
+            '.github/workflows/test-stress.yml'
+        )) {
+            $workflow = Get-Content -LiteralPath (Join-Path $RepositoryRoot $workflowPath) -Raw
+            $buildSteps = [regex]::Matches(
+                $workflow,
+                '(?ms)^\s*- name: (?:Build solution|Build prepared test output)\s*\r?\n(?<body>.*?)(?=^\s*- name:|\z)'
+            )
+            Assert-Smoke ($buildSteps.Count -gt 0) "workflow '$workflowPath' has no recognised product build step."
+            foreach ($buildStep in $buildSteps) {
+                $stepBody = $buildStep.Groups['body'].Value
+                Assert-Smoke ($stepBody -match '(?m)^\s*\$managedHost\s*=\s*if \(\$IsWindows\)') "workflow '$workflowPath' does not select the checked-out host for the current OS."
+                Assert-Smoke ($stepBody -match '(?m)^\s*&\s*\$managedHost\s+build(?:\s|$)') "workflow '$workflowPath' does not invoke the checked-out host for its product build."
+                Assert-Smoke ($stepBody -notmatch '(?i)devops\.ps1\s+build') "workflow '$workflowPath' still invokes the PowerShell dispatcher for a product build."
+            }
+        }
+        $benchmarkWorkflow = Get-Content -LiteralPath (Join-Path $RepositoryRoot '.github/workflows/benchmark.yml') -Raw
+        $benchmarkSteps = [regex]::Matches(
+            $benchmarkWorkflow,
+            '(?ms)^\s*- name: Run benchmarks\s*\r?\n(?<body>.*?)(?=^\s*- name:|\z)'
+        )
+        Assert-Smoke ($benchmarkSteps.Count -eq 1) 'the manual benchmark workflow does not define one benchmark execution step.'
+        $benchmarkStepBody = $benchmarkSteps[0].Groups['body'].Value
+        Assert-Smoke ($benchmarkStepBody -match '(?m)^\s*\$managedHost\s*=\s*if \(\$IsWindows\)') 'the benchmark workflow does not select the checked-out host for the current OS.'
+        Assert-Smoke ($benchmarkStepBody -match '(?m)^\s*&\s*\$managedHost\s+@benchmarkArguments\b') 'the benchmark workflow does not invoke its arguments through the checked-out host.'
+        Assert-Smoke ($benchmarkStepBody -notmatch '(?im)^\s*&\s*\./devops\.ps1\s+@benchmarkArguments') 'the benchmark workflow still invokes the PowerShell dispatcher.'
+
         # I. Orchard functional and explicit performance suite separation.
         $testSuites = Get-TestSuiteRegistry
         $functionalProject = 'src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj'

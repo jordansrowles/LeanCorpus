@@ -2096,13 +2096,13 @@
       "path": ".github/workflows/benchmark.yml",
       "state": "updated",
       "phase": "0-8",
-      "action": "Manual benchmark route remains PowerShell; its failure hint names the explicit dispatcher."
+      "action": "The manual benchmark command invokes the checked-out root apphost after setup; hosted dry-run, live remote and non-Linux parity evidence remain open."
     },
     {
       "path": ".github/workflows/build.yml",
       "state": "updated",
       "phase": "0-8",
-      "action": "Adds Linux and Windows managed-host qualification plus bootstrap before existing managed builds; product matrices remain unchanged. Coverage bootstraps and calls the managed host directly; missing optional product-build diagnostics warn instead of adding a secondary failure."
+      "action": "Adds Linux and Windows managed-host qualification. Product-build steps and coverage call the checked-out root apphost directly after bootstrap; product test and package matrices remain at their current acceptance boundary. Missing optional product-build diagnostics warn instead of adding a secondary failure."
     },
     {
       "path": ".github/workflows/deploy.yml",
@@ -2114,13 +2114,13 @@
       "path": ".github/workflows/test-diagnostics.yml",
       "state": "updated",
       "phase": "0-8",
-      "action": "Linux and Windows jobs bootstrap before their managed build; test execution remains on PowerShell. Hosted execution is pending."
+      "action": "Linux and Windows jobs bootstrap the managed host and invoke it directly for product builds; test execution remains on PowerShell pending Phase 5 parity. Hosted exact-SHA verification is pending."
     },
     {
       "path": ".github/workflows/test-stress.yml",
       "state": "updated",
       "phase": "0-8",
-      "action": "Linux and Windows jobs bootstrap before their managed build; test execution remains on PowerShell. Hosted execution is pending."
+      "action": "Linux and Windows jobs bootstrap the managed host and invoke it directly for product builds; test execution remains on PowerShell pending Phase 5 parity. Hosted exact-SHA verification is pending."
     }
   ],
   "configAndData": {

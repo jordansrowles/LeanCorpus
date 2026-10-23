@@ -111,7 +111,10 @@ jobs:
 
       - name: Build prepared test output
         shell: pwsh
-        run: ./devops.ps1 build
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Test Stress
         shell: pwsh
@@ -194,7 +197,10 @@ jobs:
 
       - name: Build prepared test output
         shell: pwsh
-        run: ./devops.ps1 build
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Test Stress
         shell: pwsh

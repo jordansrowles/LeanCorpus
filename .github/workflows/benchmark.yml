@@ -120,7 +120,8 @@ jobs:
           if ($env:BENCHMARK_CORPUS_ONLY -eq 'true') { $benchmarkArguments += '-CorpusOnly' }
           if ($env:BENCHMARK_DRY_RUN -eq 'true') { $benchmarkArguments += '-Dry' }
           if ($env:BENCHMARK_FILTER) { $benchmarkArguments += @('--', '--filter', $env:BENCHMARK_FILTER) }
-          & ./devops.ps1 @benchmarkArguments
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost @benchmarkArguments
           exit $LASTEXITCODE
 
       - name: Upload benchmark results

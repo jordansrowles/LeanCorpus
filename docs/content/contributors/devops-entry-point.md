@@ -231,6 +231,8 @@ Keep download and data-preparation logic in `scripts`, with `devops.ps1` acting 
 
 `.github/workflows/build.yml` is the required validation contract. The DevOps entry point and CI should use equivalent commands where practical, but local-only diagnostics and expensive repeated benchmarks should remain opt-in unless they are intentionally promoted to merge validation.
 
+CI bootstraps the checked-out DevOps host with `setup.ps1` and invokes the root apphost directly for product builds and the manual benchmark command. Test and package workflow routes remain governed by their own migration acceptance gates.
+
 When changing routing, inspect both local callers and workflow callers before removing an option or alias.
 
 ## Validate optional compression packages for release

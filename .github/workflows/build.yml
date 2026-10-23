@@ -84,7 +84,10 @@ jobs:
         run: pwsh -NoProfile -File ./setup.ps1
       - name: Build solution
         shell: pwsh
-        run: ./devops.ps1 build
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload build diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
@@ -167,7 +170,10 @@ jobs:
         run: pwsh -NoProfile -File ./setup.ps1
       - name: Build solution
         shell: pwsh
-        run: ./devops.ps1 build
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload build diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
