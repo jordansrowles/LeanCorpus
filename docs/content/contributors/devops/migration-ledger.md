@@ -40,7 +40,7 @@ At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree conta
 | `setup` (`setup`) | `scripts/devops/commands/setup.ps1` | 0 | Inventoried; not routed |
 | `clean` (`clean [target]`) | `scripts/devops/commands/clean.ps1` | 1 | Managed CleanService is tested on disposable fixtures and routed through the Linux-x64 apphost. |
 | `pack` (`pack`) | `scripts/devops/commands/pack.ps1` | 3 | Inventoried; not routed |
-| `ui` (`ui`) | `scripts/devops/commands/ui.ps1` | 7 | Managed Spectre.Console workbench is implemented; the PowerShell dispatcher forwards to the fingerprint-validated host and its smoke passes. Full functional parity, terminal interaction and cross-platform/hosted acceptance remain open. |
+| `ui` (`ui`) | `scripts/devops/commands/ui.ps1` | 7 | Managed Spectre.Console workbench is implemented; Linux tests and PTY acceptance cover narrow-width resize/navigation, Ctrl+C exit 130 and terminal restoration. Historical-route parity, focus and Windows/macOS/hosted acceptance remain open. |
 | `report` (`report git`, `report files`, `report code`) | `scripts/devops/commands/report.ps1` | 2 | Linux managed all-groups report passed with 50/50 child exits and 37 evaluated projects; promoted-host PowerShell forwarding passed with 8/8 child exits. Report tests cover versioned JSON, strict checks, unusual paths, rename-aware churn, shallow history and syntax-analysis limits. Windows/macOS and hosted parity gates remain open. |
 | `server` (`server start`) | `scripts/devops/commands/server.ps1` | 1 | Managed foreground server is tested and routed through the Linux-x64 apphost. |
 

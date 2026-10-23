@@ -15,7 +15,7 @@ public sealed class DevOpsWorkbenchTests
         var console = new TestConsole();
         var operations = new RecordingWorkbenchOperations();
 
-        int exitCode = CreateWorkbench(console, operations).Run();
+        int exitCode = CreateWorkbench(console, operations, TestContext.Current.CancellationToken).Run();
 
         Assert.Equal(2, exitCode);
         Assert.Contains("interactive terminal", console.Output, StringComparison.OrdinalIgnoreCase);
@@ -28,11 +28,27 @@ public sealed class DevOpsWorkbenchTests
         var console = new TestConsole().Interactive().SupportsAnsi(false);
         var operations = new RecordingWorkbenchOperations();
 
-        int exitCode = CreateWorkbench(console, operations).Run();
+        int exitCode = CreateWorkbench(console, operations, TestContext.Current.CancellationToken).Run();
 
         Assert.Equal(2, exitCode);
         Assert.Contains("ANSI", console.Output, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("documented DevOps commands", console.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(operations.Calls);
+    }
+
+    [Fact]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("xUnit", "xUnit1051", Justification = "This test intentionally passes a pre-cancelled token to exercise prompt cancellation.")]
+    public void Run_ReturnsCancellationOutcomeWhenPromptCancellationIsRequested()
+    {
+        var console = new TestConsole().Interactive();
+        var operations = new RecordingWorkbenchOperations();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        int exitCode = CreateWorkbench(console, operations, cancellation.Token).Run();
+
+        Assert.Equal(130, exitCode);
+        Assert.Contains("cancelled", console.Output, StringComparison.OrdinalIgnoreCase);
         Assert.Empty(operations.Calls);
     }
 
@@ -55,7 +71,7 @@ public sealed class DevOpsWorkbenchTests
         console.Input.PushKey(ConsoleKey.Enter);
         console.Input.PushKey(ConsoleKey.Enter); // Exit
 
-        int exitCode = CreateWorkbench(console, operations).Run();
+        int exitCode = CreateWorkbench(console, operations, TestContext.Current.CancellationToken).Run();
 
         Assert.Equal(0, exitCode);
         Assert.Equal(new[] { "test", "core", "net10.0", "Release", "unit" }, Assert.Single(operations.Calls));
@@ -74,7 +90,7 @@ public sealed class DevOpsWorkbenchTests
         console.Input.PushKey(ConsoleKey.Enter);
         console.Input.PushKey(ConsoleKey.Enter); // Exit
 
-        int exitCode = CreateWorkbench(console, operations).Run();
+        int exitCode = CreateWorkbench(console, operations, TestContext.Current.CancellationToken).Run();
 
         Assert.Equal(0, exitCode);
         Assert.Equal(new[] { "dataforge", "qualify", "--dry" }, Assert.Single(operations.Calls));
@@ -103,7 +119,7 @@ public sealed class DevOpsWorkbenchTests
         console.Input.PushKey(ConsoleKey.Enter);
         console.Input.PushKey(ConsoleKey.Enter); // Exit
 
-        int exitCode = CreateWorkbench(console, operations).Run();
+        int exitCode = CreateWorkbench(console, operations, TestContext.Current.CancellationToken).Run();
 
         Assert.Equal(0, exitCode);
         var benchmark = Assert.Single(operations.Benchmarks);
@@ -141,7 +157,7 @@ public sealed class DevOpsWorkbenchTests
         console.Input.PushKey(ConsoleKey.Enter);
         console.Input.PushKey(ConsoleKey.Enter); // Exit
 
-        int exitCode = CreateWorkbench(console, operations).Run();
+        int exitCode = CreateWorkbench(console, operations, TestContext.Current.CancellationToken).Run();
 
         Assert.Equal(0, exitCode);
         Assert.Contains("/repo/artifacts/test/runs/eb0cf3b0-4d32-43b5-b69a-7e6a8eefbcb3", console.Output);
@@ -149,7 +165,10 @@ public sealed class DevOpsWorkbenchTests
         Assert.Contains("tests.ndjson", console.Output);
     }
 
-    private static DevOpsWorkbench CreateWorkbench(TestConsole console, RecordingWorkbenchOperations operations)
+    private static DevOpsWorkbench CreateWorkbench(
+        TestConsole console,
+        RecordingWorkbenchOperations operations,
+        CancellationToken cancellationToken)
         => new(console, new DevOpsConfiguration(
             ImmutableDictionary<string, TestSuiteConfiguration>.Empty.Add(
                 "core", new TestSuiteConfiguration("core", "src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj", "mtp", ["net10.0", "net11.0"], "net11.0", true, [], null, null, null)),
@@ -159,7 +178,7 @@ public sealed class DevOpsWorkbenchTests
                 "fast", new BenchmarkStrategyConfiguration("Fast smoke", 100, ["--job", "Dry"])),
             ImmutableDictionary<string, ImmutableArray<string>>.Empty,
             ImmutableDictionary<string, BenchmarkGroupConfiguration>.Empty.Add(
-                "Serialisation", new BenchmarkGroupConfiguration("Serialisation", ["src/core/Rowles.LeanCorpus/Serialisation/**"], "core", ["SchemaAndJsonBenchmarks"]))), operations);
+                "Serialisation", new BenchmarkGroupConfiguration("Serialisation", ["src/core/Rowles.LeanCorpus/Serialisation/**"], "core", ["SchemaAndJsonBenchmarks"]))), operations, cancellationToken);
 
     private static void PushSelection(TestConsole console, int down)
     {

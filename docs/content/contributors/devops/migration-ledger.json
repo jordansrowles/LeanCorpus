@@ -1676,7 +1676,7 @@
       "state": "routed",
       "replacement": "Spectre.Console workbench over shared services",
       "routed": true,
-      "latestEvidence": "On the dirty issue-97 tree based on 3718a8c5704ff020b11ebcc68ba2dff658916f4c, the managed workbench setup passed with 291 total DevOps tests: 283 passed, 8 explicitly skipped, 0 failed; Linux x64 apphost promoted and build smoke passed. Dispatcher smoke passed 81 checks. Docs build dee19494-e5fd-4fc3-8de7-c3e8cc00dd66 and docs acceptance a1109831-4ffe-4216-8667-722e21ae007a passed; docs-site child run e3a4c0c9-0515-40df-8586-bd3d8fd6386c passed 11/11. Full UI parity and cross-platform/hosted acceptance remain open.",
+      "latestEvidence": "On the dirty issue-97 source based on eb6d38d4dc98b0b08fa16e08692a0884346e1a3e, Debian 13 x64 and SDK 11.0.100-preview.7.26381.103, the managed test apphost passed 285/293 cases (8 explicitly filtered, 0 failed; TRX SHA-256 341fe1408c55ac2187ee38867f553fe62f86f365c56965d91a7a602ab30d31b6). The focused workbench class passed 7/7 (TRX SHA-256 d1f5d1fc027ed6934ab784c8913697cd289573f5961baef624680633a6118b31); test-project build run cb1bfadd-2195-4e22-9dd0-56d42e467641 succeeded without compiler warnings. A Linux PTY probe verified 24-column navigation after resize to 100 columns, Ctrl+C exit 130, and terminal restoration after normal exit and cancellation. Historical-route parity, focus and Windows/macOS/hosted acceptance remain open.",
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {

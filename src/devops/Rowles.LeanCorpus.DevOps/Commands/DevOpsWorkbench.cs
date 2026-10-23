@@ -25,11 +25,16 @@ internal interface IWorkbenchOperations
     IReadOnlyList<WorkbenchRun> ReadRecentRuns();
 }
 
-internal sealed class DevOpsWorkbench(IAnsiConsole console, DevOpsConfiguration configuration, IWorkbenchOperations operations)
+internal sealed class DevOpsWorkbench(
+    IAnsiConsole console,
+    DevOpsConfiguration configuration,
+    IWorkbenchOperations operations,
+    CancellationToken cancellationToken = default)
 {
     private const int MaximumDataForgeArguments = 32;
     private const int MaximumRecentRuns = 40;
     private int _lastExitCode;
+    private CancellationToken _promptCancellationToken;
 
     public int Run()
     {
@@ -47,10 +52,20 @@ internal sealed class DevOpsWorkbench(IAnsiConsole console, DevOpsConfiguration 
             return 2;
         }
 
+        using var interruptCancellation = new CancellationTokenSource();
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, interruptCancellation.Token);
+        _promptCancellationToken = linkedCancellation.Token;
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            interruptCancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
         try
         {
             while (true)
             {
+                _promptCancellationToken.ThrowIfCancellationRequested();
                 var area = Select("LeanCorpus DevOps workbench", ["Exit", "Tests", "Benchmarks", "DataForge", "Observe"]);
                 switch (area)
                 {
@@ -81,6 +96,11 @@ internal sealed class DevOpsWorkbench(IAnsiConsole console, DevOpsConfiguration 
             console.Write(new Text("The interactive operation was cancelled."));
             console.WriteLine();
             return 130;
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+            _promptCancellationToken = default;
         }
     }
 
@@ -262,7 +282,9 @@ internal sealed class DevOpsWorkbench(IAnsiConsole console, DevOpsConfiguration 
         var arguments = new List<string>();
         while (arguments.Count < MaximumDataForgeArguments)
         {
-            var argument = console.Prompt(new TextPrompt<string>($"Argument {arguments.Count + 1} (blank to finish)").AllowEmpty());
+            var argument = console.PromptAsync(
+                new TextPrompt<string>($"Argument {arguments.Count + 1} (blank to finish)").AllowEmpty(),
+                _promptCancellationToken).GetAwaiter().GetResult();
             if (argument.Length == 0)
             {
                 break;
@@ -331,11 +353,11 @@ internal sealed class DevOpsWorkbench(IAnsiConsole console, DevOpsConfiguration 
         // Re-read the width for each prompt and keep the visible choice list short on narrow terminals.
         var width = Math.Max(1, console.Profile.Width);
         var pageSize = Math.Clamp(width / 10, 3, 10);
-        return console.Prompt(new SelectionPrompt<string>()
+        return console.PromptAsync(new SelectionPrompt<string>()
             .Title(title)
             .PageSize(pageSize)
             .AddChoices(choices)
-            .UseConverter(Markup.Escape));
+            .UseConverter(Markup.Escape), _promptCancellationToken).GetAwaiter().GetResult();
     }
 }
 

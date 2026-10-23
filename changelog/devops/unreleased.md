@@ -24,6 +24,7 @@
 - Preserve managed coverage and documentation test run evidence when their CI jobs fail.
 - Capture Chromium platform-font and viewport details with failed docs-site browser evidence.
 - Give interactive workbench users a documented-command fallback when their terminal does not support ANSI selections.
+- Handle Ctrl+C during interactive prompts as a graceful cancellation and restore terminal state.
 
 ## Removed
 
