@@ -22,6 +22,7 @@
 
 ## Fixed
 
+- Exclude ignored build output from repository report dirty-state and status entries while retaining untracked source changes.
 - Correct the Lucene.NET Geo distance benchmark radius units, disable its default spatial query tolerance for fixture parity, and use unique fuzzy no-hit terms to avoid cached-empty-result bias.
 - Disable build servers for benchmark child runs and report the benchmark target, lease stage, elapsed time, and latest child output in progress updates.
 - Prevent desktop docs navigation overflow by collapsing the navigation below 1600px and using stable Linux font metrics.

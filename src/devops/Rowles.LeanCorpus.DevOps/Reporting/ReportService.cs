@@ -480,7 +480,12 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
 
     private static GitRepositorySnapshot CreateRepositorySnapshot(LibGit2Sharp.Repository repository)
     {
-        var status = repository.RetrieveStatus()
+        var status = repository.RetrieveStatus(new StatusOptions
+            {
+                IncludeUntracked = true,
+                IncludeIgnored = false,
+                RecurseUntrackedDirs = true
+            })
             .Where(entry => entry.State != FileStatus.Unaltered)
             .Select(entry => new RepositoryStatusEntry(entry.FilePath, entry.State.ToString()))
             .OrderBy(entry => entry.Path, StringComparer.Ordinal)

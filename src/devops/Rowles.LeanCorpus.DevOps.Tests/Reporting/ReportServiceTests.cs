@@ -143,6 +143,28 @@ public sealed class ReportServiceTests
     }
 
     [Fact]
+    public async Task GitReportDoesNotCountIgnoredFilesAsSourceChanges()
+    {
+        using var repository = await TemporaryGitRepository.CreateAsync();
+        await repository.WriteAsync(".gitignore", "/artifacts/\n");
+        await repository.WriteAsync("README.md", "clean input\n");
+        await repository.CommitAsync("docs: add readme and ignore build output", DateTimeOffset.UtcNow);
+        await repository.WriteAsync("artifacts/build/ignored.txt", "generated output\n");
+
+        var result = await new ReportService(new ProcessRunner()).GenerateAsync(new ReportRequest
+        {
+            Checkout = repository.Identity,
+            Group = "git"
+        }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
+        Assert.False(result.Document!["sourceIdentity"]!["dirty"]!.GetValue<bool>());
+        var git = Assert.IsType<JsonObject>(result.Document["report"]!["Git"]);
+        Assert.True(git["Status"]!["Clean"]!.GetValue<bool>());
+        Assert.Empty(Assert.IsType<JsonArray>(git["Status"]!["Entries"]));
+    }
+
+    [Fact]
     public async Task FileReportAppliesPathGlobAndProducesDeterministicExtensionCounts()
     {
         using var repository = await TemporaryGitRepository.CreateAsync();
