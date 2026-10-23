@@ -706,6 +706,8 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
     {
         var solutionPath = Path.Combine(git.RepositoryRoot, "Rowles.LeanCorpus.slnx");
         IReadOnlyList<string> projects;
+        int? solutionProjectCount = null;
+        int trackedProjectCount;
         bool? solutionGraphMatchesCli = null;
         string? solutionGraphNote = null;
         if (File.Exists(solutionPath))
@@ -716,10 +718,19 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
             {
                 throw new InvalidOperationException(inspection.Failure ?? "Could not inspect the repository solution graph.");
             }
-            projects = inspection.Projects
+            var solutionProjects = inspection.Projects
                 .Select(project => Path.GetRelativePath(git.RepositoryRoot, project.ProjectPath).Replace('\\', '/'))
                 .OrderBy(path => path, StringComparer.Ordinal)
                 .ToArray();
+            var trackedSource = await git.ReadTextAsync(["ls-files", "-z", "--", "*.csproj"], cancellationToken).ConfigureAwait(false);
+            var trackedProjects = trackedSource.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+            var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+            projects = solutionProjects.Concat(trackedProjects)
+                .Distinct(pathComparer)
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            solutionProjectCount = solutionProjects.Length;
+            trackedProjectCount = trackedProjects.Length;
             solutionGraphMatchesCli = inspection.MatchesDotNetCli;
             solutionGraphNote = inspection.Failure;
         }
@@ -727,6 +738,7 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
         {
             var source = await git.ReadTextAsync(["ls-files", "-z", "--", "*.csproj"], cancellationToken).ConfigureAwait(false);
             projects = source.Split('\0', StringSplitOptions.RemoveEmptyEntries).OrderBy(path => path, StringComparer.Ordinal).ToArray();
+            trackedProjectCount = projects.Count;
         }
         if (projects.Count == 0)
         {
@@ -790,6 +802,8 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
         return new
         {
             ProjectCount = metadata.Count,
+            SolutionProjectCount = solutionProjectCount,
+            TrackedProjectCount = trackedProjectCount,
             TotalPackageRefs = metadata.Sum(project => project.PackageCount),
             SolutionPersistenceMatchesDotNetCli = solutionGraphMatchesCli,
             SolutionGraphNote = solutionGraphNote,

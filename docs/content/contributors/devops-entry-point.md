@@ -116,6 +116,13 @@ NUL-safe Git parsing preserves churn and touch history across similarity-detecte
 renames that the legacy text parser dropped; equal-ranked rows now use stable
 ordinal ordering.
 
+The code dependency graph evaluates every tracked `*.csproj`, including projects
+outside `Rowles.LeanCorpus.slnx`, together with any solution-only entries.
+`ProjectCount` reports that union; `SolutionProjectCount` and
+`TrackedProjectCount` show the two inventories separately. Package totals come
+from SDK-evaluated metadata, including implicit package references, so they can
+differ from the legacy report's raw project-file scan.
+
 Use `benchmark` for running measurements and `benchmarks docs` for publishing existing result artefacts. The plural command is intentionally not a second benchmark runner.
 
 `./devops dataforge qualify` verifies the frozen Wikipedia reference, runs the

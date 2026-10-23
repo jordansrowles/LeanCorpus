@@ -298,6 +298,35 @@ public sealed class ReportServiceTests
     }
 
     [Fact]
+    public async Task CodeReportIncludesTrackedProjectsOutsideTheRootSolution()
+    {
+        using var repository = await TemporaryGitRepository.CreateAsync();
+        await repository.WriteAsync("global.json", "{\"sdk\":{\"version\":\"11.0.100-preview.7.26381.103\",\"rollForward\":\"latestPatch\",\"allowPrerelease\":true}}\n");
+        await repository.WriteAsync("Rowles.LeanCorpus.slnx", "<Solution><Project Path=\"src/One/One.csproj\" /><Project Path=\"src/Two/Two.csproj\" /></Solution>\n");
+        await repository.WriteAsync("src/One/One.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n");
+        await repository.WriteAsync("src/Two/Two.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n");
+        await repository.WriteAsync("src/Standalone/Standalone.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n");
+        await repository.CommitAsync("feat: add solution and standalone projects", DateTimeOffset.UtcNow);
+
+        var result = await new ReportService(new ProcessRunner()).GenerateAsync(new ReportRequest
+        {
+            Checkout = repository.Identity,
+            Group = "code",
+            Top = 10
+        }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
+        var dependencies = Assert.IsType<JsonObject>(result.Document!["report"]!["Code"]!["Dependencies"]);
+        Assert.Equal(3, dependencies["ProjectCount"]!.GetValue<int>());
+        Assert.Equal(2, dependencies["SolutionProjectCount"]!.GetValue<int>());
+        Assert.Equal(3, dependencies["TrackedProjectCount"]!.GetValue<int>());
+        var projects = Assert.IsType<JsonArray>(dependencies["Projects"]);
+        Assert.Equal(new[] { "One", "Standalone", "Two" }, projects
+            .Select(item => item!["Name"]!.GetValue<string>())
+            .OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task GitFailureIsInfrastructureFailureRatherThanAnEmptyCleanReport()
     {
         using var directory = new TemporaryDirectory();
