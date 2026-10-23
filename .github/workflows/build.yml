@@ -153,6 +153,13 @@ jobs:
           name: coverage-runs
           path: artifacts/coverage/runs
           if-no-files-found: warn
+      - name: Upload linked coverage test-run evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-test-runs
+          path: artifacts/test/runs
+          if-no-files-found: warn
 
   windows-tests:
     runs-on: windows-2025

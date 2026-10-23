@@ -14,6 +14,7 @@
 - Include all tracked C# projects in the managed code dependency graph, report solution and tracked project counts separately, and retain SDK-evaluated package metadata.
 - Run CI product builds and the manual benchmark command through the checked-out managed DevOps apphost after setup.
 - Bootstrap the checked-out managed DevOps host before package validation and consumer checks in Build CI.
+- Upload linked MTP test-run artefacts separately from coverage-run manifests in Build CI.
 - Use British spelling for Core serialisation source paths, namespaces, test selectors, affected-source selectors and benchmark area/group selectors.
 - Keep repository-host, .NET tool and release-archive dependency graphs isolated with profile-specific NuGet lock files.
 - Record managed test environment override names in run manifests without persisting their values.
