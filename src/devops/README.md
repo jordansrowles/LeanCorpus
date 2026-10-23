@@ -16,6 +16,7 @@ Use this directory when you need to run or extend LeanCorpus tests, benchmarks, 
 | Attach standard .NET diagnostics | `./devops diagnostics ps` |
 | Generate coverage and HTML | `pwsh ./devops.ps1 coverage -Clean -GenerateReport` |
 | List benchmark suites | `./devops benchmark --list` |
+| Build a release archive | `./devops distribute --rid linux-x64` |
 | Build documentation | `pwsh ./devops.ps1 docs build` |
 
 Run `./devops --help` for the complete current command surface.
@@ -34,7 +35,7 @@ A test selection combines independent dimensions:
 | Category | What role does the test have? | `Unit`, `Integration`, `Chaos` |
 | Filter | Which runner-level name or expression matches? | `FullyQualifiedName~Writer` |
 
-The Core JSON metadata area is named `Serialisation` in source paths, namespaces, test selectors, affected-source selectors and benchmark area/group selectors. The former `Serialization` selector is no longer accepted. The interactive workbench also needs an ANSI-capable terminal; use the documented commands directly when ANSI selection is unavailable.
+The Core JSON metadata source paths, namespaces, test selectors, affected-source selectors and benchmark area/group selectors use British `Serialisation`. The interactive workbench also needs an ANSI-capable terminal; use the documented commands directly when ANSI selection is unavailable.
 
 Examples:
 

@@ -23,6 +23,7 @@ public sealed class CommandLineContractTests
         Assert.Contains("server", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("report", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("pack", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("distribute", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("data", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("dataforge", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("benchmark", output.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -507,6 +508,18 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
+    public void DistributeCommandPreservesRidConfigurationAndSelfContainedMode()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(["distribute", "--rid", "linux-x64", "--configuration", "Release", "--self-contained"], handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(new DistributeCommandOptions("linux-x64", "Release", true),
+            Assert.IsType<DistributeCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
     public void UiCommandForwardsTheExplicitRepository()
     {
         var handler = new RecordingCommandHandler();
@@ -579,6 +592,12 @@ public sealed class CommandLineContractTests
         }
 
         public int Pack(PackCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int Distribute(DistributeCommandOptions options)
         {
             Calls.Add(options);
             return 0;

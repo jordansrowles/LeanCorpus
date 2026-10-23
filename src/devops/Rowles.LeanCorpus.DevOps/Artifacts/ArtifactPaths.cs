@@ -4,7 +4,7 @@ internal sealed class ArtifactPaths
 {
     public static IReadOnlyList<string> RunCategories { get; } = Array.AsReadOnly(new[]
     {
-        "build", "test", "coverage", "benchmark", "diagnostics", "report", "package", "docs", "data", "dataforge", "server"
+        "build", "test", "coverage", "benchmark", "diagnostics", "report", "package", "distribution", "docs", "data", "dataforge", "server"
     });
 
     public ArtifactPaths(string repositoryRoot)

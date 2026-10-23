@@ -22,6 +22,14 @@ internal sealed record DotNetPublishRequest
 
     public bool SingleFile { get; init; }
 
+    public bool IncludeNativeLibrariesForSelfExtract { get; init; }
+
+    public bool SuppressDebugSymbols { get; init; }
+
+    public bool RestoreLockedMode { get; init; }
+
+    public bool ReleaseArchiveProfile { get; init; }
+
     public bool PublishAot { get; init; }
 
     public bool PublishTrimmed { get; init; }

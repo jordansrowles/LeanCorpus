@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.DevOps.Build;
 using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Data;
 using Rowles.LeanCorpus.DevOps.Diagnostics;
+using Rowles.LeanCorpus.DevOps.Distribution;
 using Rowles.LeanCorpus.DevOps.Documentation;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Packaging;
@@ -336,6 +337,64 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
         {
             return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run the managed package command.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int Distribute(DistributeCommandOptions options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var result = new ReleaseDistributionService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "distribution"),
+                processRunner,
+                new DotNetSdkResolver(processRunner),
+                new GitRepositoryProvenanceReader(processRunner)).BuildAsync(new ReleaseDistributionRequest
+                {
+                    Checkout = checkout,
+                    RuntimeIdentifier = options.RuntimeIdentifier,
+                    Configuration = options.Configuration,
+                    SelfContained = options.SelfContained
+                }, cancellation.Token).GetAwaiter().GetResult();
+
+            var commandResult = result.RunDirectory is null
+                ? result.CommandResult
+                : result.CommandResult with
+                {
+                    Message = result.CommandResult.Outcome == OutcomeKind.Success
+                        ? $"Release archive created. Run evidence: {result.RunDirectory}"
+                        : result.CommandResult.Message,
+                    Details = string.Join(Environment.NewLine, new[] { result.CommandResult.Details, result.RunDirectory }
+                        .Where(static value => !string.IsNullOrWhiteSpace(value)))
+                };
+            return _renderer.Render(commandResult, output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not build a DevOps release distribution.", Details: exception.Message), output, error);
         }
         finally
         {

@@ -53,6 +53,10 @@ internal sealed class DotNetPublishService(
                 ["noRestore"] = request.NoRestore.ToString().ToLowerInvariant(),
                 ["selfContained"] = request.SelfContained.ToString().ToLowerInvariant(),
                 ["singleFile"] = request.SingleFile.ToString().ToLowerInvariant(),
+                ["includeNativeLibrariesForSelfExtract"] = request.IncludeNativeLibrariesForSelfExtract.ToString().ToLowerInvariant(),
+                ["suppressDebugSymbols"] = request.SuppressDebugSymbols.ToString().ToLowerInvariant(),
+                ["restoreLockedMode"] = request.RestoreLockedMode.ToString().ToLowerInvariant(),
+                ["releaseArchiveProfile"] = request.ReleaseArchiveProfile.ToString().ToLowerInvariant(),
                 ["publish-aot"] = request.PublishAot.ToString().ToLowerInvariant(),
                 ["publish-trimmed"] = request.PublishTrimmed.ToString().ToLowerInvariant()
             }, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -221,10 +225,19 @@ internal sealed class DotNetPublishService(
             arguments.AddRange(["-r", request.RuntimeIdentifier]);
         }
 
+        if (request.ReleaseArchiveProfile)
+        {
+            arguments.Add("-p:DevOpsDistributionProfile=ReleaseArchive");
+        }
+
         arguments.AddRange(["-o", outputPath]);
         if (request.NoRestore)
         {
             arguments.Add("--no-restore");
+        }
+        else if (request.RestoreLockedMode)
+        {
+            arguments.Add("-p:RestoreLockedMode=true");
         }
 
         arguments.AddRange(
@@ -232,9 +245,21 @@ internal sealed class DotNetPublishService(
             "--self-contained", request.SelfContained ? "true" : "false",
             $"-p:PublishSingleFile={request.SingleFile.ToString().ToLowerInvariant()}",
             $"-p:PublishAot={request.PublishAot.ToString().ToLowerInvariant()}",
-            $"-p:PublishTrimmed={request.PublishTrimmed.ToString().ToLowerInvariant()}",
-            "--disable-build-servers", "-m:1", "-p:UseSharedCompilation=false", "--tl:off"
+            $"-p:PublishTrimmed={request.PublishTrimmed.ToString().ToLowerInvariant()}"
         ]);
+        if (request.IncludeNativeLibrariesForSelfExtract)
+        {
+            arguments.Add("-p:IncludeNativeLibrariesForSelfExtract=true");
+        }
+
+        if (request.SuppressDebugSymbols)
+        {
+            arguments.Add("-p:DebugType=None");
+            arguments.Add("-p:DebugSymbols=false");
+        }
+
+        arguments.AddRange(["--disable-build-servers", "-m:1", "-p:UseSharedCompilation=false", "--tl:off"]);
+
         return arguments;
     }
 

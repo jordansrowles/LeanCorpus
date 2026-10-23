@@ -28,6 +28,7 @@ internal static class Program
         var report = BuildReportCommand(handler, repository);
         var coverage = BuildCoverageCommand(handler, repository);
         var pack = BuildPackCommand(handler, repository);
+        var distribute = BuildDistributeCommand(handler, repository);
         var data = BuildDataCommand(handler, repository);
         var dataForge = BuildDataForgeCommand(handler, repository);
         var diagnostics = BuildDiagnosticsCommand(handler, repository);
@@ -40,6 +41,7 @@ internal static class Program
         root.Add(report);
         root.Add(coverage);
         root.Add(pack);
+        root.Add(distribute);
         root.Add(data);
         root.Add(dataForge);
         root.Add(diagnostics);
@@ -330,6 +332,34 @@ internal static class Program
             result.GetValue(clean),
             result.GetValue(validatePackages),
             result.GetValue(validateCompression),
+            result.GetValue(repository))));
+        return command;
+    }
+
+    private static Command BuildDistributeCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var runtimeIdentifier = new Option<string>("--rid")
+        {
+            Description = "Qualified release target: win-x64, linux-x64, osx-arm64 or linux-arm64.",
+            DefaultValueFactory = _ => string.Empty
+        };
+        var configuration = new Option<string>("--configuration", ["-Configuration"])
+        {
+            Description = "Build configuration (default: Release).",
+            DefaultValueFactory = _ => "Release"
+        };
+        var selfContained = new Option<bool>("--self-contained")
+        {
+            Description = "Bundle the .NET runtime in the single-file release archive."
+        };
+        var command = new Command("distribute", "Build a checksummed DevOps release archive for one qualified runtime target.");
+        command.Add(runtimeIdentifier);
+        command.Add(configuration);
+        command.Add(selfContained);
+        command.SetAction(result => handler.Distribute(new DistributeCommandOptions(
+            result.GetValue(runtimeIdentifier) ?? string.Empty,
+            result.GetValue(configuration) ?? "Release",
+            result.GetValue(selfContained),
             result.GetValue(repository))));
         return command;
     }
@@ -872,6 +902,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int Coverage(CoverageCommandOptions options) => Missing("coverage");
 
     public int Pack(PackCommandOptions options) => Missing("pack");
+
+    public int Distribute(DistributeCommandOptions options) => Missing("distribute");
 
     public int Data(DataCommandOptions options) => Missing("data");
 

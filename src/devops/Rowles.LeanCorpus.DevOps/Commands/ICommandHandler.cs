@@ -16,6 +16,8 @@ internal interface ICommandHandler
 
     int Pack(PackCommandOptions options);
 
+    int Distribute(DistributeCommandOptions options);
+
     int Data(DataCommandOptions options);
 
     int DataForge(DataForgeCommandOptions options);

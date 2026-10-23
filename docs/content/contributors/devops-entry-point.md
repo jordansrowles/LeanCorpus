@@ -49,6 +49,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `benchmarks docs` | PowerShell: regenerate benchmark documentation pages | `pwsh ./devops.ps1 benchmarks docs` |
 | `clean` | Managed: remove selected DevOps-owned output | `./devops clean test` |
 | `pack` | Managed apphost: build release packages, validate APIs and archives, or run isolated package consumers | `./devops pack --clean --validate-packages` |
+| `distribute` | Managed apphost: publish one single-file DevOps executable and package its source manifest, notices and checksums | `./devops distribute --rid linux-x64` |
 | `report` | Managed: report repository history, tracked files or code health; `--json` writes a versioned evidence envelope | `./devops report git --json` |
 | `setup` | PowerShell: inspect the development environment | `pwsh ./devops.ps1 setup` |
 | `ui` | Managed apphost: open the interactive Spectre.Console workbench | `./devops ui` |
@@ -59,6 +60,50 @@ host.
 
 The optional workbench is included in the managed apphost and does not require
 a PowerShell UI module.
+
+## Optional .NET tool package
+
+The DevOps project also has a framework-dependent .NET 10 tool profile for
+installations that need the `devops` command outside the repository apphost.
+Build the package locally with:
+
+```bash
+dotnet pack src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj \
+  --configuration Release \
+  --output artifacts/devops/distribution/tool \
+  -p:DevOpsDistributionProfile=Tool \
+  -p:RestoreLockedMode=true
+```
+
+The profile creates `Rowles.LeanCorpus.DevOps` version `1.0.0`, with command
+name `devops`. It requires a .NET 10 runtime and does not bundle the SDK, Git,
+repository-pinned tools or Native AOT toolchains. The package is intended to be
+run from a compatible LeanCorpus checkout. Its dependency graph is locked in
+`packages.tool.lock.json`, separately from the repository host. This build
+produces a local package; publishing it to a feed is a separate release action.
+
+## Release archives
+
+`distribute` creates one ZIP archive for a qualified release target and records
+the publish and archive runs under `artifacts/build/runs/` and
+`artifacts/distribution/runs/`. The archive contains the single-file
+executable, source and version manifest, runtime prerequisites, project
+licence, third-party notices and payload checksums. A `.sha256` sidecar
+verifies the archive itself. Use `--self-contained` to include the .NET runtime;
+Git and the SDK selected by the target checkout's `global.json` are still
+required for repository operations. Current command examples:
+
+```bash
+./devops distribute --rid linux-x64
+./devops distribute --rid win-x64 --self-contained
+```
+
+The release archive profile uses `packages.distribution.lock.json`; its
+RID-specific publish dependencies do not alter the repository-host or tool
+profile lock files.
+
+The package ID and version remain provisional until availability is checked
+before a separately authorised publication.
 
 Managed reports accept `all`, `git`, `files` or `code`; use `--top`, `--path`,
 `--strict` and `--json` to select the view and output contract. Each run is

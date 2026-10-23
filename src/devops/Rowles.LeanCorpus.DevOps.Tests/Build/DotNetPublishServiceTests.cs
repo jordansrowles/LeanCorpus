@@ -43,6 +43,34 @@ public sealed class DotNetPublishServiceTests
     }
 
     [Fact]
+    public async Task PublishUsesLockedRestoreAndNativeLibraryExtractionWhenRequested()
+    {
+        using var checkout = TemporaryCheckout.Create();
+        var process = new RecordingProcessRunner();
+        var request = Request(checkout) with
+        {
+            RestoreLockedMode = true,
+            IncludeNativeLibrariesForSelfExtract = true,
+            SuppressDebugSymbols = true,
+            ReleaseArchiveProfile = true
+        };
+
+        var result = await CreateService(checkout, process).PublishAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
+        Assert.Contains("-p:RestoreLockedMode=true", process.Request!.Arguments);
+        Assert.Contains("-p:IncludeNativeLibrariesForSelfExtract=true", process.Request.Arguments);
+        Assert.Contains("-p:DevOpsDistributionProfile=ReleaseArchive", process.Request.Arguments);
+        Assert.Contains("-p:DebugType=None", process.Request.Arguments);
+        Assert.Contains("-p:DebugSymbols=false", process.Request.Arguments);
+        var manifest = result.Manifest!;
+        Assert.Equal("true", manifest.Inputs["suppressDebugSymbols"]);
+        Assert.Equal("true", manifest.Inputs["restoreLockedMode"]);
+        Assert.Equal("true", manifest.Inputs["includeNativeLibrariesForSelfExtract"]);
+        Assert.Equal("true", manifest.Inputs["releaseArchiveProfile"]);
+    }
+
+    [Fact]
     public async Task RejectsProjectOrOutputEscapeBeforeCreatingRun()
     {
         using var checkout = TemporaryCheckout.Create();

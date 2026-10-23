@@ -41,6 +41,12 @@ internal sealed record PackCommandOptions(
     bool ValidateCompression,
     string? RepositoryPath = null);
 
+internal sealed record DistributeCommandOptions(
+    string RuntimeIdentifier,
+    string Configuration,
+    bool SelfContained,
+    string? RepositoryPath = null);
+
 internal sealed record DataCommandOptions(
     string Dataset,
     int BookCount,

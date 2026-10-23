@@ -2,15 +2,19 @@
 
 ## Added
 
+- Establish DevOps `1.0.0` independently of the LeanCorpus Core package version.
 - Add managed backup/restore matrix qualification with Git source fingerprints, five legacy variants and linked child-run evidence.
 - Add managed documentation preparation, metadata, build, static/browser validation and serve commands through the DevOps apphost.
+- Add a framework-dependent .NET 10 tool distribution profile for the managed DevOps command, with package readme and licence metadata.
+- Add managed RID-specific single-file DevOps release archives with source manifests, third-party notices, payload checksums and archive SHA-256 sidecars.
 - Add an interactive Spectre.Console workbench for managed tests, benchmark suites and area/group selectors, DataForge qualification and recent run inspection.
 
 ## Changed
 
 - Run CI product builds and the manual benchmark command through the checked-out managed DevOps apphost after setup.
 - Bootstrap the checked-out managed DevOps host before package validation and consumer checks in Build CI.
-- Use British spelling for Core serialisation source paths, namespaces and affected-test, code-area and benchmark selectors; the former selector values are no longer accepted.
+- Use British spelling for Core serialisation source paths, namespaces, test selectors, affected-source selectors and benchmark area/group selectors.
+- Keep repository-host, .NET tool and release-archive dependency graphs isolated with profile-specific NuGet lock files.
 - Record managed test environment override names in run manifests without persisting their values.
 - Fail setup early with the exact missing DevOps project or configuration path, before restore, build or publish, and verify that the previous apphost is preserved. Keep the optional root `Directory.Build.targets` out of the required-input list and correct the bootstrap smoke's command capture and solution-path assertions.
 - Import managed DevOps release notes as an independent changelog stream and derive its displayed project version separately from Core and Server versions.
