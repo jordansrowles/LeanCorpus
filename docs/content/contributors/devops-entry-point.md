@@ -1,9 +1,11 @@
 # DevOps entry point
 
 Run `pwsh -NoProfile -File ./setup.ps1` after cloning or when the managed host
-needs rebuilding. It restores the pinned repository tools, builds and tests the
-dedicated managed DevOps solution, then publishes and validates a current-RID
-single-file executable at the repository root.
+needs rebuilding. It restores the pinned repository tools, restores and builds
+the managed DevOps test-project graph, independently verifies the host's
+multi-RID lock, runs the compiled test apphost, then publishes and validates a
+current-RID single-file executable at the repository root. No dedicated DevOps
+solution is required.
 
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. `devops.ps1` remains the PowerShell transition dispatcher.

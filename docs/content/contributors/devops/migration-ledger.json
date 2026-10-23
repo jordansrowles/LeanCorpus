@@ -2321,7 +2321,7 @@
       },
       "latestBootstrapPreflight": {
         "status": "passed-linux-and-windows-local",
-        "sourceCommit": "a37cb13e0a79f33a2550fdb22a8950d1a77b79db",
+        "sourceCommit": "1aaed96aa1829b43b2574735f10e92de73781fe8",
         "sourceDirty": false,
         "os": "Debian GNU/Linux 13 (trixie)",
         "rid": "linux-x64",
@@ -2331,45 +2331,51 @@
         "buildWarnings": 0,
         "buildErrors": 0,
         "managedTests": {
-          "total": 238,
-          "passed": 235,
+          "total": 298,
+          "passed": 290,
           "failed": 0,
-          "intentionalExplicitSkips": 3
+          "intentionalExplicitSkips": 8
         },
-        "bootstrapSmokeChecks": 77,
-        "buildSmokeRunId": "7bb8c9ee-2c81-4ccb-9c0c-4075c24fffda",
-        "promotedHostSha256": "ed24764d0f7fc02d04a64a27e75ec8a417152667c36dd550ddd0392290eb100e",
-        "manifestSha256": "67b0654b91d075e2512849b06a35bebd243f4f511e3a17bf4cdf98d8fe378276",
+        "bootstrapSmokeChecks": 81,
+        "buildSmokeRunId": "419738b6-2b58-4d59-b7b8-eeacfeeb980b",
+        "promotedHostSha256": "7976b255643117241154f769efbf9358fe232a630d87dee2c0ddf0670fd00e07",
+        "manifestSha256": "2157457a856bdce06517718037c648eba29b9432868376ae8030a492dec78236",
         "open": [
-          "Hosted Build workflow_dispatch remains unrun pending valid GitHub workflow authentication.",
+          "Hosted Build run 39899012131 was triggered by draft PR 103 at this exact source and is still in progress; record terminal job results before closing WP-02.",
           "macOS and other RID qualification remain open.",
           "Full managed test/AOT routing, stress evidence, and later issue #8 phase gates remain open."
         ],
         "branch": "issue-97",
         "remoteRef": "origin/issue-97",
-        "hostedCi": "Build workflow_dispatch run 39775959860 completed on 228812dfea363e9ef41c5c2ed12864d840a711f6 with overall failure: platform smoke, managed DevOps foundation Linux/Windows, package validation/consumer and Linux net10/net11 jobs passed; coverage failed on Core PhysicalIndexRuntimeResourceTests.CloseDrainsARealAdmittedWriteAtItsFlushSubmissionBarrier; dependent docs-site was skipped. This run predates the current dirty matrix changes.",
-        "linuxPromotedHostVersion": "1.0.0+a37cb13e0a79f33a2550fdb22a8950d1a77b79db",
-        "linuxSourceFingerprint": "a02837b45e095d24c42a8bd74e65e459afbea99bf3f31ee8aac7d6b0abb3012d",
+        "hostedCi": "Draft PR 103 triggered Build run 39899012131 on exact source 1aaed96aa1829b43b2574735f10e92de73781fe8. The run is active; the Linux managed DevOps foundation job passed and all remaining job outcomes are pending.",
+        "linuxPromotedHostVersion": "1.0.0+1aaed96aa1829b43b2574735f10e92de73781fe8",
+        "linuxSourceFingerprint": "98746ef033ae0a28c8c01b7bf3763e3319799207a0c20929254a7d198596bb9a",
         "windows": {
           "os": "Windows Server 2025 Standard Evaluation build 26100 x64",
           "rid": "win-x64",
           "sdk": "11.0.100-preview.7.26381.103",
           "powershell": "7.6.5",
+          "git": "2.56.0.windows.3 (portable MinGit in isolated VM snapshot)",
+          "sourceCommit": "1aaed96aa1829b43b2574735f10e92de73781fe8",
+          "workingTreeClean": true,
           "terminalExitCode": 0,
           "managedTests": {
-            "total": 238,
-            "passed": 235,
+            "total": 298,
+            "passed": 290,
             "failed": 0,
-            "intentionalExplicitSkips": 3
+            "intentionalExplicitSkips": 8
           },
           "buildWarnings": 0,
           "buildErrors": 0,
-          "buildSmokeRunId": "915169e3-cf44-4b7f-988a-c0bbbdb2d96e",
-          "promotedHostSha256": "66641dead997a03ad1dc5584d9e84ce27163281a11521ef5ee61234aeee0652e",
-          "manifestSha256": "e2b3d2adca89a6cf95f7b3b017fddadb008ea132929db9b4c8b5285294709550",
-          "outcomeReceipt": "workspace .notes/Issues/#8 Rowles.LeanCorpus.DevOps/evidence/windows-20261022/a37cb13e/issue-97-a37-setup-outcome.json"
+          "buildSmokeRunId": "a2aca855-9bbc-475c-aa69-0fef34bd681d",
+          "promotedHostSha256": "aea423cdb5e3e458d8cc9ecdd37dcfa544323658b81dadb5bf24a1e01bd049f7",
+          "sourceFingerprint": "7f7c08fda6ad93a50c98e9801898f1d51188366c6fbadee2a0e47dd4c65b7b1f",
+          "fingerprintedSourceFiles": 100,
+          "outcomeReceipt": "workspace .notes/Issues/#8 Rowles.LeanCorpus.DevOps/evidence/wp01-windows-1aaed96aa/setup.log",
+          "vmSnapshot": "wp01-bootstrap-1aaed96aa; disk reverted after evidence capture"
         },
         "docsAcceptance": {
+          "sourceCommit": "a37cb13e0a79f33a2550fdb22a8950d1a77b79db",
           "command": "pwsh ./devops.ps1 docs build -SkipBenchmarks -SkipCoverage",
           "build": "passed; 37 existing DocFX metadata warnings, 0 site warnings",
           "staticPages": {
@@ -2384,7 +2390,7 @@
             "failed": 0
           }
         },
-        "sourceFingerprint": "a02837b45e095d24c42a8bd74e65e459afbea99bf3f31ee8aac7d6b0abb3012d"
+        "sourceFingerprint": "98746ef033ae0a28c8c01b7bf3763e3319799207a0c20929254a7d198596bb9a"
       },
       "report": {
         "status": "passed-linux-all-groups-and-apphost-git",

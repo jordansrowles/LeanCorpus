@@ -559,3 +559,45 @@ setup and argument-path evidence only; no benchmark measurements were made.
 The subsequent Build run at this SHA and the Windows/macOS stress/diagnostics
 workflows remain outstanding. No additional changelog entry was added for
 this evidence-only ledger update.
+
+### Repository-layout WP-01 qualification (2026-10-23)
+
+At clean issue-97 source `1aaed96aa1829b43b2574735f10e92de73781fe8`, the
+layout audit confirms that the six managed JSON files are under `.config/devops`
+and the tracked move preserved their bytes. The dedicated DevOps solution file
+is absent. There are no active consumers of the previous config directory or
+solution; the smoke fixture intentionally constructs a solution target to
+prove the bootstrap rejects it. The bootstrap preflight requires both managed
+projects, all six configuration files and their package graph inputs before it
+restores. It builds the isolated test-project graph and independently locked
+restores the multi-RID host project.
+
+On Debian 13 x64, `pwsh ./setup.ps1` passed at this exact clean source with the
+`linux-x64` RID, SDK `11.0.100-preview.7.26381.103`, 298 managed tests (290
+passed, 8 intentional explicit skips, 0 failures), and zero build warnings or
+errors. The staged and promoted host probes passed; project-build smoke
+`419738b6-2b58-4d59-b7b8-eeacfeeb980b` succeeded. The bootstrap failure and
+rollback smoke passed 81 checks, and all six PowerShell/JSON configuration
+pairs passed `devops-config-equivalence.ps1`.
+
+The same clean source passed `pwsh ./setup.ps1` on Windows Server 2025 Standard
+Evaluation build 26100 x64, using PowerShell 7.6.5, SDK
+`11.0.100-preview.7.26381.103` and RID `win-x64`. The test apphost completed
+298 cases (290 passed, 8 intentional explicit skips, 0 failures); build had
+zero warnings and errors; staged and promoted probes passed. Project-build
+smoke `a2aca855-9bbc-475c-aa69-0fef34bd681d` is terminal succeeded with source
+clean. The Windows host SHA-256 is
+`aea423cdb5e3e458d8cc9ecdd37dcfa544323658b81dadb5bf24a1e01bd049f7`.
+Windows evidence, including `run.json` files and the complete setup log, is in
+`.notes/Issues/#8 Rowles.LeanCorpus.DevOps/evidence/wp01-windows-1aaed96aa/`.
+The VM used a disk snapshot and the snapshot was reverted after evidence
+capture.
+
+Both platform manifests contain the same 100 ordered source paths. The Linux
+source fingerprint is `98746ef033ae0a28c8c01b7bf3763e3319799207a0c20929254a7d198596bb9a`;
+the Windows fingerprint is `7f7c08fda6ad93a50c98e9801898f1d51188366c6fbadee2a0e47dd4c65b7b1f`.
+The Windows file hashes match CRLF-converted Git blobs for all 100 paths; Linux
+uses LF bytes. Fingerprints therefore preserve checkout byte content while the
+managed and PowerShell producers agree within each platform. The fake-command
+bootstrap smoke is Linux-only by design; the real Windows setup and direct MTP
+suite passed.
