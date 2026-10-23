@@ -16,19 +16,29 @@ internal sealed class LocalIndexRegistry : IDisposable
     private readonly Dictionary<string, IndexRuntimeEntry> _entries = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private LocalIndexRegistry(string dataRoot, TimeSpan commitInterval, TimeSpan refreshInterval, ILocalCommitObserver? observer)
+    private LocalIndexRegistry(
+        string dataRoot,
+        TimeSpan commitInterval,
+        TimeSpan refreshInterval,
+        ILocalCommitObserver? observer,
+        Func<string, LocalIndexStore>? physicalStoreFactory)
     {
         _indicesPath = Path.Combine(dataRoot, "indices");
         _store = new RegistryStore(dataRoot);
-        _physicalStore = new LocalIndexStore(_indicesPath, commitInterval, refreshInterval, observer);
+        _physicalStore = physicalStoreFactory?.Invoke(_indicesPath)
+            ?? new LocalIndexStore(_indicesPath, commitInterval, refreshInterval, observer);
         _commitInterval = commitInterval;
         _refreshInterval = refreshInterval;
     }
 
-    internal static async ValueTask<LocalIndexRegistry> OpenAsync(string dataRoot, ServerCoreOptions options, CancellationToken cancellationToken)
+    internal static async ValueTask<LocalIndexRegistry> OpenAsync(
+        string dataRoot,
+        ServerCoreOptions options,
+        CancellationToken cancellationToken,
+        Func<string, LocalIndexStore>? physicalStoreFactory = null)
     {
         Directory.CreateDirectory(dataRoot);
-        LocalIndexRegistry registry = new(dataRoot, options.CommitInterval, options.RefreshInterval, options.CommitObserver);
+        LocalIndexRegistry registry = new(dataRoot, options.CommitInterval, options.RefreshInterval, options.CommitObserver, physicalStoreFactory);
         Directory.CreateDirectory(registry._indicesPath);
 
         try
@@ -85,11 +95,19 @@ internal sealed class LocalIndexRegistry : IDisposable
                 await PersistAsync(cancellationToken).ConfigureAwait(false);
                 return entry;
             }
-            catch
+            catch (Exception persistenceFailure)
             {
                 lock (_entries)
                     _entries.Remove(registration.Name);
-                await _physicalStore.DeleteAsync(new PhysicalIndexId(registration.Id), CancellationToken.None).ConfigureAwait(false);
+                try
+                {
+                    await _physicalStore.DeleteAsync(new PhysicalIndexId(registration.Id), CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception rollbackFailure)
+                {
+                    throw new AggregateException("Server registry persistence and physical rollback failed; the index directory was retained for recovery.",
+                        persistenceFailure, rollbackFailure);
+                }
                 throw;
             }
         }
