@@ -2393,21 +2393,33 @@
         "sourceFingerprint": "98746ef033ae0a28c8c01b7bf3763e3319799207a0c20929254a7d198596bb9a"
       },
       "report": {
-        "status": "passed-linux-all-groups-and-apphost-git",
-        "allGroupsRunId": "19246c98-5c1d-4999-9a8e-4fbf6563ccd9",
+        "status": "passed-linux-and-windows-report-execution;macos-and-hosted-open",
+        "allGroupsRunId": "b34ff093-f727-445c-ab5d-4310348d001f",
         "allGroupsChildExits": {
-          "passed": 50,
+          "passed": 59,
           "failed": 0
         },
+        "evaluatedProjects": 45,
         "evaluatedSolutionProjects": 37,
+        "evaluatedTrackedProjects": 45,
+        "evaluatedPackageRefs": 120,
+        "previousSolutionOnlyRunId": "19246c98-5c1d-4999-9a8e-4fbf6563ccd9",
         "apphostPowerShellRunId": "2bdf88d7-085d-4319-9db8-d0187cbf0622",
         "apphostGitChildExits": {
           "passed": 8,
           "failed": 0
         },
+        "windowsManagedRunId": "fc447497-b7ad-44af-943e-8fc1bd704a5e",
+        "windowsManagedChildExits": {
+          "passed": 59,
+          "failed": 0
+        },
+        "windowsLegacyReportExitCode": 0,
+        "windowsLegacyProjectCount": 45,
+        "windowsLegacyExplicitPackageRefs": 119,
         "recoveredInterruptedRunId": "714dd4f4-c07a-42ac-8880-6933ff746c9e",
-        "legacyDifferences": "Legacy numstat parser treated old => new as a literal pathname, dropping rename-commit changes. Managed NUL-safe parsing retained them. This baseline has 7,196 additional churn additions and 4,247 additional deletions in source, with documented fixture coverage.",
-        "open": "Windows/macOS, hosted CI, and cross-platform parity qualification."
+        "legacyDifferences": "The Windows same-source report comparison matches all 45 project identities, reference sets, inbound counts and cycles after ordering normalisation. The managed report includes one SDK-implicit NETStandard.Library reference absent from the legacy XML scan. NUL-safe rename attribution adds 7,197 additions and 4,248 deletions; UTC date buckets and stable tie ordering account for documented history/ranking differences. Detailed normalised comparison is in the issue #8 evidence note.",
+        "open": "macOS report parity, hosted report-command execution, and broader report-consumer compatibility."
       },
       "testing": {
         "status": "linux-test-services-aot-sdk-and-skip-reasons-passed-routing-gates-open",
