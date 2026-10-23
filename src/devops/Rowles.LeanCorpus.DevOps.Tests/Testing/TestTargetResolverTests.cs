@@ -36,6 +36,20 @@ public sealed class TestTargetResolverTests
     }
 
     [Fact]
+    public void ListsSuitesInLegacyOrderAndCanIncludeExplicitOnlySuites()
+    {
+        var resolver = new TestTargetResolver(Suites(
+            ("dataforge", Suite()),
+            ("docs-site", Suite(includeInAll: false)),
+            ("aot", Suite(runner: "AotNative", expandFrameworks: true)),
+            ("text", Suite()),
+            ("core", Suite())));
+
+        Assert.Equal(["core", "text", "aot", "dataforge"], resolver.GetOrderedSuiteKeys(includeExplicitOnly: false));
+        Assert.Equal(["core", "text", "aot", "dataforge", "docs-site"], resolver.GetOrderedSuiteKeys(includeExplicitOnly: true));
+    }
+
+    [Fact]
     public void RejectsUnsupportedExplicitFrameworkInsteadOfSilentlySkippingSuite()
     {
         var resolver = new TestTargetResolver(Suites(("core", Suite(frameworks: ["net10.0"]))));

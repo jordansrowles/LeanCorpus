@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Text.Json;
 using Rowles.LeanCorpus.DevOps.Commands;
+using Rowles.LeanCorpus.DevOps.Testing;
 
 namespace Rowles.LeanCorpus.DevOps.Tests.Commands;
 
@@ -29,8 +30,10 @@ public sealed class CommandLineContractTests
         Assert.Contains("benchmark", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("docs", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ui", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("test", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("aot", output.ToString(), StringComparison.OrdinalIgnoreCase);
         var helpLines = output.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-        Assert.DoesNotContain(helpLines, line => line.TrimStart().StartsWith("test ", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(helpLines, line => line.TrimStart().StartsWith("test ", StringComparison.OrdinalIgnoreCase));
         Assert.Empty(error.ToString());
         Assert.Empty(handler.Calls);
     }
@@ -364,7 +367,7 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
-    public void UnmigratedLegacyCommandExplainsThePowerShellTransitionPath()
+    public void TestCommandRoutesToTheManagedHandler()
     {
         var handler = new RecordingCommandHandler();
         var output = new StringWriter();
@@ -372,9 +375,123 @@ public sealed class CommandLineContractTests
 
         var exitCode = CommandLineApplication.Run(["test", "-Suite", "core"], output, error, handler);
 
-        Assert.NotEqual(0, exitCode);
-        Assert.Contains("pwsh ./devops.ps1 test", error.ToString(), StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(handler.Calls);
+        Assert.Equal(0, exitCode);
+        Assert.Single(handler.Calls);
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
+    public void TestCommandPreservesLegacySelectionAndExecutionOptions()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(
+        [
+            "--repo", "/tmp/LeanCorpus checkout", "test", "core,text", "-Framework", "net11.0",
+            "-Configuration", "Debug", "-RuntimeIdentifier", "linux-x64", "-Area", "Search",
+            "-Category", "Unit", "-Technique", "PropertyBased", "-Filter", "FullyQualifiedName~Writer",
+            "-Count", "2", "-Flaky", "-FailFast", "-Diagnostics", "-CI", "-NoRestore",
+            "-CollectCoverage", "-Explicit", "-ExplicitOnly", "-FailWarnings", "-Profile", "stress",
+            "-Verbosity", "detailed", "-HangTimeout", "off", "-Timeout", "4m", "--", "--seed", "17"
+        ], handler);
+
+        Assert.Equal(0, exitCode);
+        var actual = Assert.IsType<TestCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal("/tmp/LeanCorpus checkout", actual.RepositoryPath);
+        Assert.Equal(["core,text"], actual.RunOptions.Selection.Suites);
+        Assert.Equal("net11.0", actual.RunOptions.Selection.Framework);
+        Assert.True(actual.RunOptions.Selection.FrameworkExplicit);
+        Assert.Equal("Debug", actual.RunOptions.Selection.Configuration);
+        Assert.Equal("linux-x64", actual.RunOptions.Selection.RuntimeIdentifier);
+        Assert.Equal("Search", actual.RunOptions.Selection.Area);
+        Assert.Equal("Unit", actual.RunOptions.Selection.Category);
+        Assert.Equal("PropertyBased", actual.RunOptions.Selection.Technique);
+        Assert.Equal("FullyQualifiedName~Writer", actual.RunOptions.Selection.Filter);
+        Assert.True(actual.RunOptions.Selection.ContinuousIntegration);
+        Assert.True(actual.RunOptions.Selection.CollectCoverage);
+        Assert.Equal(["--seed", "17"], actual.RunOptions.Selection.AdditionalArguments);
+        Assert.Equal(2, actual.RunOptions.Count);
+        Assert.True(actual.RunOptions.Flaky);
+        Assert.True(actual.RunOptions.FailFast);
+        Assert.True(actual.RunOptions.Diagnostics);
+        Assert.True(actual.RunOptions.NoRestore);
+        Assert.True(actual.RunOptions.Explicit);
+        Assert.True(actual.RunOptions.ExplicitOnly);
+        Assert.True(actual.RunOptions.FailWarnings);
+        Assert.Equal("stress", actual.RunOptions.Profile);
+        Assert.Equal("detailed", actual.RunOptions.Verbosity);
+        Assert.Equal("off", actual.RunOptions.HangTimeout);
+        Assert.Equal("4m", actual.RunOptions.ProcessTimeout);
+    }
+
+    [Fact]
+    public void TestListAndExplainAffectedAreSelectionOnlyModes()
+    {
+        var listHandler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["test", "--list"], listHandler));
+        var list = Assert.IsType<TestCommandOptions>(Assert.Single(listHandler.Calls));
+        Assert.True(list.List);
+        Assert.False(list.ExplainAffected);
+
+        var affectedHandler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["test", "affected", "--explain-affected", "--range", "HEAD^..HEAD"], affectedHandler));
+        var affected = Assert.IsType<TestCommandOptions>(Assert.Single(affectedHandler.Calls));
+        Assert.False(affected.List);
+        Assert.True(affected.ExplainAffected);
+        Assert.Equal(["affected"], affected.RunOptions.Selection.Suites);
+        Assert.Equal("HEAD^..HEAD", affected.RunOptions.Range);
+    }
+
+    [Fact]
+    public void AotCommandUsesTheManagedNativeRunnerSelection()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(
+        [
+            "aot", "-Framework", "net11.0", "-RuntimeIdentifier", "linux-x64", "-Configuration", "Debug",
+            "-NoRestore", "-CI", "-Count", "2", "-Flaky", "-Diagnostics", "-FailFast", "-Timeout", "30s",
+            "-Filter", "FullyQualifiedName~Smoke", "--", "--seed", "42"
+        ], handler);
+
+        Assert.Equal(0, exitCode);
+        var actual = Assert.IsType<TestCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal(["aot"], actual.RunOptions.Selection.Suites);
+        Assert.Equal("net11.0", actual.RunOptions.Selection.Framework);
+        Assert.True(actual.RunOptions.Selection.FrameworkExplicit);
+        Assert.Equal("linux-x64", actual.RunOptions.Selection.RuntimeIdentifier);
+        Assert.Equal("Debug", actual.RunOptions.Selection.Configuration);
+        Assert.Equal("FullyQualifiedName~Smoke", actual.RunOptions.Selection.Filter);
+        Assert.True(actual.RunOptions.Selection.ContinuousIntegration);
+        Assert.Equal(["--seed", "42"], actual.RunOptions.Selection.AdditionalArguments);
+        Assert.Equal(2, actual.RunOptions.Count);
+        Assert.True(actual.RunOptions.Flaky);
+        Assert.True(actual.RunOptions.Diagnostics);
+        Assert.True(actual.RunOptions.FailFast);
+        Assert.True(actual.RunOptions.NoRestore);
+        Assert.Equal("30s", actual.RunOptions.ProcessTimeout);
+        Assert.Equal("off", actual.RunOptions.HangTimeout);
+        Assert.False(actual.RunOptions.Selection.CollectCoverage);
+    }
+
+    [Fact]
+    public void BackupRestoreMatrixUsesItsDedicatedCommandRoute()
+    {
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Invoke(["test", "backup-restore-matrix", "-Framework", "net11.0", "-Count", "1", "-Iterations", "2"], handler);
+
+        Assert.Equal(0, exitCode);
+        var actual = Assert.IsType<BackupRestoreMatrixCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Null(actual.RepositoryPath);
+        Assert.Equal("net11.0", actual.MatrixOptions.Framework);
+        Assert.Equal("Release", actual.MatrixOptions.Configuration);
+        Assert.Equal(1, actual.MatrixOptions.Count);
+        Assert.Equal(2, actual.MatrixOptions.Iterations);
+        Assert.False(actual.MatrixOptions.NoRestore);
+        Assert.Contains("test backup-restore-matrix", actual.MatrixOptions.CommandLine, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -634,6 +751,18 @@ public sealed class CommandLineContractTests
         }
 
         public int Ui(UiCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int Test(TestCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int BackupRestoreMatrix(BackupRestoreMatrixCommandOptions options)
         {
             Calls.Add(options);
             return 0;

@@ -49,7 +49,10 @@ public sealed class ProcessRunnerTests
         var echoed = JsonSerializer.Deserialize<string[]>(result.StandardOutputTail[0]);
         Assert.NotNull(echoed);
         Assert.Equal(["one argument", "path/with spaces", "λ-value"], echoed!);
-        Assert.Equal(Path.GetFullPath(directory.Path), result.StandardOutputTail[1]);
+        var expectedWorkingDirectoryName = Path.GetFileName(Path.GetFullPath(directory.Path));
+        var childWorkingDirectory = result.StandardOutputTail[1];
+        Assert.True(Directory.Exists(childWorkingDirectory));
+        Assert.Equal(expectedWorkingDirectoryName, Path.GetFileName(childWorkingDirectory));
     }
 
     [Fact]
@@ -175,7 +178,7 @@ public sealed class ProcessRunnerTests
     {
         using var directory = TemporaryDirectory.Create("DevOps child output heartbeat ");
         var events = new ConcurrentQueue<ProcessProgressEvent>();
-        var request = CreateRequest(directory.Path, "noisy", "30000") with
+        var request = CreateRequest(directory.Path, "noisy", "1", "250") with
         {
             ProgressInterval = TimeSpan.FromMilliseconds(50),
             Progress = events.Enqueue

@@ -28,8 +28,8 @@ At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree conta
 | Command | Legacy source | Planned phase | Current state |
 |---|---|---:|---|
 | `build` (`build`) | `scripts/devops/commands/build.ps1` | 1 | Managed BuildService is contract-tested and routed through the Linux-x64 apphost. Build, stress and diagnostics workflows now invoke the checked-out root apphost directly for product builds after setup; exact-SHA hosted verification is pending. |
-| `test` (`test`, `test affected`, `test backup-restore-matrix`) | `scripts/devops/commands/test.ps1` | 5 | Managed MTP/AOT execution services and the internal five-cell backup/restore matrix are implemented and qualified on Linux; the public route remains closed pending the full §18 parity and stress gates. |
-| `aot` (`aot`) | `scripts/devops/commands/aot.ps1` | 5 | Inventoried; not routed |
+| `test` (`test`, `test affected`, `test backup-restore-matrix`) | `scripts/devops/commands/test.ps1` | 5 | Managed root-apphost commands and the internal five-cell matrix are implemented. Linux x64 architecture parity passed against PowerShell; full §18 platform, stress and skip-evidence gates remain open. The transition dispatcher and CI still use PowerShell. |
+| `aot` (`aot`) | `scripts/devops/commands/aot.ps1` | 5 | Managed root-apphost command is implemented, but recent public-route publish attempts stopped before target execution. Native AOT command qualification and the full Phase 5 gate remain open; the transition dispatcher and CI still use PowerShell. |
 | `coverage` (`coverage`) | `scripts/devops/commands/coverage.ps1` | 6 | Managed test pipeline and pinned ReportGenerator route through the apphost; clean-source Linux `all` coverage passed for Core and SourceGen on net10.0 with two Cobertura reports and HTML output. Net11, Windows/macOS and hosted parity remain open. |
 | `diagnostics` (`diagnostics ps`, `diagnostics counters`, `diagnostics trace`, `diagnostics gcdump`, `diagnostics dump`, `diagnostics symbols`, `diagnostics capture`) | `scripts/devops/commands/diagnostics.ps1` | 4 | All seven variants route through the managed apphost. Fake-runner lifecycle tests and a bounded Linux capture pass; live attach parity on other platforms remains open. |
 | `benchmark` (`benchmark`, `benchmark affected`, `benchmark remote start/status/cancel`) | `scripts/devops/commands/benchmark.ps1` | 4 | Local suites, changed-path group selection and SSH/tmux lifecycle route through the managed apphost. The manual workflow's Core dry-run passed through the checked-out host after bootstrap on SHA `6c610fd57` (Build `39879445230`); real measurements, live remote and non-Linux parity remain open. |
@@ -44,7 +44,7 @@ At post-pull revision `4244928c4539e986dedaa974b6045b27f8435be3`, the tree conta
 | `report` (`report all`, `report git`, `report files`, `report code`) | `scripts/devops/commands/report.ps1` | 2 | Exact-source Linux `report all` run `b34ff093-f727-445c-ab5d-4310348d001f` passed 59/59 child commands and evaluated 45 projects (37 solution projects plus 45 tracked projects). Windows `report all` run `fc447497-b7ad-44af-943e-8fc1bd704a5e` also passed 59/59; a same-source PowerShell comparison matched project identities and reference sets after normalising order. Hosted Build `39911787375` passed `report all --json` through promoted Linux and Windows hosts at `2e2fd6c`, each with 59 successful children and retained run evidence (`a2a3713d-b3f1-4634-9f1a-808e1d3a025e` / artifact `12482988694`; `3e78cc87-fee8-4d7e-aec8-f9a5ae92586c` / artifact `12483133165`). The managed foundation matrix now adds fresh Linux ARM64 and macOS ARM64 bootstrap/report runs; exact-SHA evidence is pending. |
 | `server` (`server start`) | `scripts/devops/commands/server.ps1` | 1 | Managed foreground server is tested and routed through the Linux-x64 apphost. |
 
-The PowerShell transition dispatcher currently forwards `build`, `clean`, `report`, `coverage`, `benchmark`, `diagnostics`, `ui`, and foreground `server start`. The Build, stress and diagnostics workflows now invoke the checked-out root apphost directly for product builds after setup. The managed coverage host preserves registry eligibility and the `Coverage!=Skip` default, links its test run, and retains raw Cobertura plus optional ReportGenerator HTML output. Clean-source Linux coverage for both eligible suites passed on net10.0 in run `a81b4160-9800-4a18-a549-96eca9eeb0df`; Net11, Windows/macOS and hosted parity remain open. The managed benchmark host runs local suites, selects affected benchmark classes from staged, modified, renamed and untracked paths, and manages remote SSH/tmux start, status and cancellation. Remote cancellation remains uncertain until a terminal status is returned. The manual benchmark workflow's Core dry-run passed through the checked-out host after setup on SHA `6c610fd57` (Build `39879445230`); real measurements, benchmark documentation, live remote use and non-Linux parity remain open. `test` and `aot` remain on PowerShell until their complete Phase 5 slice. Every other command remains on its current path until its own phase and parity gate.
+The PowerShell transition dispatcher currently forwards `build`, `clean`, `report`, `coverage`, `benchmark`, `diagnostics`, `ui`, and foreground `server start`. The root apphost also contains `test` and `aot` for Phase 5 qualification, while the dispatcher and CI retain the established PowerShell implementations until the full testing gate passes. The Build, stress and diagnostics workflows invoke the checked-out root apphost directly for product builds after setup. The managed coverage host preserves registry eligibility and the `Coverage!=Skip` default, links its test run, and retains raw Cobertura plus optional ReportGenerator HTML output. Clean-source Linux coverage for both eligible suites passed on net10.0 in run `a81b4160-9800-4a18-a549-96eca9eeb0df`; Net11, Windows/macOS and hosted parity remain open. The managed benchmark host runs local suites, selects affected benchmark classes from staged, modified, renamed and untracked paths, and manages remote SSH/tmux start, status and cancellation. Remote cancellation remains uncertain until a terminal status is returned. The manual benchmark workflow's Core dry-run passed through the checked-out host after setup on SHA `6c610fd57` (Build `39879445230`); real measurements, benchmark documentation, live remote use and non-Linux parity remain open. Every other command remains on its current path until its own phase and parity gate.
 
 ## Legacy module inventory
 
@@ -192,7 +192,7 @@ The PowerShell transition dispatcher currently forwards `build`, `clean`, `repor
 | Workflow | Current state and migration note |
 |---|---|
 | `.github/workflows/benchmark.yml` | The manual Core dry-run passed after setup through the checked-out root apphost at SHA `6c610fd57` (Build `39879445230`); actual benchmark execution, live remote and non-Linux parity remain open. |
-| `.github/workflows/build.yml` | Adds a Linux/Windows managed-host qualification matrix. Product builds, coverage, package archive validation and package consumer checks call the checked-out host after bootstrap. Test commands remain on PowerShell pending Phase 5 parity; the package workflow change awaits exact-SHA hosted verification. |
+| `.github/workflows/build.yml` | Adds a Linux/Windows managed-host qualification matrix and triggers on `issue-97` pushes for exact-source CI. Product builds, coverage, package archive validation and package consumer checks call the checked-out host after bootstrap. Test commands remain on PowerShell pending Phase 5 parity. |
 | `.github/workflows/deploy.yml` | Documentation artefact deployment remains unchanged and does not invoke the root launcher. |
 | `.github/workflows/test-diagnostics.yml` | Linux and Windows jobs bootstrap the managed host and invoke it directly for product builds; test execution remains on PowerShell pending Phase 5 parity. Hosted exact-SHA verification is pending. |
 | `.github/workflows/test-stress.yml` | Linux and Windows jobs bootstrap the managed host and invoke it directly for product builds; test execution remains on PowerShell pending Phase 5 parity. Hosted exact-SHA verification is pending. |
@@ -601,3 +601,32 @@ uses LF bytes. Fingerprints therefore preserve checkout byte content while the
 managed and PowerShell producers agree within each platform. The fake-command
 bootstrap smoke is Linux-only by design; the real Windows setup and direct MTP
 suite passed.
+
+### Phase 5 managed test and AOT progress (2026-10-23)
+
+On dirty issue-97 source `19ce336975c0ab32eb760a152994263d178b2097`, the managed
+and legacy architecture routes each completed two net10.0 executions with
+58/58 tests per execution. Managed run `969903c2-2cd4-4647-bf9a-8585a8fe2298`
+and PowerShell run `20261023-075141-4fb9fd09-linux-net100` retained TRX files;
+their per-attempt counters and test identity/outcome pairs match.
+
+The DevOps test apphost built from the dirty source then passed 297/305 tests
+on Debian 13 x64, SDK `11.0.100-preview.7.26381.103`, with eight explicit
+skips and zero failures. This direct MTP invocation has no ADR030 run envelope.
+The Linux ARM64 `DOTNET_ROOT_*` assertion and macOS path/heartbeat fixture
+failures reported by Build `39914777265` have local regression corrections;
+hosted confirmation is pending. The same Build passed Windows tests, Linux
+net10 tests, platform smoke and package jobs, but failed Linux net11 in
+`Lean9FoundationFixTests.ConcurrentFatalFailure_WaitsForAlreadyAdmittedProducerBeforeAbort`.
+That Core failure is outside this DevOps change and remains open.
+
+The root apphost now exposes managed `test` and `aot` commands, while the
+PowerShell dispatcher and production CI still use their established routes.
+Two Linux x64 managed AOT attempts (`7f92697d-7886-4c68-849b-6ac3858f2b43` and
+`6916bc3e-2070-49c2-8448-661c4772e637`) stopped during preparation with zero
+completed targets and no child publish evidence. Isolated run
+`7c220421-89de-4b0f-b203-fe844f248472` remained at its pre-preparation
+checkpoint for more than five minutes and has no terminal manifest, target or
+child exit. All three are incomplete. Full
+§18 filter/trait/explicit/stress/diagnostics/CI-prepared/AOT and required
+Windows/Linux parity gates are still open; WP-07 is not complete.

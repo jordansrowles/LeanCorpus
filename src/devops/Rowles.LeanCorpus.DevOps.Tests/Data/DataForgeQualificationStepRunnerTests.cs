@@ -39,7 +39,8 @@ public sealed class DataForgeQualificationStepRunnerTests
         Assert.Equal("Passed", result.Status);
         var testRequest = Assert.Single(processRunner.Requests, request => request.Arguments.Contains("--report-xunit-trx"));
         Assert.Equal(sdkRoot, testRequest.EnvironmentVariables!["DOTNET_ROOT"]);
-        Assert.Equal(sdkRoot, testRequest.EnvironmentVariables["DOTNET_ROOT_X64"]);
+        var architectureVariable = $"DOTNET_ROOT_{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToUpperInvariant()}";
+        Assert.Equal(sdkRoot, testRequest.EnvironmentVariables[architectureVariable]);
     }
 
     private sealed class RecordingProcessRunner(string targetPath) : IProcessRunner

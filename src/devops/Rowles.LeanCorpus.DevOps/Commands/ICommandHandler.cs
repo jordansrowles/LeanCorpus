@@ -29,4 +29,8 @@ internal interface ICommandHandler
     int BenchmarkRemote(BenchmarkRemoteCommandOptions options);
 
     int Ui(UiCommandOptions options);
+
+    int Test(TestCommandOptions options);
+
+    int BackupRestoreMatrix(BackupRestoreMatrixCommandOptions options);
 }

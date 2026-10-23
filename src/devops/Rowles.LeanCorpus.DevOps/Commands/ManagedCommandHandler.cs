@@ -472,6 +472,143 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         }
     }
 
+    public int Test(TestCommandOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.RunOptions);
+
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var provenanceReader = new GitRepositoryProvenanceReader(processRunner);
+            var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+            var planner = new TestRunPlanner(configuration, new AffectedSelectionService(processRunner));
+            if (options.List)
+            {
+                WriteTestSuiteList(configuration, output);
+                return 0;
+            }
+
+            if (options.ExplainAffected)
+            {
+                var selection = planner.ResolveSelectionAsync(checkout, options.RunOptions.Selection,
+                    options.RunOptions.Commit, options.RunOptions.Range, cancellation.Token).GetAwaiter().GetResult();
+                var affected = selection.AffectedSelection
+                    ?? throw new InvalidOperationException("-ExplainAffected is valid only for the affected suite.");
+                var source = affected.SuppliedCommit + affected.SuppliedRange;
+                output.WriteLine($"Affected source: {affected.Mode}{(source.Length == 0 ? string.Empty : $" {source}")}");
+                output.WriteLine($"Changed files: {affected.Paths.Count}");
+                output.WriteLine($"Selected targets: {string.Join(", ", selection.Targets.Select(static target => target.Key))}");
+                return 0;
+            }
+
+            var request = planner.PlanAsync(checkout, options.RunOptions, cancellation.Token).GetAwaiter().GetResult();
+            var result = new TestExecutor(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "test"),
+                processRunner,
+                new DotNetSdkResolver(processRunner),
+                provenanceReader,
+                progress: progress => output.WriteLine($"{progress.Kind}: {progress.Message ?? progress.TargetKey ?? string.Empty}"))
+                .RunAsync(request, cancellation.Token).GetAwaiter().GetResult();
+            var commandResult = result.RunDirectory.Length == 0
+                ? result.CommandResult
+                : result.CommandResult with
+                {
+                    Message = result.CommandResult.Outcome == OutcomeKind.Success
+                        ? $"Test run completed. Evidence: {result.RunDirectory}"
+                        : result.CommandResult.Message,
+                    Details = JoinDetails(result.RunDirectory, result.CommandResult.Details)
+                };
+            return _renderer.Render(commandResult, output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Test run was cancelled."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
+                "Could not run the managed test command.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int BackupRestoreMatrix(BackupRestoreMatrixCommandOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(options.MatrixOptions);
+
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+            {
+                return staleExitCode;
+            }
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+            var provenanceReader = new GitRepositoryProvenanceReader(processRunner);
+            var result = new BackupRestoreMatrixService(
+                configuration,
+                paths,
+                processRunner,
+                new DotNetSdkResolver(processRunner),
+                provenanceReader).RunAsync(checkout, options.MatrixOptions, cancellation.Token).GetAwaiter().GetResult();
+            var commandResult = result.RunDirectory.Length == 0
+                ? result.CommandResult
+                : WithRunEvidence(result.CommandResult, result.RunDirectory, "Backup/restore matrix completed");
+            return _renderer.Render(commandResult, output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Backup/restore matrix was cancelled."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
+                "Could not run the managed backup/restore matrix.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
     public int Docs(DocsCommandOptions options)
     {
         using var cancellation = new CancellationTokenSource();
@@ -935,6 +1072,24 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         return failure is null
             ? null
             : _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "The managed DevOps apphost is missing valid promotion evidence.", Details: failure), output, error);
+    }
+
+    private static void WriteTestSuiteList(DevOpsConfiguration configuration, TextWriter output)
+    {
+        var resolver = new TestTargetResolver(configuration.TestSuites);
+        output.WriteLine();
+        output.WriteLine("  Available test suites (-Suite):");
+        output.WriteLine();
+        foreach (var key in resolver.GetOrderedSuiteKeys(includeExplicitOnly: true))
+        {
+            var suite = configuration.TestSuites[key];
+            var frameworks = string.Join(", ", suite.Frameworks.Order(StringComparer.Ordinal));
+            var scope = suite.IncludeInAll == false ? "explicit only" : "all";
+            output.WriteLine($"    {key,-20} {suite.Name} ({suite.Runner}; {frameworks}; {scope})");
+        }
+        output.WriteLine("    all                  All test suites");
+        output.WriteLine("    affected             Test suites for selected source areas");
+        output.WriteLine();
     }
 
     private static CommandResult WithRunEvidence(CommandResult result, string? runDirectory, string successPrefix)

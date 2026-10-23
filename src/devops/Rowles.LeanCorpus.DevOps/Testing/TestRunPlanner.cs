@@ -28,6 +28,10 @@ internal sealed record TestRunOptions
         = new Dictionary<string, string?>(StringComparer.Ordinal);
 }
 
+internal sealed record TestSelectionPlan(
+    IReadOnlyList<TestTarget> Targets,
+    AffectedTestSelection? AffectedSelection);
+
 internal sealed class TestRunPlanner(DevOpsConfiguration configuration, AffectedSelectionService affectedSelection)
 {
     public async Task<TestExecutorRequest> PlanAsync(
@@ -37,6 +41,8 @@ internal sealed class TestRunPlanner(DevOpsConfiguration configuration, Affected
     {
         ArgumentNullException.ThrowIfNull(checkout);
         ArgumentNullException.ThrowIfNull(options);
+        var selection = await ResolveSelectionAsync(checkout, options.Selection, options.Commit, options.Range,
+            cancellationToken).ConfigureAwait(false);
         var count = options.Count ?? (options.Flaky ? 30 : 1);
         if (count < 1)
         {
@@ -51,32 +57,12 @@ internal sealed class TestRunPlanner(DevOpsConfiguration configuration, Affected
         }
         _ = ParseDuration(options.HangTimeout, "hang timeout", allowEmpty: false);
         var processTimeout = ParseDuration(options.ProcessTimeout, "process timeout", allowEmpty: true);
-        var suites = options.Selection.Suites
-            .SelectMany(static value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            .ToArray();
-        var isAffected = suites.Length == 1 && suites[0].Equals("affected", StringComparison.OrdinalIgnoreCase);
-        if (options.Commit.Length > 0 && options.Range.Length > 0)
-        {
-            throw new InvalidOperationException("Commit and range are mutually exclusive.");
-        }
-        if (!isAffected && (options.Commit.Length > 0 || options.Range.Length > 0))
-        {
-            throw new InvalidOperationException("Commit and range are valid only for the affected suite.");
-        }
-
-        AffectedTestSelection? affected = null;
-        if (isAffected)
-        {
-            affected = await affectedSelection.ResolveAsync(checkout.RepositoryRoot, configuration.TestSuites,
-                configuration.CodeAreas, options.Commit, options.Range, cancellationToken).ConfigureAwait(false);
-        }
-        var targets = new TestTargetResolver(configuration.TestSuites).Resolve(options.Selection, affected?.AreasBySuite);
-        _ = checked(targets.Count * count);
+        _ = checked(selection.Targets.Count * count);
         return new TestExecutorRequest
         {
             Checkout = checkout,
-            Targets = targets,
-            AffectedSelection = affected,
+            Targets = selection.Targets,
+            AffectedSelection = selection.AffectedSelection,
             Count = count,
             FailFast = options.FailFast,
             NoRestore = options.NoRestore,
@@ -98,6 +84,38 @@ internal sealed class TestRunPlanner(DevOpsConfiguration configuration, Affected
                 EnvironmentOverrides = options.EnvironmentOverrides
             }
         };
+    }
+
+    public async Task<TestSelectionPlan> ResolveSelectionAsync(
+        CheckoutIdentity checkout,
+        TestTargetRequest request,
+        string commit = "",
+        string range = "",
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(checkout);
+        ArgumentNullException.ThrowIfNull(request);
+        var suites = request.Suites
+            .SelectMany(static value => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .ToArray();
+        var isAffected = suites.Length == 1 && suites[0].Equals("affected", StringComparison.OrdinalIgnoreCase);
+        if (commit.Length > 0 && range.Length > 0)
+        {
+            throw new InvalidOperationException("Commit and range are mutually exclusive.");
+        }
+        if (!isAffected && (commit.Length > 0 || range.Length > 0))
+        {
+            throw new InvalidOperationException("Commit and range are valid only for the affected suite.");
+        }
+
+        AffectedTestSelection? affected = null;
+        if (isAffected)
+        {
+            affected = await affectedSelection.ResolveAsync(checkout.RepositoryRoot, configuration.TestSuites,
+                configuration.CodeAreas, commit, range, cancellationToken).ConfigureAwait(false);
+        }
+        var targets = new TestTargetResolver(configuration.TestSuites).Resolve(request, affected?.AreasBySuite);
+        return new TestSelectionPlan(targets, affected);
     }
 
     private static TimeSpan? ParseDuration(string value, string name, bool allowEmpty)

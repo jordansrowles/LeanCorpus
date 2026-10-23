@@ -1,3 +1,5 @@
+using Rowles.LeanCorpus.DevOps.Testing;
+
 namespace Rowles.LeanCorpus.DevOps.Commands;
 
 internal sealed record BuildCommandOptions(string Configuration, string? Project, string? Framework, string? RepositoryPath = null);
@@ -95,3 +97,11 @@ internal sealed record BenchmarkRemoteCommandOptions(
     string? RepositoryPath = null);
 
 internal sealed record UiCommandOptions(string? RepositoryPath = null);
+
+internal sealed record TestCommandOptions(
+    TestRunOptions RunOptions,
+    string? RepositoryPath = null,
+    bool List = false,
+    bool ExplainAffected = false);
+
+internal sealed record BackupRestoreMatrixCommandOptions(BackupRestoreMatrixOptions MatrixOptions, string? RepositoryPath = null);

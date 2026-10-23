@@ -17,6 +17,10 @@ switch (args[0])
         var stdout = Task.Run(() => WriteLines(Console.Out, "out", count));
         var stderr = Task.Run(() => WriteLines(Console.Error, "err", count));
         await Task.WhenAll(stdout, stderr);
+        if (args.Length > 2)
+        {
+            await Task.Delay(int.Parse(args[2]));
+        }
         return 0;
     }
     case "long-line":

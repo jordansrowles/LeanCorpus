@@ -1,18 +1,18 @@
 # DevOps projects and repository tooling
 
-Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The supported repository interface is `./devops` on Linux and macOS and `./devops.ps1` on Windows.
+Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The managed apphost is `./devops` on Linux and macOS and `./devops.exe` on Windows. The PowerShell transition dispatcher remains the production route for commands whose migration gate is still open.
 
 ## Choose a task
 
 | I want to... | Command |
 | --- | --- |
 | Build the normal Release target | `./devops build` |
-| Run every configured test route | `pwsh ./devops.ps1 test` |
-| Run tests affected by current changes | `pwsh ./devops.ps1 test -Suite affected` |
-| Run one production area | `pwsh ./devops.ps1 test -Suite core -Area Index` |
-| Repeat a focused target with artefacts | `pwsh ./devops.ps1 test core --count 3 --filter 'FullyQualifiedName~Writer'` |
-| Capture managed test diagnostics | `pwsh ./devops.ps1 test core --diagnostics` |
-| Validate Native AOT | `pwsh ./devops.ps1 aot` |
+| Run the managed test executor | `./devops test all` |
+| Run managed tests affected by current changes | `./devops test affected` |
+| Run one managed production area | `./devops test core --area Index` |
+| Repeat a focused managed target with artefacts | `./devops test core --count 3 --filter 'FullyQualifiedName~Writer'` |
+| Capture managed test diagnostics | `./devops test core --diagnostics` |
+| Validate Native AOT through the managed executor | `./devops aot` |
 | Attach standard .NET diagnostics | `./devops diagnostics ps` |
 | Generate coverage and HTML | `pwsh ./devops.ps1 coverage -Clean -GenerateReport` |
 | List benchmark suites | `./devops benchmark --list` |
@@ -40,11 +40,16 @@ The Core JSON metadata source paths, namespaces, test selectors, affected-source
 Examples:
 
 ```bash
-pwsh ./devops.ps1 test -Suite core -Area Search
-pwsh ./devops.ps1 test -Suite core -Area Index -Category Chaos
-pwsh ./devops.ps1 test -Suite text -Area Filters
-pwsh ./devops.ps1 test -Suite core -Filter 'FullyQualifiedName~Writer'
+./devops test core --area Search
+./devops test core --area Index --category Chaos
+./devops test text --area Filters
+./devops test core --filter 'FullyQualifiedName~Writer'
 ```
+
+The PowerShell dispatcher still invokes its established `test` and `aot`
+implementations. The managed routes remain in qualification while the complete
+Phase 5 platform, stress and skip-evidence gate is open; CI has not switched to
+them.
 
 `Area` and `Category` become trait filters. `Filter` is passed to the test runner.
 
@@ -55,9 +60,9 @@ distinct project and framework, while every repetition starts a fresh managed
 or Native AOT process:
 
 ```bash
-pwsh ./devops.ps1 test core --count 3 --filter 'FullyQualifiedName~Writer'
-pwsh ./devops.ps1 test core --flaky --count 5
-pwsh ./devops.ps1 test core --count 30 --fail-fast
+./devops test core --count 3 --filter 'FullyQualifiedName~Writer'
+./devops test core --flaky --count 5
+./devops test core --count 30 --fail-fast
 ```
 
 Repeated, diagnostic and CI runs write one run directory under
@@ -105,7 +110,7 @@ managed restore and build, but still publishes Native AOT targets when they
 are selected:
 
 ```bash
-pwsh ./devops.ps1 test all --ci --framework net10.0
+./devops test all --ci --framework net10.0
 ```
 
 ## Standalone diagnostics
@@ -134,7 +139,7 @@ memory. Pass tool-specific options after `--` where the command supports it.
 ## Run affected tests
 
 ```bash
-pwsh ./devops.ps1 test -Suite affected
+./devops test affected
 ```
 
 Affected selection:
@@ -150,7 +155,7 @@ Affected selection:
 ## Validate Native AOT
 
 ```bash
-pwsh ./devops.ps1 aot
+./devops aot
 ```
 
 The AOT route publishes and runs a smoke executable for both supported frameworks. It is not a normal VSTest project.

@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main, '[0-9]*', 'stabilise/**']
+    branches: [main, '[0-9]*', 'stabilise/**', 'issue-97']
   pull_request: {}
   workflow_dispatch:
 

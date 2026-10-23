@@ -1468,8 +1468,8 @@
       "state": "implemented",
       "replacement": "Testing services and direct MTP/AOT runners",
       "routed": false,
-      "service": "passed-linux-five-cell-backup-restore-matrix; public route gated",
-      "evidence": "Internal managed backup/restore matrix parent run 80a6cb0a-ff62-4d66-827b-88cc4213e13d passed all five legacy variants on Linux net10.0 with one launch and two FsCheck iterations. Each cell has a linked child run and validated measurement report; source inventory fingerprint remained stable. The public test/AOT route remains closed pending the full §18 Windows/Linux parity, stress and skip-evidence gates.",
+  "service": "managed-root-cli-implemented; linux-x64-architecture-parity-passed; full-section-18-gate-open",
+  "evidence": "Internal managed backup/restore matrix parent run 80a6cb0a-ff62-4d66-827b-88cc4213e13d passed all five legacy variants on Linux net10.0 with one launch and two FsCheck iterations. On dirty issue-97 source 19ce33697 plus local test fixes, managed architecture run 969903c2-2cd4-4647-bf9a-8585a8fe2298 and legacy PowerShell run 20261023-075141-4fb9fd09-linux-net100 each passed 2/2 net10.0 launches with 58/58 tests. Per-attempt TRX counters and test identities/outcomes matched exactly. The DevOps MTP apphost suite passed 297/305 with 8 explicit skips and 0 failures on Debian 13 x64. The root apphost exposes test and AOT for qualification, but the PowerShell dispatcher and CI continue using their established routes until the full section 18 Windows/Linux, stress, telemetry, skip-evidence and AOT gates pass. Hosted Build 39914777265 exposed ARM64/macOS DevOps test failures; local portability fixes pass the Linux DevOps suite and await exact-SHA hosted confirmation.",
       "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {
@@ -1480,10 +1480,12 @@
       ],
       "source": "scripts/devops/commands/aot.ps1",
       "plannedPhase": 5,
-      "state": "inventoried",
-      "replacement": "AOT runner inside the testing vertical slice",
-      "routed": false,
-      "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
+  "state": "implemented",
+  "replacement": "AOT runner inside the testing vertical slice",
+  "routed": false,
+  "service": "managed-root-cli-present;-native-aot-publish-execution-unqualified",
+  "evidence": "The root apphost exposes aot through the shared test planner and executor; the PowerShell dispatcher and CI remain on the established route. Linux x64 runs 7f92697d-7886-4c68-849b-6ac3858f2b43 and 6916bc3e-2070-49c2-8448-661c4772e637 were interrupted at preparation with zero completed targets and no child publish evidence. Isolated run 7c220421-89de-4b0f-b203-fe844f248472 also remained at the pre-preparation checkpoint for more than five minutes and has no terminal manifest, target or child exit. These runs do not qualify Native AOT execution. Full section 18 AOT and required-platform gates remain open.",
+  "retirementGate": "Complete contract and parity evidence for the full slice; update every caller; no retained caller depends on the legacy implementation."
     },
     {
       "id": "CMD-COVERAGE",
@@ -2103,7 +2105,7 @@
       "path": ".github/workflows/build.yml",
       "state": "updated",
       "phase": "0-8",
-      "action": "Adds Linux and Windows managed-host qualification. Product builds, coverage, package archive validation and package consumer checks call the checked-out root apphost after bootstrap. Test execution remains on PowerShell pending Phase 5 parity. Missing optional product-build diagnostics warn instead of adding a secondary failure; the package workflow change awaits exact-SHA hosted verification."
+      "action": "Adds Linux and Windows managed-host qualification. Product builds, coverage, package archive validation and package consumer checks call the checked-out root apphost after bootstrap. Test execution remains on PowerShell pending Phase 5 parity. Missing optional product-build diagnostics warn instead of adding a secondary failure. Pushes to issue-97 now trigger the Build workflow for exact-source qualification."
     },
     {
       "path": ".github/workflows/deploy.yml",

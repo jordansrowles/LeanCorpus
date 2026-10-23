@@ -2,6 +2,8 @@
 
 ## Added
 
+- Add managed `test` and `aot` apphost commands backed by the shared test planner and executor; keep the PowerShell dispatcher and CI routes in place pending the complete Phase 5 parity gate.
+- Run the Build workflow on `issue-97` pushes so the migration branch receives exact-source CI qualification.
 - Establish DevOps `1.0.0` independently of the LeanCorpus Core package version.
 - Add managed backup/restore matrix qualification with Git source fingerprints, five legacy variants and linked child-run evidence.
 - Add managed documentation preparation, metadata, build, static/browser validation and serve commands through the DevOps apphost.

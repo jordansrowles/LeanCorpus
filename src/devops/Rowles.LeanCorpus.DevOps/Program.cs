@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using Rowles.LeanCorpus.DevOps.Commands;
+using Rowles.LeanCorpus.DevOps.Testing;
 
 namespace Rowles.LeanCorpus.DevOps;
 
@@ -34,6 +35,8 @@ internal static class Program
         var diagnostics = BuildDiagnosticsCommand(handler, repository);
         var benchmark = BuildBenchmarkCommand(handler, repository);
         var ui = BuildUiCommand(handler, repository);
+        var test = BuildTestCommand(handler, repository);
+        var aot = BuildAotCommand(handler, repository);
         root.Add(build);
         root.Add(clean);
         root.Add(docs);
@@ -47,9 +50,305 @@ internal static class Program
         root.Add(diagnostics);
         root.Add(benchmark);
         root.Add(ui);
+        root.Add(test);
+        root.Add(aot);
 
         return root;
     }
+
+    private static Command BuildTestCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var suiteArgument = new Argument<string>("suite")
+        {
+            Description = "Test suite (default: all).",
+            Arity = ArgumentArity.ZeroOrOne,
+            DefaultValueFactory = _ => "all"
+        };
+        var suiteOption = new Option<string?>("--suite", ["-Suite"])
+        {
+            Description = "Test suite or comma-separated suite list."
+        };
+        var framework = new Option<string?>("--framework", ["-Framework"])
+        {
+            Description = "Target framework (default: net10.0)."
+        };
+        var configuration = new Option<string>("--configuration", ["-Configuration"])
+        {
+            Description = "Build configuration (default: Release).",
+            DefaultValueFactory = _ => "Release"
+        };
+        var runtimeIdentifier = new Option<string>("--rid", ["--runtime-identifier", "-RuntimeIdentifier"])
+        {
+            Description = "Native AOT target runtime identifier (auto-detected when omitted).",
+            DefaultValueFactory = _ => string.Empty
+        };
+        var area = new Option<string>("--area", ["-Area"]) { DefaultValueFactory = _ => string.Empty };
+        var category = new Option<string>("--category", ["-Category"]) { DefaultValueFactory = _ => string.Empty };
+        var technique = new Option<string>("--technique", ["-Technique"]) { DefaultValueFactory = _ => string.Empty };
+        var filter = new Option<string>("--filter", ["-Filter"]) { DefaultValueFactory = _ => string.Empty };
+        var count = new Option<int?>("--count", ["-Count"])
+        {
+            Description = "Number of sequential executions; flaky runs default to 30."
+        };
+        var flaky = new Option<bool>("--flaky", ["-Flaky"]);
+        var failFast = new Option<bool>("--fail-fast", ["-FailFast"]);
+        var diagnostics = new Option<bool>("--diagnostics", ["-Diagnostics"]);
+        var ci = new Option<bool>("--ci", ["-CI"]);
+        var noRestore = new Option<bool>("--no-restore", ["-NoRestore"]);
+        var collectCoverage = new Option<bool>("--collect-coverage", ["-CollectCoverage"]);
+        var explicitTests = new Option<bool>("--explicit", ["-Explicit"]);
+        var explicitOnly = new Option<bool>("--explicit-only", ["-ExplicitOnly"]);
+        var failWarnings = new Option<bool>("--fail-warnings", ["-FailWarnings"]);
+        var profile = new Option<string>("--profile", ["-Profile"]) { DefaultValueFactory = _ => string.Empty };
+        var verbosity = new Option<string>("--verbosity", ["-Verbosity"]) { DefaultValueFactory = _ => string.Empty };
+        var hangTimeout = new Option<string>("--hang-timeout", ["-HangTimeout"])
+        {
+            Description = "Hang-dump threshold (default: 100s; use off to disable).",
+            DefaultValueFactory = _ => "100s"
+        };
+        var processTimeout = new Option<string>("--timeout", ["--process-timeout", "-Timeout", "-ProcessTimeout"])
+        {
+            Description = "Outer process timeout (default: off).",
+            DefaultValueFactory = _ => "off"
+        };
+        var commit = new Option<string>("--commit", ["-Commit"]) { DefaultValueFactory = _ => string.Empty };
+        var range = new Option<string>("--range", ["-Range"]) { DefaultValueFactory = _ => string.Empty };
+        var list = new Option<bool>("--list", ["-List"]);
+        var explainAffected = new Option<bool>("--explain-affected", ["-ExplainAffected"]);
+        var testArguments = new Argument<string[]>("test-arguments")
+        {
+            Description = "Additional test-runner arguments after --.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+        var command = new Command("test", "Run the selected LeanCorpus test suites.");
+        command.Add(suiteArgument);
+        command.Add(suiteOption);
+        command.Add(framework);
+        command.Add(configuration);
+        command.Add(runtimeIdentifier);
+        command.Add(area);
+        command.Add(category);
+        command.Add(technique);
+        command.Add(filter);
+        command.Add(count);
+        command.Add(flaky);
+        command.Add(failFast);
+        command.Add(diagnostics);
+        command.Add(ci);
+        command.Add(noRestore);
+        command.Add(collectCoverage);
+        command.Add(explicitTests);
+        command.Add(explicitOnly);
+        command.Add(failWarnings);
+        command.Add(profile);
+        command.Add(verbosity);
+        command.Add(hangTimeout);
+        command.Add(processTimeout);
+        command.Add(commit);
+        command.Add(range);
+        command.Add(list);
+        command.Add(explainAffected);
+        command.Add(testArguments);
+        command.Add(BuildBackupRestoreMatrixCommand(handler, repository));
+        command.SetAction(result =>
+        {
+            var suite = result.GetValue(suiteOption) ?? result.GetValue(suiteArgument) ?? "all";
+            var additionalArguments = result.GetValue(testArguments) ?? [];
+            if (additionalArguments.Length > 0 && !result.Tokens.Any(token => token.Type == TokenType.DoubleDash))
+            {
+                result.InvocationConfiguration.Error.WriteLine("Test-runner arguments must follow the -- delimiter.");
+                return 2;
+            }
+            var selectedFramework = result.GetValue(framework);
+            var options = new TestRunOptions
+            {
+                Selection = new TestTargetRequest
+                {
+                    Suites = [suite],
+                    Framework = selectedFramework ?? "net10.0",
+                    FrameworkExplicit = selectedFramework is not null,
+                    Configuration = result.GetValue(configuration) ?? "Release",
+                    RuntimeIdentifier = result.GetValue(runtimeIdentifier) ?? string.Empty,
+                    ContinuousIntegration = result.GetValue(ci),
+                    CollectCoverage = result.GetValue(collectCoverage),
+                    Area = result.GetValue(area) ?? string.Empty,
+                    Category = result.GetValue(category) ?? string.Empty,
+                    Technique = result.GetValue(technique) ?? string.Empty,
+                    Filter = result.GetValue(filter) ?? string.Empty,
+                    AdditionalArguments = additionalArguments
+                },
+                Count = result.GetValue(count),
+                Flaky = result.GetValue(flaky),
+                FailFast = result.GetValue(failFast),
+                Diagnostics = result.GetValue(diagnostics),
+                NoRestore = result.GetValue(noRestore),
+                Explicit = result.GetValue(explicitTests),
+                ExplicitOnly = result.GetValue(explicitOnly),
+                FailWarnings = result.GetValue(failWarnings),
+                Profile = result.GetValue(profile) ?? string.Empty,
+                Verbosity = result.GetValue(verbosity) ?? string.Empty,
+                HangTimeout = result.GetValue(hangTimeout) ?? "100s",
+                ProcessTimeout = result.GetValue(processTimeout) ?? "off",
+                Commit = result.GetValue(commit) ?? string.Empty,
+                Range = result.GetValue(range) ?? string.Empty,
+                CommandLine = FormatCommandLine("devops", result.Tokens.Select(token => token.Value))
+            };
+            return handler.Test(new TestCommandOptions(options, result.GetValue(repository),
+                result.GetValue(list), result.GetValue(explainAffected)));
+        });
+        return command;
+    }
+
+    private static Command BuildBackupRestoreMatrixCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var framework = new Option<string>("--framework", ["-Framework"])
+        {
+            Description = "Test target framework (default: net10.0).",
+            DefaultValueFactory = _ => "net10.0"
+        };
+        var configuration = new Option<string>("--configuration", ["-Configuration"])
+        {
+            Description = "Build configuration (default: Release).",
+            DefaultValueFactory = _ => "Release"
+        };
+        var count = new Option<int>("--count", ["-Count"])
+        {
+            Description = "Number of launches per matrix cell (default: 3).",
+            DefaultValueFactory = _ => 3
+        };
+        var alternateTempRoot = new Option<string?>("--temp-root", ["-TempRoot"])
+        {
+            Description = "Alternate root used by the alternate-temp matrix variant."
+        };
+        var sourceManifest = new Option<string?>("--source-manifest", ["-SourceManifest"])
+        {
+            Description = "Source inventory manifest for a clean exported checkout."
+        };
+        var iterations = new Option<int?>("--iterations", ["-Iterations"])
+        {
+            Description = "CHAOS_ITERATIONS value applied to every launch."
+        };
+        var noRestore = new Option<bool>("--no-restore", ["-NoRestore"]);
+        var command = new Command("backup-restore-matrix", "Run the fixed-seed five-variant backup/restore matrix.");
+        command.Add(framework);
+        command.Add(configuration);
+        command.Add(count);
+        command.Add(alternateTempRoot);
+        command.Add(sourceManifest);
+        command.Add(iterations);
+        command.Add(noRestore);
+        command.SetAction(result => handler.BackupRestoreMatrix(new BackupRestoreMatrixCommandOptions(
+            new BackupRestoreMatrixOptions
+            {
+                Framework = result.GetValue(framework) ?? "net10.0",
+                Configuration = result.GetValue(configuration) ?? "Release",
+                Count = result.GetValue(count),
+                AlternateTempRoot = result.GetValue(alternateTempRoot),
+                SourceManifestPath = result.GetValue(sourceManifest),
+                Iterations = result.GetValue(iterations),
+                NoRestore = result.GetValue(noRestore),
+                CommandLine = FormatCommandLine("devops", result.Tokens.Select(token => token.Value))
+            },
+            result.GetValue(repository))));
+        return command;
+    }
+
+    private static Command BuildAotCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var framework = new Option<string?>("--framework", ["-Framework"])
+        {
+            Description = "Target framework (default: all supported frameworks)."
+        };
+        var configuration = new Option<string>("--configuration", ["-Configuration"])
+        {
+            Description = "Build configuration (default: Release).",
+            DefaultValueFactory = _ => "Release"
+        };
+        var runtimeIdentifier = new Option<string>("--rid", ["--runtime-identifier", "-RuntimeIdentifier"])
+        {
+            Description = "Native target runtime identifier (auto-detected when omitted).",
+            DefaultValueFactory = _ => string.Empty
+        };
+        var filter = new Option<string>("--filter", ["-Filter"]) { DefaultValueFactory = _ => string.Empty };
+        var count = new Option<int?>("--count", ["-Count"])
+        {
+            Description = "Number of sequential executions; flaky runs default to 30."
+        };
+        var flaky = new Option<bool>("--flaky", ["-Flaky"]);
+        var failFast = new Option<bool>("--fail-fast", ["-FailFast"]);
+        var diagnostics = new Option<bool>("--diagnostics", ["-Diagnostics"]);
+        var ci = new Option<bool>("--ci", ["-CI"]);
+        var noRestore = new Option<bool>("--no-restore", ["-NoRestore"]);
+        var verbosity = new Option<string>("--verbosity", ["-Verbosity"]) { DefaultValueFactory = _ => string.Empty };
+        var processTimeout = new Option<string>("--timeout", ["-Timeout"])
+        {
+            Description = "Outer process timeout (default: off).",
+            DefaultValueFactory = _ => "off"
+        };
+        var testArguments = new Argument<string[]>("test-arguments")
+        {
+            Description = "Additional native-test-runner arguments after --.",
+            Arity = ArgumentArity.ZeroOrMore
+        };
+        var command = new Command("aot", "Publish and run the Native AOT smoke tests.");
+        command.Add(framework);
+        command.Add(configuration);
+        command.Add(runtimeIdentifier);
+        command.Add(filter);
+        command.Add(count);
+        command.Add(flaky);
+        command.Add(failFast);
+        command.Add(diagnostics);
+        command.Add(ci);
+        command.Add(noRestore);
+        command.Add(verbosity);
+        command.Add(processTimeout);
+        command.Add(testArguments);
+        command.SetAction(result =>
+        {
+            var additionalArguments = result.GetValue(testArguments) ?? [];
+            if (additionalArguments.Length > 0 && !result.Tokens.Any(token => token.Type == TokenType.DoubleDash))
+            {
+                result.InvocationConfiguration.Error.WriteLine("Native-test-runner arguments must follow the -- delimiter.");
+                return 2;
+            }
+            var selectedFramework = result.GetValue(framework);
+            var options = new TestRunOptions
+            {
+                Selection = new TestTargetRequest
+                {
+                    Suites = ["aot"],
+                    Framework = selectedFramework ?? "net10.0",
+                    FrameworkExplicit = selectedFramework is not null,
+                    Configuration = result.GetValue(configuration) ?? "Release",
+                    RuntimeIdentifier = result.GetValue(runtimeIdentifier) ?? string.Empty,
+                    ContinuousIntegration = result.GetValue(ci),
+                    Filter = result.GetValue(filter) ?? string.Empty,
+                    AdditionalArguments = additionalArguments
+                },
+                Count = result.GetValue(count),
+                Flaky = result.GetValue(flaky),
+                FailFast = result.GetValue(failFast),
+                Diagnostics = result.GetValue(diagnostics),
+                NoRestore = result.GetValue(noRestore),
+                Profile = "integration",
+                HangTimeout = "off",
+                Verbosity = result.GetValue(verbosity) ?? string.Empty,
+                ProcessTimeout = result.GetValue(processTimeout) ?? "off",
+                CommandLine = FormatCommandLine("devops", result.Tokens.Select(token => token.Value))
+            };
+            return handler.Test(new TestCommandOptions(options, result.GetValue(repository)));
+        });
+        return command;
+    }
+
+    private static string FormatCommandLine(string command, IEnumerable<string> tokens)
+        => string.Join(' ', new[] { command }.Concat(tokens.Select(QuoteCommandLineToken)));
+
+    private static string QuoteCommandLineToken(string token)
+        => token.Length > 0 && token.All(static character => !char.IsWhiteSpace(character) && character is not '"' and not '\'')
+            ? token
+            : $"\"{token.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
 
     private static Command BuildUiCommand(ICommandHandler handler, Option<string?> repository)
     {
@@ -585,7 +884,7 @@ internal static class CommandLineApplication
 
     private static readonly string[] UnmigratedCommands =
     [
-        "aot", "benchmarks", "setup", "test"
+        "benchmarks", "setup"
     ];
 
     private const string RemoteBenchmarkHelp = """
@@ -916,6 +1215,10 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int BenchmarkRemote(BenchmarkRemoteCommandOptions options) => Missing("benchmark remote");
 
     public int Ui(UiCommandOptions options) => Missing("ui");
+
+    public int Test(TestCommandOptions options) => Missing("test");
+
+    public int BackupRestoreMatrix(BackupRestoreMatrixCommandOptions options) => Missing("test backup-restore-matrix");
 
     private int Missing(string command)
     {

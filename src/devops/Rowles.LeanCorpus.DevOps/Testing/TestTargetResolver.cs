@@ -153,6 +153,28 @@ internal sealed class TestTargetResolver(IReadOnlyDictionary<string, TestSuiteCo
         return targets;
     }
 
+    internal IReadOnlyList<string> GetOrderedSuiteKeys(bool includeExplicitOnly)
+    {
+        var ordered = new List<string>();
+        foreach (var key in PreferredSuiteOrder)
+        {
+            if (suites.TryGetValue(key, out var suite) && (includeExplicitOnly || suite.IncludeInAll != false))
+            {
+                ordered.Add(key);
+            }
+        }
+
+        foreach (var key in suites.Keys.Order(StringComparer.OrdinalIgnoreCase).ThenBy(static key => key, StringComparer.Ordinal))
+        {
+            if ((includeExplicitOnly || suites[key].IncludeInAll != false) && !ordered.Contains(key, StringComparer.OrdinalIgnoreCase))
+            {
+                ordered.Add(key);
+            }
+        }
+
+        return ordered;
+    }
+
     private IReadOnlyList<string> SelectFrameworks(
         string suiteKey,
         TestSuiteConfiguration suite,
@@ -192,26 +214,7 @@ internal sealed class TestTargetResolver(IReadOnlyDictionary<string, TestSuiteCo
     }
 
     private IReadOnlyList<string> GetAllSuiteKeys()
-    {
-        var ordered = new List<string>();
-        foreach (var key in PreferredSuiteOrder)
-        {
-            if (suites.ContainsKey(key) && suites[key].IncludeInAll != false)
-            {
-                ordered.Add(key);
-            }
-        }
-
-        foreach (var key in suites.Keys.Order(StringComparer.OrdinalIgnoreCase).ThenBy(static key => key, StringComparer.Ordinal))
-        {
-            if (suites[key].IncludeInAll != false && !ordered.Contains(key, StringComparer.OrdinalIgnoreCase))
-            {
-                ordered.Add(key);
-            }
-        }
-
-        return ordered;
-    }
+        => GetOrderedSuiteKeys(includeExplicitOnly: false);
 
     private static IReadOnlyList<string> ParseSuites(IEnumerable<string> suites)
     {

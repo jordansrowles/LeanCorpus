@@ -10,9 +10,12 @@ solution is required.
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. `devops.ps1` remains the PowerShell transition dispatcher.
 It forwards `build`, `clean`, `report`, `benchmark`, `diagnostics`, `ui`, and
-`server start` to a fresh managed host. Run documentation commands directly
-through `./devops docs`; the PowerShell docs implementation remains available
-as a rollback path until the later retirement phase. The apphost supports local and
+`server start` to a fresh managed host. The root apphost also contains managed
+`test` and `aot` commands for Phase 5 qualification, but the dispatcher and CI
+continue to use the established PowerShell implementations until the complete
+testing parity gate passes. Run documentation commands directly through
+`./devops docs`; the PowerShell docs implementation remains available as a
+rollback path until the later retirement phase. The apphost supports local and
 affected-source benchmark runs, managed SSH/tmux start, status and cancellation,
 and DataForge qualification through `./devops dataforge qualify`. Other
 commands remain on the legacy PowerShell implementation and must be invoked as
@@ -39,8 +42,8 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | Command | Purpose | Typical example |
 |---|---|---|
 | `build` | Managed: restore and build the supported solution targets | `./devops build` |
-| `test` | PowerShell: run one or more registered test suites | `pwsh ./devops.ps1 test` |
-| `aot` | PowerShell: publish and run Native AOT smoke validation | `pwsh ./devops.ps1 aot` |
+| `test` | Managed apphost: run registered suites; the PowerShell dispatcher remains the current CI route | `./devops test architecture --framework net10.0 --count 2` |
+| `aot` | Managed apphost: publish and run Native AOT smoke tests; full Phase 5 qualification is open | `./devops aot --framework net10.0` |
 | `coverage` | Managed apphost: run coverage-eligible suites and optionally generate a pinned HTML report | `./devops coverage -Suite sourcegen -GenerateReport` |
 | `benchmark` | Managed apphost: local and affected BenchmarkDotNet suites plus remote SSH/tmux lifecycle | `./devops benchmark --list` |
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
