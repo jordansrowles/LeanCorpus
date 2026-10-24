@@ -644,6 +644,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
                     new DotNetSdkResolver(processRunner),
                     provenanceReader,
                     progress: progress => output.WriteLine($"{progress.Kind}: {progress.Message ?? progress.TargetKey ?? string.Empty}")),
+                configuration,
                 progress: output.WriteLine);
             var commandLine = new List<string> { "./devops", "docs", options.Action };
             if (options.SkipBenchmarks) commandLine.Add("--skip-benchmarks");
@@ -781,6 +782,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
             var processRunner = new ProcessRunner();
             if (options.Arguments.FirstOrDefault()?.Equals("qualify", StringComparison.OrdinalIgnoreCase) is true)
             {
+                var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
                 var parsed = DataForgeQualificationArgumentParser.Parse(options.Arguments.Skip(1).ToArray(), checkout.RepositoryRoot);
                 if (!parsed.Success || parsed.Options is null)
                 {
@@ -793,8 +795,10 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
                     new AtomicFileWriter(),
                     new DataForgeQualificationStepRunner(paths, processRunner, new DotNetSdkResolver(processRunner),
                         new GitRepositoryProvenanceReader(processRunner),
+                        configuration.TestSuites,
                         progress: message => output.WriteLine(message),
                         errorOutput: message => error.WriteLine(message)),
+                    configuration,
                     new GitRepositoryProvenanceReader(processRunner),
                     new DotNetSdkResolver(processRunner),
                     progress: message => output.WriteLine(message),
@@ -1063,6 +1067,45 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         {
             return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
                 "Could not start the managed DevOps workbench.", Details: exception.Message), output, error);
+        }
+    }
+
+    public int ValidateConfiguration(ConfigValidateCommandOptions options)
+    {
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+            if (options.Deep)
+            {
+                BenchmarkManifestValidator.ValidateBuiltHostsAsync(configuration, checkout.RepositoryRoot, new ProcessRunner())
+                    .GetAwaiter().GetResult();
+            }
+            var validationMessage = options.Deep
+                ? "Managed DevOps configuration and benchmark host manifests are valid"
+                : "Managed DevOps configuration is valid";
+            return _renderer.Render(new CommandResult(OutcomeKind.Success,
+                $"{validationMessage}: {configuration.BenchmarkProjects.Count} benchmark project(s), {configuration.BenchmarkSuites.Count} benchmark suite(s)."),
+                output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (InvalidDataException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                "Managed DevOps configuration is invalid.", Details: exception.Message), output, error);
+        }
+        catch (FileNotFoundException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                "Managed DevOps configuration is incomplete.", Details: exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
+                "Could not validate managed DevOps configuration.", Details: exception.Message), output, error);
         }
     }
 

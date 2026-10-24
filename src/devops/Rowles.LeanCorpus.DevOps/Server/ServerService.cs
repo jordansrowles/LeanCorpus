@@ -16,7 +16,7 @@ internal sealed class ServerService(
     string dotnetExecutable = "dotnet")
 {
     private static readonly StringComparison PathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-    private const string LocalServerProject = "src/server/Rowles.LeanCorpus.Server.Local/Rowles.LeanCorpus.Server.Local.csproj";
+    private static string LocalServerProject => RepositoryProjectCatalog.GetRelativePath(RepositoryProjectRole.ServerLocal);
 
     public async Task<ServerStartResult> StartAsync(ServerStartRequest request, CancellationToken cancellationToken = default)
     {
@@ -182,9 +182,7 @@ internal sealed class ServerService(
     }
 
     private static string ResolveProjectPath(CheckoutIdentity checkout)
-        => Path.GetFullPath(Path.Combine(
-            checkout.RepositoryRoot,
-            LocalServerProject.Replace('/', Path.DirectorySeparatorChar)));
+        => RepositoryProjectCatalog.GetProjectPath(checkout.RepositoryRoot, RepositoryProjectRole.ServerLocal);
 
     private static IReadOnlyList<string> BuildArguments(ServerStartRequest request, string projectPath)
     {

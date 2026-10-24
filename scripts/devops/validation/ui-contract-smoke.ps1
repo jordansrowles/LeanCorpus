@@ -35,10 +35,10 @@ try {
 
         $tokens = @(ConvertFrom-DevOpsUiArgumentText -Text '--filter "*Single Segment*" --job short')
         Assert-UiContract (($tokens -join '|') -ceq '--filter|*Single Segment*|--job|short') 'quoted pass-through values remain a single argument'
-        $datasets = Import-PowerShellDataFile (Join-Path (Get-RepoRoot) 'scripts/devops/config/benchmark-datasets.psd1')
+        $datasets = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-datasets'
         $benchmarkScript = Get-Content -LiteralPath (Join-Path (Get-RepoRoot) 'scripts/devops/commands/benchmark.ps1') -Raw
-        Assert-UiContract ($datasets.wikipedia.Count -eq 17 -and $benchmarkScript -match 'benchmark-datasets\.psd1') `
-            'benchmark dataset compatibility is shared by the UI and command'
+        Assert-UiContract ($datasets.wikipedia.Count -eq 17 -and $benchmarkScript -match "benchmark-datasets'") `
+            'benchmark dataset eligibility is shared from managed JSON by the UI and command'
         $downloadArguments = @(Get-GutenbergDownloadArguments -BookCount 321)
         Assert-UiContract (($downloadArguments -join '|') -ceq '-BookCount|321') `
             'Gutenberg data preparation forwards a validated book count to the downloader'

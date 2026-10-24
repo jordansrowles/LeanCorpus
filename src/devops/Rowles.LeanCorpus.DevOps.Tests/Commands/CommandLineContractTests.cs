@@ -1,7 +1,9 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Rowles.LeanCorpus.DevOps.Commands;
+using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Testing;
 
 namespace Rowles.LeanCorpus.DevOps.Tests.Commands;
@@ -201,6 +203,16 @@ public sealed class CommandLineContractTests
 
         Assert.Equal(new DataCommandOptions("migration-fixtures-311", 200, outputDirectory, "/tmp/nuget-feed"),
             Assert.IsType<DataCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void BenchmarkLeavesDatasetUnspecifiedForConfiguredDefault()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["benchmark"], handler));
+
+        Assert.Equal(string.Empty, Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls)).Dataset);
     }
 
     [Fact]
@@ -525,6 +537,74 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
+    public void RootHelpDoesNotLoadConfiguration()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new RecordingCommandHandler();
+        var root = Program.BuildRootCommand(handler);
+
+        var exitCode = root.Parse(["--help"]).Invoke(new InvocationConfiguration { Output = output, Error = error });
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("config", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(error.ToString());
+        Assert.Empty(handler.Calls);
+    }
+
+    [Fact]
+    public void ConfigValidateLoadsOnlyTheResolvedConfiguration()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new ManagedCommandHandler(output, error);
+
+        var exitCode = CommandLineApplication.Run(
+            ["--repo", checkout.RepositoryRoot, "config", "validate"], output, error, handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("Managed DevOps configuration is valid", output.ToString(), StringComparison.Ordinal);
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
+    public void ConfigValidateAcceptsAnExplicitDeepManifestCheck()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = CommandLineApplication.Run(
+            ["--repo", checkout.RepositoryRoot, "config", "validate", "--deep"], new StringWriter(), new StringWriter(), handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(new ConfigValidateCommandOptions(checkout.RepositoryRoot, Deep: true),
+            Assert.IsType<ConfigValidateCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void ConfigValidateReportsInvalidConfigurationAsValidationFailure()
+    {
+        using var checkout = TemporaryConfigCheckout.Create();
+        var path = checkout.ConfigPath("benchmark-projects.json");
+        var projects = JsonNode.Parse(File.ReadAllText(path))!;
+        projects["data"]!["core"]!["Project"] = "../outside.csproj";
+        File.WriteAllText(path, projects.ToJsonString());
+
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new ManagedCommandHandler(output, error);
+        var exitCode = CommandLineApplication.Run(
+            ["--repo", checkout.Root, "config", "validate"], output, error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("Managed DevOps configuration is invalid", error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("benchmark-projects.json", error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("$.data.core.Project", error.ToString(), StringComparison.Ordinal);
+        Assert.Empty(output.ToString());
+    }
+
+    [Fact]
     public void DiagnosticsProcessListIncludesTheCurrentProcess()
     {
         var output = new StringWriter();
@@ -650,6 +730,69 @@ public sealed class CommandLineContractTests
     private static int Invoke(string[] args, RecordingCommandHandler handler)
         => CommandLineApplication.Run(args, TextWriter.Null, TextWriter.Null, handler);
 
+    private sealed class TemporaryConfigCheckout : IDisposable
+    {
+        private TemporaryConfigCheckout(string root) => Root = root;
+
+        public string Root { get; }
+
+        public string ConfigPath(string fileName) => Path.Combine(Root, ".config", "devops", fileName);
+
+        public static TemporaryConfigCheckout Create()
+        {
+            var sourceRoot = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory).RepositoryRoot;
+            var root = Path.Combine(Path.GetTempPath(), "DevOps config validation " + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path.Combine(root, ".git"));
+            Directory.CreateDirectory(Path.Combine(root, ".config", "devops"));
+            File.Copy(Path.Combine(sourceRoot, "Rowles.LeanCorpus.slnx"), Path.Combine(root, "Rowles.LeanCorpus.slnx"));
+            File.Copy(Path.Combine(sourceRoot, "global.json"), Path.Combine(root, "global.json"));
+
+            var sourceConfiguration = Path.Combine(sourceRoot, ".config", "devops");
+            foreach (var source in Directory.EnumerateFiles(sourceConfiguration, "*.json"))
+                File.Copy(source, Path.Combine(root, ".config", "devops", Path.GetFileName(source)));
+
+            CopyAuditReferences(sourceRoot, root);
+            CreateProjectStubs(root, Path.Combine(root, ".config", "devops", "test-suites.json"));
+            CreateProjectStubs(root, Path.Combine(root, ".config", "devops", "benchmark-projects.json"));
+            return new TemporaryConfigCheckout(root);
+        }
+
+        private static void CopyAuditReferences(string sourceRepositoryRoot, string destinationRepositoryRoot)
+        {
+            var auditPath = Path.Combine(sourceRepositoryRoot, ".config", "devops", "benchmark-correctness-audit.json");
+            using var audit = JsonDocument.Parse(File.ReadAllBytes(auditPath));
+            foreach (var gate in audit.RootElement.GetProperty("gates").EnumerateArray())
+            {
+                foreach (var propertyName in new[] { "sourceFile", "fixturePath" })
+                {
+                    var relativePath = gate.GetProperty(propertyName).GetString()!;
+                    var sourcePath = Path.Combine(sourceRepositoryRoot, relativePath);
+                    var destinationPath = Path.Combine(destinationRepositoryRoot, relativePath);
+                    Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+                    File.Copy(sourcePath, destinationPath, overwrite: true);
+                }
+            }
+        }
+
+        private static void CreateProjectStubs(string root, string configurationPath)
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(configurationPath));
+            foreach (var project in document.RootElement.GetProperty("data").EnumerateObject())
+            {
+                var projectPath = project.Value.GetProperty("Project").GetString()!;
+                var fullPath = Path.Combine(root, projectPath.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+                File.WriteAllText(fullPath, "<Project />");
+            }
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Root))
+                Directory.Delete(Root, recursive: true);
+        }
+    }
+
     private static void AssertServerOptions(
         string framework,
         string configuration,
@@ -751,6 +894,12 @@ public sealed class CommandLineContractTests
         }
 
         public int Ui(UiCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int ValidateConfiguration(ConfigValidateCommandOptions options)
         {
             Calls.Add(options);
             return 0;

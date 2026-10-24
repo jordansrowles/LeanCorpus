@@ -176,7 +176,16 @@ Coverage proves that code executed. It does not prove that the assertions or ora
 List suites and strategy presets:
 
 ```bash
-pwsh ./devops.ps1 benchmark -List
+./devops benchmark --list
+```
+
+Validate the managed DevOps catalogues without building products. Add `--deep`
+to compare them with already-built Core, Text and Compression benchmark host
+manifests; manifest checks do not run benchmark workloads.
+
+```bash
+./devops config validate
+./devops config validate --deep
 ```
 
 Run a bounded smoke workload:

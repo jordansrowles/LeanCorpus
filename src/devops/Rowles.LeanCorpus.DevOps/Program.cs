@@ -35,6 +35,7 @@ internal static class Program
         var diagnostics = BuildDiagnosticsCommand(handler, repository);
         var benchmark = BuildBenchmarkCommand(handler, repository);
         var ui = BuildUiCommand(handler, repository);
+        var config = BuildConfigCommand(handler, repository);
         var test = BuildTestCommand(handler, repository);
         var aot = BuildAotCommand(handler, repository);
         root.Add(build);
@@ -50,6 +51,7 @@ internal static class Program
         root.Add(diagnostics);
         root.Add(benchmark);
         root.Add(ui);
+        root.Add(config);
         root.Add(test);
         root.Add(aot);
 
@@ -599,7 +601,7 @@ internal static class Program
         };
         var compressionOnly = new Option<bool>("--compression-only", ["-CompressionOnly"])
         {
-            Description = "Pack Core and the three optional compression packages."
+            Description = "Pack the package set defined by the compression contract."
         };
         var noBuild = new Option<bool>("--no-build", ["-NoBuild"])
         {
@@ -727,6 +729,22 @@ internal static class Program
         return command;
     }
 
+    private static Command BuildConfigCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var deep = new Option<bool>("--deep")
+        {
+            Description = "Compare configuration with already-built benchmark host manifests without running workloads."
+        };
+        var validate = new Command("validate", "Validate managed DevOps configuration.");
+        validate.Add(deep);
+        validate.SetAction(result => handler.ValidateConfiguration(new ConfigValidateCommandOptions(
+            result.GetValue(repository), result.GetValue(deep))));
+
+        var command = new Command("config", "Inspect managed DevOps configuration.");
+        command.Add(validate);
+        return command;
+    }
+
     private static Command BuildBenchmarkCommand(ICommandHandler handler, Option<string?> repository)
     {
         var suite = new Option<string>("--suite", ["-Suite"])
@@ -750,8 +768,8 @@ internal static class Program
         };
         var dataset = new Option<string>("--dataset", ["-Dataset"])
         {
-            Description = "Benchmark dataset: synthetic or wikipedia (default: synthetic).",
-            DefaultValueFactory = _ => "synthetic"
+            Description = "Benchmark dataset ID (default: configured in benchmark-datasets.json).",
+            DefaultValueFactory = _ => string.Empty
         };
         var referencePath = new Option<string?>("--reference-path", ["-ReferencePath"])
         {
@@ -804,7 +822,7 @@ internal static class Program
             result.GetValue(strategy) ?? "default",
             result.GetValue(framework) ?? "net11.0",
             result.GetValue(documentCount),
-            result.GetValue(dataset) ?? "synthetic",
+            result.GetValue(dataset) ?? string.Empty,
             result.GetValue(referencePath),
             result.GetValue(area),
             result.GetValue(group),
@@ -1215,6 +1233,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int BenchmarkRemote(BenchmarkRemoteCommandOptions options) => Missing("benchmark remote");
 
     public int Ui(UiCommandOptions options) => Missing("ui");
+
+    public int ValidateConfiguration(ConfigValidateCommandOptions options) => Missing("config validate");
 
     public int Test(TestCommandOptions options) => Missing("test");
 

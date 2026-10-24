@@ -76,7 +76,7 @@ internal sealed class ReleaseDistributionService(
                 provenanceReader).PublishAsync(new DotNetPublishRequest
                 {
                     Checkout = request.Checkout,
-                    ProjectPath = "src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj",
+                    ProjectPath = RepositoryProjectCatalog.GetRelativePath(RepositoryProjectRole.DevOpsHost),
                     Configuration = request.Configuration,
                     Framework = "net10.0",
                     RuntimeIdentifier = request.RuntimeIdentifier,

@@ -101,7 +101,7 @@ internal static class ManagedHostFingerprint
 
         AddDirectoryFiles(repositoryRoot, "src/devops/Rowles.LeanCorpus.DevOps", paths);
         AddDirectoryFiles(repositoryRoot, ".config/devops", paths);
-        if (!paths.Contains("src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj"))
+        if (!paths.Contains(RepositoryProjectCatalog.GetRelativePath(RepositoryProjectRole.DevOpsHost)))
         {
             throw new InvalidDataException("The managed DevOps host project is missing from the selected checkout.");
         }

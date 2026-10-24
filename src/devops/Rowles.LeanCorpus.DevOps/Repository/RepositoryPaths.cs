@@ -2,8 +2,14 @@ namespace Rowles.LeanCorpus.DevOps.Repository;
 
 internal static class RepositoryPaths
 {
-    private const string SolutionMarker = "Rowles.LeanCorpus.slnx";
+    public const string SolutionFileName = "Rowles.LeanCorpus.slnx";
     private const string SdkMarker = "global.json";
+
+    public static string GetSolutionPath(string repositoryRoot)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
+        return Path.Combine(Path.GetFullPath(repositoryRoot), SolutionFileName);
+    }
 
     public static CheckoutIdentity Resolve(string? explicitRepositoryPath, string? workingDirectory, string? executablePath)
     {
@@ -14,7 +20,7 @@ internal static class RepositoryPaths
             {
                 throw new InvalidOperationException(
                     $"The explicit repository path '{Path.GetFullPath(explicitRepositoryPath)}' is not a LeanCorpus checkout. " +
-                    $"A checkout must contain .git, {SolutionMarker} and {SdkMarker} markers.");
+                    $"A checkout must contain .git, {SolutionFileName} and {SdkMarker} markers.");
             }
 
             return explicitlySelected;
@@ -33,7 +39,7 @@ internal static class RepositoryPaths
 
         return callerCheckout ?? executableCheckout ?? throw new InvalidOperationException(
             "Could not locate a LeanCorpus checkout from the caller working directory or DevOps executable. " +
-            $"A checkout must contain .git, {SolutionMarker} and {SdkMarker} markers. Select an explicit repository path.");
+            $"A checkout must contain .git, {SolutionFileName} and {SdkMarker} markers. Select an explicit repository path.");
     }
 
     private static CheckoutIdentity? ResolveFromExecutable(string? executablePath)
@@ -65,7 +71,7 @@ internal static class RepositoryPaths
         while (current is not null)
         {
             var gitPath = Path.Combine(current.FullName, ".git");
-            var solutionPath = Path.Combine(current.FullName, SolutionMarker);
+            var solutionPath = GetSolutionPath(current.FullName);
             var sdkPath = Path.Combine(current.FullName, SdkMarker);
             var gitKind = Directory.Exists(gitPath)
                 ? CheckoutGitMarkerKind.Directory

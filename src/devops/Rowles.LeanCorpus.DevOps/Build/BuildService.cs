@@ -263,7 +263,7 @@ internal sealed class BuildService(
                 return "A target framework can be selected only for a project build.";
             }
 
-            if (!File.Exists(Path.Combine(request.Checkout.RepositoryRoot, "Rowles.LeanCorpus.slnx")))
+            if (!File.Exists(RepositoryPaths.GetSolutionPath(request.Checkout.RepositoryRoot)))
             {
                 return "The LeanCorpus solution file is missing.";
             }
@@ -303,7 +303,7 @@ internal sealed class BuildService(
     private static IReadOnlyList<string> BuildArguments(BuildRequest request, string runDirectory)
     {
         var targetPath = request.ProjectPath is null
-            ? Path.Combine(request.Checkout.RepositoryRoot, "Rowles.LeanCorpus.slnx")
+            ? RepositoryPaths.GetSolutionPath(request.Checkout.RepositoryRoot)
             : Path.GetFullPath(Path.Combine(request.Checkout.RepositoryRoot, request.ProjectPath));
         var arguments = new List<string> { "build", targetPath, "-c", request.Configuration };
         if (request.ProjectPath is not null)

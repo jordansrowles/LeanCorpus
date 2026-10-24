@@ -51,7 +51,7 @@ internal sealed class DotNetProjectInspector(IProcessRunner processRunner, strin
 
     public async Task<SolutionInspectionResult> InspectSolutionAsync(CheckoutIdentity checkout, string runDirectory, CancellationToken cancellationToken)
     {
-        var solutionPath = Path.Combine(checkout.RepositoryRoot, "Rowles.LeanCorpus.slnx");
+        var solutionPath = RepositoryPaths.GetSolutionPath(checkout.RepositoryRoot);
         if (!File.Exists(solutionPath))
         {
             return new SolutionInspectionResult(OutcomeKind.ValidationFailure, solutionPath, [], false, "The LeanCorpus .slnx file is missing.");

@@ -98,6 +98,8 @@ internal sealed record BenchmarkRemoteCommandOptions(
 
 internal sealed record UiCommandOptions(string? RepositoryPath = null);
 
+internal sealed record ConfigValidateCommandOptions(string? RepositoryPath = null, bool Deep = false);
+
 internal sealed record TestCommandOptions(
     TestRunOptions RunOptions,
     string? RepositoryPath = null,

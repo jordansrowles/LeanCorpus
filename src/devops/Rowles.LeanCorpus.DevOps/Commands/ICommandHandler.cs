@@ -30,6 +30,8 @@ internal interface ICommandHandler
 
     int Ui(UiCommandOptions options);
 
+    int ValidateConfiguration(ConfigValidateCommandOptions options);
+
     int Test(TestCommandOptions options);
 
     int BackupRestoreMatrix(BackupRestoreMatrixCommandOptions options);

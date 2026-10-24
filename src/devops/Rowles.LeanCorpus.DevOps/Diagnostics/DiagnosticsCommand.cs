@@ -30,7 +30,7 @@ internal static class DiagnosticsArgumentParser
         ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
 
         if (arguments.Count == 0 || IsHelp(arguments[0]))
-            return Success(new DiagnosticsRequest(DiagnosticsOperation.Help, null, null, "Mini", null, []));
+            return Success(new DiagnosticsRequest(DiagnosticsOperation.Help, null, null, DiagnosticsDumpTypeCatalog.DefaultOption, null, []));
 
         var operation = arguments[0].ToLowerInvariant() switch
         {
@@ -49,7 +49,7 @@ internal static class DiagnosticsArgumentParser
         int? processId = null;
         var duration = TimeSpan.FromSeconds(5);
         var durationWasProvided = false;
-        var dumpType = "Mini";
+        var dumpType = DiagnosticsDumpTypeCatalog.DefaultOption;
         var dumpTypeWasProvided = false;
         var positionals = new List<string>();
         var passThrough = new List<string>();
@@ -71,7 +71,7 @@ internal static class DiagnosticsArgumentParser
             }
 
             if (IsHelp(argument))
-                return Success(new DiagnosticsRequest(DiagnosticsOperation.Help, null, null, "Mini", null, []));
+                return Success(new DiagnosticsRequest(DiagnosticsOperation.Help, null, null, DiagnosticsDumpTypeCatalog.DefaultOption, null, []));
 
             if (!argument.StartsWith("-", StringComparison.Ordinal))
             {
@@ -100,14 +100,9 @@ internal static class DiagnosticsArgumentParser
                     durationWasProvided = true;
                     break;
                 case "type":
-                    dumpType = value.ToLowerInvariant() switch
-                    {
-                        "mini" => "Mini",
-                        "heap" => "Heap",
-                        "full" => "Full",
-                        "triage" => "Triage",
-                        _ => value
-                    };
+                    dumpType = DiagnosticsDumpTypeCatalog.TryParse(value, out var parsedDumpType)
+                        ? DiagnosticsDumpTypeCatalog.GetOption(parsedDumpType)
+                        : value;
                     dumpTypeWasProvided = true;
                     break;
             }
@@ -141,8 +136,8 @@ internal static class DiagnosticsArgumentParser
             return Failure($"The diagnostics '{operation.Value.ToString().ToLowerInvariant()}' command does not accept positional arguments.");
         if (processId is null)
             return Failure("--pid must be a positive process ID.");
-        if (operation == DiagnosticsOperation.Dump && dumpType is not ("Mini" or "Heap" or "Full" or "Triage"))
-            return Failure($"Unsupported dump type '{dumpType}'. Expected Mini, Heap, Full, or Triage.");
+        if (operation == DiagnosticsOperation.Dump && !DiagnosticsDumpTypeCatalog.TryParse(dumpType, out _))
+            return Failure($"Unsupported dump type '{dumpType}'. Expected {DiagnosticsDumpTypeCatalog.ExpectedNames}.");
         if (operation != DiagnosticsOperation.Dump && dumpTypeWasProvided)
             return Failure("--type is only valid for the diagnostics 'dump' command.");
         if (operation != DiagnosticsOperation.Capture && durationWasProvided)

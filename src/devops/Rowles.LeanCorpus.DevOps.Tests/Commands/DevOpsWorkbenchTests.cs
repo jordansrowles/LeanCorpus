@@ -125,6 +125,7 @@ public sealed class DevOpsWorkbenchTests
         var benchmark = Assert.Single(operations.Benchmarks);
         Assert.Equal("Serialisation", benchmark.Area);
         Assert.Equal("Serialisation", benchmark.Group);
+        Assert.Equal(string.Empty, benchmark.Dataset);
     }
 
     [Fact]
@@ -173,7 +174,9 @@ public sealed class DevOpsWorkbenchTests
             ImmutableDictionary<string, TestSuiteConfiguration>.Empty.Add(
                 "core", new TestSuiteConfiguration("core", "src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj", "mtp", ["net10.0", "net11.0"], "net11.0", true, [], null, null, null)),
             ImmutableDictionary<string, CodeAreaConfiguration>.Empty,
-            ImmutableDictionary<string, string>.Empty.Add("query", "query"),
+            ImmutableDictionary<string, BenchmarkProjectConfiguration>.Empty,
+            ImmutableDictionary<string, BenchmarkSuiteConfiguration>.Empty.Add(
+                "query", new BenchmarkSuiteConfiguration("query", "Query", "core", [], [], ["net10.0", "net11.0"], [], false, false, false, false, false, null, null)),
             ImmutableDictionary<string, BenchmarkStrategyConfiguration>.Empty.Add(
                 "fast", new BenchmarkStrategyConfiguration("Fast smoke", 100, ["--job", "Dry"])),
             ImmutableDictionary<string, ImmutableArray<string>>.Empty,

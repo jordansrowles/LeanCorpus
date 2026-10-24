@@ -222,7 +222,7 @@ internal sealed class DevOpsWorkbench(
             strategy,
             framework,
             DocumentCount: 0,
-            Dataset: "synthetic",
+            Dataset: string.Empty,
             ReferencePath: null,
             Area: area,
             Group: group,
@@ -444,8 +444,9 @@ internal sealed class ManagedWorkbenchOperations(
     {
         var paths = new ArtifactPaths(checkout.RepositoryRoot);
         var candidates = new List<(string Category, Guid RunId, DateTime ModifiedUtc)>();
-        foreach (var category in ArtifactPaths.RunCategories)
+        foreach (var categoryDescriptor in ArtifactPaths.RunCategories)
         {
+            var category = categoryDescriptor.Id;
             var root = paths.GetRunRoot(category);
             if (!Directory.Exists(root))
             {

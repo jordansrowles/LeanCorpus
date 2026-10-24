@@ -512,7 +512,8 @@ try {
 
         # J. Published host consumers must exercise every supported runtime target.
         . (Join-Path $RepositoryRoot 'scripts/devops/packaging/validate-package-consumers.ps1')
-        $consumerScenarios = @(Get-ConsumerScenarioDefinitions -Scope all)
+        $packagePolicy = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'scripts/devops/packaging/package-policy.json') -Raw | ConvertFrom-Json -AsHashtable
+        $consumerScenarios = @(Get-ConsumerScenarioDefinitions -Scope all -Policy $packagePolicy -RepoRoot $RepositoryRoot)
         foreach ($name in @('server-abstractions', 'server-core', 'server-aspnetcore', 'server-grpc', 'studio', 'orchard-search', 'server-local')) {
             $frameworks = @($consumerScenarios | Where-Object Name -eq $name | ForEach-Object Framework | Sort-Object -Unique)
             Assert-Smoke ($frameworks.Count -eq 2 -and 'net10.0' -in $frameworks -and 'net11.0' -in $frameworks) "package consumer '$name' does not cover both host frameworks."
