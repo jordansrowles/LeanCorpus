@@ -14,6 +14,7 @@
 - Verify plain, HNSW and deletion-heavy merge outputs against exact stored-ID sets and live counts.
 - Verify the exact committed document count and stored-ID set after each high-cardinality flush benchmark iteration.
 - Verify wide stored-fields writes and bounded/concurrent reads against exact decoded values.
+- Verify every numeric, sorted, multi-valued and binary DocValues benchmark output before timing.
 
 ## Changed
 

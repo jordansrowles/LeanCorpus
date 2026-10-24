@@ -1701,6 +1701,62 @@
         }
       ],
       "estimatedBudget": "short"
+    },
+    {
+      "id": "docvalues-read-native-v1",
+      "project": "core",
+      "benchmarkClass": "DocValuesReadBenchmarks",
+      "benchmarkMethods": [
+        "NumericDocValues_DenseSequential",
+        "NumericDocValues_DenseRandom",
+        "NumericDocValues_SparsePresence",
+        "NumericIndex_DenseLookup",
+        "SortedDocValues_HighCardinalityOrdinal",
+        "SortedSetDocValues_Singleton",
+        "SortedSetDocValues_Multi",
+        "SortedNumericDocValues_Singleton",
+        "SortedNumericDocValues_Multi",
+        "BinaryDocValues_PayloadReads"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "100000",
+          "1000000"
+        ]
+      },
+      "semanticParameters": {
+        "denseNumeric": "one numeric value equal to each document ID",
+        "sparseNumeric": "value present only when document ID is divisible by eight",
+        "sortedTerms": "term-{document ID:D8}, ordinal follows document order",
+        "sortedSet": "one of 256 tags or four ordered tags from a 4096-term dictionary",
+        "sortedNumeric": "one value or four increasing values per document",
+        "binary": "one exact 32-byte payload per document"
+      },
+      "engineId": "leancorpus",
+      "category": "Storage",
+      "operation": "DocValuesRead",
+      "datasetProfile": "docvalues-read-v1",
+      "workloadId": "docvalues-exact-read-v1",
+      "algorithmFamily": "ColumnarDocValues",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "new-index",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "exact-per-document-values-and-presence-with-method-checksums",
+      "qualityProof": "Setup verifies every numeric value and sparse-presence bit, sorted term and ordinal, sorted-set and sorted-numeric order, and binary payload byte through a separate reader before opening and warming the measured reader. This native-only workload has no matched Lucene.NET comparator, so it makes no relative performance claim.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
     }
   ],
   "exclusions": [
@@ -2212,76 +2268,6 @@
       "project": "core",
       "benchmarkClass": "DisjunctionMaxQueryBenchmarks",
       "benchmarkMethod": "LuceneNet_DisjunctionMaxQuery",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "BinaryDocValues_PayloadReads",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "NumericDocValues_DenseRandom",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "NumericDocValues_DenseSequential",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "NumericDocValues_SparsePresence",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "NumericIndex_DenseLookup",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "SortedDocValues_HighCardinalityOrdinal",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "SortedNumericDocValues_Multi",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "SortedNumericDocValues_Singleton",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "SortedSetDocValues_Multi",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DocValuesReadBenchmarks",
-      "benchmarkMethod": "SortedSetDocValues_Singleton",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },

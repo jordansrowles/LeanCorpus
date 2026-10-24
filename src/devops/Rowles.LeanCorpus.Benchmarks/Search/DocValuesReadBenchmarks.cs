@@ -83,6 +83,10 @@ public class DocValuesReadBenchmarks
             throw new InvalidOperationException(
                 $"DocValues benchmark expected one {DocumentCount}-document segment but found " +
                 $"{segments.Count} segment(s) with {string.Join(", ", segments.Select(static segment => segment.DocCount))} documents.");
+
+        using (var verificationReader = new SegmentReader(_directory, segments[0]))
+            VerifyDocValues(verificationReader);
+
         _reader = new SegmentReader(_directory, segments[0]);
 
         if (!_reader.TryGetNumericDocValues("numeric-dense", out _denseNumeric)
@@ -106,6 +110,94 @@ public class DocValuesReadBenchmarks
             (_accessOrder[i], _accessOrder[swapIndex]) = (_accessOrder[swapIndex], _accessOrder[i]);
         }
     }
+
+    private void VerifyDocValues(SegmentReader reader)
+    {
+        if (!reader.TryGetNumericDocValues("numeric-dense", out NumericDocValuesColumn? denseNumeric)
+            || !reader.TryGetNumericDocValues("numeric-sparse", out NumericDocValuesColumn? sparseNumeric))
+            throw new InvalidOperationException("The benchmark index is missing its numeric DocValues columns.");
+
+        VerifySortedTermDictionary(reader, "set-singleton", 256);
+        VerifySortedTermDictionary(reader, "set-multi", 4096);
+
+        for (int docId = 0; docId < DocumentCount; docId++)
+        {
+            if (!denseNumeric!.TryGetValue(docId, out double denseValue) || denseValue != docId)
+                throw new InvalidOperationException($"Dense numeric DocValues mismatch at document {docId}.");
+
+            bool hasSparseValue = sparseNumeric!.TryGetValue(docId, out double sparseValue);
+            bool expectedSparseValue = (docId & 7) == 0;
+            if (hasSparseValue != expectedSparseValue || hasSparseValue && sparseValue != docId)
+                throw new InvalidOperationException($"Sparse numeric DocValues mismatch at document {docId}.");
+
+            if (!reader.TryGetNumericValue("numeric-dense", docId, out double indexedValue) || indexedValue != docId)
+                throw new InvalidOperationException($"Dense numeric index lookup mismatch at document {docId}.");
+
+            if (!reader.TryGetSortedDocOrdinal("sorted-high-card", docId, out int sortedOrdinal)
+                || sortedOrdinal != docId
+                || !reader.TryGetSortedDocValue("sorted-high-card", docId, out string sortedValue)
+                || !HasExpectedTerm(sortedValue, "term-", docId, 8))
+                throw new InvalidOperationException($"High-cardinality sorted DocValues mismatch at document {docId}.");
+
+            if (!reader.TryGetSortedSetDocOrdinals("set-singleton", docId, out IReadOnlyList<int> singletonOrdinals)
+                || singletonOrdinals.Count != 1
+                || singletonOrdinals[0] != docId % 256)
+                throw new InvalidOperationException($"Singleton sorted-set DocValues mismatch at document {docId}.");
+
+            if (!reader.TryGetSortedSetDocOrdinals("set-multi", docId, out IReadOnlyList<int> multiOrdinals)
+                || multiOrdinals.Count != 4)
+                throw new InvalidOperationException($"Multi-valued sorted-set DocValues count mismatch at document {docId}.");
+            int firstMultiOrdinal = (docId * 4) % 4096;
+            for (int valueIndex = 0; valueIndex < multiOrdinals.Count; valueIndex++)
+            {
+                if (multiOrdinals[valueIndex] != firstMultiOrdinal + valueIndex)
+                    throw new InvalidOperationException(
+                        $"Multi-valued sorted-set DocValues mismatch at document {docId}, value {valueIndex}.");
+            }
+
+            if (!reader.TryGetSortedNumericDocValues("numeric-single", docId, out IReadOnlyList<double> singletonNumbers)
+                || singletonNumbers.Count != 1
+                || singletonNumbers[0] != docId)
+                throw new InvalidOperationException($"Singleton sorted-numeric DocValues mismatch at document {docId}.");
+
+            if (!reader.TryGetSortedNumericDocValues("numeric-multi", docId, out IReadOnlyList<double> multiNumbers)
+                || multiNumbers.Count != 4)
+                throw new InvalidOperationException($"Multi-valued sorted-numeric DocValues count mismatch at document {docId}.");
+            long firstMultiNumber = docId * 4L;
+            for (int valueIndex = 0; valueIndex < multiNumbers.Count; valueIndex++)
+            {
+                if (multiNumbers[valueIndex] != firstMultiNumber + valueIndex)
+                    throw new InvalidOperationException(
+                        $"Multi-valued sorted-numeric DocValues mismatch at document {docId}, value {valueIndex}.");
+            }
+
+            if (!reader.TryGetBinaryDocValues("binary", docId, out IReadOnlyList<byte[]> binaryValues)
+                || binaryValues.Count != 1
+                || !binaryValues[0].AsSpan().SequenceEqual(BinaryPayload))
+                throw new InvalidOperationException($"Binary DocValues payload mismatch at document {docId}.");
+        }
+    }
+
+    private static void VerifySortedTermDictionary(SegmentReader reader, string field, int expectedTermCount)
+    {
+        string[]? terms = reader.GetSortedSetDocValueTerms(field);
+        if (terms is null || terms.Length != expectedTermCount)
+            throw new InvalidOperationException(
+                $"Sorted-set DocValues field '{field}' expected {expectedTermCount} terms but found {terms?.Length ?? 0}.");
+
+        for (int ordinal = 0; ordinal < terms.Length; ordinal++)
+        {
+            if (!HasExpectedTerm(terms[ordinal], "tag-", ordinal, 4))
+                throw new InvalidOperationException(
+                    $"Sorted-set DocValues field '{field}' has an unexpected term at ordinal {ordinal}.");
+        }
+    }
+
+    private static bool HasExpectedTerm(string value, string prefix, int expectedNumber, int digitWidth)
+        => value.Length == prefix.Length + digitWidth
+            && value.AsSpan(0, prefix.Length).SequenceEqual(prefix.AsSpan())
+            && int.TryParse(value.AsSpan(prefix.Length), NumberStyles.None, CultureInfo.InvariantCulture, out int actualNumber)
+            && actualNumber == expectedNumber;
 
     [GlobalCleanup]
     public void Cleanup()
