@@ -335,6 +335,8 @@ public class ShapeDocValuesCopyBenchmarks
             if (metadata.PrimitiveCount != (uint)PrimitiveCount)
                 throw new InvalidDataException("Shape DocValues copy source has an unexpected primitive count.");
         }
+
+        ValidateCopiedRecordsBeforeTiming();
     }
 
     [Benchmark(Description = "Copy validated Shape DocValues records during merge")]
@@ -365,6 +367,36 @@ public class ShapeDocValuesCopyBenchmarks
                 ["shape"] = destinationField,
             });
         return copiedBytes;
+    }
+
+    private void ValidateCopiedRecordsBeforeTiming()
+    {
+        byte[][] expectedRecords = new byte[2][];
+        for (int documentId = 0; documentId < expectedRecords.Length; documentId++)
+            expectedRecords[documentId] = _sourceReader!.ReadRecordBytes("shape", documentId);
+
+        long copiedBytes = CopyShapeDocValuesRecords();
+        if (copiedBytes != _recordBytesPerMerge)
+            throw new InvalidDataException(
+                $"Shape DocValues copy preflight expected {_recordBytesPerMerge} bytes but copied {copiedBytes}.");
+
+        using (ShapeDocValuesReader destinationReader = ShapeDocValuesReader.Open(_destinationPath))
+        {
+            for (int documentId = 0; documentId < expectedRecords.Length; documentId++)
+            {
+                if (!destinationReader.TryGetRecordMetadata(
+                        "shape", documentId, out ShapeDocValuesRecordMetadata metadata)
+                    || metadata.PrimitiveCount != (uint)PrimitiveCount
+                    || !expectedRecords[documentId].AsSpan().SequenceEqual(
+                        destinationReader.ReadRecordBytes("shape", documentId)))
+                {
+                    throw new InvalidDataException(
+                        $"Shape DocValues copy preflight changed record {documentId}.");
+                }
+            }
+        }
+
+        File.Delete(_destinationPath);
     }
 
     [GlobalCleanup]
@@ -462,6 +494,8 @@ public class SpatialAggregationBenchmarks
             new GeoCentroidAggregationRequest("centre", "shape"),
             new GeoBoundsAggregationRequest("bounds", "shape"),
         ];
+
+        ValidateAggregationResultsBeforeTiming();
     }
 
     [Benchmark(Description = "Geo distance aggregation")]
@@ -522,6 +556,70 @@ public class SpatialAggregationBenchmarks
         => result is TResult typed
             ? getCount(typed)
             : throw new InvalidDataException($"Expected benchmark result '{typeof(TResult).Name}', got '{result.GetType().Name}'.");
+
+    private void ValidateAggregationResultsBeforeTiming()
+    {
+        long[] expectedDistanceBuckets = ExpectedDistanceBucketCounts(DocumentCount);
+        var (_, combinedResults) = _searcher.SearchWithAggregations(
+            new MatchAllDocsQuery(), 0, _combined, CancellationToken.None);
+        if (combinedResults.Count != 4)
+            throw new InvalidDataException($"Combined spatial preflight expected four results, got {combinedResults.Count}.");
+
+        AggregationResult numeric = (AggregationResult)combinedResults[0];
+        GeoDistanceAggregationResult distance = (GeoDistanceAggregationResult)combinedResults[1];
+        GeoCentroidAggregationResult centroid = (GeoCentroidAggregationResult)combinedResults[2];
+        GeoBoundsAggregationResult bounds = (GeoBoundsAggregationResult)combinedResults[3];
+        GeoPoint? centre = centroid.Centroid;
+        GeoRectangle? rectangle = bounds.Bounds;
+        if (numeric.Count != DocumentCount
+            || numeric.Sum != ((double)DocumentCount * (DocumentCount - 1)) / 2d
+            || !distance.Buckets.Select(static bucket => bucket.DocumentCount).SequenceEqual(expectedDistanceBuckets)
+            || centroid.Dimension != SpatialDimension.Area
+            || centroid.ContributingDocumentCount != DocumentCount
+            || centre is null
+            || Math.Abs(centre.Value.Latitude) > 1e-3
+            || Math.Abs(Math.Abs(centre.Value.Longitude) - 180d) > 1e-3
+            || bounds.ContributingDocumentCount != DocumentCount
+            || rectangle is null
+            || !rectangle.Value.CrossesDateline
+            || Math.Abs(rectangle.Value.South + 1d) > 1e-3
+            || Math.Abs(rectangle.Value.North - 1d) > 1e-3
+            || Math.Abs(rectangle.Value.West - 179d) > 1e-3
+            || Math.Abs(rectangle.Value.East + 179d) > 1e-3)
+        {
+            throw new InvalidDataException("Combined spatial aggregation output differs from the deterministic benchmark fixture.");
+        }
+    }
+
+    private static long[] ExpectedDistanceBucketCounts(int documentCount)
+    {
+        long near = 0;
+        long far = 0;
+        for (int documentId = 0; documentId < documentCount; documentId++)
+        {
+            double latitude = ((documentId * 37) % 120) - 60;
+            double longitude = ((documentId * 71) % 360) - 180;
+            double distance = HaversineMetres(latitude, longitude);
+            if (distance < 250_000d)
+                near++;
+            else
+                far++;
+        }
+
+        return [near, far];
+    }
+
+    private static double HaversineMetres(double latitude, double longitude)
+    {
+        const double EarthRadiusMetres = 6_371_000d;
+        double latitudeRadians = latitude * Math.PI / 180d;
+        double longitudeRadians = longitude * Math.PI / 180d;
+        double latitudeHalfSine = Math.Sin(latitudeRadians / 2d);
+        double longitudeHalfSine = Math.Sin(longitudeRadians / 2d);
+        double a = latitudeHalfSine * latitudeHalfSine
+            + Math.Cos(latitudeRadians) * longitudeHalfSine * longitudeHalfSine;
+        return 2d * EarthRadiusMetres * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1d - a));
+    }
 
     private static int[] ReadDocumentCounts()
     {

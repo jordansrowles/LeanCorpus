@@ -59,6 +59,18 @@ public class TermInSetQueryBenchmarks
         _leanSearcher = SharedStandardIndex.LeanSearcher;
         _luceneSearcher = SharedStandardIndex.LuceneSearcher;
         _terms = Vocabulary.Take(SetSize).ToArray();
+
+        var termSetResults = _leanSearcher.Search(new TermInSetQuery("body", _terms), TopN);
+        var leanBooleanResults = _leanSearcher.Search(BuildLeanBooleanQuery(), TopN);
+        var luceneBooleanResults = _luceneSearcher.Search(BuildLuceneBooleanQuery(), TopN);
+        if (termSetResults.TotalHits != leanBooleanResults.TotalHits
+            || termSetResults.TotalHits != luceneBooleanResults.TotalHits)
+        {
+            throw new InvalidOperationException(
+                $"TermInSet and Boolean OR total hits differ for {SetSize} terms: " +
+                $"TermInSet={termSetResults.TotalHits}, LeanCorpus Boolean={leanBooleanResults.TotalHits}, " +
+                $"Lucene.NET Boolean={luceneBooleanResults.TotalHits}.");
+        }
     }
 
     [GlobalCleanup]
@@ -75,21 +87,27 @@ public class TermInSetQueryBenchmarks
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_BooleanQuery_Should()
-    {
-        var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
-        foreach (var term in _terms)
-            builder.Add(new TermQuery("body", term), Rowles.LeanCorpus.Search.Occur.Should);
-        return _leanSearcher!.Search(builder.Build(), TopN).TotalHits;
-    }
+        => _leanSearcher!.Search(BuildLeanBooleanQuery(), TopN).TotalHits;
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_BooleanQuery_Should()
+        => _luceneSearcher!.Search(BuildLuceneBooleanQuery(), TopN).TotalHits;
+
+    private Rowles.LeanCorpus.Search.Queries.BooleanQuery BuildLeanBooleanQuery()
     {
-        var bq = new Lucene.Net.Search.BooleanQuery();
+        var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
         foreach (var term in _terms)
-            bq.Add(new LuceneTermQuery(new LuceneTerm("body", term)), Occur.SHOULD);
-        return _luceneSearcher!.Search(bq, TopN).TotalHits;
+            builder.Add(new TermQuery("body", term), Rowles.LeanCorpus.Search.Occur.Should);
+        return builder.Build();
+    }
+
+    private Lucene.Net.Search.BooleanQuery BuildLuceneBooleanQuery()
+    {
+        var query = new Lucene.Net.Search.BooleanQuery();
+        foreach (var term in _terms)
+            query.Add(new LuceneTermQuery(new LuceneTerm("body", term)), Occur.SHOULD);
+        return query;
     }
 
 }
