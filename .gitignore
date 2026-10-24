@@ -11,6 +11,7 @@ bench/
 coverage-report/
 coverage-results/
 StrykerOutput/
+**/.bdn/
 
 .netcoredbg_hist
 
