@@ -1512,6 +1512,195 @@
         }
       ],
       "estimatedBudget": "short"
+    },
+    {
+      "id": "stored-fields-wide-write-v1",
+      "project": "core",
+      "benchmarkClass": "StoredFieldsWriteBenchmarks",
+      "benchmarkMethods": [
+        "FlushWideFlatDocuments"
+      ],
+      "semanticParameters": {
+        "documentCount": "96",
+        "fieldCount": "96",
+        "values": "one deterministic string value per field and document",
+        "fieldOrder": "coprime stride 37 modulo 96",
+        "blockSize": "96",
+        "compression": "Deflate",
+        "storage": "file-backed fdt/fdx pair"
+      },
+      "engineId": "leancorpus",
+      "category": "Storage",
+      "operation": "WideFlatStoredFieldsFlush",
+      "datasetProfile": "stored-fields-wide-flat-v1",
+      "workloadId": "stored-fields-wide-flat-write-v1",
+      "algorithmFamily": "StoredFieldsEncoding",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "new-index",
+      "comparisonGroup": null,
+      "classification": "Unqualified",
+      "resultContract": "exact-document-field-value-round-trip",
+      "qualityProof": "Iteration cleanup reopens each just-written file pair and verifies all 96 documents, the exact 96-field set per document, and every deterministic stored value. Correctness only; no measurement qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "stored-fields-same-block-concurrent-read-v1",
+      "project": "core",
+      "benchmarkClass": "StoredFieldsReadBenchmarks",
+      "benchmarkMethods": [
+        "ConcurrentSameBlockRandomReads"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "16384",
+          "131072"
+        ],
+        "WorkerCount": [
+          "1",
+          "2",
+          "4",
+          "8",
+          "16"
+        ]
+      },
+      "semanticParameters": {
+        "blockSize": "64",
+        "fieldNames": "id,body",
+        "bodyLength": "96",
+        "readsPerBatch": "4096",
+        "values": "invariant-culture ordinal IDs and repeated-x body"
+      },
+      "engineId": "leancorpus",
+      "category": "Storage",
+      "operation": "ConcurrentRandomReadSameBlock",
+      "datasetProfile": "stored-fields-concurrent-read-v1",
+      "workloadId": "stored-fields-concurrent-random-read-v1",
+      "algorithmFamily": "StoredFieldsBlockCache",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": null,
+      "classification": "Unqualified",
+      "resultContract": "exact-decoded-id-and-body-values",
+      "qualityProof": "Global setup verifies the exact ID and body values for every persisted document using a separate reader, then opens and warms the measured reader. Correctness only; no measurement qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "stored-fields-different-block-concurrent-read-v1",
+      "project": "core",
+      "benchmarkClass": "StoredFieldsReadBenchmarks",
+      "benchmarkMethods": [
+        "ConcurrentDifferentBlockRandomReads"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "16384",
+          "131072"
+        ],
+        "WorkerCount": [
+          "1",
+          "2",
+          "4",
+          "8",
+          "16"
+        ]
+      },
+      "semanticParameters": {
+        "blockSize": "64",
+        "fieldNames": "id,body",
+        "bodyLength": "96",
+        "readsPerBatch": "4096",
+        "values": "invariant-culture ordinal IDs and repeated-x body"
+      },
+      "engineId": "leancorpus",
+      "category": "Storage",
+      "operation": "ConcurrentRandomReadDifferentBlocks",
+      "datasetProfile": "stored-fields-concurrent-read-v1",
+      "workloadId": "stored-fields-concurrent-random-read-v1",
+      "algorithmFamily": "StoredFieldsBlockCache",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": null,
+      "classification": "Unqualified",
+      "resultContract": "exact-decoded-id-and-body-values",
+      "qualityProof": "Global setup verifies the exact ID and body values for every persisted document using a separate reader, then opens and warms the measured reader. Correctness only; no measurement qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "stored-fields-byte-bounded-small-read-v1",
+      "project": "core",
+      "benchmarkClass": "StoredFieldsByteBoundedBenchmarks",
+      "benchmarkMethods": [
+        "ReadSmallDocumentsBesideLargeNeighbours"
+      ],
+      "semanticParameters": {
+        "documentCount": "32",
+        "smallDocumentCount": "16",
+        "blockSize": "2",
+        "largeNeighbourBytes": "1048576",
+        "compression": "Deflate",
+        "largePayload": "repeated x characters"
+      },
+      "engineId": "leancorpus",
+      "category": "Storage",
+      "operation": "ReadSmallDocumentBesideLargeNeighbour",
+      "datasetProfile": "stored-fields-byte-bounded-v1",
+      "workloadId": "stored-fields-byte-bounded-small-read-v1",
+      "algorithmFamily": "StoredFieldsBlockRead",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "cold-open",
+      "comparisonGroup": null,
+      "classification": "Unqualified",
+      "resultContract": "exact-small-id-and-neighbour-payload",
+      "qualityProof": "Global setup verifies every small ID and every neighbouring one-megabyte payload by exact length and character content before timing. Correctness only; no measurement qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
     }
   ],
   "exclusions": [
@@ -3469,34 +3658,6 @@
       "project": "core",
       "benchmarkClass": "SpatialUtilityBenchmarks",
       "benchmarkMethod": "WriteXYWkt",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "StoredFieldsByteBoundedBenchmarks",
-      "benchmarkMethod": "ReadSmallDocumentsBesideLargeNeighbours",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "StoredFieldsReadBenchmarks",
-      "benchmarkMethod": "ConcurrentDifferentBlockRandomReads",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "StoredFieldsReadBenchmarks",
-      "benchmarkMethod": "ConcurrentSameBlockRandomReads",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "StoredFieldsWriteBenchmarks",
-      "benchmarkMethod": "FlushWideFlatDocuments",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },

@@ -22,6 +22,7 @@ public class StoredFieldsReadBenchmarks
     public int WorkerCount { get; set; }
 
     private string _indexPath = string.Empty;
+    private string _expectedBody = string.Empty;
     private StoredFieldsReader? _reader;
     private int[][] _sameBlockReadOrder = [];
     private int[][] _differentBlockReadOrder = [];
@@ -33,13 +34,13 @@ public class StoredFieldsReadBenchmarks
         Directory.CreateDirectory(_indexPath);
 
         var documents = new Dictionary<string, List<string>>[DocumentCount];
-        string body = new('x', FieldValueLength);
+        _expectedBody = new string('x', FieldValueLength);
         for (int docId = 0; docId < documents.Length; docId++)
         {
             documents[docId] = new Dictionary<string, List<string>>(StringComparer.Ordinal)
             {
                 ["id"] = [docId.ToString(CultureInfo.InvariantCulture)],
-                ["body"] = [body]
+                ["body"] = [_expectedBody]
             };
         }
 
@@ -51,6 +52,33 @@ public class StoredFieldsReadBenchmarks
             documents,
             blockSize: BlockSize,
             compression: FieldCompressionPolicy.Deflate);
+
+        using (var verificationReader = StoredFieldsReader.Open(fdtPath, fdxPath))
+        {
+            if (verificationReader.DocCount != DocumentCount)
+            {
+                throw new InvalidOperationException(
+                    $"Stored-fields read fixture expected {DocumentCount} documents, but found {verificationReader.DocCount}.");
+            }
+
+            for (int docId = 0; docId < DocumentCount; docId++)
+            {
+                var fields = verificationReader.ReadDocumentValues(docId);
+                if (fields.Count != 2
+                    || !fields.TryGetValue("id", out var ids)
+                    || ids.Count != 1
+                    || !StringComparer.Ordinal.Equals(ids[0].StringValue, docId.ToString(CultureInfo.InvariantCulture))
+                    || !fields.TryGetValue("body", out var bodies)
+                    || bodies.Count != 1
+                    || !StringComparer.Ordinal.Equals(bodies[0].StringValue, _expectedBody))
+                {
+                    throw new InvalidOperationException(
+                        $"Stored-fields read fixture document {docId} did not decode its exact ID and body values.");
+                }
+            }
+        }
+
+        // Keep fixture verification outside the measured reader's cache state.
         _reader = StoredFieldsReader.Open(fdtPath, fdxPath);
         _reader.ReadDocumentValues(0); // Warm the shared immutable cache for the same-block workload.
 

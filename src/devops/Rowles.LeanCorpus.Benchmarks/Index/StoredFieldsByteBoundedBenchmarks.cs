@@ -38,6 +38,58 @@ public class StoredFieldsByteBoundedBenchmarks
             documents,
             blockSize: BlockSize,
             compression: FieldCompressionPolicy.Deflate);
+
+        VerifyFixture();
+    }
+
+    private void VerifyFixture()
+    {
+        using var reader = StoredFieldsReader.Open(
+            Path.Combine(_indexPath, "segment.fdt"),
+            Path.Combine(_indexPath, "segment.fdx"));
+        if (reader.DocCount != SmallDocumentCount * 2)
+        {
+            throw new InvalidOperationException(
+                $"Byte-bounded stored-fields fixture expected {SmallDocumentCount * 2} documents, but found {reader.DocCount}.");
+        }
+
+        for (int smallDoc = 0; smallDoc < SmallDocumentCount; smallDoc++)
+        {
+            int smallDocumentId = smallDoc * 2;
+            var smallFields = reader.ReadDocumentValues(smallDocumentId);
+            if (smallFields.Count != 1
+                || !smallFields.TryGetValue("id", out var ids)
+                || ids.Count != 1
+                || !StringComparer.Ordinal.Equals(ids[0].StringValue, $"small-{smallDoc}"))
+            {
+                throw new InvalidOperationException(
+                    $"Byte-bounded stored-fields fixture document {smallDocumentId} did not decode its exact small ID.");
+            }
+
+            int largeDocumentId = smallDocumentId + 1;
+            var largeFields = reader.ReadDocumentValues(largeDocumentId);
+            if (largeFields.Count != 1
+                || !largeFields.TryGetValue("body", out var bodies)
+                || bodies.Count != 1
+                || bodies[0].StringValue is not string body
+                || body.Length != LargePayloadBytes
+                || !ContainsOnly(body, 'x'))
+            {
+                throw new InvalidOperationException(
+                    $"Byte-bounded stored-fields fixture document {largeDocumentId} did not decode its exact large payload.");
+            }
+        }
+    }
+
+    private static bool ContainsOnly(string value, char expectedCharacter)
+    {
+        foreach (char character in value)
+        {
+            if (character != expectedCharacter)
+                return false;
+        }
+
+        return true;
     }
 
     [GlobalCleanup]
