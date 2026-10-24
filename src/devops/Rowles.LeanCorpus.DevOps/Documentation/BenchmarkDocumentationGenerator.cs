@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Rowles.LeanCorpus.DevOps.Configuration;
 
 namespace Rowles.LeanCorpus.DevOps.Documentation;
 
@@ -10,38 +11,20 @@ internal sealed record BenchmarkDocumentationResult(int PageCount, IReadOnlyList
 internal sealed class BenchmarkDocumentationGenerator
 {
     private static readonly Regex ChartIdPattern = new("[^a-zA-Z0-9]", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly IReadOnlyDictionary<string, string> SuiteNames = new Dictionary<string, string>(StringComparer.Ordinal)
-    {
-        ["aggregation"] = "Aggregation", ["analysis"] = "Analysis", ["analysis-filters"] = "Analysis filters",
-        ["analysis-filters-v2"] = "Analysis filters v2", ["analysis-parity"] = "Analysis parity", ["async-index"] = "Async index",
-        ["blockjoin"] = "Block-Join", ["blockjoin-index"] = "Block-Join (index)", ["blockjoin-search"] = "Block-Join (search)",
-        ["boolean"] = "Boolean queries", ["collapse-facet"] = "Collapse and facet", ["combined"] = "Combined queries",
-        ["compound-index"] = "Compound file (index)", ["compound-search"] = "Compound file (search)", ["deletion"] = "Deletion",
-        ["deletion-commit"] = "Deletion (commit)", ["deletion-queue"] = "Deletion (queue)", ["dismax"] = "Disjunction max",
-        ["function-score"] = "Function score", ["fuzzy"] = "Fuzzy queries", ["geo"] = "Geo queries",
-        ["gutenberg-analysis"] = "Gutenberg analysis", ["gutenberg-index"] = "Gutenberg index", ["gutenberg-search"] = "Gutenberg search",
-        ["highlighter"] = "Highlighter", ["hunspell"] = "Hunspell", ["index"] = "Indexing",
-        ["indexsort-index"] = "Index-sort (index)", ["indexsort-search"] = "Index-sort (search)", ["kstemmer"] = "KStemmer",
-        ["lightenglish"] = "Light English stemmer", ["mlt"] = "More like this", ["multiphrase"] = "Multi-phrase",
-        ["ngram"] = "N-gram", ["parallel"] = "Parallel search", ["pattern-tokeniser"] = "Pattern tokeniser",
-        ["phrase"] = "Phrase queries", ["prefix"] = "Prefix queries", ["query"] = "Term queries", ["query-cache"] = "Query cache",
-        ["range"] = "Range queries", ["regexp"] = "Regexp queries", ["schemajson"] = "Schema and JSON",
-        ["searcher-mgr"] = "Searcher manager", ["segment-reader-cache"] = "Segment reader cache", ["similarity"] = "Similarity",
-        ["span"] = "Span queries", ["stemmer"] = "Stemmer", ["suggester"] = "Suggester", ["synonym"] = "Synonym",
-        ["terminset"] = "Term in set", ["tv-highlighter"] = "Term-vector highlighter", ["vq"] = "Vector queries", ["wildcard"] = "Wildcard queries"
-    };
-
     public BenchmarkDocumentationResult Generate(
         string benchmarkRunsDirectory,
         string outputDirectory,
         string chartJsPath,
         string benchmarkChartScriptPath,
-        bool skipRunScan = false)
+        DevOpsConfiguration configuration,
+        bool skipRunScan = false,
+        string? canonicalQualificationAuditPath = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(benchmarkRunsDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(chartJsPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(benchmarkChartScriptPath);
+        ArgumentNullException.ThrowIfNull(configuration);
         var runsRoot = Path.GetFullPath(benchmarkRunsDirectory);
         var outputRoot = Path.GetFullPath(outputDirectory);
         var chartPath = Path.GetFullPath(chartJsPath);
@@ -77,17 +60,18 @@ internal sealed class BenchmarkDocumentationGenerator
                 foreach (var project in GetArray(runReport.RootElement, "projects"))
                 {
                     var projectKey = GetString(project, "project");
-                    if (projectKey is not ("core" or "text" or "compression") || !string.Equals(GetString(project, "status"), "Passed", StringComparison.Ordinal)) continue;
+                    if (projectKey is null || !configuration.BenchmarkProjects.ContainsKey(projectKey) ||
+                        !string.Equals(GetString(project, "status"), "Passed", StringComparison.Ordinal)) continue;
                     var relativePath = GetString(project, "path") ?? projectKey;
                     var projectDirectory = ResolveInside(runDirectory, relativePath);
                     if (!Directory.Exists(projectDirectory)) continue;
                     if (projectKey == "core")
                     {
-                        AddCoreRun(projectDirectory, completedAt, runManifest.RootElement, newestPerSuite, warnings);
+                        AddCoreRun(projectDirectory, completedAt, runManifest.RootElement, runReport.RootElement, newestPerSuite, warnings);
                     }
                     else
                     {
-                        AddProjectRun(projectKey, projectDirectory, completedAt, newestProjectEvidence);
+                        AddProjectRun(projectKey, projectDirectory, completedAt, runReport.RootElement, newestProjectEvidence);
                     }
                 }
             }
@@ -104,9 +88,20 @@ internal sealed class BenchmarkDocumentationGenerator
 
         var machines = newestPerSuite.Values.Select(static evidence => evidence.Machine)
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
-        var pageCount = WriteCorePages(newestPerSuite, machines.Length > 1, outputRoot, warnings);
-        pageCount += WriteOtherProjectPages("text", "Rowles.Text benchmarks", newestProjectEvidence, outputRoot);
-        pageCount += WriteOtherProjectPages("compression", "Compression benchmarks", newestProjectEvidence, outputRoot);
+        var pageCount = WriteCorePages(newestPerSuite, machines.Length > 1, outputRoot, warnings, configuration);
+        foreach (var project in configuration.BenchmarkProjects.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        {
+            if (project.Key == "core") continue;
+            pageCount += WriteOtherProjectPages(project.Key, $"{project.Value.DisplayName} benchmarks", newestProjectEvidence, outputRoot);
+        }
+
+        if (canonicalQualificationAuditPath is not null)
+        {
+            var auditSource = Path.GetFullPath(canonicalQualificationAuditPath);
+            if (!File.Exists(auditSource))
+                throw new FileNotFoundException("Canonical benchmark qualification audit source was not found.", auditSource);
+            File.Copy(auditSource, Path.Combine(outputRoot, "qualification-audit.md"), overwrite: true);
+        }
 
         var chartsPath = Path.GetFullPath(benchmarkChartScriptPath);
         if (!File.Exists(chartsPath))
@@ -115,17 +110,22 @@ internal sealed class BenchmarkDocumentationGenerator
         }
         WriteText(Path.Combine(outputRoot, "benchmark-charts.js"), File.ReadAllText(chartsPath) + Environment.NewLine);
         File.Copy(chartPath, Path.Combine(outputRoot, "chart.umd.js"), overwrite: true);
-        WriteBenchmarkCatalog(outputRoot);
+        var allBenchmarkRunsQualified =
+            (newestPerSuite.Count > 0 || newestProjectEvidence.Count > 0) &&
+            newestPerSuite.Values.All(static evidence => evidence.QualificationState == "Qualified") &&
+            newestProjectEvidence.Values.All(static evidence => evidence.QualificationState == "Qualified");
+        WriteBenchmarkCatalog(outputRoot, allBenchmarkRunsQualified);
         return new BenchmarkDocumentationResult(pageCount, warnings);
     }
 
-    private static void AddCoreRun(string projectDirectory, DateTimeOffset completedAt, JsonElement runManifest,
+    private static void AddCoreRun(string projectDirectory, DateTimeOffset completedAt, JsonElement runManifest, JsonElement runReport,
         IDictionary<string, CoreSuiteEvidence> newestPerSuite, ICollection<string> warnings)
     {
         var reportPath = Path.Combine(projectDirectory, "report.json");
         if (!File.Exists(reportPath)) return;
         using var report = ReadJson(reportPath, warnings);
         if (report is null || !IsCoreReport(report.RootElement) || GetInt64(report.RootElement, "totalBenchmarkCount") <= 0) return;
+        var qualificationState = GetQualificationState(report.RootElement, runReport);
         var machineName = GetNestedString(report.RootElement, "provenance", "machineName") ??
             GetString(report.RootElement, "hostMachineName") ?? GetString(runManifest, "machine") ?? "unknown";
         foreach (var suite in GetArray(report.RootElement, "suites"))
@@ -135,12 +135,12 @@ internal sealed class BenchmarkDocumentationGenerator
             if (GetInt64(suite, "failedBenchmarkCount") > 0 || GetInt64(suite, "missingBenchmarkCount") > 0) continue;
             if (!newestPerSuite.TryGetValue(name, out var current) || completedAt > current.CompletedAtUtc)
             {
-                newestPerSuite[name] = new CoreSuiteEvidence(projectDirectory, report.RootElement.Clone(), completedAt, machineName);
+                newestPerSuite[name] = new CoreSuiteEvidence(projectDirectory, report.RootElement.Clone(), completedAt, machineName, qualificationState);
             }
         }
     }
 
-    private static void AddProjectRun(string projectKey, string projectDirectory, DateTimeOffset completedAt,
+    private static void AddProjectRun(string projectKey, string projectDirectory, DateTimeOffset completedAt, JsonElement runReport,
         IDictionary<string, ProjectEvidence> newestProjectEvidence)
     {
         var markdown = EnumerateReportMarkdown(projectDirectory)
@@ -148,7 +148,8 @@ internal sealed class BenchmarkDocumentationGenerator
         if (!markdown) return;
         if (!newestProjectEvidence.TryGetValue(projectKey, out var current) || completedAt > current.CompletedAtUtc)
         {
-            newestProjectEvidence[projectKey] = new ProjectEvidence(projectDirectory, completedAt);
+            newestProjectEvidence[projectKey] = new ProjectEvidence(
+                projectDirectory, completedAt, GetManagedQualificationState(runReport));
         }
     }
 
@@ -168,22 +169,23 @@ internal sealed class BenchmarkDocumentationGenerator
                 if (string.IsNullOrWhiteSpace(name)) continue;
                 if (!newestPerSuite.TryGetValue(name, out var current) || generatedAt > current.CompletedAtUtc)
                 {
-                    newestPerSuite[name] = new CoreSuiteEvidence(Path.GetDirectoryName(reportPath)!, report.RootElement.Clone(), generatedAt, machineName);
+                    newestPerSuite[name] = new CoreSuiteEvidence(
+                        Path.GetDirectoryName(reportPath)!, report.RootElement.Clone(), generatedAt, machineName, "Historical / unqualified");
                 }
             }
         }
     }
 
     private static int WriteCorePages(IReadOnlyDictionary<string, CoreSuiteEvidence> newestPerSuite, bool multipleMachines,
-        string outputRoot, ICollection<string> warnings)
+        string outputRoot, ICollection<string> warnings, DevOpsConfiguration configuration)
     {
         var count = 0;
-        var suites = newestPerSuite.OrderBy(static pair => SuiteNames.GetValueOrDefault(pair.Key, pair.Key), StringComparer.CurrentCultureIgnoreCase)
+        var suites = newestPerSuite.OrderBy(pair => GetSuiteDisplayName(configuration, pair.Key), StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(static pair => pair.Key, StringComparer.Ordinal);
         foreach (var (suiteName, evidence) in suites)
         {
             var fileName = multipleMachines ? $"{evidence.Machine}-{suiteName}.md" : $"{suiteName}.md";
-            var displayName = SuiteNames.GetValueOrDefault(suiteName, suiteName);
+            var displayName = GetSuiteDisplayName(configuration, suiteName);
             var suiteDirectory = ResolveInside(evidence.ProjectDirectory, suiteName);
             var markdown = EnumerateReportMarkdown(suiteDirectory).FirstOrDefault();
             if (markdown is null)
@@ -207,6 +209,7 @@ internal sealed class BenchmarkDocumentationGenerator
             var runDate = generatedAt.ToString("d MMMM yyyy HH:mm 'UTC'", CultureInfo.CurrentCulture);
             var jsonBaseName = Path.GetFileNameWithoutExtension(fileName);
             var jsonOutName = jsonBaseName + ".json";
+            var encodedJsonOutName = System.Net.WebUtility.HtmlEncode(jsonOutName);
             var jsonFiles = Directory.Exists(suiteDirectory)
                 ? Directory.EnumerateFiles(suiteDirectory, "*-report-full.json", SearchOption.AllDirectories).OrderBy(static path => path, StringComparer.Ordinal).ToArray()
                 : [];
@@ -231,13 +234,20 @@ internal sealed class BenchmarkDocumentationGenerator
             builder.AppendLine();
             builder.AppendLine($"**.NET** {dotnetVersion} &nbsp;&middot;&nbsp; **Commit** ``{commitShort}`` &nbsp;&middot;&nbsp; {runDate} &nbsp;&middot;&nbsp; {docCount.ToString("N0", CultureInfo.CurrentCulture)} docs");
             builder.AppendLine();
+            builder.AppendLine($"**Qualification:** {evidence.QualificationState}");
+            if (evidence.QualificationState != "Qualified")
+            {
+                builder.AppendLine();
+                builder.AppendLine("This retained execution output is historical or unqualified and is not a 4.0 performance comparison.");
+            }
+            builder.AppendLine();
             builder.AppendLine(table);
             builder.AppendLine();
             if (hasCharts)
             {
                 builder.AppendLine("<div class=\"benchmark-chart\">");
                 builder.AppendLine($"<p style=\"margin-bottom:4px\"><label>Time scale: <select id=\"chart-scale-{chartId}\"><option value=\"log2\" selected>Log2</option><option value=\"log10\">Log10</option><option value=\"linear\">Linear</option></select></label> <label>Width: <input type=\"range\" id=\"chart-width-{chartId}\" min=\"400\" max=\"1400\" value=\"960\" step=\"20\" style=\"vertical-align:middle\"></label> <label>Height: <input type=\"range\" id=\"chart-height-{chartId}\" min=\"200\" max=\"900\" value=\"500\" step=\"20\" style=\"vertical-align:middle\"></label></p>");
-                builder.AppendLine($"<div id=\"chart-wrap-{chartId}\" style=\"max-width:960px\"><canvas id=\"chart-bench-{chartId}\" style=\"height:500px\"></canvas></div>");
+                builder.AppendLine($"<div id=\"chart-wrap-{chartId}\" style=\"max-width:960px\"><canvas id=\"chart-bench-{chartId}\" data-json=\"{encodedJsonOutName}\" style=\"height:500px\"></canvas></div>");
                 builder.AppendLine($"<p><a href=\"{jsonOutName}\">Full results as JSON</a></p>");
                 builder.AppendLine("</div>");
                 builder.AppendLine("<script src=\"benchmark-charts.js\"></script>");
@@ -247,6 +257,15 @@ internal sealed class BenchmarkDocumentationGenerator
             count++;
         }
         return count;
+    }
+
+    private static string GetSuiteDisplayName(DevOpsConfiguration configuration, string suiteId)
+    {
+        if (configuration.BenchmarkSuites.TryGetValue(suiteId, out var suite))
+            return suite.DisplayName;
+        if (configuration.HistoricalBenchmarkSuiteLabels.TryGetValue(suiteId, out var historicalLabel))
+            return historicalLabel;
+        return suiteId;
     }
 
     private static int WriteOtherProjectPages(string projectKey, string title,
@@ -259,6 +278,13 @@ internal sealed class BenchmarkDocumentationGenerator
         builder.AppendLine("---");
         builder.AppendLine();
         builder.AppendLine($"# {title}");
+        builder.AppendLine();
+        builder.AppendLine($"**Qualification:** {evidence.QualificationState}");
+        if (evidence.QualificationState != "Qualified")
+        {
+            builder.AppendLine();
+            builder.AppendLine("This retained execution output is unqualified and is not a 4.0 performance comparison.");
+        }
         builder.AppendLine();
         foreach (var markdown in EnumerateReportMarkdown(evidence.ProjectDirectory))
         {
@@ -274,23 +300,35 @@ internal sealed class BenchmarkDocumentationGenerator
         return 1;
     }
 
-    private static void WriteBenchmarkCatalog(string outputRoot)
+    private static void WriteBenchmarkCatalog(string outputRoot, bool allBenchmarkRunsQualified)
     {
         var pages = Directory.EnumerateFiles(outputRoot, "*.md", SearchOption.TopDirectoryOnly)
             .Where(path => Path.GetFileName(path) is not ("overview.md" or "toc.yml"))
             .OrderBy(static path => Path.GetFileName(path), StringComparer.OrdinalIgnoreCase)
             .ThenBy(static path => Path.GetFileName(path), StringComparer.Ordinal)
             .ToArray();
+        var reportPages = pages
+            .Where(static path => !string.Equals(Path.GetFileName(path), "qualification-audit.md", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        var qualificationAudit = pages.FirstOrDefault(static path =>
+            string.Equals(Path.GetFileName(path), "qualification-audit.md", StringComparison.OrdinalIgnoreCase));
         var markdown = new List<string> { "# Benchmarks", string.Empty };
-        if (pages.Length == 0)
+        if (reportPages.Length == 0)
         {
-            markdown.Add("No benchmark reports are available in the retained run artefacts for this build.");
+            markdown.Add("No qualified benchmark results are published for this build. See [Performance](../performance.md) for comparison limits and the [Benchmarking guide](../tips/03-benchmarking.md) for methodology and reproducibility.");
+            if (qualificationAudit is not null)
+            {
+                markdown.Add(string.Empty);
+                markdown.Add($"The [4.0 benchmark qualification audit]({Uri.EscapeDataString(Path.GetFileName(qualificationAudit))}) records discovered cases and current exclusions.");
+            }
         }
         else
         {
-            markdown.Add("Generated reports from the latest successful retained benchmark runs.");
+            markdown.Add(allBenchmarkRunsQualified
+                ? "Qualified benchmark reports from retained runs."
+                : "Retained execution reports include historical or unqualified evidence; they do not establish 4.0 performance comparisons.");
             markdown.Add(string.Empty);
-            foreach (var page in pages)
+            foreach (var page in reportPages)
             {
                 var title = ReadPageTitle(page) ?? Path.GetFileNameWithoutExtension(page);
                 markdown.Add($"- [{title}]({Uri.EscapeDataString(Path.GetFileName(page))})");
@@ -354,6 +392,24 @@ internal sealed class BenchmarkDocumentationGenerator
         => report.ValueKind == JsonValueKind.Object && report.TryGetProperty("totalBenchmarkCount", out _) &&
            report.TryGetProperty("suites", out _) && report.TryGetProperty("generatedAtUtc", out _);
 
+    private static string GetQualificationState(JsonElement coreReport, JsonElement runReport)
+    {
+        if (GetInt64(coreReport, "schemaVersion") != 5)
+            return "Historical / unqualified";
+        if (TryGetDateTimeOffset(coreReport, "generatedAtUtc", out var generatedAt) &&
+            generatedAt is { Year: 2026, Month: 8 })
+            return "Historical / unqualified";
+        return GetManagedQualificationState(runReport);
+    }
+
+    private static string GetManagedQualificationState(JsonElement runReport)
+        => GetNestedString(runReport, "qualification", "identityStatus") == "Validated" &&
+           GetNestedString(runReport, "qualification", "state") == "Qualified" &&
+           GetNestedBoolean(runReport, "qualification", "eligibleForRatio") &&
+           GetBoolean(runReport, "comparable")
+            ? "Qualified"
+            : "Unqualified";
+
     private static long GetInt64(JsonElement value, string property)
         => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(property, out var element) && element.TryGetInt64(out var number) ? number : 0;
 
@@ -365,6 +421,13 @@ internal sealed class BenchmarkDocumentationGenerator
 
     private static string? GetNestedString(JsonElement value, string parent, string property)
         => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(parent, out var node) ? GetString(node, property) : null;
+
+    private static bool GetBoolean(JsonElement value, string property)
+        => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(property, out var element) &&
+           (element.ValueKind is JsonValueKind.True or JsonValueKind.False) && element.GetBoolean();
+
+    private static bool GetNestedBoolean(JsonElement value, string parent, string property)
+        => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(parent, out var node) && GetBoolean(node, property);
 
     private static IEnumerable<JsonElement> GetArray(JsonElement value, string property)
         => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(property, out var element) && element.ValueKind == JsonValueKind.Array
@@ -445,7 +508,7 @@ internal sealed class BenchmarkDocumentationGenerator
     private static void WriteLines(string path, IEnumerable<string> lines)
         => File.WriteAllLines(path, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
-    private sealed record CoreSuiteEvidence(string ProjectDirectory, JsonElement Report, DateTimeOffset CompletedAtUtc, string Machine);
+    private sealed record CoreSuiteEvidence(string ProjectDirectory, JsonElement Report, DateTimeOffset CompletedAtUtc, string Machine, string QualificationState);
 
-    private sealed record ProjectEvidence(string ProjectDirectory, DateTimeOffset CompletedAtUtc);
+    private sealed record ProjectEvidence(string ProjectDirectory, DateTimeOffset CompletedAtUtc, string QualificationState);
 }

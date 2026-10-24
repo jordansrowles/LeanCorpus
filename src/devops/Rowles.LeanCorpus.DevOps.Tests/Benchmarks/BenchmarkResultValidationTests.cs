@@ -54,18 +54,48 @@ public sealed class BenchmarkResultValidationTests
     }
 
     [Fact]
-    public void AcceptsCompleteVersionFourCoreReportAndNonEmptyBenchmarkDotNetOutput()
+    public void AcceptsCompleteVersionFiveCoreReportAndNonEmptyBenchmarkDotNetOutput()
     {
         using var directory = TemporaryDirectory.Create();
         var results = Path.Combine(directory.Path, "_runner", "results");
         Directory.CreateDirectory(results);
         File.WriteAllText(Path.Combine(results, "report.md"), "benchmark results");
         File.WriteAllText(Path.Combine(directory.Path, "report.json"),
-            "{\"schemaVersion\":4,\"totalBenchmarkCount\":1,\"suites\":[{\"failedBenchmarkCount\":0,\"missingBenchmarkCount\":0}]}");
+            "{\"schemaVersion\":5,\"totalBenchmarkCount\":1,\"suites\":[{\"failedBenchmarkCount\":0,\"intermediateBenchmarkCount\":0,\"missingBenchmarkCount\":0}]}");
 
         var failure = BenchmarkCommandService.ValidateResults("core", directory.Path);
 
         Assert.Null(failure);
+    }
+
+    [Fact]
+    public void RejectsHistoricalVersionFourCoreReport()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var results = Path.Combine(directory.Path, "_runner", "results");
+        Directory.CreateDirectory(results);
+        File.WriteAllText(Path.Combine(results, "report.md"), "benchmark results");
+        File.WriteAllText(Path.Combine(directory.Path, "report.json"),
+            "{\"schemaVersion\":4,\"totalBenchmarkCount\":1,\"suites\":[{\"failedBenchmarkCount\":0,\"intermediateBenchmarkCount\":0,\"missingBenchmarkCount\":0}]}");
+
+        var failure = BenchmarkCommandService.ValidateResults("core", directory.Path);
+
+        Assert.Contains("unsupported schema", failure, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RejectsIntermediateCoreRowsEvenWhenNoRowsFailedOrWereMissing()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var results = Path.Combine(directory.Path, "_runner", "results");
+        Directory.CreateDirectory(results);
+        File.WriteAllText(Path.Combine(results, "report.md"), "benchmark results");
+        File.WriteAllText(Path.Combine(directory.Path, "report.json"),
+            "{\"schemaVersion\":5,\"totalBenchmarkCount\":1,\"suites\":[{\"failedBenchmarkCount\":0,\"intermediateBenchmarkCount\":1,\"missingBenchmarkCount\":0}]}");
+
+        var failure = BenchmarkCommandService.ValidateResults("core", directory.Path);
+
+        Assert.Contains("intermediate", failure, StringComparison.Ordinal);
     }
 
     private sealed class TemporaryDirectory : IDisposable

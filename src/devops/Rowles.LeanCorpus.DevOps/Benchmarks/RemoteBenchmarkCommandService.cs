@@ -88,7 +88,7 @@ internal sealed class RemoteBenchmarkCommandService(
             RemotePath = remotePath,
             Branch = branch,
             SessionName = sessionName,
-            State = "starting",
+            State = RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Starting),
             UpdatedUtc = DateTimeOffset.UtcNow
         };
         await WriteRecordAsync(statePath, record, CancellationToken.None).ConfigureAwait(false);
@@ -122,13 +122,14 @@ internal sealed class RemoteBenchmarkCommandService(
                 childExitCodes.Add(childExitCode);
 
             var response = process.Outcome == OutcomeKind.Success ? ReadRemoteResponse(stdout) : null;
-            if (process.Outcome == OutcomeKind.Success && response is not null && response.RunId == manifest.RunId && response.State is "starting" or "running" or "succeeded" or "failed" or "cancelled")
+            if (process.Outcome == OutcomeKind.Success && response is not null && response.RunId == manifest.RunId &&
+                RemoteBenchmarkStateCatalog.IsStartResponse(response.State))
             {
                 record = record with
                 {
                     State = response.State,
                     RemoteSourceCommit = response.SourceCommit,
-                    RemoteTerminationConfirmed = IsTerminal(response.State),
+                    RemoteTerminationConfirmed = RemoteBenchmarkStateCatalog.IsTerminal(response.State),
                     UpdatedUtc = DateTimeOffset.UtcNow
                 };
                 await WriteRecordAsync(statePath, record, CancellationToken.None).ConfigureAwait(false);
@@ -144,7 +145,7 @@ internal sealed class RemoteBenchmarkCommandService(
             {
                 // SSH can disconnect after tmux accepted the command. Without a
                 // valid response the remote worker's lifetime is unknown.
-                State = "unknown",
+                State = RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Unknown),
                 RemoteTerminationConfirmed = false,
                 Failure = process.Failure ?? string.Join(Environment.NewLine, process.StandardErrorTail),
                 UpdatedUtc = DateTimeOffset.UtcNow
@@ -161,7 +162,7 @@ internal sealed class RemoteBenchmarkCommandService(
         }
         catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
         {
-            record = record with { State = "unknown", RemoteTerminationConfirmed = false, Failure = exception.Message, UpdatedUtc = DateTimeOffset.UtcNow };
+            record = record with { State = RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Unknown), RemoteTerminationConfirmed = false, Failure = exception.Message, UpdatedUtc = DateTimeOffset.UtcNow };
             await WriteRecordAsync(statePath, record, CancellationToken.None).ConfigureAwait(false);
             await runStore.FinishAsync(manifest, RunState.Cancelled, artifacts: artifacts, failure:
                 "Local SSH orchestration was cancelled; remote state is unknown and the task may still be running.",
@@ -172,7 +173,7 @@ internal sealed class RemoteBenchmarkCommandService(
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or System.ComponentModel.Win32Exception)
         {
-            record = record with { State = "unknown", RemoteTerminationConfirmed = false, Failure = exception.Message, UpdatedUtc = DateTimeOffset.UtcNow };
+            record = record with { State = RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Unknown), RemoteTerminationConfirmed = false, Failure = exception.Message, UpdatedUtc = DateTimeOffset.UtcNow };
             await WriteRecordAsync(statePath, record, CancellationToken.None).ConfigureAwait(false);
             var terminal = await runStore.FinishAsync(manifest, RunState.Failed, artifacts: artifacts,
                 failure: exception.Message, cancellationToken: CancellationToken.None).ConfigureAwait(false);
@@ -239,13 +240,13 @@ internal sealed class RemoteBenchmarkCommandService(
             var response = process.Outcome == OutcomeKind.Success ? ReadRemoteResponse(stdout) : null;
             if (response is not null && response.RunId == targetRunId)
             {
-                var terminal = IsTerminal(response.State);
+                var terminal = RemoteBenchmarkStateCatalog.IsTerminal(response.State);
                 target = target with
                 {
                     State = response.State,
                     RemoteSourceCommit = response.SourceCommit ?? target.RemoteSourceCommit,
                     RemoteTerminationConfirmed = terminal,
-                    CancellationRequested = (action == "cancel" && response.State == "cancel-requested") || target.CancellationRequested,
+                    CancellationRequested = (action == "cancel" && response.State == RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.CancelRequested)) || target.CancellationRequested,
                     UpdatedUtc = DateTimeOffset.UtcNow,
                     Failure = null
                 };
@@ -257,7 +258,7 @@ internal sealed class RemoteBenchmarkCommandService(
                 var message = action == "cancel"
                     ? target.RemoteTerminationConfirmed
                         ? $"Remote benchmark {targetRunId:D} is {target.State}; termination is confirmed."
-                        : target.State == "cancel-requested"
+                        : target.State == RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.CancelRequested)
                             ? $"Cancellation was requested for remote benchmark {targetRunId:D}; remote termination is not confirmed."
                             : $"Remote benchmark {targetRunId:D} is {target.State}; no terminal state is confirmed."
                     : $"Remote benchmark {targetRunId:D} is {target.State}.";
@@ -268,9 +269,9 @@ internal sealed class RemoteBenchmarkCommandService(
 
         target = target with
         {
-            State = "unknown",
+            State = RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Unknown),
             RemoteTerminationConfirmed = false,
-            CancellationRequested = (action == "cancel" && target.State == "cancel-requested") || target.CancellationRequested,
+            CancellationRequested = (action == "cancel" && target.State == RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.CancelRequested)) || target.CancellationRequested,
             UpdatedUtc = DateTimeOffset.UtcNow,
             Failure = process.Failure ?? string.Join(Environment.NewLine, process.StandardErrorTail)
         };
@@ -333,7 +334,7 @@ internal sealed class RemoteBenchmarkCommandService(
               if [[ -n "${child_pid:-}" ]]; then kill -INT "$child_pid" 2>/dev/null || true; fi
             }
             trap on_signal INT TERM
-            write_state running null
+            write_state {{RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Running)}} null
             cd "$repo"
             benchmark_arguments=( {{quotedArguments}} )
             "$repo/devops" benchmark "${benchmark_arguments[@]}" > "$state_dir/benchmark.stdout.log" 2> "$state_dir/benchmark.stderr.log" &
@@ -341,11 +342,11 @@ internal sealed class RemoteBenchmarkCommandService(
             wait "$child_pid"
             exit_code=$?
             if [[ "$cancel_requested" == true || "$exit_code" -eq 130 || "$exit_code" -eq 143 ]]; then
-              write_state cancelled "$exit_code"
+              write_state {{RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Cancelled)}} "$exit_code"
             elif [[ "$exit_code" -eq 0 ]]; then
-              write_state succeeded 0
+              write_state {{RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Succeeded)}} 0
             else
-              write_state failed "$exit_code"
+              write_state {{RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Failed)}} "$exit_code"
             fi
             exit 0
             """;
@@ -385,7 +386,7 @@ internal sealed class RemoteBenchmarkCommandService(
             sed -i 's/^            //' "$worker_tmp"
             chmod 700 "$worker_tmp"
             mv -f "$worker_tmp" "$worker"
-            printf '{"schemaVersion":1,"runId":"%s","state":"starting","session":"%s","sourceCommit":"%s","exitCode":null,"cancelRequested":false}\n' "$run_id" "$session" "$source_commit" > "$state_file.tmp"
+            printf '{"schemaVersion":1,"runId":"%s","state":"{{RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Starting)}}","session":"%s","sourceCommit":"%s","exitCode":null,"cancelRequested":false}\n' "$run_id" "$session" "$source_commit" > "$state_file.tmp"
             mv -f "$state_file.tmp" "$state_file"
             tmux new-session -d -s "$session" bash "$worker" "$source_commit"
             response="$(cat "$state_file")"
@@ -404,9 +405,9 @@ internal sealed class RemoteBenchmarkCommandService(
             if [[ -r "$state_file" ]]; then
               response="$(cat "$state_file")"
             elif tmux has-session -t "$session" 2>/dev/null; then
-              response="{\"schemaVersion\":1,\"runId\":\"$run_id\",\"state\":\"running\",\"session\":\"$session\",\"sourceCommit\":null}"
+              response="{\"schemaVersion\":1,\"runId\":\"$run_id\",\"state\":\"{{RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Running)}}\",\"session\":\"$session\",\"sourceCommit\":null}"
             else
-              response="{\"schemaVersion\":1,\"runId\":\"$run_id\",\"state\":\"unknown\",\"session\":\"$session\",\"sourceCommit\":null}"
+              response="{\"schemaVersion\":1,\"runId\":\"$run_id\",\"state\":\"{{RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Unknown)}}\",\"session\":\"$session\",\"sourceCommit\":null}"
             fi
             printf 'LC_REMOTE_STATE:%s\n' "$response"
             """;
@@ -420,13 +421,13 @@ internal sealed class RemoteBenchmarkCommandService(
             state_file={{QuotePosix(remoteStatePath)}}
             session={{QuotePosix(record.SessionName)}}
             run_id={{QuotePosix(record.RunId.ToString("D"))}}
-            if [[ -r "$state_file" ]] && grep -Eq '"state":"(succeeded|failed|cancelled|timed-out)"' "$state_file"; then
+            if [[ -r "$state_file" ]] && grep -Eq '"state":"({{RemoteBenchmarkStateCatalog.TerminalPattern}})"' "$state_file"; then
               response="$(cat "$state_file")"
             elif tmux has-session -t "$session" 2>/dev/null; then
               tmux send-keys -t "$session" C-c
-              response="{\"schemaVersion\":1,\"runId\":\"$run_id\",\"state\":\"cancel-requested\",\"session\":\"$session\",\"sourceCommit\":null}"
+              response="{\"schemaVersion\":1,\"runId\":\"$run_id\",\"state\":\"{{RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.CancelRequested)}}\",\"session\":\"$session\",\"sourceCommit\":null}"
             else
-              response="{\"schemaVersion\":1,\"runId\":\"$run_id\",\"state\":\"unknown\",\"session\":\"$session\",\"sourceCommit\":null}"
+              response="{\"schemaVersion\":1,\"runId\":\"$run_id\",\"state\":\"{{RemoteBenchmarkStateCatalog.GetName(RemoteBenchmarkState.Unknown)}}\",\"session\":\"$session\",\"sourceCommit\":null}"
             fi
             printf 'LC_REMOTE_STATE:%s\n' "$response"
             """;
@@ -448,7 +449,7 @@ internal sealed class RemoteBenchmarkCommandService(
             {
                 var response = JsonSerializer.Deserialize<RemoteStateResponse>(line[prefix.Length..], JsonOptions);
                 if (response is null || response.SchemaVersion != SupportedSchemaVersion || response.RunId == Guid.Empty ||
-                    response.State is not ("starting" or "running" or "cancel-requested" or "succeeded" or "failed" or "cancelled" or "timed-out" or "unknown"))
+                    !RemoteBenchmarkStateCatalog.IsKnown(response.State))
                     return null;
                 return response;
             }
@@ -459,8 +460,6 @@ internal sealed class RemoteBenchmarkCommandService(
         }
         return null;
     }
-
-    private static bool IsTerminal(string state) => state is "succeeded" or "failed" or "cancelled" or "timed-out";
 
     private static RunState ToRunState(OutcomeKind outcome) => outcome switch
     {

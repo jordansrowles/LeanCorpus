@@ -32,12 +32,6 @@ internal sealed record BenchmarkCommandResult(CommandResult CommandResult, Guid?
 
 internal static class BenchmarkCommandPlanner
 {
-    private static readonly string[] ProjectKeys = ["core", "text", "compression"];
-    private static readonly HashSet<string> StandaloneSuites = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "codec-frame", "codec-frame-read", "codec-migration", "compound-file", "windows-filesystem", "windows-storage"
-    };
-
     public static BenchmarkExecutionPlan Create(
         BenchmarkCommandOptions options,
         DevOpsConfiguration configuration,
@@ -48,37 +42,48 @@ internal static class BenchmarkCommandPlanner
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
 
-        var suite = options.Suite.Trim().ToLowerInvariant();
+        var requestedSuite = options.Suite.Trim().ToLowerInvariant();
+        var suite = ResolveSuiteId(configuration, requestedSuite, out var suiteDescriptor);
+        var dataset = string.IsNullOrWhiteSpace(options.Dataset)
+            ? configuration.DefaultBenchmarkDataset
+            : options.Dataset.Trim().ToLowerInvariant();
+        var resolvedOptions = options with { Dataset = dataset };
         if (suite == "affected")
         {
             if (changedPaths is null)
                 throw new InvalidOperationException("Affected benchmark selection requires a working-tree change inventory.");
-            return CreateAffected(options, configuration, repositoryRoot, changedPaths);
+            return CreateAffected(resolvedOptions, configuration, repositoryRoot, changedPaths);
         }
 
         var strategyName = options.Strategy.Trim().ToLowerInvariant();
-        var dataset = options.Dataset.Trim().ToLowerInvariant();
         if (suite == "remote")
             throw new InvalidOperationException($"The benchmark '{suite}' workflow requires the managed benchmark command route.");
-        if (suite is not ("all" or "core" or "text") && !configuration.BenchmarkSuites.ContainsKey(suite))
+        if (suite != "all" && !configuration.BenchmarkProjects.ContainsKey(suite) && suiteDescriptor is null)
             throw new InvalidOperationException($"Unknown benchmark suite '{suite}'. Use --list to see available suites.");
         if (!configuration.BenchmarkStrategies.TryGetValue(strategyName, out var strategy))
             throw new InvalidOperationException($"Unknown benchmark strategy '{strategyName}'. Use --list to see available strategies.");
-        if (options.Framework is not ("net10.0" or "net11.0"))
-            throw new InvalidOperationException("Benchmark framework must be net10.0 or net11.0.");
         if (options.DocumentCount < 0)
             throw new InvalidOperationException("Document count cannot be negative.");
         if (options.BookCount < 1)
             throw new InvalidOperationException("Gutenberg book count must be a positive integer.");
-        if (dataset is not ("synthetic" or "wikipedia"))
-            throw new InvalidOperationException("Benchmark dataset must be synthetic or wikipedia.");
+        if (dataset != configuration.DefaultBenchmarkDataset && !configuration.BenchmarkDatasets.ContainsKey(dataset))
+        {
+            var supportedDatasets = new[] { configuration.DefaultBenchmarkDataset }
+                .Concat(configuration.BenchmarkDatasets.Keys)
+                .OrderBy(static value => value, StringComparer.Ordinal);
+            throw new InvalidOperationException($"Unknown benchmark dataset '{dataset}'. Choose {string.Join(" or ", supportedDatasets)}.");
+        }
         if (options.SourceManifest is not null && string.IsNullOrWhiteSpace(options.SourceManifest))
             throw new InvalidOperationException("Source manifest must be a non-empty path when specified.");
 
+        var selectedProjects = ResolveProjects(configuration, suite, suiteDescriptor);
         var areaNames = SplitNames(options.Area);
         var groupNames = SplitNames(options.Group);
         if ((areaNames.Length != 0 || groupNames.Length != 0) && suite is not ("core" or "text"))
             throw new InvalidOperationException("Area and group selection require the core or text benchmark suite.");
+        if ((areaNames.Length != 0 || groupNames.Length != 0) && selectedProjects.Any(project =>
+                !configuration.BenchmarkProjects[project].Capabilities.Contains("Groups", StringComparer.Ordinal)))
+            throw new InvalidOperationException("Area and group selection require a benchmark project with group support.");
         if ((areaNames.Length != 0 || groupNames.Length != 0) && options.PrepareData)
             throw new InvalidOperationException("PrepareData cannot be combined with area or group selection.");
         if (dataset == "wikipedia")
@@ -97,18 +102,20 @@ internal static class BenchmarkCommandPlanner
             throw new InvalidOperationException("ReferencePath requires the Wikipedia dataset.");
         }
 
-        if (options.PrepareData && !NeedsGutenbergData(suite, options.Arguments))
+        var needsGutenbergData = NeedsGutenbergData(configuration, suiteDescriptor, selectedProjects, options.Arguments);
+        if (options.PrepareData && !needsGutenbergData)
             throw new InvalidOperationException($"PrepareData is not required or supported for benchmark suite '{suite}'.");
 
-        var selectedProjects = suite switch
-        {
-            "all" => ProjectKeys,
-            "text" => ["text"],
-            "compression" => ["compression"],
-            _ => ["core"]
-        };
         if ((areaNames.Length != 0 || groupNames.Length != 0) && ContainsFilter(options.Arguments))
             throw new InvalidOperationException("A custom BenchmarkDotNet filter cannot be combined with area or group selection.");
+        if (suiteDescriptor is { BenchmarkClasses.IsDefaultOrEmpty: false } && ContainsFilter(options.Arguments))
+            throw new InvalidOperationException("A custom BenchmarkDotNet filter cannot be combined with a configured benchmark class selection.");
+
+        foreach (var projectKey in selectedProjects)
+        {
+            if (!configuration.BenchmarkProjects[projectKey].Frameworks.Contains(options.Framework, StringComparer.Ordinal))
+                throw new InvalidOperationException($"Benchmark project '{projectKey}' does not support framework '{options.Framework}'.");
+        }
 
         var documentCount = options.DocumentCount > 0 ? options.DocumentCount : strategy.DocCount;
         if (options.Controlled)
@@ -118,16 +125,11 @@ internal static class BenchmarkCommandPlanner
         }
         if (dataset == "wikipedia" && documentCount > 20_000)
             throw new InvalidOperationException($"The Wikipedia reference contains 20,000 records; requested document count {documentCount} exceeds that limit.");
-        var corpusOnly = options.CorpusOnly || (options.Controlled && !StandaloneSuites.Contains(suite));
+        var corpusOnly = options.CorpusOnly || suiteDescriptor?.CorpusOnly == true ||
+            (options.Controlled && (suiteDescriptor?.ControlledCorpusOnly ?? true));
         var referencePath = dataset == "wikipedia"
             ? ResolvePath(repositoryRoot, options.ReferencePath ?? "artifacts/dataforge/reference/leancorpus-wikipedia-en-v1")
             : null;
-        var projectPathMap = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["core"] = "src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj",
-            ["text"] = "src/devops/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj",
-            ["compression"] = "src/devops/Rowles.LeanCorpus.Benchmarks.Compression/Rowles.LeanCorpus.Benchmarks.Compression.csproj"
-        };
         var invocations = new List<BenchmarkInvocation>();
 
         foreach (var project in selectedProjects)
@@ -141,13 +143,21 @@ internal static class BenchmarkCommandPlanner
                     throw new InvalidOperationException($"No benchmark groups matched suite '{suite}', Area='{options.Area}', Group='{options.Group}'.");
                 foreach (var benchmark in benchmarks)
                 {
-                    invocations.Add(new BenchmarkInvocation(project, Path.Combine(repositoryRoot, projectPathMap[project]),
+                    invocations.Add(new BenchmarkInvocation(project, GetProjectPath(configuration, project, repositoryRoot),
+                        BuildArguments(project, suite, strategy.Job, options.Arguments, documentCount, corpusOnly, options.GcDump, dataset, benchmark), benchmark));
+                }
+            }
+            else if (suiteDescriptor is { BenchmarkClasses.IsDefaultOrEmpty: false } && suiteDescriptor.Project.Equals(project, StringComparison.Ordinal))
+            {
+                foreach (var benchmark in suiteDescriptor.BenchmarkClasses)
+                {
+                    invocations.Add(new BenchmarkInvocation(project, GetProjectPath(configuration, project, repositoryRoot),
                         BuildArguments(project, suite, strategy.Job, options.Arguments, documentCount, corpusOnly, options.GcDump, dataset, benchmark), benchmark));
                 }
             }
             else
             {
-                invocations.Add(new BenchmarkInvocation(project, Path.Combine(repositoryRoot, projectPathMap[project]),
+                invocations.Add(new BenchmarkInvocation(project, GetProjectPath(configuration, project, repositoryRoot),
                     BuildArguments(project, suite, strategy.Job, options.Arguments, documentCount, corpusOnly, options.GcDump, dataset, null)));
             }
         }
@@ -162,8 +172,8 @@ internal static class BenchmarkCommandPlanner
         string repositoryRoot,
         IReadOnlyList<string> changedPaths)
     {
-        if (!options.Dataset.Equals("synthetic", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Affected benchmark selection supports only the synthetic dataset.");
+        if (!options.Dataset.Equals(configuration.DefaultBenchmarkDataset, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Affected benchmark selection supports only the default dataset '{configuration.DefaultBenchmarkDataset}'.");
         if (options.PrepareData)
             throw new InvalidOperationException("Affected benchmark selection cannot prepare benchmark data.");
         if (ContainsFilter(options.Arguments))
@@ -172,15 +182,10 @@ internal static class BenchmarkCommandPlanner
         var baseOptions = options with { Suite = "all", Area = null, Group = null };
         var basePlan = Create(baseOptions, configuration, repositoryRoot);
         var selection = AffectedBenchmarkPlanner.Create(configuration, changedPaths, options.Area, options.Group);
-        var projectPathMap = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["core"] = "src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj",
-            ["text"] = "src/devops/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj"
-        };
         var invocations = selection.BenchmarksByProject
             .SelectMany(pair => pair.Value.Select(benchmark => new BenchmarkInvocation(
                 pair.Key,
-                Path.Combine(repositoryRoot, projectPathMap[pair.Key]),
+                GetProjectPath(configuration, pair.Key, repositoryRoot),
                 BuildArguments(pair.Key, pair.Key, configuration.BenchmarkStrategies[basePlan.Strategy].Job,
                     options.Arguments, basePlan.DocumentCount, basePlan.CorpusOnly, options.GcDump,
                     basePlan.Dataset, benchmark), benchmark)))
@@ -269,9 +274,61 @@ internal static class BenchmarkCommandPlanner
             argument.StartsWith("--filter=", StringComparison.OrdinalIgnoreCase) ||
             argument.StartsWith("-f=", StringComparison.OrdinalIgnoreCase));
 
-    private static bool NeedsGutenbergData(string suite, IReadOnlyList<string> arguments)
-        => suite is "gutenberg-index" or "gutenberg-search" ||
-            (suite == "text" && arguments.Any(argument => argument.Contains("GutenbergAnalysisBenchmarks", StringComparison.OrdinalIgnoreCase)));
+    private static string ResolveSuiteId(DevOpsConfiguration configuration, string requestedSuite,
+        out BenchmarkSuiteConfiguration? descriptor)
+    {
+        if (configuration.BenchmarkSuites.TryGetValue(requestedSuite, out descriptor))
+            return requestedSuite;
+
+        foreach (var (suiteId, candidate) in configuration.BenchmarkSuites.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        {
+            if (!candidate.Aliases.Contains(requestedSuite, StringComparer.OrdinalIgnoreCase))
+                continue;
+            descriptor = candidate;
+            return suiteId;
+        }
+
+        descriptor = null;
+        return requestedSuite;
+    }
+
+    private static string[] ResolveProjects(DevOpsConfiguration configuration, string suite,
+        BenchmarkSuiteConfiguration? suiteDescriptor)
+    {
+        if (suite == "all")
+        {
+            return configuration.BenchmarkProjects
+                .Where(static pair => pair.Value.IncludeInAll)
+                .Select(static pair => pair.Key)
+                .OrderBy(static key => key, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        if (suite == "all-with-explicit")
+        {
+            return configuration.BenchmarkProjects
+                .Where(static pair => pair.Value.IncludeWithExplicit)
+                .Select(static pair => pair.Key)
+                .OrderBy(static key => key, StringComparer.Ordinal)
+                .ToArray();
+        }
+
+        if (configuration.BenchmarkProjects.ContainsKey(suite))
+            return [suite];
+
+        if (suiteDescriptor is null || !configuration.BenchmarkProjects.ContainsKey(suiteDescriptor.Project))
+            throw new InvalidOperationException($"Benchmark suite '{suite}' refers to an unavailable project.");
+        return [suiteDescriptor.Project];
+    }
+
+    private static bool NeedsGutenbergData(DevOpsConfiguration configuration, BenchmarkSuiteConfiguration? suite,
+        IReadOnlyList<string> selectedProjects, IReadOnlyList<string> arguments)
+        => suite?.RequiresGutenbergData == true ||
+            (selectedProjects.Any(project => configuration.BenchmarkProjects[project].Capabilities.Contains("Gutenberg", StringComparer.Ordinal)) &&
+                arguments.Any(argument => argument.Contains("GutenbergAnalysisBenchmarks", StringComparison.OrdinalIgnoreCase)));
+
+    private static string GetProjectPath(DevOpsConfiguration configuration, string project, string repositoryRoot)
+        => Path.Combine(repositoryRoot, configuration.BenchmarkProjects[project].Project.Replace('/', Path.DirectorySeparatorChar));
 
     private static string ResolvePath(string repositoryRoot, string path)
         => Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(repositoryRoot, path));
@@ -298,13 +355,20 @@ internal sealed class BenchmarkCommandService(
         var configuration = new ConfigurationLoader(artifactPaths.RepositoryRoot).Load();
         if (request.Options.List)
         {
-            var suites = new[] { "all", "core", "text", "compression" }
+            var suites = configuration.BenchmarkProjects.Keys
                 .Concat(configuration.BenchmarkSuites.Keys)
+                .Append("all")
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(static value => value, StringComparer.OrdinalIgnoreCase);
             progress?.Invoke("Available benchmark suites: " + string.Join(", ", suites));
             progress?.Invoke("Available strategies: " + string.Join(", ", configuration.BenchmarkStrategies.Keys.OrderBy(static value => value, StringComparer.Ordinal)));
-            progress?.Invoke("Datasets: synthetic, wikipedia");
+            progress?.Invoke("Datasets: " + string.Join(", ", new[] { configuration.DefaultBenchmarkDataset }
+                .Concat(configuration.BenchmarkDatasets.Keys)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(static value => value, StringComparer.Ordinal)));
+            progress?.Invoke("Benchmark projects: " + string.Join(", ", configuration.BenchmarkProjects
+                .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+                .Select(static pair => $"{pair.Key} ({pair.Value.DisplayName})")));
             return new BenchmarkCommandResult(new CommandResult(OutcomeKind.Success, "Benchmark options listed."), null, null);
         }
 
@@ -336,7 +400,10 @@ internal sealed class BenchmarkCommandService(
         if (request.Options.Dry)
         {
             foreach (var invocation in plan.Invocations)
+            {
+                progress?.Invoke("dotnet " + string.Join(" ", QuoteArguments(BuildDotNetBuildArguments(invocation, plan))));
                 progress?.Invoke("dotnet " + string.Join(" ", QuoteArguments(BuildDotNetArguments(invocation, plan))));
+            }
             return new BenchmarkCommandResult(new CommandResult(OutcomeKind.Success, "Benchmark dry run completed; no benchmark targets were executed."), null, null);
         }
 
@@ -345,6 +412,7 @@ internal sealed class BenchmarkCommandService(
         if (request.Options.GcDump && !await IsDotNetToolAvailableAsync(request.Checkout, cancellationToken).ConfigureAwait(false))
             return new BenchmarkCommandResult(new CommandResult(OutcomeKind.ValidationFailure, "The dotnet-gcdump tool is required for --gc-dump."), null, null);
 
+        var hostIdentity = BenchmarkHostIdentity.Capture();
         var runInputs = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["suite"] = plan.Suite,
@@ -363,6 +431,13 @@ internal sealed class BenchmarkCommandService(
             ["gcDump"] = request.Options.GcDump.ToString().ToLowerInvariant(),
             ["benchmarkLock"] = "host-exclusive"
         };
+        foreach (var (name, value) in hostIdentity.ToRunInputs())
+            runInputs[name] = value;
+        runInputs["identityStatus"] = "Pending";
+        runInputs["qualificationState"] = "Unqualified";
+        runInputs["eligibleForRatio"] = "false";
+        runInputs["comparable"] = "false";
+        runInputs["qualificationReasonCodes"] = JsonSerializer.Serialize(new[] { "IdentityValidationPending" });
         if (plan.Suite == "affected")
         {
             runInputs["affectedPaths"] = JsonSerializer.Serialize(plan.AffectedPaths);
@@ -418,11 +493,49 @@ internal sealed class BenchmarkCommandService(
                 runToken.ThrowIfCancellationRequested();
                 var projectDirectory = Path.Combine(runDirectory, invocation.ProjectKey, index.ToString("D3", System.Globalization.CultureInfo.InvariantCulture));
                 Directory.CreateDirectory(projectDirectory);
+                var buildStdout = Path.Combine(projectDirectory, "build.stdout.log");
+                var buildStderr = Path.Combine(projectDirectory, "build.stderr.log");
                 var stdout = Path.Combine(projectDirectory, "process.stdout.log");
                 var stderr = Path.Combine(projectDirectory, "process.stderr.log");
                 var invocationName = invocation.BenchmarkClass is null
                     ? invocation.ProjectKey
                     : $"{invocation.ProjectKey}/{invocation.BenchmarkClass}";
+                progress?.Invoke($"Building benchmark target {invocationName} ({index + 1}/{plan.Invocations.Count}).");
+                var build = await processRunner.RunAsync(new ProcessRequest
+                {
+                    ExecutablePath = dotnetExecutable,
+                    Arguments = BuildDotNetBuildArguments(invocation, plan),
+                    WorkingDirectory = artifactPaths.RepositoryRoot,
+                    StandardOutputLogPath = buildStdout,
+                    StandardErrorLogPath = buildStderr,
+                    EnvironmentVariables = BuildEnvironment(manifest, projectDirectory, request.Options, plan),
+                    Timeout = BenchmarkRunLimit,
+                    ProgressInterval = TimeSpan.FromSeconds(60),
+                    Progress = value => progress?.Invoke(
+                        $"Benchmark build target {invocationName} is still running " +
+                        $"({value.Elapsed:hh\\:mm\\:ss}; {value.StandardOutputLineCount} stdout and {value.StandardErrorLineCount} stderr lines; " +
+                        $"last stdout: {value.LastStandardOutputLine ?? "<none>"}; " +
+                        $"last stderr: {value.LastStandardErrorLine ?? "<none>"}).")
+                }, runToken).ConfigureAwait(false);
+                if (build.RawExitCode is int buildExitCode)
+                    childExitCodes.Add(buildExitCode);
+                artifacts.Add(Relative(runDirectory, buildStdout));
+                artifacts.Add(Relative(runDirectory, buildStderr));
+                foreach (var line in build.StandardOutputTail)
+                    progress?.Invoke(line);
+                foreach (var line in build.StandardErrorTail)
+                    errorOutput?.Invoke(line);
+
+                if (build.Outcome != OutcomeKind.Success)
+                {
+                    if (build.Outcome == OutcomeKind.Cancelled && runToken.IsCancellationRequested)
+                        runToken.ThrowIfCancellationRequested();
+                    results.Add(new BenchmarkProjectResult(invocationName, "Failed", build.RawExitCode, Relative(runDirectory, projectDirectory), build.Failure));
+                    failure = build.Outcome;
+                    failureDetails = build.Failure ?? $"Building benchmark target '{invocationName}' exited with code {build.RawExitCode}.";
+                    break;
+                }
+
                 progress?.Invoke($"Running benchmark target {invocationName} ({index + 1}/{plan.Invocations.Count}).");
                 var process = await processRunner.RunAsync(new ProcessRequest
                 {
@@ -431,7 +544,7 @@ internal sealed class BenchmarkCommandService(
                     WorkingDirectory = artifactPaths.RepositoryRoot,
                     StandardOutputLogPath = stdout,
                     StandardErrorLogPath = stderr,
-                    EnvironmentVariables = BuildEnvironment(manifest.RunId, projectDirectory, request.Options, plan),
+                    EnvironmentVariables = BuildEnvironment(manifest, projectDirectory, request.Options, plan),
                     Timeout = BenchmarkRunLimit,
                     ProgressInterval = TimeSpan.FromSeconds(60),
                     Progress = value => progress?.Invoke(
@@ -470,38 +583,44 @@ internal sealed class BenchmarkCommandService(
                 results.Add(new BenchmarkProjectResult(invocationName, "Passed", process.RawExitCode, Relative(runDirectory, projectDirectory), null));
             }
 
-            await WriteReportsAsync(runDirectory, manifest.RunId, plan, results, referenceIdentity, runToken).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results,
+                referenceIdentity, runToken).ConfigureAwait(false);
+            AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.Add("run-report.json");
             artifacts.Add("report.md");
             if (failure is null)
-                return await FinishAsync(manifest, runDirectory, OutcomeKind.Success, null, childExitCodes, artifacts, results).ConfigureAwait(false);
-            return await FinishAsync(manifest, runDirectory, failure.Value, failureDetails, childExitCodes, artifacts, results).ConfigureAwait(false);
+                return await FinishAsync(manifest, runDirectory, OutcomeKind.Success, null, childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
+            return await FinishAsync(manifest, runDirectory, failure.Value, failureDetails, childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
         }
         catch (OperationCanceledException exception) when (runTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            await WriteReportsAsync(runDirectory, manifest.RunId, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.Timeout,
-                $"Benchmark run exceeded its {BenchmarkRunLimit.TotalMinutes:0}-minute budget. {exception.Message}", childExitCodes, artifacts, results).ConfigureAwait(false);
+                $"Benchmark run exceeded its {BenchmarkRunLimit.TotalMinutes:0}-minute budget. {exception.Message}", childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
         }
         catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
         {
-            await WriteReportsAsync(runDirectory, manifest.RunId, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
-            return await FinishAsync(manifest, runDirectory, OutcomeKind.Cancelled, exception.Message, childExitCodes, artifacts, results).ConfigureAwait(false);
+            return await FinishAsync(manifest, runDirectory, OutcomeKind.Cancelled, exception.Message, childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
         }
         catch (TimeoutException exception)
         {
-            await WriteReportsAsync(runDirectory, manifest.RunId, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.Timeout,
-                $"Benchmark execution could not acquire its exclusive lease within {BenchmarkLeaseWait.TotalMinutes:0} minutes. {exception.Message}", childExitCodes, artifacts, results).ConfigureAwait(false);
+                $"Benchmark execution could not acquire its exclusive lease within {BenchmarkLeaseWait.TotalMinutes:0} minutes. {exception.Message}", childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or System.ComponentModel.Win32Exception)
         {
-            await WriteReportsAsync(runDirectory, manifest.RunId, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
-            return await FinishAsync(manifest, runDirectory, OutcomeKind.InfrastructureFailure, exception.Message, childExitCodes, artifacts, results).ConfigureAwait(false);
+            return await FinishAsync(manifest, runDirectory, OutcomeKind.InfrastructureFailure, exception.Message, childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
         }
     }
 
@@ -513,7 +632,7 @@ internal sealed class BenchmarkCommandService(
         List<int> childExitCodes,
         CancellationToken cancellationToken)
     {
-        var toolProject = Path.Combine(artifactPaths.RepositoryRoot, "src", "devops", "Rowles.DataForge.Tool", "Rowles.DataForge.Tool.csproj");
+        var toolProject = RepositoryProjectCatalog.GetExistingProjectPath(artifactPaths.RepositoryRoot, RepositoryProjectRole.DataForgeTool);
         var stdout = Path.Combine(runDirectory, "wikipedia-reference.stdout.log");
         var stderr = Path.Combine(runDirectory, "wikipedia-reference.stderr.log");
         var result = await processRunner.RunAsync(new ProcessRequest
@@ -554,7 +673,7 @@ internal sealed class BenchmarkCommandService(
     }
 
     private IReadOnlyDictionary<string, string?> BuildEnvironment(
-        Guid runId,
+        RunManifest manifest,
         string artifactDirectory,
         BenchmarkCommandOptions options,
         BenchmarkExecutionPlan plan)
@@ -562,19 +681,22 @@ internal sealed class BenchmarkCommandService(
         var sourceManifest = options.SourceManifest is null ? string.Empty : ResolvePath(options.SourceManifest, artifactPaths.RepositoryRoot);
         return new Dictionary<string, string?>(StringComparer.Ordinal)
         {
-            ["LEANCORPUS_RUN_ID"] = runId.ToString("D"),
+            ["LEANCORPUS_RUN_ID"] = manifest.RunId.ToString("D"),
             ["LEANCORPUS_ARTIFACT_DIR"] = artifactDirectory,
             ["BENCH_DATASET_MODE"] = plan.Dataset,
             ["BENCH_REFERENCE_PATH"] = plan.ReferencePath ?? string.Empty,
             ["BENCH_DOC_COUNT"] = plan.DocumentCount > 0 ? plan.DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty,
-            ["BENCH_SOURCE_COMMIT"] = options.SourceCommit ?? string.Empty,
-            ["BENCH_SOURCE_REF"] = options.SourceRef ?? string.Empty,
+            ["BENCH_SOURCE_COMMIT"] = manifest.SourceCommit ?? options.SourceCommit ?? string.Empty,
+            ["BENCH_SOURCE_REF"] = options.SourceRef ?? manifest.SourceBranch ?? string.Empty,
             ["BENCH_SOURCE_MANIFEST"] = sourceManifest
         };
     }
 
-    private IReadOnlyList<string> BuildDotNetArguments(BenchmarkInvocation invocation, BenchmarkExecutionPlan plan)
-        => ["run", "--disable-build-servers", "--configuration", "Release", "--framework", plan.Framework, "--project", invocation.ProjectPath, "--", .. invocation.Arguments];
+    private static IReadOnlyList<string> BuildDotNetBuildArguments(BenchmarkInvocation invocation, BenchmarkExecutionPlan plan)
+        => ["build", invocation.ProjectPath, "-c", "Release", "-f", plan.Framework, "--disable-build-servers", "-m:1", "-p:UseSharedCompilation=false", "--tl:off"];
+
+    private static IReadOnlyList<string> BuildDotNetArguments(BenchmarkInvocation invocation, BenchmarkExecutionPlan plan)
+        => ["run", "--no-build", "--disable-build-servers", "--configuration", "Release", "--framework", plan.Framework, "--project", invocation.ProjectPath, "--", .. invocation.Arguments];
 
     internal static string? ValidateResults(string project, string projectDirectory)
     {
@@ -607,12 +729,14 @@ internal sealed class BenchmarkCommandService(
             {
                 using var report = JsonDocument.Parse(File.ReadAllBytes(reportPath));
                 var root = report.RootElement;
-                if (root.GetProperty("schemaVersion").GetInt32() != 4 || root.GetProperty("totalBenchmarkCount").GetInt32() < 1)
+                if (root.GetProperty("schemaVersion").GetInt32() != 5 || root.GetProperty("totalBenchmarkCount").GetInt32() < 1)
                     return "The core benchmark report is incomplete or uses an unsupported schema.";
                 foreach (var suite in root.GetProperty("suites").EnumerateArray())
                 {
-                    if (suite.GetProperty("failedBenchmarkCount").GetInt32() != 0 || suite.GetProperty("missingBenchmarkCount").GetInt32() != 0)
-                        return "The core benchmark report contains failed or missing benchmark results.";
+                    if (suite.GetProperty("failedBenchmarkCount").GetInt32() != 0 ||
+                        suite.GetProperty("intermediateBenchmarkCount").GetInt32() != 0 ||
+                        suite.GetProperty("missingBenchmarkCount").GetInt32() != 0)
+                        return "The core benchmark report contains failed, intermediate or missing benchmark results.";
                 }
             }
             catch (Exception exception) when (exception is IOException or JsonException or InvalidOperationException or KeyNotFoundException)
@@ -648,38 +772,122 @@ internal sealed class BenchmarkCommandService(
             .ToArray();
     }
 
-    private async Task WriteReportsAsync(
+    private async Task<BenchmarkRunIdentityEvidence> WriteReportsAsync(
         string runDirectory,
-        Guid runId,
+        RunManifest manifest,
+        BenchmarkHostIdentity hostIdentity,
         BenchmarkExecutionPlan plan,
         IReadOnlyList<BenchmarkProjectResult> results,
         IReadOnlyDictionary<string, object?>? datasetIdentity,
         CancellationToken cancellationToken)
     {
+        var coreReports = ReadCoreReportIdentities(runDirectory, plan);
+        var expectedCoreReportCount = plan.Invocations.Count(static invocation => invocation.ProjectKey == "core");
+        var assessment = BenchmarkRunIdentityValidator.Assess(new BenchmarkRunIdentityInput(
+            manifest.SourceCommit,
+            manifest.SourceDirty,
+            hostIdentity,
+            coreReports,
+            expectedCoreReportCount));
         var report = new
         {
             schemaVersion = 1,
-            runId,
+            runId = manifest.RunId,
             status = results.All(static result => result.Status == "Passed") && results.Count == plan.Invocations.Count ? "Passed" : "Failed",
             framework = plan.Framework,
             strategy = plan.Strategy,
-            dataset = new { mode = plan.Dataset, identity = datasetIdentity },
-            comparable = true,
+            sourceIdentity = new
+            {
+                commit = manifest.SourceCommit,
+                branch = manifest.SourceBranch,
+                dirty = manifest.SourceDirty
+            },
+            hostIdentity,
+            dataset = new
+            {
+                mode = plan.Dataset,
+                referenceIdentity = datasetIdentity,
+                coreReports = coreReports.Select(coreReport => new
+                {
+                    project = coreReport.Project,
+                    path = Relative(runDirectory, coreReport.ReportPath),
+                    schemaVersion = coreReport.SchemaVersion,
+                    generatedAtUtc = coreReport.GeneratedAtUtc,
+                    dataFingerprintSha256 = coreReport.DatasetFingerprintSha256,
+                    identities = coreReport.Datasets
+                })
+            },
+            qualification = new
+            {
+                identityStatus = assessment.IdentityStatus,
+                state = assessment.QualificationState,
+                eligibleForRatio = assessment.EligibleForRatio,
+                comparable = assessment.Comparable,
+                reasonCodes = assessment.ReasonCodes
+            },
+            comparable = assessment.Comparable,
             affectedSelection = plan.Suite == "affected" ? new { paths = plan.AffectedPaths, groups = plan.AffectedGroups } : null,
+            coreReportIdentities = coreReports.Select(coreReport => new
+            {
+                project = coreReport.Project,
+                path = Relative(runDirectory, coreReport.ReportPath),
+                schemaVersion = coreReport.SchemaVersion,
+                generatedAtUtc = coreReport.GeneratedAtUtc,
+                sourceCommit = coreReport.SourceCommit,
+                sourceDirty = coreReport.SourceDirty,
+                hostMachineName = coreReport.HostMachineName,
+                osDescription = coreReport.OsDescription,
+                runtimeIdentifier = coreReport.RuntimeIdentifier,
+                processArchitecture = coreReport.ProcessArchitecture,
+                runtimeFramework = coreReport.RuntimeFramework,
+                benchmarkDotNetVersion = coreReport.BenchmarkDotNetVersion,
+                dataFingerprintSha256 = coreReport.DatasetFingerprintSha256,
+                datasetIdentityComplete = coreReport.HasDatasetIdentity,
+                readFailure = coreReport.ReadFailure
+            }),
             projects = results
         };
         await WriteAtomicAsync(Path.Combine(runDirectory, "run-report.json"), JsonSerializer.Serialize(report, JsonOptions), cancellationToken).ConfigureAwait(false);
         var markdown = new List<string>
         {
-            $"# Benchmark run {runId:D}",
+            string.Concat("# Benchmark run ", manifest.RunId.ToString("D")),
             string.Empty,
-            $"Status: {report.status}",
+            string.Concat("Status: ", report.status),
+            string.Concat("Identity: ", assessment.IdentityStatus),
+            string.Concat("Qualification: ", assessment.QualificationState),
+            string.Concat("Comparable: ", assessment.Comparable.ToString()),
             string.Empty,
             "| Project | Status | Path |",
             "| --- | --- | --- |"
         };
-        markdown.AddRange(results.Select(result => $"| {result.Project} | {result.Status} | `{result.Path}` |"));
+        markdown.AddRange(results.Select(result => string.Concat("| ", result.Project, " | ", result.Status, " | ", result.Path, " |")));
         await WriteAtomicAsync(Path.Combine(runDirectory, "report.md"), string.Join(Environment.NewLine, markdown) + Environment.NewLine, cancellationToken).ConfigureAwait(false);
+        return new BenchmarkRunIdentityEvidence(hostIdentity, coreReports, assessment);
+    }
+
+    private static IReadOnlyList<BenchmarkCoreReportIdentity> ReadCoreReportIdentities(
+        string runDirectory,
+        BenchmarkExecutionPlan plan)
+        => plan.Invocations
+            .Select((invocation, index) => (invocation, index))
+            .Where(static pair => pair.invocation.ProjectKey == "core")
+            .Select(pair => BenchmarkCoreReportIdentity.Read(
+                pair.invocation.ProjectKey,
+                Path.Combine(runDirectory, pair.invocation.ProjectKey,
+                    pair.index.ToString("D3", System.Globalization.CultureInfo.InvariantCulture),
+                    "report.json")))
+            .ToArray();
+
+    private static void AddCoreReportArtifacts(
+        string runDirectory,
+        BenchmarkRunIdentityEvidence evidence,
+        ICollection<string> artifacts)
+    {
+        foreach (var report in evidence.CoreReports)
+        {
+            if (File.Exists(report.ReportPath))
+                artifacts.Add(Relative(runDirectory, report.ReportPath));
+        }
     }
 
     private async Task<BenchmarkCommandResult> FinishAsync(
@@ -689,7 +897,8 @@ internal sealed class BenchmarkCommandService(
         string? failure,
         IReadOnlyList<int> childExitCodes,
         IReadOnlyList<string> artifacts,
-        IReadOnlyList<BenchmarkProjectResult> results)
+        IReadOnlyList<BenchmarkProjectResult> results,
+        BenchmarkRunIdentityEvidence? identityEvidence = null)
     {
         var state = outcome switch
         {
@@ -699,13 +908,45 @@ internal sealed class BenchmarkCommandService(
             _ => RunState.Failed
         };
         var finished = await runStore.FinishAsync(manifest, state, artifacts: artifacts, failure: failure,
-            cancellationToken: CancellationToken.None, childExitCodes: childExitCodes).ConfigureAwait(false);
+            cancellationToken: CancellationToken.None, childExitCodes: childExitCodes,
+            additionalInputs: identityEvidence is null ? null : BuildIdentityRunInputs(runDirectory, identityEvidence)).ConfigureAwait(false);
         var commandResult = new CommandResult(outcome, outcome == OutcomeKind.Success
             ? $"Benchmark run succeeded with {results.Count} project invocations."
             : $"Benchmark run {state.ToString().ToLowerInvariant()}: {failure}",
             Details: runDirectory);
         return new BenchmarkCommandResult(commandResult, finished.RunId, runDirectory);
     }
+
+    private static IReadOnlyDictionary<string, string> BuildIdentityRunInputs(
+        string runDirectory,
+        BenchmarkRunIdentityEvidence evidence)
+        => new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["identityStatus"] = evidence.Assessment.IdentityStatus,
+            ["qualificationState"] = evidence.Assessment.QualificationState,
+            ["eligibleForRatio"] = evidence.Assessment.EligibleForRatio.ToString().ToLowerInvariant(),
+            ["comparable"] = evidence.Assessment.Comparable.ToString().ToLowerInvariant(),
+            ["qualificationReasonCodes"] = JsonSerializer.Serialize(evidence.Assessment.ReasonCodes),
+            ["coreReportIdentities"] = JsonSerializer.Serialize(evidence.CoreReports.Select(report => new
+            {
+                project = report.Project,
+                path = Relative(runDirectory, report.ReportPath),
+                schemaVersion = report.SchemaVersion,
+                generatedAtUtc = report.GeneratedAtUtc,
+                sourceCommit = report.SourceCommit,
+                sourceDirty = report.SourceDirty,
+                hostMachineName = report.HostMachineName,
+                osDescription = report.OsDescription,
+                runtimeIdentifier = report.RuntimeIdentifier,
+                processArchitecture = report.ProcessArchitecture,
+                runtimeFramework = report.RuntimeFramework,
+                benchmarkDotNetVersion = report.BenchmarkDotNetVersion,
+                dataFingerprintSha256 = report.DatasetFingerprintSha256,
+                datasetIdentityComplete = report.HasDatasetIdentity,
+                readFailure = report.ReadFailure,
+                datasets = report.Datasets
+            }))
+        };
 
     private async Task<bool> IsDotNetToolAvailableAsync(CheckoutIdentity checkout, CancellationToken cancellationToken)
     {

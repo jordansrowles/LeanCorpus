@@ -83,6 +83,21 @@ public sealed class AffectedBenchmarkPlannerTests
     }
 
     [Fact]
+    public void AffectedSelectionUsesConfiguredDefaultDatasetWhenDatasetIsOmitted()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load() with { DefaultBenchmarkDataset = "fixture" };
+        var options = new BenchmarkCommandOptions("affected", "fast", "net10.0", 0, string.Empty, null,
+            null, null, null, null, null, false, false, false, false, 200, true, false, []);
+
+        var plan = BenchmarkCommandPlanner.Create(options, configuration, checkout.RepositoryRoot,
+            ["src/core/Rowles.LeanCorpus/Search/Searcher/IndexSearcher.cs"]);
+
+        Assert.Equal("fixture", plan.Dataset);
+        Assert.NotEmpty(plan.Invocations);
+    }
+
+    [Fact]
     public void RejectsCustomFilterForAffectedClassRuns()
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);

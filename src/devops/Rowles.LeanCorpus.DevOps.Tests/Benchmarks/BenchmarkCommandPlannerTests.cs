@@ -29,6 +29,17 @@ public sealed class BenchmarkCommandPlannerTests
     }
 
     [Fact]
+    public void UsesConfiguredDefaultDatasetWhenDatasetIsOmitted()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load() with { DefaultBenchmarkDataset = "fixture" };
+
+        var plan = BenchmarkCommandPlanner.Create(Options(dataset: string.Empty), configuration, checkout.RepositoryRoot);
+
+        Assert.Equal("fixture", plan.Dataset);
+    }
+
+    [Fact]
     public void CreatesTextProjectInvocationForMultilingualBenchmarks()
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
@@ -41,6 +52,111 @@ public sealed class BenchmarkCommandPlannerTests
         Assert.Equal("text", invocation.ProjectKey);
         Assert.Equal("src/devops/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj", Path.GetRelativePath(checkout.RepositoryRoot, invocation.ProjectPath).Replace('\\', '/'));
         Assert.Equal(["--job", "dry", "--filter", "*MultiLanguageAnalysisBenchmarks*"], invocation.Arguments);
+    }
+
+    [Fact]
+    public void ResolvesConfiguredSuiteAliasesBeforeDispatch()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var plan = BenchmarkCommandPlanner.Create(Options(suite: "deletionqueue"), configuration, checkout.RepositoryRoot);
+
+        Assert.Equal("deletion-queue", plan.Suite);
+        var invocation = Assert.Single(plan.Invocations);
+        Assert.Equal("core", invocation.ProjectKey);
+        Assert.Contains("--suite", invocation.Arguments);
+        Assert.Contains("deletion-queue", invocation.Arguments);
+    }
+
+    [Fact]
+    public void RoutesConfiguredTextSuiteToItsRegisteredBenchmarkClass()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var plan = BenchmarkCommandPlanner.Create(Options(suite: "analysis-parity"), configuration, checkout.RepositoryRoot);
+
+        var invocation = Assert.Single(plan.Invocations);
+        Assert.Equal("text", invocation.ProjectKey);
+        Assert.Equal("AnalyserParityBenchmarks", invocation.BenchmarkClass);
+        Assert.Equal("src/devops/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj",
+            Path.GetRelativePath(checkout.RepositoryRoot, invocation.ProjectPath).Replace('\\', '/'));
+        Assert.Contains("--filter", invocation.Arguments);
+        Assert.Contains("*AnalyserParityBenchmarks*", invocation.Arguments);
+    }
+
+    [Theory]
+    [InlineData("fuzzy", "FuzzyQueryBenchmarks")]
+    [InlineData("fuzzy-parity", "FuzzyQueryBenchmarks")]
+    [InlineData("fuzzy-cache", "FuzzyExpansionCacheBenchmarks")]
+    public void RoutesFuzzyAliasesToDisjointBenchmarkClasses(string suite, string benchmarkClass)
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var plan = BenchmarkCommandPlanner.Create(Options(suite: suite), configuration, checkout.RepositoryRoot);
+
+        var invocation = Assert.Single(plan.Invocations);
+        Assert.Equal("core", invocation.ProjectKey);
+        Assert.Equal(benchmarkClass, invocation.BenchmarkClass);
+        Assert.Contains("--filter", invocation.Arguments);
+        Assert.Contains($"*{benchmarkClass}*", invocation.Arguments);
+    }
+
+    [Theory]
+    [InlineData("approximation")]
+    [InlineData("flush-term-cardinality")]
+    public void RoutesNewlyRegisteredCoreBenchmarkSuites(string suite)
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var plan = BenchmarkCommandPlanner.Create(Options(suite: suite), configuration, checkout.RepositoryRoot);
+
+        var invocation = Assert.Single(plan.Invocations);
+        Assert.Equal("core", invocation.ProjectKey);
+        Assert.Null(invocation.BenchmarkClass);
+        Assert.Equal(suite, plan.Suite);
+        Assert.Contains("--suite", invocation.Arguments);
+        Assert.Contains(suite, invocation.Arguments);
+    }
+
+    [Fact]
+    public void SelectsAllConfiguredBenchmarkProjectsForTheAllSelector()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var plan = BenchmarkCommandPlanner.Create(Options(suite: "all"), configuration, checkout.RepositoryRoot);
+
+        Assert.Equal(["compression", "core", "text"], plan.Invocations.Select(static invocation => invocation.ProjectKey));
+        Assert.All(plan.Invocations, invocation => Assert.True(File.Exists(invocation.ProjectPath)));
+    }
+
+    [Fact]
+    public void IncludesOnlyConfiguredProjectsForAllWithExplicit()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var plan = BenchmarkCommandPlanner.Create(Options(suite: "all-with-explicit"), configuration, checkout.RepositoryRoot);
+
+        Assert.Equal(["core"], plan.Invocations.Select(static invocation => invocation.ProjectKey));
+        Assert.Contains("all-with-explicit", plan.Invocations[0].Arguments);
+    }
+
+    [Fact]
+    public void UsesConfiguredControlledCorpusPolicyForStandaloneSuites()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var standalone = BenchmarkCommandPlanner.Create(Options(suite: "codec-frame", controlled: true), configuration, checkout.RepositoryRoot);
+        var corpus = BenchmarkCommandPlanner.Create(Options(suite: "query", controlled: true), configuration, checkout.RepositoryRoot);
+
+        Assert.False(standalone.CorpusOnly);
+        Assert.True(corpus.CorpusOnly);
     }
 
     [Fact]
@@ -80,7 +196,7 @@ public sealed class BenchmarkCommandPlannerTests
     }
 
     [Fact]
-    public async Task DryRunShowsBenchmarkChildBuildServersAreDisabled()
+    public async Task DryRunBuildsWithSingleNodeBeforeLaunchingWithoutBuild()
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
         var paths = new ArtifactPaths(checkout.RepositoryRoot);
@@ -100,7 +216,16 @@ public sealed class BenchmarkCommandPlannerTests
             TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
-        Assert.Contains("--disable-build-servers", Assert.Single(progress), StringComparison.Ordinal);
+        Assert.Equal(2, progress.Count);
+        var buildCommand = progress[0];
+        Assert.Contains("dotnet build", buildCommand, StringComparison.Ordinal);
+        Assert.Contains("--disable-build-servers", buildCommand, StringComparison.Ordinal);
+        Assert.Contains("-m:1", buildCommand, StringComparison.Ordinal);
+        Assert.Contains("-p:UseSharedCompilation=false", buildCommand, StringComparison.Ordinal);
+
+        var runCommand = progress[1];
+        Assert.Contains("dotnet run --no-build", runCommand, StringComparison.Ordinal);
+        Assert.DoesNotContain("-m:1", runCommand, StringComparison.Ordinal);
     }
 
     private static BenchmarkCommandOptions Options(
@@ -111,7 +236,8 @@ public sealed class BenchmarkCommandPlannerTests
         int documentCount = 0,
         string? area = null,
         IReadOnlyList<string>? arguments = null,
-        bool dry = false)
+        bool dry = false,
+        bool controlled = false)
         => new(
             suite,
             strategy,
@@ -124,7 +250,7 @@ public sealed class BenchmarkCommandPlannerTests
             SourceCommit: null,
             SourceRef: null,
             SourceManifest: null,
-            Controlled: false,
+            Controlled: controlled,
             CorpusOnly: false,
             GcDump: false,
             PrepareData: false,
