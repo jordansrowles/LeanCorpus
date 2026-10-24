@@ -344,7 +344,7 @@ internal sealed class BenchmarkCommandService(
     Action<string>? errorOutput = null,
     string dotnetExecutable = "dotnet")
 {
-    private static readonly string BenchmarkHostLeaseRoot = Path.Combine(Path.GetTempPath(), "LeanCorpus.DevOps.BenchmarkHost");
+    internal static readonly string BenchmarkHostLeaseRoot = Path.Combine(Path.GetTempPath(), "LeanCorpus.DevOps.BenchmarkHost");
     private static readonly TimeSpan BenchmarkRunLimit = TimeSpan.FromMinutes(360);
     private static readonly TimeSpan BenchmarkLeaseWait = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
