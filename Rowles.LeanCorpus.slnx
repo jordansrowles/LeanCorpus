@@ -14,6 +14,7 @@
   <Project Path="src/core/Rowles.LeanCorpus.Compression.Zstandard/Rowles.LeanCorpus.Compression.Zstandard.csproj" />
   <Project Path="src/core/Rowles.LeanCorpus.SourceGen/Rowles.LeanCorpus.SourceGen.csproj" />
   <Project Path="src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj" />
+  <Project Path="src/devops/Rowles.LeanCorpus.Benchmark.Workloads/Rowles.LeanCorpus.Benchmark.Workloads.csproj" />
   <Project Path="src/devops/Rowles.LeanCorpus.Benchmarks.Compression/Rowles.LeanCorpus.Benchmarks.Compression.csproj" />
   <Project Path="src/devops/Rowles.LeanCorpus.Cli/Rowles.LeanCorpus.Cli.csproj" />
   <Project Path="src/devops/Rowles.LeanCorpus.Tests.Shared/Rowles.LeanCorpus.Tests.Shared.csproj" />
