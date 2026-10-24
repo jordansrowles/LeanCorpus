@@ -81,6 +81,36 @@ public sealed class TestExecutorTests
     }
 
     [Fact]
+    public async Task RestoreFailureWithNoCompletedExecutionsIsReportedAsIncomplete()
+    {
+        using var checkout = TemporaryCheckout.Create();
+        var target = checkout.CreateTarget("core");
+        var processRunner = checkout.CreateRunner(failRestore: true);
+        var progressEvents = new List<TestProgressEvent>();
+        var paths = new ArtifactPaths(checkout.Root);
+        var service = new TestExecutor(paths, new ArtifactRunStore(paths, runCategory: "test"), processRunner,
+            new DotNetSdkResolver(processRunner), new FixedProvenanceReader(), progressEvents.Add);
+        var request = Request(checkout, [target]) with
+        {
+            RunnerOptions = new TestRunnerOptions(checkout.Root)
+            {
+                Ci = false,
+                ParallelProfile = "integration",
+                ArtifactsEnabled = true,
+                HangTimeout = "off"
+            }
+        };
+
+        var result = await service.RunAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.CommandFailure, result.CommandResult.Outcome);
+        Assert.Empty(result.Aggregate!.Attempts);
+        Assert.Empty(processRunner.TestInvocations);
+        var completedEvent = Assert.Single(progressEvents, item => item.Kind == TestEventKind.RunCompleted);
+        Assert.Equal(TestExecutionOutcome.Incomplete, completedEvent.Outcome);
+    }
+
+    [Fact]
     public async Task RejectsOverridesOfDevOpsOwnedEnvironmentBeforeCreatingRun()
     {
         using var checkout = TemporaryCheckout.Create();
@@ -255,9 +285,10 @@ public sealed class TestExecutorTests
                 [], false, ["Trx"], []);
         }
 
-        public RecordingProcessRunner CreateRunner(IReadOnlySet<string>? failingSuites = null, bool writeTrx = true)
+        public RecordingProcessRunner CreateRunner(IReadOnlySet<string>? failingSuites = null, bool writeTrx = true,
+            bool failRestore = false)
             => new(_targetPaths, failingSuites ?? new HashSet<string>(StringComparer.Ordinal), writeTrx,
-                SelectedSdkVersion, SdkBaseDirectory);
+                SelectedSdkVersion, SdkBaseDirectory, failRestore);
 
         public void DeleteSdkPolicy()
             => File.Delete(Path.Combine(Root, "global.json"));
@@ -282,7 +313,8 @@ public sealed class TestExecutorTests
         IReadOnlySet<string> failingSuites,
         bool writeTrx,
         string selectedSdkVersion,
-        string sdkBaseDirectory) : IProcessRunner
+        string sdkBaseDirectory,
+        bool failRestore) : IProcessRunner
     {
         public List<ProcessRequest> TestInvocations { get; } = [];
         public List<ProcessRequest> Requests { get; } = [];
@@ -303,6 +335,11 @@ public sealed class TestExecutorTests
                 var line = $"{selectedSdkVersion} [{sdkBaseDirectory}]";
                 await File.WriteAllTextAsync(request.StandardOutputLogPath, line, cancellationToken);
                 return Process(request, OutcomeKind.Success, 0, [line]);
+            }
+            if (failRestore && request.ExecutablePath == "dotnet" && request.Arguments.FirstOrDefault() == "restore")
+            {
+                await File.WriteAllTextAsync(request.StandardErrorLogPath, "simulated restore failure", cancellationToken);
+                return Process(request, OutcomeKind.CommandFailure, 1);
             }
             if (request.ExecutablePath == "dotnet" && request.Arguments.Contains("-getProperty:TargetPath", StringComparer.Ordinal))
             {

@@ -100,6 +100,23 @@ public sealed class TestResultReaderTests
     }
 
     [Fact]
+    public async Task AcceptsCompleteZeroCaseTrxAsNoDiscoveryEvidence()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var path = Path.Combine(directory.Path, "empty.trx");
+        await File.WriteAllTextAsync(path, """
+            <TestRun><Results />
+            <ResultSummary outcome="Completed"><Counters total="0" executed="0" passed="0" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" notRunnable="0" notExecuted="0" /></ResultSummary></TestRun>
+            """, TestContext.Current.CancellationToken);
+
+        var result = await TestResultReader.ReadAsync(path, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Valid, result.Error);
+        Assert.Equal(0, result.Total);
+        Assert.Empty(result.Tests);
+    }
+
+    [Fact]
     public async Task RejectsExternalEntitiesAndReportsMissingFiles()
     {
         using var directory = TemporaryDirectory.Create();

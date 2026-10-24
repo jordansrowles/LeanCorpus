@@ -70,7 +70,8 @@ internal sealed class TestRunPlanner(DevOpsConfiguration configuration, Affected
             CommandLine = options.CommandLine,
             RunnerOptions = new TestRunnerOptions(checkout.RepositoryRoot)
             {
-                ArtifactsEnabled = count > 1 || options.Flaky || options.Diagnostics || options.Selection.ContinuousIntegration ||
+                ArtifactsEnabled = selection.Targets.Any(static target => target.RunnerKind.Equals("Mtp", StringComparison.OrdinalIgnoreCase)) ||
+                    count > 1 || options.Flaky || options.Diagnostics || options.Selection.ContinuousIntegration ||
                     options.Selection.CollectCoverage || options.UiEvents,
                 Ci = options.Selection.ContinuousIntegration,
                 CollectCoverage = options.Selection.CollectCoverage,

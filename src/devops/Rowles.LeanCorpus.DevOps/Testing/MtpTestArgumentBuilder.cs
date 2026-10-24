@@ -1,4 +1,6 @@
 using System.Globalization;
+using Rowles.LeanCorpus.DevOps.Configuration;
+using Rowles.LeanCorpus.DevOps.Diagnostics;
 
 namespace Rowles.LeanCorpus.DevOps.Testing;
 
@@ -89,7 +91,7 @@ internal static class MtpTestArgumentBuilder
                 "--coverlet-exclude-by-file", "**/obj/**/*.cs"]);
         }
 
-        var hasHangDump = target.Capabilities.Contains("HangDump", StringComparer.OrdinalIgnoreCase);
+        var hasHangDump = TestRunnerCapabilityCatalog.Has(target.Capabilities, TestRunnerCapability.HangDump);
         if (hasHangDump && !options.HangTimeout.Equals("off", StringComparison.OrdinalIgnoreCase))
         {
             if (string.IsNullOrWhiteSpace(options.HangTimeout))
@@ -97,17 +99,17 @@ internal static class MtpTestArgumentBuilder
                 throw new InvalidOperationException("Hang timeout must be a duration or 'off'.");
             }
             arguments.AddRange(["--hangdump", "--hangdump-timeout", options.HangTimeout,
-                "--hangdump-type-if-supported", "Mini"]);
+                "--hangdump-type-if-supported", DiagnosticsDumpTypeCatalog.DefaultOption]);
             if (options.ArtifactsEnabled)
             {
                 arguments.AddRange(["--hangdump-filename", "hangdump.dmp"]);
             }
         }
 
-        var hasCrashDump = target.Capabilities.Contains("CrashDump", StringComparer.OrdinalIgnoreCase);
+        var hasCrashDump = TestRunnerCapabilityCatalog.Has(target.Capabilities, TestRunnerCapability.CrashDump);
         if (hasCrashDump && (options.Flaky || options.Diagnostics || options.Ci))
         {
-            arguments.AddRange(["--crashdump", "--crashdump-type", "Mini"]);
+            arguments.AddRange(["--crashdump", "--crashdump-type", DiagnosticsDumpTypeCatalog.DefaultOption]);
             if (options.ArtifactsEnabled)
             {
                 arguments.AddRange(["--crashdump-filename", "crashdump.dmp"]);

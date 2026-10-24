@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "runId": "97000000-0000-4000-8000-000000000001",
+  "command": "test",
+  "state": "succeeded",
+  "startedUtc": "2026-10-20T16:21:24+00:00",
+  "completedUtc": "2026-10-20T16:21:25+00:00",
+  "sourceCommit": "1aaed96aa1829b43b2574735f10e92de73781fe8",
+  "sourceDirty": false,
+  "platform": "Linux; X64",
+  "inputs": {
+    "suite": "core",
+    "framework": "net10.0"
+  },
+  "childExitCodes": [
+    0
+  ],
+  "artifacts": []
+}

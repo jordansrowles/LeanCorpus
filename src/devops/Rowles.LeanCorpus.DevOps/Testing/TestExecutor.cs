@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Build;
+using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Terminal;
@@ -87,7 +88,7 @@ internal sealed class TestExecutor(
             return Validation("Test repetition count must be a positive integer.");
         }
         if (request.RunnerOptions.ArtifactsEnabled && request.Targets.Any(static target =>
-                target.RunnerKind == "Mtp" && !target.Capabilities.Contains("Trx", StringComparer.OrdinalIgnoreCase)))
+                target.RunnerKind == "Mtp" && !TestRunnerCapabilityCatalog.Has(target.Capabilities, TestRunnerCapability.Trx)))
         {
             return Validation("Every MTP target must declare the TRX capability when result artefacts are enabled.");
         }
@@ -401,9 +402,7 @@ internal sealed class TestExecutor(
         var process = execution.Process;
         var resultData = execution.Results;
         var diagnosticPaths = GetDiagnosticPaths(attemptDirectory);
-        var outcome = TestOutcomeClassifier.Classify(target.RunnerKind, process, resultData,
-            resultsRequired: target.RunnerKind.Equals("Mtp", StringComparison.OrdinalIgnoreCase) && request.RunnerOptions.ArtifactsEnabled,
-            diagnosticPaths: diagnosticPaths);
+        var outcome = TestOutcomeClassifier.Classify(target.RunnerKind, process, resultData, diagnosticPaths);
         var failure = resultData is { Valid: false } ? resultData.Error : process.Failure;
         return new TestExecutionAttempt(target, iteration, outcome, resultData?.Tests ?? [], true, failure)
         {
@@ -480,7 +479,9 @@ internal sealed class TestExecutor(
             OutcomeKind.Success => TestExecutionOutcome.Passed,
             OutcomeKind.CommandFailure => aggregate.Attempts.Any(static attempt => attempt.Outcome == TestExecutionOutcome.Crashed)
                 ? TestExecutionOutcome.Crashed
-                : TestExecutionOutcome.AssertionFailure,
+                : aggregate.Attempts.Any(static attempt => attempt.Outcome == TestExecutionOutcome.AssertionFailure)
+                    ? TestExecutionOutcome.AssertionFailure
+                    : TestExecutionOutcome.Incomplete,
             OutcomeKind.Timeout => TestExecutionOutcome.Hung,
             OutcomeKind.Cancelled => TestExecutionOutcome.Cancelled,
             _ => TestExecutionOutcome.Incomplete

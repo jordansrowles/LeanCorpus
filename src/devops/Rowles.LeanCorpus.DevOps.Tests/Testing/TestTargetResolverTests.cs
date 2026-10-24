@@ -10,10 +10,10 @@ public sealed class TestTargetResolverTests
     public void ResolvesAllInLegacyOrderAndUsesSuiteFrameworkDefaults()
     {
         var resolver = new TestTargetResolver(Suites(
-            ("core", Suite(frameworks: ["net10.0", "net11.0"], coverage: true)),
-            ("text", Suite(frameworks: ["net10.0", "net11.0"])),
-            ("server-core", Suite(frameworks: ["net10.0", "net11.0"], defaultFramework: "net11.0")),
-            ("aot", Suite(runner: "AotNative", frameworks: ["net10.0", "net11.0"], expandFrameworks: true)),
+            ("core", Suite(frameworks: ["net10.0", "net11.0"], coverage: true, order: 10)),
+            ("text", Suite(frameworks: ["net10.0", "net11.0"], order: 20)),
+            ("server-core", Suite(frameworks: ["net10.0", "net11.0"], defaultFramework: "net11.0", order: 60)),
+            ("aot", Suite(runner: "AotNative", frameworks: ["net10.0", "net11.0"], expandFrameworks: true, order: 80)),
             ("docs-site", Suite(frameworks: ["net10.0", "net11.0"], includeInAll: false))));
 
         var targets = resolver.Resolve(new TestTargetRequest { Suites = ["all"], RuntimeIdentifier = "linux-x64" });
@@ -41,9 +41,9 @@ public sealed class TestTargetResolverTests
         var resolver = new TestTargetResolver(Suites(
             ("dataforge", Suite()),
             ("docs-site", Suite(includeInAll: false)),
-            ("aot", Suite(runner: "AotNative", expandFrameworks: true)),
-            ("text", Suite()),
-            ("core", Suite())));
+            ("aot", Suite(runner: "AotNative", expandFrameworks: true, order: 80)),
+            ("text", Suite(order: 20)),
+            ("core", Suite(order: 10))));
 
         Assert.Equal(["core", "text", "aot", "dataforge"], resolver.GetOrderedSuiteKeys(includeExplicitOnly: false));
         Assert.Equal(["core", "text", "aot", "dataforge", "docs-site"], resolver.GetOrderedSuiteKeys(includeExplicitOnly: true));
@@ -114,7 +114,8 @@ public sealed class TestTargetResolverTests
         string? defaultFramework = null,
         bool coverage = false,
         bool? includeInAll = null,
-        bool expandFrameworks = false)
+        bool expandFrameworks = false,
+        int? order = null)
         => new(
             Name: "Fixture suite",
             Project: $"src/devops/{Guid.NewGuid():N}.csproj",
@@ -125,5 +126,6 @@ public sealed class TestTargetResolverTests
             Capabilities: ["Trx"],
             IncludeInAll: includeInAll,
             ExpandFrameworksByDefault: expandFrameworks,
-            DefaultFilter: null);
+            DefaultFilter: null,
+            Order: order);
 }

@@ -21,7 +21,6 @@ internal static class TestOutcomeClassifier
         string runnerKind,
         ProcessResult process,
         TestResultData? resultData,
-        bool resultsRequired = true,
         IReadOnlyList<string>? diagnosticPaths = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runnerKind);
@@ -59,18 +58,7 @@ internal static class TestOutcomeClassifier
             return TestExecutionOutcome.InfrastructureFailure;
         }
 
-        if (!resultsRequired && resultData is null)
-        {
-            return process.RawExitCode switch
-            {
-                0 when process.Outcome == OutcomeKind.Success => TestExecutionOutcome.Passed,
-                null => TestExecutionOutcome.Incomplete,
-                _ when process.Outcome == OutcomeKind.CommandFailure => TestExecutionOutcome.DiscoveryFailure,
-                _ => TestExecutionOutcome.InfrastructureFailure
-            };
-        }
-
-        if (resultData is null || !resultData.Exists || !resultData.Valid || resultData.Total == 0 || resultData.Tests.Count != resultData.Total)
+        if (resultData is null || !resultData.Exists || !resultData.Valid || resultData.Total < 0 || resultData.Tests.Count != resultData.Total)
         {
             foreach (var path in diagnosticPaths ?? [])
             {
@@ -87,6 +75,11 @@ internal static class TestOutcomeClassifier
             return TestExecutionOutcome.Incomplete;
         }
 
+        if (resultData.Total == 0)
+        {
+            return TestExecutionOutcome.DiscoveryFailure;
+        }
+
         if (resultData.Tests.Any(static test => test.Outcome is TestCaseOutcome.Failed or TestCaseOutcome.Error or TestCaseOutcome.Timeout))
         {
             return TestExecutionOutcome.AssertionFailure;
@@ -101,7 +94,6 @@ internal static class TestOutcomeClassifier
         {
             0 when process.Outcome == OutcomeKind.Success => TestExecutionOutcome.Passed,
             null => TestExecutionOutcome.Incomplete,
-            _ when process.Outcome == OutcomeKind.CommandFailure => TestExecutionOutcome.DiscoveryFailure,
             _ => TestExecutionOutcome.InfrastructureFailure
         };
     }

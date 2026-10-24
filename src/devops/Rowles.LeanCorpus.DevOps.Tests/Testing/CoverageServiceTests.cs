@@ -205,7 +205,8 @@ public sealed class CoverageServiceTests
         return new DevOpsConfiguration(
             suites,
             ImmutableDictionary.Create<string, CodeAreaConfiguration>(StringComparer.OrdinalIgnoreCase),
-            ImmutableDictionary.Create<string, string>(StringComparer.OrdinalIgnoreCase),
+            ImmutableDictionary.Create<string, BenchmarkProjectConfiguration>(StringComparer.OrdinalIgnoreCase),
+            ImmutableDictionary.Create<string, BenchmarkSuiteConfiguration>(StringComparer.OrdinalIgnoreCase),
             ImmutableDictionary.Create<string, BenchmarkStrategyConfiguration>(StringComparer.OrdinalIgnoreCase),
             ImmutableDictionary.Create<string, ImmutableArray<string>>(StringComparer.OrdinalIgnoreCase),
             ImmutableDictionary.Create<string, BenchmarkGroupConfiguration>(StringComparer.OrdinalIgnoreCase));

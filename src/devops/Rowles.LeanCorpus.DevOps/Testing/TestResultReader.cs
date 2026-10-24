@@ -96,9 +96,9 @@ internal static class TestResultReader
             {
                 return Invalid(exists: true, "TRX result summary has a missing or invalid total counter.");
             }
-            if (total < 1)
+            if (total < 0)
             {
-                return Invalid(exists: true, "TRX result file reports zero test cases.");
+                return Invalid(exists: true, "TRX result file reports a negative test case count.");
             }
 
             var tests = new List<TestCaseResult>();

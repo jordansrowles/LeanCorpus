@@ -35,18 +35,6 @@ internal sealed record TestTarget(
 
 internal sealed class TestTargetResolver(IReadOnlyDictionary<string, TestSuiteConfiguration> suites)
 {
-    private static readonly string[] PreferredSuiteOrder =
-    [
-        "core",
-        "text",
-        "sourcegen",
-        "architecture",
-        "server-abstractions",
-        "server-core",
-        "server-integration",
-        "aot"
-    ];
-
     public IReadOnlyList<TestTarget> Resolve(
         TestTargetRequest request,
         IReadOnlyDictionary<string, IReadOnlyList<string>>? affectedAreasBySuite = null)
@@ -155,24 +143,13 @@ internal sealed class TestTargetResolver(IReadOnlyDictionary<string, TestSuiteCo
 
     internal IReadOnlyList<string> GetOrderedSuiteKeys(bool includeExplicitOnly)
     {
-        var ordered = new List<string>();
-        foreach (var key in PreferredSuiteOrder)
-        {
-            if (suites.TryGetValue(key, out var suite) && (includeExplicitOnly || suite.IncludeInAll != false))
-            {
-                ordered.Add(key);
-            }
-        }
-
-        foreach (var key in suites.Keys.Order(StringComparer.OrdinalIgnoreCase).ThenBy(static key => key, StringComparer.Ordinal))
-        {
-            if ((includeExplicitOnly || suites[key].IncludeInAll != false) && !ordered.Contains(key, StringComparer.OrdinalIgnoreCase))
-            {
-                ordered.Add(key);
-            }
-        }
-
-        return ordered;
+        return suites
+            .Where(pair => includeExplicitOnly || pair.Value.IncludeInAll != false)
+            .OrderBy(static pair => pair.Value.Order ?? int.MaxValue)
+            .ThenBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
+            .Select(static pair => pair.Key)
+            .ToArray();
     }
 
     private IReadOnlyList<string> SelectFrameworks(

@@ -19,7 +19,28 @@ public sealed class TestOutcomeClassifierTests
     {
         var result = TestOutcomeClassifier.Classify("Mtp", Process(OutcomeKind.CommandFailure, 1), Results(TestCaseOutcome.Passed));
 
+        Assert.Equal(TestExecutionOutcome.InfrastructureFailure, result);
+    }
+
+    [Fact]
+    public void ValidEmptyTrxIsDiscoveryFailure()
+    {
+        var emptyResults = new TestResultData(true, true, 0, 0, 0, 0, [], null);
+
+        var result = TestOutcomeClassifier.Classify("Mtp", Process(OutcomeKind.Success, 0), emptyResults);
+
         Assert.Equal(TestExecutionOutcome.DiscoveryFailure, result);
+    }
+
+    [Fact]
+    public void MissingOrMalformedTrxCannotBeCalledDiscoveryFailure()
+    {
+        var missing = TestOutcomeClassifier.Classify("Mtp", Process(OutcomeKind.CommandFailure, 1), resultData: null);
+        var malformed = TestOutcomeClassifier.Classify("Mtp", Process(OutcomeKind.CommandFailure, 1),
+            new TestResultData(true, false, 1, 0, 0, 0, [], "malformed TRX"));
+
+        Assert.Equal(TestExecutionOutcome.Incomplete, missing);
+        Assert.Equal(TestExecutionOutcome.Incomplete, malformed);
     }
 
     [Fact]
@@ -45,9 +66,9 @@ public sealed class TestOutcomeClassifierTests
     public void MissingTrxWithRetainedHangOrCrashDumpKeepsTheDiagnosticOutcome()
     {
         Assert.Equal(TestExecutionOutcome.Hung,
-            TestOutcomeClassifier.Classify("Mtp", Process(OutcomeKind.CommandFailure, 1), MissingResults(), diagnosticPaths: ["hangdump.dmp"]));
+            TestOutcomeClassifier.Classify("Mtp", Process(OutcomeKind.CommandFailure, 1), resultData: null, diagnosticPaths: ["hangdump.dmp"]));
         Assert.Equal(TestExecutionOutcome.Crashed,
-            TestOutcomeClassifier.Classify("Mtp", Process(OutcomeKind.CommandFailure, 1), MissingResults(), diagnosticPaths: ["crashdump.dmp"]));
+            TestOutcomeClassifier.Classify("Mtp", Process(OutcomeKind.CommandFailure, 1), resultData: null, diagnosticPaths: ["crashdump.dmp"]));
     }
 
     [Fact]

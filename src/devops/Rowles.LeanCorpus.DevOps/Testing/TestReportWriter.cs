@@ -148,7 +148,7 @@ internal sealed class TestReportWriter(IAtomicFileWriter writer)
 
         builder.AppendLine("## Counts");
         builder.AppendLine();
-        foreach (var outcome in new[] { "Passed", "Failed", "Crashed", "Hung", "Cancelled", "Incomplete", "InfrastructureError" })
+        foreach (var outcome in TestExecutionOutcomeReportCatalog.CountedLabels)
         {
             var count = attempts.Count(attempt => OutcomeForReport(attempt.Outcome) == outcome);
             builder.AppendLine($"- {outcome}: {count}");
@@ -503,17 +503,7 @@ internal sealed class TestReportWriter(IAtomicFileWriter writer)
         };
 
     private static string OutcomeForReport(TestExecutionOutcome outcome)
-        => outcome switch
-        {
-            TestExecutionOutcome.Passed => "Passed",
-            TestExecutionOutcome.AssertionFailure => "Failed",
-            TestExecutionOutcome.DiscoveryFailure => "Incomplete",
-            TestExecutionOutcome.Crashed => "Crashed",
-            TestExecutionOutcome.Hung => "Hung",
-            TestExecutionOutcome.Cancelled => "Cancelled",
-            TestExecutionOutcome.Incomplete => "Incomplete",
-            _ => "InfrastructureError"
-        };
+        => TestExecutionOutcomeReportCatalog.GetLabel(outcome);
 
     private static string OutcomeForReport(TestCaseOutcome outcome)
         => outcome switch
