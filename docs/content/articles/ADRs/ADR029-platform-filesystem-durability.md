@@ -2,7 +2,7 @@
 adr: ADR029
 title: "Platform-specific durability stays behind the Store boundary"
 date: 2026-08-21
-last-updated: 2026-08-23
+last-updated: 2026-10-24
 status: Accepted
 version-added: 3.0.0
 summary: "Isolate filesystem durability and transient-error handling without splitting index semantics."
@@ -74,6 +74,21 @@ so production writes do not add global atomic contention merely for measurement.
 Storage-path diagnostics also report logical input opens, physical mapped files
 and views, and the lifetime-lease high-water mark so mapping amplification can be
 distinguished from synchronisation cost.
+
+The Gutenberg comparison records separate `as-shipped-persistence` and
+`matched-persistence` profiles. The as-shipped case preserves LeanCorpus's
+non-durable 256 MB / 10,000-document writer and Lucene.NET's durable defaults;
+its results are directional because buffer, compound-file and durability
+settings differ. The matched case uses durable commits, a 256 MB RAM buffer,
+the same per-thread hard limit and 10,000-document threshold, MMap directories,
+and no compound files for both writers. Both profiles explicitly commit once,
+close the writer and directory, then reopen a fresh directory and verify the
+same stored document IDs. The fixture records the effective writer settings,
+reopened document count, index bytes and file count. LeanCorpus exposes file
+sync bytes and operation counts through its metrics collector; the benchmark
+records the commit metadata-sync contract for both engines because their
+directory metadata barriers are not exposed through a shared counter. These
+profiles do not change production defaults.
 
 ## Rationale
 
@@ -153,3 +168,4 @@ unsupported result is cached only after the directory was opened successfully.
 | 2026-08-21 | Accepted | Original decision accepted. | `cfc883c7e` |
 | 2026-08-22 | Amended | Versioned dirty-file state became owned by each canonical directory. | `7a2a3ac8f` |
 | 2026-08-23 | Clarified | Storage diagnostics began reporting logical opens, physical mappings and lifetime-lease high-water marks. | `52cf2bb0c` |
+| 2026-10-24 | Clarified | Gutenberg persistence comparisons gained matched and as-shipped profiles with close/reopen verification; production defaults remain unchanged. | Issue 97 continuation sprint |

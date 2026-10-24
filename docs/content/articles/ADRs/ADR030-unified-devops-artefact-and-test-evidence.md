@@ -2,7 +2,7 @@
 adr: ADR030
 title: "DevOps owns unified artefact and test evidence"
 date: 2026-09-07
-last-updated: 2026-10-04
+last-updated: 2026-10-24
 status: Accepted
 version-added: vNext
 summary: "Build, test, coverage, benchmark, diagnostics, package and documentation output share one artefact root and provenance contract."
@@ -69,8 +69,8 @@ compression projects. A failure in one project does not remove earlier output.
 Generated benchmark documentation discovers all three families from those run
 directories.
 
-Core benchmark report schema v4 records DataForge dataset identities. Each
-identity is written as a canonical sidecar under the run artefact directory's
+Core benchmark report schema v5 retains the DataForge dataset identities added
+in v4. Each identity is written as a canonical sidecar under the run artefact directory's
 `dataforge/` child, keyed by the first 16 lower-case hexadecimal characters of
 the SHA-256 of its canonical identity bytes. Sidecars are written to a temporary
 file in the same directory, flushed and atomically renamed. The v4
@@ -78,6 +78,19 @@ file in the same directory, flushed and atomically renamed. The v4
 identity bytes separated by LF; it excludes paths, timestamps and machine
 metadata. Corpus statistics remain diagnostic, with their payload hash derived
 from the exact ordered DataForge body sequence.
+
+Schema v5 preserves every BenchmarkDotNet report row. Each row records stable
+case and result-row hashes, parameters, the BDN job and resolved job identity,
+runtime, toolchain, job settings, environment variables, workload measurement
+counts and a measurement fingerprint. Rows are classified as terminal,
+intermediate, failed or invalid-statistics results. Only successful rows with
+actual workload measurements and finite, internally consistent terminal
+statistics carry timing and GC results. Duplicate rows are retained with
+distinct result-row IDs; the report never selects a fastest mean. A comparison
+is eligible only when every registered case has terminal results and no failed,
+intermediate or missing cases remain. Schema v4 remains readable as historical
+dataset provenance, but it cannot qualify a comparison or appear as current
+benchmark evidence.
 
 ## Rationale
 
@@ -117,3 +130,4 @@ the only safe correlation key once tests may execute concurrently.
 | 2026-09-08 | Clarified | Kept benchmark-process telemetry outside the existing diagnostics contract. | `e472db40a` |
 | 2026-09-24 | Amended | Added canonical DataForge dataset identities and fingerprints to benchmark report schema v4. | `096b06467` |
 | 2026-10-04 | Amended | Separated aggregate CI, stress and flaky telemetry from full diagnostic test-process capture. | `e3e6733e9` |
+| 2026-10-24 | Amended | Added stable BDN result-row identity and terminal-statistics requirements to Core benchmark report schema v5; retained v4 as historical-only evidence. | Issue 97 BVAL-14 |

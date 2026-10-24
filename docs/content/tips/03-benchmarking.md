@@ -1,29 +1,29 @@
 # Benchmarking
 
-LeanCorpus uses BenchmarkDotNet through the repository `devops` entry point. Use a focused suite for development and retain a controlled, representative run for a performance claim.
+LeanCorpus uses BenchmarkDotNet through the repository `devops` entry point. On Linux and macOS, run `./devops`; on Windows, use `./devops.exe`. Use a focused suite for development and retain a controlled, representative run for a performance claim.
 
 ## List suites and strategies
 
-```powershell
-pwsh ./devops.ps1 benchmark -List
+```bash
+./devops benchmark --list
 ```
 
 Run a quick query suite:
 
-```powershell
-pwsh ./devops.ps1 benchmark -Suite query -Strat fast
+```bash
+./devops benchmark --suite query --strat fast
 ```
 
 Preview the resolved command without running it:
 
-```powershell
-pwsh ./devops.ps1 benchmark -Suite query -Strat quick-compare -Dry
+```bash
+./devops benchmark --suite query --strat quick-compare --dry
 ```
 
 Pass BenchmarkDotNet arguments after `--`:
 
-```powershell
-pwsh ./devops.ps1 benchmark -Suite query -Strat quick-compare -- --filter "*LeanCorpus*"
+```bash
+./devops benchmark --suite query --strat quick-compare -- --filter "*LeanCorpus*"
 ```
 
 ## Strategies
@@ -39,16 +39,16 @@ pwsh ./devops.ps1 benchmark -Suite query -Strat quick-compare -- --filter "*Lean
 
 The names are presets, not a ranking of statistical quality. `intense` has fewer documents than `default` but a longer BenchmarkDotNet job.
 
-`-Controlled` selects a deterministic local diagnostic preset. It cannot make two different machines equivalent.
+`--controlled` selects a deterministic local diagnostic preset. It cannot make two different machines equivalent.
 
 ## Benchmark data
 
-Ordinary benchmark runs use deterministic synthetic DataForge records. They do not download or discover a local corpus. Select a Gutenberg suite explicitly when measuring real ebook text:
+Ordinary benchmark runs use deterministic synthetic DataForge records. They do not download or discover a local corpus. Select a Gutenberg suite explicitly when measuring real ebook text. `--prepare-data` downloads the requested books before the run:
 
-```powershell
-pwsh ./devops.ps1 benchmark -Suite gutenberg-index -PrepareData -BookCount 200
-pwsh ./devops.ps1 benchmark -Suite gutenberg-search -PrepareData -BookCount 200
-pwsh ./devops.ps1 benchmark -Suite text -PrepareData -- --filter "*GutenbergAnalysisBenchmarks*"
+```bash
+./devops benchmark --suite gutenberg-index --prepare-data --book-count 200
+./devops benchmark --suite gutenberg-search --prepare-data --book-count 200
+./devops benchmark --suite text --prepare-data --book-count 200 -- --filter "*GutenbergAnalysisBenchmarks*"
 ```
 
 The report records generated profile identity, version, seed, record count, parameters and content SHA-256. Explicit Gutenberg runs record the external data source. Compare the complete identity and workload parameters before comparing timings.
@@ -68,16 +68,16 @@ pwsh ./devops.ps1 dataforge reference verify
 
 Benchmark it explicitly. The runner verifies the reference before starting and fails if the selected directory is missing or invalid:
 
-```powershell
-pwsh ./devops.ps1 benchmark -Suite query -Dataset wikipedia -Strat fast
-pwsh ./devops.ps1 benchmark -Suite index -Dataset wikipedia -ReferencePath ./artifacts/dataforge/reference/leancorpus-wikipedia-en-v1 -DocCount 1000 -Strat fast
+```bash
+./devops benchmark --suite query --dataset wikipedia --strat fast
+./devops benchmark --suite index --dataset wikipedia --reference-path ./artifacts/dataforge/reference/leancorpus-wikipedia-en-v1 --doc-count 1000 --strat fast
 ```
 
 Reference mode accepts `index`, `query`, `boolean`, `phrase`, `prefix`, `fuzzy`, `wildcard`, `regexp`, `mlt`, `highlighter`, `combined`, `terminset`, `parallel`, `similarity`, and `async-index`. The `merge` suite runs its plain-text method only; `flush` runs its text-only method only. Suites that need generated structured fields or vectors are unavailable. The frozen reference contains 20,000 records, so a larger `-DocCount` or strategy fails instead of switching datasets.
 
 The imported benchmark identity contains `DatasetId=leancorpus-wikipedia-en`, version 1, the reference's full record count and content SHA-256, with no seed. It has its own data fingerprint and result series. Normal synthetic benchmarks remain the default, and benchmark execution never downloads or queries live Wikipedia.
 
-Use `-CorpusOnly` to run LeanCorpus cases without Lucene.NET comparisons.
+Use `--corpus-only` to run LeanCorpus cases without Lucene.NET comparisons.
 
 ## Output
 
@@ -95,8 +95,13 @@ Treat the raw BenchmarkDotNet artefacts, `run-report.json`, and `core/report.jso
 
 ## Interpret a result
 
+A Passed run status records successful execution and complete runner output. It does not qualify a comparison. The managed report records source, host and dataset identity separately; missing or mismatched identity, a dirty source tree, and Core report schema v4 leave the result unqualified. Schema v5 preserves each BenchmarkDotNet result row with its job, runtime, parameters, toolchain and terminal-statistics state. August 2026 reports and schema-v4 output remain historical even if copied into a newer run inventory. Generated benchmark pages label retained historical and unqualified output and never treat it as a 4.0 comparison.
+
 Check these before calling a difference a regression:
 
+- Inspect qualification state, reason codes, comparability and ratio eligibility in run-report.json. Execution success alone is not comparison evidence.
+- Verify the source commit and clean state, host identity, and dataset content fingerprints between the managed run and each Core child report.
+- Check that the Core report schema is supported. Schema-v5 is required for current comparisons; schema-v4 and August 2026 output are historical only.
 - same benchmark method and parameters;
 - same documents or bytes processed per operation;
 - same dataset identity, content SHA-256 and document count;

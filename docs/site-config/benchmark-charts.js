@@ -4,7 +4,7 @@
 var canvas = document.querySelector("canvas[id^='chart-bench-']");
 if(!canvas)return;
 var suite = canvas.id.replace("chart-bench-","");
-var jsonUrl = suite + ".json";
+var jsonUrl = canvas.dataset.json || suite + ".json";
 var status = document.createElement("p");
 status.className = "benchmark-chart-status";
 status.textContent = "Loading chart…";

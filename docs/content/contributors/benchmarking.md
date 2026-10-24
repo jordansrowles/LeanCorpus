@@ -7,7 +7,7 @@ LeanCorpus benchmarks answer two different questions: whether a focused operatio
 List benchmark suites through the repository entry point:
 
 ```powershell
-pwsh ./devops.ps1 benchmark -List
+./devops benchmark --list
 ```
 
 Add a case to the nearest existing suite when the setup, corpus, and measured operation are genuinely shared. Create a new suite when reusing setup would hide materially different work.
@@ -33,7 +33,7 @@ Keep global setup outside the measured method. Consume returned values so work c
 Use a dry run while developing:
 
 ```powershell
-pwsh ./devops.ps1 benchmark -Suite <suite> -Strat fast
+./devops benchmark --suite <suite> --strat fast
 ```
 
 Run the repository's normal strategy for evidence intended to support a performance claim.
@@ -43,7 +43,7 @@ Run the repository's normal strategy for evidence intended to support a performa
 Open the **Benchmark** workflow (`.github/workflows/benchmark.yml`) in GitHub Actions
 and select **Run workflow**. Choose the branch, suite, strategy, framework and
 hosted runner OS. Suites accept `all`, `core`, `text`, `compression` or a named
-suite from `pwsh ./devops.ps1 benchmark -List`, such as `query` or `index`.
+suite from `./devops benchmark --list`, such as `query` or `index`.
 
 The defaults run all three benchmark projects on Ubuntu with .NET 10 and the
 `default` strategy. A document count of `0` keeps the strategy's default.
@@ -61,7 +61,7 @@ the same workload and environment checks as local comparisons.
 
 Add or identify a focused correctness test for the path before optimising it. Search optimisation requires matching document IDs, ordering, total hits, and scores where the public contract promises score equivalence.
 
-The Core `geo` suite compares Geo distance and bounding-box filters against Lucene.NET using the same deterministic synthetic coordinates and stored fixture IDs. It converts LeanCorpus metres to Lucene.NET kilometres with the same 6,371 km Earth radius, sets Lucene.NET's prefix-tree distance error percentage to zero, checks total hits and ordered IDs in global setup, and prepares both query forms before timing. The check warms each index, and BenchmarkDotNet warm-up continues that state, so these results describe warm-query performance only. Distance and bounding-box methods use separate baselines. The implementations use different index algorithms, so treat each operation as a focused comparison rather than a general product ranking. Run it with `./devops benchmark -Suite geo -Strat fast` for a development smoke; use the default strategy and controlled host for performance evidence.
+The Core `geo` suite compares Geo distance and bounding-box filters against Lucene.NET using the same deterministic synthetic coordinates and stored fixture IDs. It converts LeanCorpus metres to Lucene.NET kilometres with the same 6,371 km Earth radius, sets Lucene.NET's prefix-tree distance error percentage to zero, checks total hits and ordered IDs in global setup, and prepares both query forms before timing. The check warms each index, and BenchmarkDotNet warm-up continues that state, so these results describe warm-query performance only. Distance and bounding-box methods use separate baselines. The implementations use different index algorithms, so treat each operation as a focused comparison rather than a general product ranking. Run it with `./devops benchmark --suite geo --strat fast` for a development smoke; use the default strategy and controlled host for performance evidence.
 
 The Geo comparison covers point-distance and point-bounding-box queries only. Geo nearest benchmarks compare LeanCorpus's exhaustive and best-first execution strategies, while the Geo aggregation and shape metadata benchmarks measure separate LeanCorpus operations. Those workloads do not share a Lucene.NET comparator in this suite: using the point geohash index as a stand-in for shape topology, aggregation results, or spatial metadata would compare different work.
 
