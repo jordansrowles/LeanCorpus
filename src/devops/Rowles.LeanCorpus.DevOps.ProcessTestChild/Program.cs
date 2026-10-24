@@ -23,6 +23,16 @@ switch (args[0])
         }
         return 0;
     }
+    case "output-handshake":
+        Console.Out.WriteLine("out-ready");
+        Console.Out.Flush();
+        Console.Error.WriteLine("err-ready");
+        Console.Error.Flush();
+        while (!File.Exists(args[1]))
+        {
+            await Task.Delay(10);
+        }
+        return 0;
     case "long-line":
         Console.WriteLine(new string('x', int.Parse(args[1])));
         return 0;

@@ -170,7 +170,14 @@ public sealed class ProcessRunnerTests
 
         Assert.Equal(OutcomeKind.Success, result.Outcome);
         Assert.InRange(events.Count, 1, 8);
-        Assert.All(events, item => Assert.True(item.Elapsed > TimeSpan.Zero));
+        Assert.All(events, item =>
+        {
+            Assert.True(item.Elapsed > TimeSpan.Zero);
+            Assert.Equal(0, item.StandardOutputLineCount);
+            Assert.Equal(0, item.StandardErrorLineCount);
+            Assert.Null(item.LastStandardOutputLine);
+            Assert.Null(item.LastStandardErrorLine);
+        });
     }
 
     [Fact]
@@ -178,19 +185,29 @@ public sealed class ProcessRunnerTests
     {
         using var directory = TemporaryDirectory.Create("DevOps child output heartbeat ");
         var events = new ConcurrentQueue<ProcessProgressEvent>();
-        var request = CreateRequest(directory.Path, "noisy", "1", "250") with
+        var releasePath = Path.Combine(directory.Path, "heartbeat-observed");
+        var request = CreateRequest(directory.Path, "output-handshake", releasePath) with
         {
+            Timeout = TimeSpan.FromSeconds(10),
             ProgressInterval = TimeSpan.FromMilliseconds(50),
-            Progress = events.Enqueue
+            Progress = heartbeat =>
+            {
+                events.Enqueue(heartbeat);
+                // Release the child only after the periodic snapshot observes both pipes.
+                if (heartbeat.LastStandardOutputLine == "out-ready" &&
+                    heartbeat.LastStandardErrorLine == "err-ready")
+                {
+                    File.WriteAllText(releasePath, "observed");
+                }
+            }
         };
 
         var result = await new ProcessRunner().RunAsync(request, TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.Success, result.Outcome);
-        Assert.NotEmpty(events);
-        var heartbeat = events.Last();
-        Assert.StartsWith("out-", Assert.IsType<string>(heartbeat.LastStandardOutputLine));
-        Assert.StartsWith("err-", Assert.IsType<string>(heartbeat.LastStandardErrorLine));
+        Assert.Contains(events, heartbeat =>
+            heartbeat.LastStandardOutputLine == "out-ready" &&
+            heartbeat.LastStandardErrorLine == "err-ready");
     }
 
     [Fact]

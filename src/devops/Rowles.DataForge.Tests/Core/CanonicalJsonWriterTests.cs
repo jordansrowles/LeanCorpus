@@ -39,14 +39,28 @@ public sealed class CanonicalJsonWriterTests
         Assert.DoesNotContain("\\u", text, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void Unpaired_surrogate_is_rejected()
+    [Theory]
+    [InlineData(0xD800)]
+    [InlineData(0xDC00)]
+    public void Unpaired_surrogate_is_rejected(int codeUnit)
     {
+        // Construct at runtime: this toolchain replaces lone surrogate literals with U+FFFD.
+        var malformed = new string((char)codeUnit, 1);
+        Assert.Equal(1, malformed.Length);
+        Assert.Equal(codeUnit, (int)malformed[0]);
         using var stream = new MemoryStream();
         using var writer = new CanonicalJsonWriter(stream);
         writer.WriteStartObject();
         writer.WritePropertyName("bad");
-        Assert.Throws<ArgumentException>(() => writer.WriteStringValue("\ud800"));
+        Assert.Throws<ArgumentException>(() => writer.WriteStringValue(malformed));
+    }
+
+    [Fact]
+    public void Valid_surrogate_pair_is_written_as_utf8()
+    {
+        var value = new string([(char)0xD83D, (char)0xDE00]);
+        var bytes = Write(writer => writer.WriteStringValue(value));
+        Assert.Equal(new byte[] { 0x22, 0xF0, 0x9F, 0x98, 0x80, 0x22 }, bytes);
     }
 
     [Fact]

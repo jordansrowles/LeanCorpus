@@ -9,3 +9,6 @@
 /src/devops/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/*.fixture.b64 -text
 /src/devops/Rowles.LeanCorpus.Cli/Fixtures/Migration/*.manifest.json -text
 /src/devops/Rowles.LeanCorpus.Cli/Fixtures/Migration/*.fixture.b64 -text
+
+# Benchmark correctness audit hashes require LF bytes on every checkout.
+/.config/devops/benchmark-correctness-fixtures/*.json text eol=lf
