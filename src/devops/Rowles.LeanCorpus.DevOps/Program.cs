@@ -1178,7 +1178,8 @@ internal static class CommandLineApplication
             : 0;
         var suiteIndex = commandIndex + 1;
         if (commandIndex >= args.Length || !args[commandIndex].Equals("benchmark", StringComparison.OrdinalIgnoreCase) ||
-            suiteIndex >= args.Length || args[suiteIndex].StartsWith("-", StringComparison.Ordinal) || args[suiteIndex] == "--")
+            suiteIndex >= args.Length || args[suiteIndex].StartsWith("-", StringComparison.Ordinal) || args[suiteIndex] == "--" ||
+            args[suiteIndex].Equals("workload", StringComparison.OrdinalIgnoreCase))
         {
             return args;
         }
