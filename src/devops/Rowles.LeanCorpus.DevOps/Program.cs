@@ -797,7 +797,8 @@ internal static class Program
             Arity = ArgumentArity.ZeroOrMore
         };
 
-        var command = new Command("benchmark", "Run selected BenchmarkDotNet suites.");
+        var command = new Command("benchmark", "Run selected BenchmarkDotNet suites and sustained workloads.");
+        command.Add(BuildBenchmarkWorkloadCommand(handler, repository));
         command.Add(suite);
         command.Add(strategy);
         command.Add(framework);
@@ -838,6 +839,66 @@ internal static class Program
             result.GetValue(list),
             result.GetValue(arguments) ?? [],
             result.GetValue(repository))));
+        return command;
+    }
+
+    private static Command BuildBenchmarkWorkloadCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var scenario = new Argument<string>("scenario")
+        {
+            Description = "ingest-throughput, search-readonly or ingest-search-refresh.",
+            Arity = ArgumentArity.ZeroOrOne,
+            DefaultValueFactory = _ => "ingest-throughput"
+        };
+        var engine = new Option<string>("--engine") { DefaultValueFactory = _ => "both" };
+        var framework = new Option<string>("--framework") { DefaultValueFactory = _ => "net11.0" };
+        var dataset = new Option<string>("--dataset") { DefaultValueFactory = _ => "leancorpus-search" };
+        var seed = new Option<ulong>("--seed") { DefaultValueFactory = _ => 42UL };
+        var documents = new Option<int>("--doc-count") { DefaultValueFactory = _ => 128 };
+        var searches = new Option<int>("--search-operations") { DefaultValueFactory = _ => -1 };
+        var concurrency = new Option<int>("--concurrency") { DefaultValueFactory = _ => 2 };
+        var queue = new Option<int>("--queue-capacity") { DefaultValueFactory = _ => 16 };
+        var refresh = new Option<int>("--refresh-every") { DefaultValueFactory = _ => 16 };
+        var duration = new Option<int>("--duration-seconds") { DefaultValueFactory = _ => 10 };
+        var memory = new Option<int>("--memory-mib") { DefaultValueFactory = _ => 512 };
+        var durability = new Option<string>("--durability") { DefaultValueFactory = _ => "explicit-commit" };
+        var noRestore = new Option<bool>("--no-restore");
+        var dry = new Option<bool>("--dry");
+        var list = new Option<bool>("--list");
+        var command = new Command("workload", "Run a bounded, deterministic sustained workload child.");
+        command.Add(scenario);
+        command.Add(engine);
+        command.Add(framework);
+        command.Add(dataset);
+        command.Add(seed);
+        command.Add(documents);
+        command.Add(searches);
+        command.Add(concurrency);
+        command.Add(queue);
+        command.Add(refresh);
+        command.Add(duration);
+        command.Add(memory);
+        command.Add(durability);
+        command.Add(noRestore);
+        command.Add(dry);
+        command.Add(list);
+        command.SetAction(result => handler.Benchmark(BenchmarkCommandOptions.ForWorkload(new BenchmarkWorkloadOptions(
+            result.GetValue(scenario) ?? "ingest-throughput",
+            result.GetValue(engine) ?? "both",
+            result.GetValue(framework) ?? "net11.0",
+            result.GetValue(dataset) ?? "leancorpus-search",
+            result.GetValue(seed),
+            result.GetValue(documents),
+            result.GetValue(searches),
+            result.GetValue(concurrency),
+            result.GetValue(queue),
+            result.GetValue(refresh),
+            result.GetValue(duration),
+            result.GetValue(memory),
+            result.GetValue(durability) ?? "explicit-commit",
+            result.GetValue(noRestore),
+            result.GetValue(dry),
+            result.GetValue(list)), result.GetValue(repository))));
         return command;
     }
 }

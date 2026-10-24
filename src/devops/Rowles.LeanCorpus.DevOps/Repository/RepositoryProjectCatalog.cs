@@ -5,7 +5,8 @@ internal enum RepositoryProjectRole
     Core,
     DevOpsHost,
     ServerLocal,
-    DataForgeTool
+    DataForgeTool,
+    BenchmarkWorkloads
 }
 
 internal static class RepositoryProjectCatalog
@@ -17,6 +18,7 @@ internal static class RepositoryProjectCatalog
             RepositoryProjectRole.DevOpsHost => "src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj",
             RepositoryProjectRole.ServerLocal => "src/server/Rowles.LeanCorpus.Server.Local/Rowles.LeanCorpus.Server.Local.csproj",
             RepositoryProjectRole.DataForgeTool => "src/devops/Rowles.DataForge.Tool/Rowles.DataForge.Tool.csproj",
+            RepositoryProjectRole.BenchmarkWorkloads => "src/devops/Rowles.LeanCorpus.Benchmark.Workloads/Rowles.LeanCorpus.Benchmark.Workloads.csproj",
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unknown repository project role.")
         };
 

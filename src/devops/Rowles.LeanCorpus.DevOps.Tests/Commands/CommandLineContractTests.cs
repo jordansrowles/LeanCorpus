@@ -917,4 +917,31 @@ public sealed class CommandLineContractTests
             return 0;
         }
     }
+
+
+    [Fact]
+    public void BenchmarkWorkloadKeepsTypedScenarioAndBudgetOptions()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["--repo", "/tmp/LeanCorpus checkout", "benchmark", "workload", "ingest-search-refresh",
+            "--engine", "both", "--framework", "net10.0", "--doc-count", "32",
+            "--search-operations", "24", "--concurrency", "4", "--queue-capacity", "1",
+            "--refresh-every", "8", "--duration-seconds", "30", "--memory-mib", "4096", "--dry"], handler));
+
+        var command = Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal("/tmp/LeanCorpus checkout", command.RepositoryPath);
+        var workload = Assert.IsType<BenchmarkWorkloadOptions>(command.Workload);
+        Assert.Equal("ingest-search-refresh", workload.Scenario);
+        Assert.Equal("both", workload.Engine);
+        Assert.Equal("net10.0", workload.Framework);
+        Assert.Equal(32, workload.DocumentCount);
+        Assert.Equal(24, workload.SearchOperations);
+        Assert.Equal(4, workload.Concurrency);
+        Assert.Equal(1, workload.QueueCapacity);
+        Assert.Equal(8, workload.RefreshEveryDocuments);
+        Assert.Equal(30, workload.DurationSeconds);
+        Assert.Equal(4096, workload.MemoryBudgetMiB);
+        Assert.True(workload.Dry);
+    }
 }

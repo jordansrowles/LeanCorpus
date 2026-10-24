@@ -26,6 +26,18 @@ Before comparing results, record:
 
 Per-operation allocation is only comparable when each operation performs the same work. Resident memory, memory-mapped pages, managed allocation, and index size are separate measurements.
 
+## Short sustained workload checks
+
+The managed benchmark command can run a bounded correctness smoke for `ingest-throughput`, `search-readonly` or `ingest-search-refresh`. Use `--dry` to inspect the selected engines and resource limits without building or running the worker:
+
+```bash
+./devops benchmark workload ingest-search-refresh --engine both --doc-count 128 \
+  --search-operations 128 --concurrency 2 --queue-capacity 16 \
+  --refresh-every 16 --duration-seconds 10 --memory-mib 512 --dry
+```
+
+Remove `--dry` to execute the internal worker. The run stores versioned input and terminal JSON, child logs, source and host identity, input/output hashes, logical IDs, operation samples and counters under `artifacts/benchmark/runs/`. Two-engine runs record whether completed logical work matched. Every sustained-worker result remains unqualified and cannot supply a performance ratio; controlled, repeated host qualification is a separate step.
+
 ## BenchmarkDotNet shape
 
 Keep global setup outside the measured method. Consume returned values so work cannot be removed. Parameterise meaningful dimensions, but avoid a Cartesian product that makes the suite impractical.

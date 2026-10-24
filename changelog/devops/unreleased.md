@@ -18,6 +18,8 @@
 - Verify Packed BKD selective XY range results against the deterministic input point set.
 - Add an unqualified shape-index case family and verify origin containment before timing across the existing shape and vertex-count parameters.
 
+- Add a managed, bounded sustained-workload command with versioned input and terminal evidence for ingestion, read-only search and mixed ingest/search refresh scenarios.
+
 ## Changed
 
 - Emit Core benchmark report schema v5 with stable BenchmarkDotNet case and result-row identity, preserve duplicate and intermediate rows, validate terminal statistics, and treat schema v4 as historical-only comparison evidence.

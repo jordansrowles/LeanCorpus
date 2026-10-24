@@ -352,6 +352,10 @@ internal sealed class BenchmarkCommandService(
     public async Task<BenchmarkCommandResult> RunAsync(BenchmarkCommandRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.Options.Workload is not null)
+            return await new BenchmarkWorkloadCommandService(artifactPaths, runStore, processRunner,
+                sdkResolver, provenanceReader, progress, errorOutput, dotnetExecutable)
+                .RunAsync(request, cancellationToken).ConfigureAwait(false);
         var configuration = new ConfigurationLoader(artifactPaths.RepositoryRoot).Load();
         if (request.Options.List)
         {

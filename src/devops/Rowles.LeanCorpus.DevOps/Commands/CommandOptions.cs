@@ -84,7 +84,32 @@ internal sealed record BenchmarkCommandOptions(
     bool Dry,
     bool List,
     IReadOnlyList<string> Arguments,
-    string? RepositoryPath = null);
+    string? RepositoryPath = null,
+    BenchmarkWorkloadOptions? Workload = null)
+{
+    public static BenchmarkCommandOptions ForWorkload(BenchmarkWorkloadOptions workload, string? repositoryPath)
+        => new("all", "default", workload.Framework, workload.DocumentCount, workload.Dataset,
+            null, null, null, null, null, null, false, false, false, false, 200,
+            workload.Dry, workload.List, [], repositoryPath, workload);
+}
+
+internal sealed record BenchmarkWorkloadOptions(
+    string Scenario,
+    string Engine,
+    string Framework,
+    string Dataset,
+    ulong Seed,
+    int DocumentCount,
+    int SearchOperations,
+    int Concurrency,
+    int QueueCapacity,
+    int RefreshEveryDocuments,
+    int DurationSeconds,
+    int MemoryBudgetMiB,
+    string Durability,
+    bool NoRestore,
+    bool Dry,
+    bool List);
 
 internal sealed record BenchmarkRemoteCommandOptions(
     string Action,
