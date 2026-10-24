@@ -1757,6 +1757,59 @@
         }
       ],
       "estimatedBudget": "short"
+    },
+    {
+      "id": "shape-index-origin-exact-v1",
+      "project": "core",
+      "benchmarkClass": "ShapeIndexingBenchmarks",
+      "benchmarkMethods": [
+        "IndexShapeAndFlush"
+      ],
+      "parameterValues": {
+        "VertexCount": [
+          "10",
+          "100",
+          "1000",
+          "10000"
+        ],
+        "ShapeKind": [
+          "Convex",
+          "Concave",
+          "OneHole",
+          "ManyHoles"
+        ]
+      },
+      "semanticParameters": {
+        "coordinateSystem": "XY",
+        "geometry": "deterministic Convex, Concave, OneHole and ManyHoles polygons centred at origin",
+        "documentsPerOperation": "1",
+        "timedBoundary": "add one shape document and commit"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "XYShapeIndexAndFlush",
+      "datasetProfile": "synthetic-spatial-shapes-v1",
+      "workloadId": "xy-shape-index-and-flush-v1",
+      "algorithmFamily": "PackedBkdShapeIndex",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "new-index",
+      "comparisonGroup": null,
+      "classification": "Unqualified",
+      "resultContract": "exactly-one-origin-containing-shape-document-after-commit",
+      "qualityProof": "Global setup indexes each deterministic geometry into an isolated file-backed index and verifies that an XY Contains query at the origin returns exactly document ID 0 for every configured vertex count and shape kind. The case is correctness-only and makes no footprint or performance claim.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
     }
   ],
   "exclusions": [
@@ -3411,16 +3464,9 @@
     },
     {
       "project": "core",
-      "benchmarkClass": "ShapeIndexingBenchmarks",
-      "benchmarkMethod": "IndexShapeAndFlush",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
       "benchmarkClass": "ShapeRelationBenchmarks",
       "benchmarkMethod": "SearchShapeRelation",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
+      "reason": "Unqualified: exact result preflights currently cover Rectangle and Polygon queries only; Circle and ComplexPolygon still require an independent relation oracle before this full parameter matrix can be registered.",
       "expiresOn": "2027-01-31"
     },
     {

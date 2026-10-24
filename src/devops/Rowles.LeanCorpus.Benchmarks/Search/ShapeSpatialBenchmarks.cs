@@ -8,6 +8,7 @@ using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
+using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Spatial;
 using Rowles.LeanCorpus.Search.Spatial.Internal;
 using Rowles.LeanCorpus.Search.Searcher;
@@ -53,6 +54,7 @@ public class ShapeIndexingBenchmarks
     {
         _geometry = ShapeGeometryFactory.CreateIndexedGeometry(ShapeKind, VertexCount);
         _actualInputVertexCount = ShapeGeometryFactory.CountVertices(_geometry);
+        ValidateShapeQueryPreflight();
         using var prepared = new PreparedSpatialDocument();
         EncodedShapePrimitiveSink sink = prepared.CreateSink(SpatialFieldKind.XYShape);
         ShapeTessellator.TessellateXY(_geometry, valueOrdinal: 0, sink);
@@ -117,6 +119,39 @@ public class ShapeIndexingBenchmarks
             if (!string.IsNullOrWhiteSpace(_path))
                 BenchmarkHelpers.DeleteDirectory(_path);
             _path = string.Empty;
+        }
+    }
+
+    private void ValidateShapeQueryPreflight()
+    {
+        string path = BenchmarkHelpers.CreateTempDirectory("lc-shape-index-preflight");
+        try
+        {
+            using var directory = new MMapDirectory(path);
+            using (var writer = new IndexWriter(directory, new IndexWriterConfig
+            {
+                BKDMaxLeafSize = 64,
+                MergePolicy = NoMergePolicy.Instance,
+                UseCompoundFile = false,
+            }))
+            {
+                var document = new LeanDocument();
+                document.Add(new XYShapeField("shape", _geometry));
+                writer.AddDocument(document);
+                writer.Commit();
+            }
+
+            using var searcher = new IndexSearcher(directory, new IndexSearcherConfig { ParallelSearch = false });
+            TopDocs hits = searcher.Search(
+                new XYShapeQuery("shape", SpatialRelation.Contains, new XYPoint(0, 0)),
+                2,
+                CancellationToken.None);
+            if (hits.IsPartial || hits.TotalHits != 1 || hits.ScoreDocs.Length != 1 || hits.ScoreDocs[0].DocId != 0)
+                throw new InvalidDataException("Shape indexing preflight did not return its exact origin-containing document.");
+        }
+        finally
+        {
+            BenchmarkHelpers.DeleteDirectory(path);
         }
     }
 
@@ -231,7 +266,7 @@ public class ShapeRelationBenchmarks
         _directory = new MMapDirectory(_path);
         _searcher = new IndexSearcher(_directory, new IndexSearcherConfig { ParallelSearch = false });
         _query = CreateQuery();
-        _hitCount = RunSearch();
+        ValidateRelationResults();
     }
 
     [Benchmark(Description = "XY shape relation over Packed BKD")]
@@ -256,6 +291,42 @@ public class ShapeRelationBenchmarks
 
     private int RunSearch()
         => _searcher!.Search(_query!, DocumentCount, TestContextCancellationToken).TotalHits;
+
+    private void ValidateRelationResults()
+    {
+        int[] actual = ReadHitDocumentIds();
+        if (QueryKind is "Rectangle" or "Polygon")
+        {
+            int selected = Math.Max(
+                1,
+                (int)Math.Round(DocumentCount * RequestedSelectivity, MidpointRounding.AwayFromZero));
+            int selectedCount = Math.Min(selected, DocumentCount);
+            int[] expected = Relation switch
+            {
+                SpatialRelation.Intersects or SpatialRelation.Within => Enumerable.Range(0, selectedCount).ToArray(),
+                SpatialRelation.Contains => [],
+                SpatialRelation.Disjoint => Enumerable.Range(selectedCount, DocumentCount - selectedCount).ToArray(),
+                _ => throw new ArgumentOutOfRangeException(nameof(Relation)),
+            };
+            if (!actual.SequenceEqual(expected))
+                throw new InvalidDataException(
+                    $"Shape relation preflight expected document IDs [{string.Join(',', expected)}], " +
+                    $"but received [{string.Join(',', actual)}] for {Relation}/{QueryKind}/{RequestedSelectivity.ToString(CultureInfo.InvariantCulture)}.");
+        }
+
+        _hitCount = actual.Length;
+    }
+
+    private int[] ReadHitDocumentIds()
+    {
+        TopDocs hits = _searcher!.Search(_query!, DocumentCount, TestContextCancellationToken);
+        if (hits.IsPartial || hits.TotalHits != hits.ScoreDocs.Length)
+            throw new InvalidDataException("Shape relation preflight truncated its complete result set.");
+        return hits.ScoreDocs
+            .Select(static hit => hit.DocId)
+            .Order()
+            .ToArray();
+    }
 
     private XYShapeQuery CreateQuery()
     {

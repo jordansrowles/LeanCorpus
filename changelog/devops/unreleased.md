@@ -16,6 +16,7 @@
 - Verify wide stored-fields writes and bounded/concurrent reads against exact decoded values.
 - Verify every numeric, sorted, multi-valued and binary DocValues benchmark output before timing.
 - Verify Packed BKD selective XY range results against the deterministic input point set.
+- Add an unqualified shape-index case family and verify origin containment before timing across the existing shape and vertex-count parameters.
 
 ## Changed
 
