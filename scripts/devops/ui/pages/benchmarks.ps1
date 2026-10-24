@@ -11,15 +11,14 @@ function Invoke-DevOpsUiBenchmarks {
         $arguments = @('benchmark', 'affected', '-Framework', $framework)
         [void]$argumentsByProject.Add([pscustomobject]@{ Arguments = $arguments; Label = 'Affected benchmarks' })
     } else {
-        $strategies = Import-PowerShellDataFile (Join-Path (Get-RepoRoot) 'scripts/devops/config/benchmark-strategies.psd1')
+        $strategies = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-strategies'
         $strategy = [string](Read-DevOpsUiSelection -Message 'Benchmark strategy' -Choices @($strategies.Keys | Sort-Object) -EnableSearch)
         $framework = [string](Read-DevOpsUiSelection -Message 'Benchmark framework' -Choices @('net10.0', 'net11.0'))
         $benchmarkDotNetText = Read-DevOpsUiText -Message 'Additional BenchmarkDotNet arguments (optional; quote values containing spaces)' -AllowEmpty
         $benchmarkDotNetArguments = @(ConvertFrom-DevOpsUiArgumentText -Text $benchmarkDotNetText)
 
         if ($mode -eq 'Grouped area and group') {
-            $registryPath = Join-Path (Get-RepoRoot) 'scripts/devops/config/benchmark-groups.psd1'
-            $groupRegistry = Import-PowerShellDataFile $registryPath
+            $groupRegistry = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-groups'
             $areas = @($groupRegistry.Values | ForEach-Object { [string]$_.Area } | Sort-Object -Unique)
             $selectedAreas = @(Read-DevOpsUiMultiSelection -Message 'Benchmark areas (OR within areas)' -Choices $areas)
             if ($selectedAreas.Count -eq 0) { return }
@@ -41,8 +40,12 @@ function Invoke-DevOpsUiBenchmarks {
                 [void]$argumentsByProject.Add([pscustomobject]@{ Arguments = $arguments; Label = "$project grouped benchmarks" })
             }
         } else {
-            $suiteRegistry = Import-PowerShellDataFile (Join-Path (Get-RepoRoot) 'scripts/devops/config/benchmark-suites.psd1')
-            $datasetRegistry = Import-PowerShellDataFile (Join-Path (Get-RepoRoot) 'scripts/devops/config/benchmark-datasets.psd1')
+            $suiteConfig = Get-DevOpsConfigurationDocument -ConfigurationName 'benchmark-suites'
+            $suiteRegistry = $suiteConfig.data
+            $datasetConfig = Get-DevOpsConfigurationDocument -ConfigurationName 'benchmark-datasets'
+            $datasetRegistry = $datasetConfig.data
+            $defaultDataset = if ($datasetConfig.Contains('defaultDataset') -and $datasetConfig.defaultDataset) { [string]$datasetConfig.defaultDataset } else { 'synthetic' }
+            $projectRegistry = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-projects'
             $search = Read-DevOpsUiText -Message 'Narrow benchmark suite names/descriptions' -AllowEmpty
             $suiteChoices = @($suiteRegistry.Keys | Where-Object {
                 -not $search -or $_.Contains($search, [StringComparison]::OrdinalIgnoreCase) -or
@@ -52,8 +55,10 @@ function Invoke-DevOpsUiBenchmarks {
             $selectedSuites = @(Read-DevOpsUiMultiSelection -Message 'Select benchmark suites from the narrowed catalogue' -Choices $suiteChoices -PageSize 18)
             if ($selectedSuites.Count -eq 0) { return }
             foreach ($suite in $selectedSuites) {
-                $datasets = @('synthetic')
-                if ($suite -in $datasetRegistry.wikipedia) { $datasets += 'wikipedia' }
+                $datasets = @($defaultDataset)
+                foreach ($datasetName in $datasetRegistry.Keys) {
+                    if ($suite -in $datasetRegistry[$datasetName]) { $datasets += $datasetName }
+                }
                 $dataset = [string](Read-DevOpsUiSelection -Message "Dataset for '$suite'" -Choices $datasets)
                 $arguments = @('benchmark', '-Suite', $suite, '-Strat', $strategy, '-Framework', $framework, '-Dataset', $dataset)
                 $docCount = Read-DevOpsUiText -Message "Document count override for '$suite' (0 keeps the selected strategy default)" -DefaultAnswer '0'
@@ -62,16 +67,20 @@ function Invoke-DevOpsUiBenchmarks {
                     $reference = Read-DevOpsUiText -Message 'Wikipedia reference directory' -DefaultAnswer 'artifacts/dataforge/reference/leancorpus-wikipedia-en-v1'
                     $arguments += @('-ReferencePath', $reference)
                 }
-                if ($dataset -eq 'synthetic' -and ($suite -in @('gutenberg-index', 'gutenberg-search') -or ($suite -eq 'text' -and @($benchmarkDotNetArguments | Where-Object { $_ -match 'GutenbergAnalysisBenchmarks' }).Count -gt 0))) {
+                $suiteMetadata = if ($suiteConfig.Contains('suiteMetadata')) { $suiteConfig.suiteMetadata } else { [ordered]@{} }
+                $suitePolicy = if ($suiteMetadata.Contains($suite)) { $suiteMetadata[$suite] } else { $null }
+                $projectKey = if ($suitePolicy -and $suitePolicy.Contains('Project')) { [string]$suitePolicy.Project } elseif ($projectRegistry.Contains($suite)) { $suite } else { 'core' }
+                if ($dataset -eq $defaultDataset -and (($suitePolicy -and $suitePolicy.Contains('RequiresGutenbergData') -and $suitePolicy.RequiresGutenbergData) -or
+                        ($projectRegistry[$projectKey].Capabilities -contains 'Gutenberg' -and @($benchmarkDotNetArguments | Where-Object { $_ -match 'GutenbergAnalysisBenchmarks' }).Count -gt 0))) {
                     if (Read-DevOpsUiSwitch -Message 'Prepare Gutenberg benchmark data before running?') {
                         $bookCount = Read-DevOpsUiText -Message 'Gutenberg book count' -DefaultAnswer '200'
                         $arguments += @('-PrepareData', '-BookCount', $bookCount)
                     }
                 }
-                if ($suite -notin @('text', 'compression')) {
+                if ($projectKey -eq 'core') {
                     if (Read-DevOpsUiSwitch -Message 'Run only LeanCorpus methods (skip Lucene.NET comparison)?') { $arguments += '-CorpusOnly' }
                 }
-                if ($suite -notin @('text', 'compression') -and (Read-DevOpsUiSwitch -Message 'Collect GC heap dumps?')) { $arguments += '-GcDump' }
+                if ($projectKey -eq 'core' -and (Read-DevOpsUiSwitch -Message 'Collect GC heap dumps?')) { $arguments += '-GcDump' }
                 if ($benchmarkDotNetArguments.Count -gt 0) { $arguments += @('--') + $benchmarkDotNetArguments }
                 [void]$argumentsByProject.Add([pscustomobject]@{ Arguments = $arguments; Label = $suite })
             }

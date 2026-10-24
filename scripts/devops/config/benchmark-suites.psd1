@@ -75,5 +75,13 @@
     'tv-highlighter'     = 'TermVectorHighlighterBenchmarks'
     'analysis-parity'    = 'AnalyserParityBenchmarks'
     'analysis-filters'   = 'TokenFilterBenchmarks'
+    tokenbudget          = 'TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)'
+    'incremental-backup' = 'IncrementalBackupBenchmarks -- incremental backup workload (explicit only)'
+    'multi-reader'       = 'MultiReaderBenchmarks -- multi-reader search workload (explicit only)'
+    'ordinal-map'        = 'OrdinalMapBenchmarks -- ordinal mapping workload (explicit only)'
+    'ranking-evaluation' = 'RankingEvaluationBenchmarks -- ranking evaluation workload (explicit only)'
+    'ranking-pipeline'   = 'RankingPipelineBenchmarks -- ranking pipeline workload (explicit only)'
+    'reader-manager'     = 'ReaderManagerLifecycleBenchmarks -- reader manager lifecycle workload (explicit only)'
+    'search-session'     = 'SearchSessionBenchmarks -- search session workload (explicit only)'
     explicit             = 'All explicit-only suites'
 }

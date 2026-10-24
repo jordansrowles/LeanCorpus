@@ -3,6 +3,7 @@ Set-StrictMode -Version Latest
 
 . "$PSScriptRoot/common/output.ps1"
 . "$PSScriptRoot/common/paths.ps1"
+. "$PSScriptRoot/common/configuration.ps1"
 . "$PSScriptRoot/common/arguments.ps1"
 . "$PSScriptRoot/common/processes.ps1"
 . "$PSScriptRoot/common/tools.ps1"
@@ -12,8 +13,6 @@ Set-StrictMode -Version Latest
 . "$PSScriptRoot/artifacts/clean.ps1"
 
 $Script:TestSuites = Import-PowerShellDataFile "$PSScriptRoot/config/test-suites.psd1"
-$Script:BenchmarkSuites = Import-PowerShellDataFile "$PSScriptRoot/config/benchmark-suites.psd1"
-$Script:BenchmarkStrategies = Import-PowerShellDataFile "$PSScriptRoot/config/benchmark-strategies.psd1"
 
 . "$PSScriptRoot/testing/targets.ps1"
 . "$PSScriptRoot/testing/events.ps1"

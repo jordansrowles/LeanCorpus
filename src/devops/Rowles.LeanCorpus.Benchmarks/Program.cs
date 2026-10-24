@@ -14,9 +14,15 @@ internal static class Program
 
     public static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0].Equals("--devops-manifest", StringComparison.Ordinal))
+        {
+            Console.WriteLine(BenchmarkSuiteRegistry.CreateManifestJson());
+            return 0;
+        }
+
         PendingSuites.Clear();
 
-        HashSet<BenchmarkSuite> suites;
+        HashSet<string> suites;
         string runType;
         string[] benchmarkArgs;
         bool showHelp;
@@ -80,347 +86,32 @@ internal static class Program
             ? now.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture)
             : $"{now.ToString("yyyy-MM-dd HH-mm", CultureInfo.InvariantCulture)} ({commitHash})";
 
-        bool runAll = suites.Contains(BenchmarkSuite.All);
-
-        // Expand 'all-with-explicit' into 'all' + 'explicit'.
-        if (suites.Contains(BenchmarkSuite.AllWithExplicit))
-        {
-            suites.Remove(BenchmarkSuite.AllWithExplicit);
-            suites.Add(BenchmarkSuite.All);
-            suites.Add(BenchmarkSuite.Explicit);
-            runAll = true;
-        }
-
-        if (suites.Remove(BenchmarkSuite.Explicit))
-        {
-            suites.UnionWith([
-                BenchmarkSuite.TokenBudget,
-                BenchmarkSuite.Diagnostics,
-                BenchmarkSuite.PackedIntCodec,
-                BenchmarkSuite.CodecFrame,
-                BenchmarkSuite.CodecFrameRead,
-                BenchmarkSuite.CodecMigration,
-                BenchmarkSuite.NumericAggregatorSimd,
-                BenchmarkSuite.IndexWriterContention,
-                BenchmarkSuite.ConcurrentWrite,
-                BenchmarkSuite.Merge,
-                BenchmarkSuite.Flush,
-                BenchmarkSuite.PostingsArena,
-                BenchmarkSuite.PackedBkd,
-                BenchmarkSuite.SpatialNearest,
-                BenchmarkSuite.ShapeSpatial,
-                BenchmarkSuite.DocValuesRead,
-                BenchmarkSuite.DocValuesWrite,
-                BenchmarkSuite.BKDTree,
-                BenchmarkSuite.FstLookup,
-                BenchmarkSuite.MMapIO,
-                BenchmarkSuite.HnswSearch,
-                BenchmarkSuite.VectorFirstTouch,
-                BenchmarkSuite.VectorQuantisation,
-                BenchmarkSuite.CompoundFile,
-                BenchmarkSuite.WindowsFileSystem,
-                BenchmarkSuite.WindowsStoragePath,
-                BenchmarkSuite.IncrementalBackup,
-                BenchmarkSuite.ReaderManagerLifecycle,
-                BenchmarkSuite.QualifiedTermCache,
-                BenchmarkSuite.BoundedLruCacheFailure,
-                BenchmarkSuite.MultiReader,
-                BenchmarkSuite.OrdinalMap,
-                BenchmarkSuite.SearchSession,
-                BenchmarkSuite.RankingEvaluation,
-                BenchmarkSuite.RankingPipeline,
-            ]);
-        }
-
         // Resolve effective run type for metadata (does not affect output path)
         var effectiveRunType = string.IsNullOrEmpty(runType) ? "full" : runType;
+        var listingOnly = IsBenchmarkListRequest(benchmarkArgs);
 
-        // Clean up any stale temp directories from previous aborted runs
-        // before any suite builds its index.
-        BenchmarkHelpers.CleanTempRoot();
+        // Clean up stale benchmark state only for a measured run.
+        if (!listingOnly)
+            BenchmarkHelpers.CleanTempRoot();
 
-        if (UsesStandardSearchFixture(suites, runAll))
+        if (!listingOnly && BenchmarkSuiteRegistry.UsesStandardSearchFixture(suites))
         {
             var effectiveDocCount = docCount ?? BenchmarkData.DefaultDocCount;
             Console.WriteLine($"Preparing shared search fixture ({effectiveDocCount:N0} documents)...");
-            SharedStandardIndex.PrepareForRun(effectiveDocCount);
+            bool includesSimilaritySuite = BenchmarkSuiteRegistry.SelectWorkloads(suites)
+                .Any(static workload => workload.BenchmarkType == typeof(SimilarityBenchmarks));
+            SharedStandardIndex.PrepareForRun(effectiveDocCount, includesSimilaritySuite);
         }
 
         var suiteSummaries = new List<(string Suite, Summary Summary)>();
 
-        if (runAll || suites.Contains(BenchmarkSuite.Query))
-            RunSuite<TermQueryBenchmarks>("query", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Parser))
-        {
-            RunSuite<QueryParserBenchmarks>("parser", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<QueryParserHotPathBenchmarks>("parser-hot-path", runDir, benchmarkArgs, suiteSummaries, gcDump);
-        }
-
-        if (runAll || suites.Contains(BenchmarkSuite.Index))
-        {
-            RunSuite<IndexingBenchmarks>("index", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<LanguageAnalysisIndexingBenchmarks>("index-language-analysis", runDir, benchmarkArgs, suiteSummaries, gcDump);
-        }
-
-        if (runAll || suites.Contains(BenchmarkSuite.Boolean))
-            RunSuite<BooleanQueryBenchmarks>("boolean", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Phrase))
-            RunSuite<PhraseQueryBenchmarks>("phrase", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Prefix))
-            RunSuite<PrefixQueryBenchmarks>("prefix", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Fuzzy))
-            RunSuite<FuzzyQueryBenchmarks>("fuzzy", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Wildcard))
-            RunSuite<WildcardQueryBenchmarks>("wildcard", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Deletion) || suites.Contains(BenchmarkSuite.DeletionQueue))
-            RunSuite<DeletionQueueBenchmarks>("deletion-queue", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Deletion) || suites.Contains(BenchmarkSuite.DeletionCommit))
-            RunSuite<DeletionCommitBenchmarks>("deletion-commit", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.TokenBudget))
-            RunSuite<TokenBudgetBenchmarks>("tokenbudget", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.Diagnostics))
-            RunSuite<DiagnosticsBenchmarks>("diagnostics", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Suggester))
-            RunSuite<SuggesterBenchmarks>("suggester", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.SchemaJson))
-            RunSuite<SchemaAndJsonBenchmarks>("schemajson", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.IndexSort))
-        {
-            RunSuite<IndexSortIndexBenchmarks>("indexsort-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<IndexSortSearchBenchmarks>("indexsort-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
-        }
-
-        if (suites.Contains(BenchmarkSuite.IndexSortIndex))
-            RunSuite<IndexSortIndexBenchmarks>("indexsort-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.IndexSortSearch))
-            RunSuite<IndexSortSearchBenchmarks>("indexsort-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.BlockJoin) || suites.Contains(BenchmarkSuite.BlockJoinIndex))
-            RunSuite<BlockJoinIndexBenchmarks>("blockjoin-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.BlockJoin) || suites.Contains(BenchmarkSuite.BlockJoinSearch))
-            RunSuite<BlockJoinSearchBenchmarks>("blockjoin-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.GutenbergIndex))
-            RunSuite<GutenbergIndexingBenchmarks>("gutenberg-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.GutenbergSearch))
-            RunSuite<GutenbergSearchBenchmarks>("gutenberg-search", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        // Phase 1: query parity
-        if (runAll || suites.Contains(BenchmarkSuite.Range))
-            RunSuite<RangeQueryBenchmarks>("range", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Regexp))
-            RunSuite<RegexpQueryBenchmarks>("regexp", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Dismax))
-            RunSuite<DisjunctionMaxQueryBenchmarks>("dismax", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.MultiPhrase))
-            RunSuite<MultiPhraseQueryBenchmarks>("multiphrase", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Span))
-            RunSuite<SpanQueryBenchmarks>("span", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        // Phase 2: standalone (no Lucene.NET parity)
-        if (runAll || suites.Contains(BenchmarkSuite.MoreLikeThis))
-        {
-            RunSuite<MoreLikeThisBenchmarks>("mlt", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<MoreLikeThisSingleSegmentBenchmarks>("mlt-single-segment", runDir, benchmarkArgs, suiteSummaries, gcDump);
-        }
-
-        if (runAll || suites.Contains(BenchmarkSuite.Highlighter))
-            RunSuite<HighlighterBenchmarks>("highlighter", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.TvHighlighter))
-            RunSuite<TermVectorHighlighterBenchmarks>("tv-highlighter", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.SearcherManager))
-            RunSuite<SearcherManagerBenchmarks>("searcher-mgr", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        // Phase 3: standalone post-Gutenberg
-        if (runAll || suites.Contains(BenchmarkSuite.CombinedFields))
-            RunSuite<CombinedFieldsQueryBenchmarks>("combined", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.TermInSet))
-            RunSuite<TermInSetQueryBenchmarks>("terminset", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Aggregation))
-        {
-            RunSuite<AggregationBenchmarks>("aggregation", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<SpatialAggregationBenchmarks>("spatial-aggregation", runDir, benchmarkArgs, suiteSummaries, gcDump);
-        }
-
-        if (runAll || suites.Contains(BenchmarkSuite.QueryCache))
-            RunSuite<QueryCacheBenchmarks>("query-cache", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.ParallelSearch))
-            RunSuite<ParallelSearchBenchmarks>("parallel", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.FunctionScore))
-            RunSuite<FunctionScoreQueryBenchmarks>("function-score", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Geo))
-            RunSuite<GeoQueryBenchmarks>("geo", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.CollapseAndFacet))
-            RunSuite<CollapseAndFacetBenchmarks>("collapse-facet", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Similarity))
-            RunSuite<SimilarityBenchmarks>("similarity", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        // Phase 4: analysis
-        if (runAll || suites.Contains(BenchmarkSuite.AsyncIndex))
-            RunSuite<AsyncIndexingBenchmarks>("async-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.VectorQuantisation))
-            RunSuite<VectorQuantisationBenchmarks>("vq", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.HnswSearch))
-            RunSuite<HnswSearchBenchmarks>("hnsw", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.Hybrid))
-            RunSuite<HybridSearchBenchmarks>("hybrid", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        // Microbenchmarks: explicit only, not included in --suite all.
-        if (suites.Contains(BenchmarkSuite.PackedIntCodec))
-            RunSuite<PackedIntCodecBenchmarks>("packed-int-codec", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.CodecFrame))
-            RunSuite<CodecFrameBenchmarks>("codec-frame", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.CodecFrameRead))
-            RunSuite<CodecFrameReadBenchmarks>("codec-frame-read", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.CodecMigration))
-            RunSuite<CodecMigrationBenchmarks>("codec-migration", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.NumericAggregatorSimd))
-            RunSuite<NumericAggregatorSimdBenchmarks>("numeric-aggregator", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.IndexWriterContention))
-            RunSuite<IndexWriterContentionBenchmarks>("index-writer", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.ConcurrentWrite))
-            RunSuite<ConcurrentVsSequentialBenchmarks>("concurrent-write", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        // Subsystem benchmarks: explicit only, not included in --suite all.
-        if (suites.Contains(BenchmarkSuite.Merge))
-        {
-            RunSuite<MergeBenchmarks>("merge", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<VectorMergeMemoryBenchmarks>("merge-vector-memory", runDir, benchmarkArgs, suiteSummaries, gcDump);
-        }
-
-        if (suites.Contains(BenchmarkSuite.MergePayload))
-            RunSuite<MergePayloadBenchmarks>("merge-payload", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.Flush))
-            RunSuite<FlushBenchmarks>("flush", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.PostingsArena))
-            RunSuite<PostingsArenaBenchmarks>("postings-arena", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.PackedBkd))
-            RunSuite<PackedBkdBenchmarks>("packed-bkd", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.SpatialNearest))
-        {
-            RunSuite<SpatialNearestBenchmarks>("nearest", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<SpatialNearestCompatibilityBenchmarks>("nearest-compatibility", runDir, benchmarkArgs, suiteSummaries, gcDump);
-        }
-
-        if (suites.Contains(BenchmarkSuite.ShapeSpatial))
-        {
-            RunSuite<ShapeIndexingBenchmarks>("shape-index", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<ShapeRelationBenchmarks>("shape-relations", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<ShapeDocValuesBenchmarks>("shape-docvalues", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<ShapeDocValuesMergeBenchmarks>("shape-docvalues-merge", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<ShapeDocValuesCopyBenchmarks>("shape-docvalues-copy", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<SpatialUtilityBenchmarks>("spatial-utilities", runDir, benchmarkArgs, suiteSummaries, gcDump);
-        }
-
-        if (suites.Contains(BenchmarkSuite.DocValuesRead))
-            RunSuite<DocValuesReadBenchmarks>("docvalues-read", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.DocValuesWrite))
-            RunSuite<BinaryDocValuesWriteBenchmarks>("docvalues-write", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (runAll || suites.Contains(BenchmarkSuite.StoredFieldsRead))
-        {
-            RunSuite<StoredFieldsReadBenchmarks>("stored-fields", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<StoredFieldsWriteBenchmarks>("stored-fields-write", runDir, benchmarkArgs, suiteSummaries, gcDump);
-            RunSuite<StoredFieldsByteBoundedBenchmarks>("stored-fields-byte-bounded", runDir, benchmarkArgs, suiteSummaries, gcDump);
-        }
-
-        if (suites.Contains(BenchmarkSuite.BKDTree))
-            RunSuite<BKDTreeBenchmarks>("bkd", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.FstLookup))
-            RunSuite<FstLookupBenchmarks>("fst-lookup", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.MMapIO))
-            RunSuite<MMapDirectoryIOBenchmarks>("mmap-io", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.CompoundFile))
-            RunSuite<CompoundFileBenchmarks>("compound-file", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.WindowsFileSystem))
-            RunSuite<WindowsFileSystemBenchmarks>("windows-filesystem", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.WindowsStoragePath))
-            RunSuite<WindowsStoragePathBenchmarks>("windows-storage-path", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.IncrementalBackup))
-            RunSuite<IncrementalBackupBenchmarks>("incremental-backup", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.ReaderManagerLifecycle))
-            RunSuite<ReaderManagerLifecycleBenchmarks>("reader-manager", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.QualifiedTermCache))
-            RunSuite<QualifiedTermCacheBenchmarks>("term-caches", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.BoundedLruCacheFailure))
-            RunSuite<BoundedLruCacheFailureBenchmarks>("bounded-lru-cache", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.SegmentReaderCache))
-            RunSuite<SegmentReaderCacheBenchmarks>("segment-reader-cache", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.SegmentReaderResourceCache))
-            RunSuite<SegmentReaderResourceCacheBenchmarks>("segment-reader-resource-cache", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.VectorFirstTouch))
-            RunSuite<VectorFirstTouchBenchmarks>("vector-first-touch", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.MultiReader))
-            RunSuite<MultiReaderBenchmarks>("multi-reader", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.OrdinalMap))
-            RunSuite<OrdinalMapBenchmarks>("ordinal-map", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.SearchSession))
-            RunSuite<SearchSessionBenchmarks>("search-session", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.RankingEvaluation))
-            RunSuite<RankingEvaluationBenchmarks>("ranking-evaluation", runDir, benchmarkArgs, suiteSummaries, gcDump);
-
-        if (suites.Contains(BenchmarkSuite.RankingPipeline))
-            RunSuite<RankingPipelineBenchmarks>("ranking-pipeline", runDir, benchmarkArgs, suiteSummaries, gcDump);
+        foreach (var workload in BenchmarkSuiteRegistry.SelectWorkloads(suites))
+            RunSuite(workload);
 
         ExecuteSuites(runDir, benchmarkArgs, suiteSummaries, gcDump);
+
+        if (listingOnly)
+            return 0;
 
         if (suiteSummaries.Count == 0)
         {
@@ -455,7 +146,20 @@ internal static class Program
         if (!report.Provenance.RscriptAvailable)
             report.QualityFlags.Add("RscriptUnavailable");
 
+        bool includesSuggesterBenchmarks = suiteSummaries
+            .SelectMany(static item => item.Summary.BenchmarksCases)
+            .Any(static benchmarkCase => benchmarkCase.Descriptor.Type == typeof(SuggesterBenchmarks));
+        int suggesterEvidenceCount = SuggesterQualityEvidenceCollector.AttachToReport(runDir, report);
+        bool missingSuggesterEvidence = includesSuggesterBenchmarks && suggesterEvidenceCount == 0;
+        bool unlinkedSuggesterEvidence = report.SuggesterQuality.Any(static evidence =>
+            evidence.Engines.Any(static engine => engine.BenchmarkResults.Length == 0));
+        if (missingSuggesterEvidence)
+            report.QualityFlags.Add("MissingSuggesterQualityEvidence");
+        if (unlinkedSuggesterEvidence)
+            report.QualityFlags.Add("UnlinkedSuggesterQualityEvidence");
+
         BenchmarkRunReportWriter.WriteReport(runDir, machineDir, report);
+        SuggesterQualityEvidenceCollector.DeleteSidecars(runDir);
 
         Console.WriteLine();
         Console.WriteLine($"Run:    {runId}");
@@ -463,20 +167,16 @@ internal static class Program
         Console.WriteLine($"Commit: {(string.IsNullOrEmpty(commitHash) ? "(unknown)" : commitHash)}");
         Console.WriteLine($"Output: {runDir}");
         Console.WriteLine($"Suites: {string.Join(", ", suiteSummaries.Select(s => s.Suite))}");
-        var hasInvalidResults = suiteSummaries.Any(item => item.Summary.HasCriticalValidationErrors) ||
+        var hasInvalidResults = missingSuggesterEvidence || unlinkedSuggesterEvidence ||
+            suiteSummaries.Any(item => item.Summary.HasCriticalValidationErrors) ||
             report.Suites.Any(suite => suite.FailedBenchmarkCount > 0 || suite.MissingBenchmarkCount > 0);
         return hasInvalidResults ? 1 : 0;
     }
 
-    private static void RunSuite<T>(
-        string suiteName,
-        string runDir,
-        string[] benchmarkArgs,
-        List<(string Suite, Summary Summary)> suiteSummaries,
-        bool gcDump = false) where T : class
+    private static void RunSuite(BenchmarkWorkloadDescriptor workload)
     {
-        if (PendingSuites.All(suite => suite.Type != typeof(T)))
-            PendingSuites.Add(new PendingSuite(suiteName, typeof(T)));
+        if (PendingSuites.All(suite => suite.Type != workload.BenchmarkType))
+            PendingSuites.Add(new PendingSuite(workload.ReportName, workload.BenchmarkType));
     }
 
     private static void ExecuteSuites(
@@ -498,6 +198,13 @@ internal static class Program
         // select all benchmarks from the supplied types without prompting.
         if (!HasBenchmarkDotNetOption(effectiveBenchmarkArgs, "--filter", "-f"))
             effectiveBenchmarkArgs = [.. effectiveBenchmarkArgs, "--filter", "*"];
+
+        if (IsBenchmarkListRequest(effectiveBenchmarkArgs))
+        {
+            BenchmarkSwitcher.FromTypes([.. PendingSuites.Select(static suite => suite.Type).Distinct()])
+                .Run(effectiveBenchmarkArgs, baseConfig);
+            return;
+        }
 
         var backupSuite = PendingSuites.SingleOrDefault(
             suite => suite.Type == typeof(IncrementalBackupBenchmarks));
@@ -665,32 +372,6 @@ internal static class Program
         }
     }
 
-    private static bool UsesStandardSearchFixture(
-        HashSet<BenchmarkSuite> suites,
-        bool runAll)
-    {
-        if (runAll)
-            return true;
-
-        return suites.Overlaps(
-        [
-            BenchmarkSuite.Query,
-            BenchmarkSuite.Boolean,
-            BenchmarkSuite.Phrase,
-            BenchmarkSuite.Prefix,
-            BenchmarkSuite.Fuzzy,
-            BenchmarkSuite.Wildcard,
-            BenchmarkSuite.Regexp,
-            BenchmarkSuite.Dismax,
-            BenchmarkSuite.MultiPhrase,
-            BenchmarkSuite.Span,
-            BenchmarkSuite.SearcherManager,
-            BenchmarkSuite.TermInSet,
-            BenchmarkSuite.QueryCache,
-            BenchmarkSuite.Similarity,
-        ]);
-    }
-
     private static string GetGitShortHash(string repoRoot)
     {
         try
@@ -733,88 +414,9 @@ internal static class Program
               --gcdump         Collect GC heap dumps after each benchmark run
               --corpus-only    Skip Lucene.NET comparison benchmarks, run LeanCorpus only
               --help, -h       Show this help message
-
-            Suites:
-              all              Run all primary synthetic benchmark suites (default)
-              all-with-explicit  Run all primary plus all explicit-only suites
-              explicit         Run all explicit-only suites, including subsystem and recent-feature benchmarks
-              index            IndexingBenchmarks -- bulk indexing throughput (vs Lucene.NET)
-              query            TermQueryBenchmarks -- single-term search (vs Lucene.NET)
-              parser           QueryParserBenchmarks -- bounded rejection of oversized query text
-              boolean          BooleanQueryBenchmarks -- deterministic clause shapes
-              phrase           PhraseQueryBenchmarks -- exact and slop phrase matching
-              prefix           PrefixQueryBenchmarks -- prefix matching (vs Lucene.NET)
-              fuzzy            FuzzyQueryBenchmarks -- deterministic fuzzy/edit-distance scenarios
-              wildcard         WildcardQueryBenchmarks -- wildcard pattern matching
-              deletion         DeletionQueue/CommitBenchmarks -- delete queueing and commit application
-              deletion-queue   DeletionQueueBenchmarks -- enqueue delete terms
-              deletion-commit  DeletionCommitBenchmarks -- apply queued deletes on commit
-              suggester        SuggesterBenchmarks -- DidYouMean spelling correction (vs Lucene.NET)
-              schemajson       SchemaAndJsonBenchmarks -- schema validation + JSON mapping
-              indexsort        IndexSortIndex/SearchBenchmarks -- index-time sort + sorted search
-              blockjoin        BlockJoinIndex/SearchBenchmarks -- block-join indexing and query hot path
-              blockjoin-index  BlockJoinIndexBenchmarks -- block-join indexing
-              blockjoin-search BlockJoinSearchBenchmarks -- block-join query hot path
-
-              gutenberg-index     GutenbergIndexingBenchmarks -- indexing real ebook data
-              gutenberg-search    GutenbergSearchBenchmarks -- search on real ebook data
-              range               RangeQueryBenchmarks -- BKD range queries
-              regexp              RegexpQueryBenchmarks -- regexp query parity
-              dismax              DisjunctionMaxQueryBenchmarks -- disjunction max parity
-              multiphrase         MultiPhraseQueryBenchmarks -- multi-slot phrase parity
-              span                SpanQueryBenchmarks -- span query parity
-              mlt                 MoreLikeThisBenchmarks and MoreLikeThisSingleSegmentBenchmarks -- MoreLikeThis query
-              highlighter         HighlighterBenchmarks -- snippet highlighting
-              searcher-mgr        SearcherManagerBenchmarks -- acquire/release hot path
-              term-caches         QualifiedTermCacheBenchmarks -- qualified-term interning and collection-frequency cache workload (explicit only)
-              bounded-lru-cache  BoundedLruCacheFailureBenchmarks -- cache acquisition after an unrelated disposal failure (explicit only)
-              combined            CombinedFieldsQueryBenchmarks -- BM25F multi-field search
-              terminset           TermInSetQueryBenchmarks -- set membership search
-              aggregation         AggregationBenchmarks and SpatialAggregationBenchmarks -- numeric and spatial aggregation overhead
-              query-cache         QueryCacheBenchmarks -- query cache overhead
-              parallel            ParallelSearchBenchmarks -- parallel search
-              function-score      FunctionScoreQueryBenchmarks -- function score modes
-              geo                 GeoQueryBenchmarks -- geo distance and bounding-box search
-              collapse-facet      CollapseAndFacetBenchmarks -- collapse and facet collection
-              similarity          SimilarityBenchmarks -- BM25 vs TF-IDF
-              async-index         AsyncIndexingBenchmarks -- sync vs async indexing
-              vq                  VectorQuantisationBenchmarks -- HNSW search with vector quantisation (vs Lucene.NET flat scan)
-              hnsw                HnswSearchBenchmarks -- HNSW graph search vs flat scan (vs Lucene.NET baseline)
-              vector-first-touch  VectorFirstTouchBenchmarks -- serial and parallel cold vector/HNSW first touch (explicit only)
-              hybrid              HybridSearchBenchmarks -- vector filters and text-vector RRF
-              stored-fields       StoredFieldsReadBenchmarks, StoredFieldsWriteBenchmarks, and StoredFieldsByteBoundedBenchmarks -- read allocation and wide-document flush encoding
-              tokenbudget         TokenBudgetBenchmarks -- token budget enforcement overhead (explicit only)
-              diagnostics         DiagnosticsBenchmarks -- SlowQueryLog + Analytics hook overhead (explicit only)
-              packed-int-codec    PackedIntCodecBenchmarks -- Pack/Unpack scalar loop throughput (explicit only)
-              codec-frame         CodecFrameBenchmarks -- frame write and checksum cost (explicit only)
-              codec-frame-read    CodecFrameReadBenchmarks -- frame open and checksum validation costs (explicit only)
-              codec-migration     CodecMigrationBenchmarks -- streamed migration throughput and allocation (explicit only)
-              numeric-aggregator  NumericAggregatorSimdBenchmarks -- scalar vs Vector256 aggregation (explicit only)
-              index-writer        IndexWriterContentionBenchmarks -- concurrent AddDocument throughput (explicit only)
-              concurrent-write    ConcurrentVsSequentialBenchmarks -- DWPT parallel vs sequential indexing (explicit only)
-
-              merge               MergeBenchmarks and VectorMergeMemoryBenchmarks -- segment merge throughput and high-dimensional vector allocation (explicit only)
-              merge-payload       MergePayloadBenchmarks -- wide sparse per-field payload remapping (explicit only)
-              flush               FlushBenchmarks -- segment flush latency per doc count (explicit only)
-              postings-arena       PostingsArenaBenchmarks -- DWPT postings arena workload matrix (explicit only)
-              packed-bkd           PackedBkdBenchmarks -- full Packed BKD build, spill and traversal matrix (explicit only)
-              nearest              SpatialNearestBenchmarks and compatibility suite -- exact sort vs best-first Geo/XY Top-N, with legacy/packed comparison (explicit only)
-              shape                Shape indexing/relations, Shape DocValues serialisation/read/traversal/merge-copy, and WKT/simplification (explicit only)
-              docvalues-read      DocValuesReadBenchmarks -- DocValues read throughput (explicit only)
-              docvalues-write     BinaryDocValuesWriteBenchmarks -- binary payload-offset accounting and block writing (explicit only)
-              bkd                 BKDTreeBenchmarks -- BKD range search throughput (explicit only)
-              fst-lookup          FstLookupBenchmarks -- FST term dictionary lookup (explicit only)
-              mmap-io             MMapDirectoryIOBenchmarks -- raw I/O throughput (explicit only)
-              compound-file       CompoundFileBenchmarks -- loose files vs compound segment storage (explicit only)
-              windows-filesystem  WindowsFileSystemBenchmarks -- durability and compound-file matrix (explicit only)
-              windows-storage     WindowsStoragePathBenchmarks -- decoding, mapping and sequential-write paths (explicit only)
-              incremental-backup  IncrementalBackupBenchmarks -- full and parent-linked backup operations (explicit only)
-              reader-manager      ReaderManagerLifecycleBenchmarks -- generic reader lifecycle overhead (explicit only)
-              multi-reader        MultiReaderBenchmarks -- federated search and pagination (explicit only)
-              ordinal-map         OrdinalMapBenchmarks -- global ordinal construction and lookup (explicit only)
-              search-session      SearchSessionBenchmarks -- stable cursor pagination and session lifecycle (explicit only)
-              ranking-evaluation  RankingEvaluationBenchmarks -- IR metrics and MMR diversification (explicit only)
-              ranking-pipeline    RankingPipelineBenchmarks -- profiles, rules and bounded reranking (explicit only)
+            """);
+        BenchmarkSuiteRegistry.PrintHelp();
+        Console.WriteLine("""
 
             Output:
               Results are written under artifacts/benchmark/runs/.
@@ -834,9 +436,9 @@ internal static class Program
             """);
     }
 
-    private static (HashSet<BenchmarkSuite> Suites, string RunType, string[] BenchmarkArgs, bool ShowHelp, int? DocCount, bool GcDump) ParseArguments(string[] args)
+    private static (HashSet<string> Suites, string RunType, string[] BenchmarkArgs, bool ShowHelp, int? DocCount, bool GcDump) ParseArguments(string[] args)
     {
-        var suites = new HashSet<BenchmarkSuite> { BenchmarkSuite.All };
+        var suites = new HashSet<string>(StringComparer.Ordinal) { "all" };
         var benchmarkArgs = new List<string>(args.Length);
         var showHelp = false;
         int? docCount = null;
@@ -916,105 +518,18 @@ internal static class Program
         return false;
     }
 
-    private static HashSet<BenchmarkSuite> ParseSuites(string value)
+    private static bool IsBenchmarkListRequest(IEnumerable<string> args)
+        => args.Any(static argument => argument.Equals("--list", StringComparison.OrdinalIgnoreCase) ||
+            argument.StartsWith("--list=", StringComparison.OrdinalIgnoreCase));
+
+    private static HashSet<string> ParseSuites(string value)
     {
-        var result = new HashSet<BenchmarkSuite>();
+        var result = new HashSet<string>(StringComparer.Ordinal);
         foreach (var part in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            result.Add(ParseSingleSuite(part));
+            result.Add(BenchmarkSuiteRegistry.ParseSuiteId(part));
         }
         return result;
-    }
-
-    private static BenchmarkSuite ParseSingleSuite(string value)
-    {
-        return value.ToLowerInvariant() switch
-        {
-            "all" => BenchmarkSuite.All,
-            "all-with-explicit" or "allwithexplicit" => BenchmarkSuite.AllWithExplicit,
-            "explicit" => BenchmarkSuite.Explicit,
-            "index" => BenchmarkSuite.Index,
-            "query" => BenchmarkSuite.Query,
-            "parser" => BenchmarkSuite.Parser,
-            "packedintcodec" or "packed-int-codec" => BenchmarkSuite.PackedIntCodec,
-            "codecframe" or "codec-frame" => BenchmarkSuite.CodecFrame,
-            "codecframeread" or "codec-frame-read" => BenchmarkSuite.CodecFrameRead,
-            "codecmigration" or "codec-migration" => BenchmarkSuite.CodecMigration,
-            "numericaggregator" or "numeric-aggregator" => BenchmarkSuite.NumericAggregatorSimd,
-            "indexwriter" or "index-writer" => BenchmarkSuite.IndexWriterContention,
-            "concurrentwrite" or "concurrent-write" => BenchmarkSuite.ConcurrentWrite,
-            "merge" => BenchmarkSuite.Merge,
-            "merge-payload" or "mergepayload" => BenchmarkSuite.MergePayload,
-            "flush" => BenchmarkSuite.Flush,
-            "postings-arena" or "postingsarena" => BenchmarkSuite.PostingsArena,
-            "packed-bkd" or "packedbkd" => BenchmarkSuite.PackedBkd,
-            "nearest" or "spatial-nearest" => BenchmarkSuite.SpatialNearest,
-            "shape" or "shapes" => BenchmarkSuite.ShapeSpatial,
-            "docvalues-read" or "docvaluesread" => BenchmarkSuite.DocValuesRead,
-            "docvalues-write" or "docvalueswrite" => BenchmarkSuite.DocValuesWrite,
-            "stored-fields" or "storedfields" => BenchmarkSuite.StoredFieldsRead,
-            "bkd" or "bkd-tree" => BenchmarkSuite.BKDTree,
-            "fst-lookup" or "fstlookup" => BenchmarkSuite.FstLookup,
-            "mmap-io" or "mmapio" => BenchmarkSuite.MMapIO,
-            "compound-file" or "compoundfile" => BenchmarkSuite.CompoundFile,
-            "windows-filesystem" or "windowsfilesystem" => BenchmarkSuite.WindowsFileSystem,
-            "windows-storage" or "windowsstorage" => BenchmarkSuite.WindowsStoragePath,
-            "incremental-backup" or "incrementalbackup" => BenchmarkSuite.IncrementalBackup,
-            "reader-manager" or "readermanager" => BenchmarkSuite.ReaderManagerLifecycle,
-            "term-caches" or "termcaches" => BenchmarkSuite.QualifiedTermCache,
-            "bounded-lru-cache" or "boundedlrucache" => BenchmarkSuite.BoundedLruCacheFailure,
-            "segment-reader-cache" or "segmentreadercache" => BenchmarkSuite.SegmentReaderCache,
-            "segment-reader-resource-cache" or "segmentreaderresourcecache" => BenchmarkSuite.SegmentReaderResourceCache,
-            "multi-reader" or "multireader" => BenchmarkSuite.MultiReader,
-            "ordinal-map" or "ordinalmap" => BenchmarkSuite.OrdinalMap,
-            "search-session" or "searchsession" => BenchmarkSuite.SearchSession,
-            "ranking-evaluation" or "rankingevaluation" => BenchmarkSuite.RankingEvaluation,
-            "ranking-pipeline" or "rankingpipeline" => BenchmarkSuite.RankingPipeline,
-            "boolean" => BenchmarkSuite.Boolean,
-            "phrase" => BenchmarkSuite.Phrase,
-            "prefix" => BenchmarkSuite.Prefix,
-            "fuzzy" => BenchmarkSuite.Fuzzy,
-            "wildcard" => BenchmarkSuite.Wildcard,
-            "deletion" => BenchmarkSuite.Deletion,
-            "deletionqueue" or "deletion-queue" => BenchmarkSuite.DeletionQueue,
-            "deletioncommit" or "deletion-commit" => BenchmarkSuite.DeletionCommit,
-            "indexsort" => BenchmarkSuite.IndexSort,
-            "indexsortindex" or "indexsort-index" => BenchmarkSuite.IndexSortIndex,
-            "indexsortsearch" or "indexsort-search" => BenchmarkSuite.IndexSortSearch,
-            "tokenbudget" => BenchmarkSuite.TokenBudget,
-            "diagnostics" => BenchmarkSuite.Diagnostics,
-            "suggester" => BenchmarkSuite.Suggester,
-            "schemajson" => BenchmarkSuite.SchemaJson,
-            "blockjoin" => BenchmarkSuite.BlockJoin,
-            "blockjoinindex" or "blockjoin-index" => BenchmarkSuite.BlockJoinIndex,
-            "blockjoinsearch" or "blockjoin-search" => BenchmarkSuite.BlockJoinSearch,
-            "gutenbergindex" or "gutenberg-index" => BenchmarkSuite.GutenbergIndex,
-            "gutenbergsearch" or "gutenberg-search" => BenchmarkSuite.GutenbergSearch,
-            "range" => BenchmarkSuite.Range,
-            "regexp" => BenchmarkSuite.Regexp,
-            "dismax" => BenchmarkSuite.Dismax,
-            "multiphrase" => BenchmarkSuite.MultiPhrase,
-            "span" => BenchmarkSuite.Span,
-            "mlt" => BenchmarkSuite.MoreLikeThis,
-            "highlighter" => BenchmarkSuite.Highlighter,
-            "tv-highlighter" or "tvhighlighter" => BenchmarkSuite.TvHighlighter,
-            "searcher-mgr" or "searchermgr" => BenchmarkSuite.SearcherManager,
-            "combined" => BenchmarkSuite.CombinedFields,
-            "terminset" or "term-in-set" => BenchmarkSuite.TermInSet,
-            "aggregation" => BenchmarkSuite.Aggregation,
-            "query-cache" or "querycache" => BenchmarkSuite.QueryCache,
-            "parallel" => BenchmarkSuite.ParallelSearch,
-            "function-score" or "functionscore" => BenchmarkSuite.FunctionScore,
-            "geo" => BenchmarkSuite.Geo,
-            "collapse-facet" or "collapsefacet" => BenchmarkSuite.CollapseAndFacet,
-            "similarity" => BenchmarkSuite.Similarity,
-            "vectorquantisation" or "vq" => BenchmarkSuite.VectorQuantisation,
-            "hnsw" or "hnsw-search" => BenchmarkSuite.HnswSearch,
-            "vector-first-touch" or "vectorfirsttouch" => BenchmarkSuite.VectorFirstTouch,
-            "hybrid" => BenchmarkSuite.Hybrid,
-            "async-index" or "asyncindex" => BenchmarkSuite.AsyncIndex,
-            _ => throw new ArgumentException($"Unknown benchmark suite '{value}'. Use --help to list available suites.")
-        };
     }
 
     private static string FindRepositoryRoot()
@@ -1033,93 +548,6 @@ internal static class Program
         }
 
         return Directory.GetCurrentDirectory();
-    }
-
-    private enum BenchmarkSuite
-    {
-        All,
-        AllWithExplicit,
-        Explicit,
-        Index,
-        Query,
-        Parser,
-        Boolean,
-        Phrase,
-        Prefix,
-        Fuzzy,
-        Wildcard,
-        Deletion,
-        DeletionQueue,
-        DeletionCommit,
-        TokenBudget,
-        Diagnostics,
-        Suggester,
-        SchemaJson,
-        IndexSort,
-        IndexSortIndex,
-        IndexSortSearch,
-        BlockJoin,
-        BlockJoinIndex,
-        BlockJoinSearch,
-        GutenbergIndex,
-        GutenbergSearch,
-        Range,
-        Regexp,
-        Dismax,
-        MultiPhrase,
-        Span,
-        MoreLikeThis,
-        Highlighter,
-        TvHighlighter,
-        SearcherManager,
-        CombinedFields,
-        TermInSet,
-        Aggregation,
-        QueryCache,
-        ParallelSearch,
-        FunctionScore,
-        Geo,
-        CollapseAndFacet,
-        Similarity,
-        AsyncIndex,
-        VectorQuantisation,
-        HnswSearch,
-        VectorFirstTouch,
-        Hybrid,
-        PackedIntCodec,
-        CodecFrame,
-        CodecFrameRead,
-        CodecMigration,
-        NumericAggregatorSimd,
-        IndexWriterContention,
-        ConcurrentWrite,
-        Merge,
-        Flush,
-        PostingsArena,
-        PackedBkd,
-        SpatialNearest,
-        ShapeSpatial,
-        DocValuesRead,
-        DocValuesWrite,
-        StoredFieldsRead,
-        BKDTree,
-        FstLookup,
-        MMapIO,
-        CompoundFile,
-        WindowsFileSystem,
-        WindowsStoragePath,
-        IncrementalBackup,
-        ReaderManagerLifecycle,
-        QualifiedTermCache,
-        BoundedLruCacheFailure,
-        SegmentReaderCache,
-        SegmentReaderResourceCache,
-        MultiReader,
-        OrdinalMap,
-        SearchSession,
-        MergePayload,
-        RankingEvaluation,
-        RankingPipeline,
     }
 
     private sealed record PendingSuite(string Name, Type Type);

@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 function Resolve-BenchmarkStrategy {
     param([string]$Name)
 
-    $candidates = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-strategies.psd1"
+    $candidates = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-strategies'
     if (-not $candidates.ContainsKey($Name)) {
         throw "Unknown benchmark strategy '$Name'. Valid: $($candidates.Keys -join ', ')"
     }
@@ -20,7 +20,10 @@ function Prepare-BenchmarkData {
         [string[]]$PassThrough
     )
 
-    $needsGutenberg = $Suite -in @('gutenberg-index', 'gutenberg-search') -or
+    $suiteConfig = Get-DevOpsConfigurationDocument -ConfigurationName 'benchmark-suites'
+    $suiteMetadata = if ($suiteConfig.Contains('suiteMetadata')) { $suiteConfig.suiteMetadata } else { [ordered]@{} }
+    $suitePolicy = if ($suiteMetadata.Contains($Suite)) { $suiteMetadata[$Suite] } else { $null }
+    $needsGutenberg = ($suitePolicy -and $suitePolicy.Contains('RequiresGutenbergData') -and $suitePolicy.RequiresGutenbergData) -or
         ($Suite -eq 'text' -and ($PassThrough -match 'GutenbergAnalysisBenchmarks').Count -gt 0)
     if (-not $needsGutenberg) {
         Write-Info "No external data preparation is required for suite '$Suite'."

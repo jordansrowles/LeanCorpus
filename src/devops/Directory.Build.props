@@ -24,4 +24,8 @@
     <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.Text.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Profiling'">
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
 </Project>
