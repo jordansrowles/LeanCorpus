@@ -157,29 +157,63 @@ public sealed class PhysicalIndexRuntimeResourceTests
         string path = NewPath();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
+        int coordinationStage = 0;
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
         var runtime = Open(path, new IndexWriterConfig
         {
             DurableCommits = false, MaxBufferedDocs = 1,
-            FlushSubmissionReserved = () => { entered.TrySetResult(); Assert.True(release.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken)); }
+            FlushSubmissionReserved = () =>
+            {
+                entered.TrySetResult();
+                bool wasReleased = release.Wait(TimeSpan.FromSeconds(10), cancellationToken);
+                ThreadPool.GetAvailableThreads(out int availableWorkers, out int availableIo);
+                ThreadPool.GetMaxThreads(out int maxWorkers, out int maxIo);
+                Assert.True(wasReleased,
+                    $"The close coordinator did not release the paused writer; stage={Volatile.Read(ref coordinationStage)}, " +
+                    $"threadPoolThreads={ThreadPool.ThreadCount}, pendingWorkItems={ThreadPool.PendingWorkItemCount}, " +
+                    $"availableWorkers={availableWorkers}/{maxWorkers}, availableIo={availableIo}/{maxIo}.");
+            }
         });
         Task? writing = null;
+        Task? coordinating = null;
+        Task? closing = null;
         try
         {
-            writing = Task.Run(() => { using var operation = runtime.EnterOperation(); runtime.Writer.AddDocument(Document("admitted")); }, TestContext.Current.CancellationToken);
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            Task closing = runtime.CloseAsync().AsTask();
-            Assert.Equal(1, runtime.GetDiagnostics().ActiveOperations);
-            Assert.False(closing.IsCompleted);
-            Assert.Throws<ObjectDisposedException>(() => runtime.EnterOperation());
-            release.Set();
-            await writing.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            await closing.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            coordinating = Task.Factory.StartNew(() =>
+            {
+                Volatile.Write(ref coordinationStage, 1);
+                Assert.True(entered.Task.Wait(TimeSpan.FromSeconds(10), cancellationToken),
+                    "The writer did not reach the flush-submission barrier.");
+                Volatile.Write(ref coordinationStage, 2);
+                closing = runtime.CloseAsync().AsTask();
+                Volatile.Write(ref coordinationStage, 3);
+                Assert.Equal(1, runtime.GetDiagnostics().ActiveOperations);
+                Assert.False(closing.IsCompleted);
+                Volatile.Write(ref coordinationStage, 4);
+                Assert.Throws<ObjectDisposedException>(() => runtime.EnterOperation());
+                Volatile.Write(ref coordinationStage, 5);
+                release.Set();
+            }, cancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            writing = Task.Run(() =>
+            {
+                using var operation = runtime.EnterOperation();
+                runtime.Writer.AddDocument(Document("admitted"));
+            }, cancellationToken);
+            await coordinating.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            await writing.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            Assert.NotNull(closing);
+            await closing.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
             Assert.False(runtime.GetDiagnostics().WriterLockOwned);
         }
         finally
         {
             release.Set();
             if (writing is not null) await writing;
+            if (coordinating is not null)
+            {
+                try { await coordinating; }
+                catch { /* Preserve the primary assertion or cancellation. */ }
+            }
             await runtime.DisposeAsync();
             Directory.Delete(path, recursive: true);
         }
