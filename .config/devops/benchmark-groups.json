@@ -234,6 +234,26 @@
         "StoredFieldsWriteBenchmarks",
         "StoredFieldsByteBoundedBenchmarks"
       ]
+    },
+    "Approximation": {
+      "Globs": [
+        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/ApproximationBenchmarks.cs"
+      ],
+      "Area": "Search",
+      "Project": "core",
+      "Benchmarks": [
+        "ApproximationBenchmarks"
+      ]
+    },
+    "FlushTermCardinality": {
+      "Globs": [
+        "src/devops/Rowles.LeanCorpus.Benchmarks/Index/FlushTermCardinalityBenchmarks.cs"
+      ],
+      "Area": "Index",
+      "Project": "core",
+      "Benchmarks": [
+        "FlushTermCardinalityBenchmarks"
+      ]
     }
   }
 }

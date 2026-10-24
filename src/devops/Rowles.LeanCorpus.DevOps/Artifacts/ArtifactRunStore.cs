@@ -106,7 +106,8 @@ internal sealed class ArtifactRunStore
         IEnumerable<string>? artifacts = null,
         string? failure = null,
         CancellationToken cancellationToken = default,
-        IEnumerable<int>? childExitCodes = null)
+        IEnumerable<int>? childExitCodes = null,
+        IReadOnlyDictionary<string, string>? additionalInputs = null)
     {
         ArgumentNullException.ThrowIfNull(manifest);
         if (manifest.State != RunState.Running)
@@ -119,6 +120,15 @@ internal sealed class ArtifactRunStore
             throw new ArgumentOutOfRangeException(nameof(terminalState), terminalState, "A terminal run state is required.");
         }
 
+        var inputs = manifest.Inputs.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+        if (additionalInputs is not null)
+        {
+            foreach (var (name, value) in additionalInputs)
+            {
+                inputs[name] = value;
+            }
+        }
+
         var finished = manifest with
         {
             State = terminalState,
@@ -128,7 +138,8 @@ internal sealed class ArtifactRunStore
                 .Concat(childExitCodes ?? [])
                 .ToArray(),
             Artifacts = artifacts is null ? manifest.Artifacts : manifest.Artifacts.Concat(artifacts).Distinct(StringComparer.Ordinal).ToArray(),
-            Failure = failure
+            Failure = failure,
+            Inputs = inputs
         };
         await WriteAsync(GetManifestPath(manifest.RunId), finished, cancellationToken).ConfigureAwait(false);
         return finished;

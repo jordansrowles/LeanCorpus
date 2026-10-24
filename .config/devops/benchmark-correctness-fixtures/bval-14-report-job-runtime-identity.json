@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-14-report-job-runtime-identity",
+  "deterministic": true,
+  "seed": 9714,
+  "domain": "benchmark-result-identity-and-duplicate-selection",
+  "input": {
+    "method": "SearchBenchmarks.TermQuery",
+    "parameters": { "DocumentCount": "1000", "QueryTerm": "orchard" },
+    "records": [
+      {
+        "state": "Final",
+        "meanNanoseconds": 5.0,
+        "job": {
+          "id": "dry-net10",
+          "resolvedId": "dry-net10",
+          "displayInfo": "Dry(IterationCount=3, LaunchCount=1, WarmupCount=1)",
+          "runtime": { "name": ".NET", "version": "10.0.0" },
+          "toolchain": {
+            "type": "BenchmarkDotNet.Toolchains.DotNetCli.DotNetCliToolchain",
+            "displayInfo": "DotNetCliToolchain",
+            "runtimeName": ".NET",
+            "runtimeVersion": "10.0.0",
+            "inProcess": false
+          },
+          "serverGc": false,
+          "concurrentGc": false,
+          "jit": "RyuJit",
+          "platform": "X64",
+          "runStrategy": "Throughput",
+          "launchCount": 1,
+          "warmupCount": 1,
+          "iterationCount": 3,
+          "invocationCount": 1,
+          "unrollFactor": 1,
+          "environmentVariables": { "COMPlus_ReadyToRun": "0" }
+        },
+        "measurements": [
+          { "iterationMode": "Workload", "iterationStage": "Actual", "launchIndex": 1, "iterationIndex": 1, "operations": 1, "nanoseconds": 5.0 }
+        ]
+      },
+      {
+        "state": "Final",
+        "meanNanoseconds": 6.0,
+        "job": {
+          "id": "short-net11",
+          "resolvedId": "short-net11",
+          "displayInfo": "ShortRun(IterationCount=3, LaunchCount=1, WarmupCount=3)",
+          "runtime": { "name": ".NET", "version": "11.0.0" },
+          "toolchain": {
+            "type": "BenchmarkDotNet.Toolchains.DotNetCli.DotNetCliToolchain",
+            "displayInfo": "DotNetCliToolchain",
+            "runtimeName": ".NET",
+            "runtimeVersion": "11.0.0",
+            "inProcess": false
+          },
+          "serverGc": true,
+          "concurrentGc": true,
+          "jit": "RyuJit",
+          "platform": "X64",
+          "runStrategy": "Throughput",
+          "launchCount": 1,
+          "warmupCount": 3,
+          "iterationCount": 3,
+          "invocationCount": 1,
+          "unrollFactor": 1,
+          "environmentVariables": { "COMPlus_ReadyToRun": "0" }
+        },
+        "measurements": [
+          { "iterationMode": "Workload", "iterationStage": "Actual", "launchIndex": 1, "iterationIndex": 1, "operations": 1, "nanoseconds": 6.0 }
+        ]
+      },
+      {
+        "state": "Trace",
+        "meanNanoseconds": 0.5,
+        "job": {
+          "id": "dry-net10",
+          "resolvedId": "dry-net10",
+          "displayInfo": "Dry(IterationCount=3, LaunchCount=1, WarmupCount=1)",
+          "runtime": { "name": ".NET", "version": "10.0.0" },
+          "toolchain": {
+            "type": "BenchmarkDotNet.Toolchains.DotNetCli.DotNetCliToolchain",
+            "displayInfo": "DotNetCliToolchain",
+            "runtimeName": ".NET",
+            "runtimeVersion": "10.0.0",
+            "inProcess": false
+          },
+          "serverGc": false,
+          "concurrentGc": false,
+          "jit": "RyuJit",
+          "platform": "X64",
+          "runStrategy": "Throughput",
+          "launchCount": 1,
+          "warmupCount": 1,
+          "iterationCount": 3,
+          "invocationCount": 1,
+          "unrollFactor": 1,
+          "environmentVariables": { "COMPlus_ReadyToRun": "0" }
+        },
+        "measurements": [
+          { "iterationMode": "Workload", "iterationStage": "Warmup", "launchIndex": 1, "iterationIndex": 1, "operations": 1, "nanoseconds": 0.5 }
+        ]
+      },
+      {
+        "state": "Final",
+        "meanNanoseconds": 7.0,
+        "job": {
+          "id": "dry-net10",
+          "resolvedId": "dry-net10",
+          "displayInfo": "Dry(IterationCount=3, LaunchCount=1, WarmupCount=1)",
+          "runtime": { "name": ".NET", "version": "10.0.0" },
+          "toolchain": {
+            "type": "BenchmarkDotNet.Toolchains.DotNetCli.DotNetCliToolchain",
+            "displayInfo": "DotNetCliToolchain",
+            "runtimeName": ".NET",
+            "runtimeVersion": "10.0.0",
+            "inProcess": false
+          },
+          "serverGc": false,
+          "concurrentGc": false,
+          "jit": "RyuJit",
+          "platform": "X64",
+          "runStrategy": "Throughput",
+          "launchCount": 1,
+          "warmupCount": 1,
+          "iterationCount": 3,
+          "invocationCount": 1,
+          "unrollFactor": 1,
+          "environmentVariables": { "COMPlus_ReadyToRun": "0" }
+        },
+        "measurements": [
+          { "iterationMode": "Workload", "iterationStage": "Actual", "launchIndex": 1, "iterationIndex": 2, "operations": 1, "nanoseconds": 7.0 }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "reportedRowsPreserved": 4,
+    "terminalRowsPreserved": 3,
+    "uniqueCaseIdentities": 2,
+    "traceRowsAreNotFinalMeasurements": true,
+    "fullJobAndRuntimeIdentityRequired": true,
+    "minimumMeanSelectionAllowed": false
+  }
+}

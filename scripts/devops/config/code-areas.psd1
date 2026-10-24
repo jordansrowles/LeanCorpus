@@ -70,7 +70,7 @@
     'core-textintegration-tests' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Tests.Core/TextIntegration/**'); Targets = @('core:TextIntegration') }
     'core-index-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Index/**', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/BoundedLruCacheFailureBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Search/VectorFirstTouchBenchmarks.cs', 'src/devops/Rowles.LeanCorpus.Benchmarks/Program.cs'); Targets = @('core:Index') }
     'core-docvalues-benchmarks' = @{ Globs = @('src/devops/Rowles.LeanCorpus.Benchmarks/Search/DocValuesReadBenchmarks.cs'); Targets = @('core:Index') }
-    'benchmark-runner-config' = @{ Globs = @('scripts/devops/config/benchmark-groups.psd1', 'scripts/devops/config/benchmark-suites.psd1', 'scripts/devops/config/code-areas.psd1'); Targets = @('core:CodecKit') }
+    'benchmark-runner-config' = @{ Globs = @('.config/devops/benchmark-groups.json', '.config/devops/benchmark-projects.json', '.config/devops/benchmark-suites.json', '.config/devops/benchmark-strategies.json', '.config/devops/benchmark-datasets.json', 'scripts/devops/config/benchmark-groups.psd1', 'scripts/devops/config/benchmark-suites.psd1', 'scripts/devops/config/code-areas.psd1'); Targets = @('core:CodecKit') }
 
     # Release notes are recognised but do not independently select tests. A
     # change consisting only of these files still fails closed below.

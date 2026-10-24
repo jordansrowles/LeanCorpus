@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-11-parser-success-versus-rejection",
+  "deterministic": true,
+  "seed": 9711,
+  "domain": "query-parser-success-and-guard",
+  "input": {
+    "configuredGuardLimitCharacters": 16384,
+    "queryGenerator": { "prefix": "term:", "repeatedCharacter": "a", "suffix": "", "lengthIncludesPrefix": true },
+    "cases": [
+      { "id": "compatibility-parse", "inputLengthCharacters": 65537, "expectedOperation": "ParseValid" },
+      { "id": "guard-boundary-exact-limit", "inputLengthCharacters": 16384, "expectedOperation": "ParseValid" },
+      { "id": "guard-boundary-plus-one", "inputLengthCharacters": 16385, "expectedOperation": "RejectOversized" }
+    ]
+  },
+  "expected": {
+    "validParseProducesEquivalentAst": true,
+    "oversizedInputIsRejectedAtConfiguredBoundary": true,
+    "parseAndRejectAreSeparateCases": true,
+    "competitiveRatioAcrossOperationsAllowed": false
+  }
+}

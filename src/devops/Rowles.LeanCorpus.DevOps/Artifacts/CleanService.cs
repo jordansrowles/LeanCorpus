@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Terminal;
@@ -19,6 +20,26 @@ internal sealed record CleanResult(
     IReadOnlyList<string> PreservedActiveRunPaths,
     RunManifest? Manifest);
 
+internal enum CleanTargetKind
+{
+    Test,
+    Build,
+    Coverage,
+    Docs,
+    Diagnostics,
+    Benchmark,
+    Package,
+    Cache,
+    Default,
+    All
+}
+
+internal sealed record CleanTargetDescriptor(
+    CleanTargetKind Kind,
+    string Id,
+    ImmutableArray<string> RelativePaths,
+    bool RemoveArtifactContents = false);
+
 internal interface IArtifactPathDeleter
 {
     void DeleteFile(string path);
@@ -37,19 +58,21 @@ internal sealed class CleanService
 {
     private static readonly StringComparison PathComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
     private static readonly TimeSpan LeaseWait = TimeSpan.FromSeconds(30);
-    private static readonly IReadOnlyDictionary<string, string[]> OwnedTargets = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["test"] = ["test"],
-        ["build"] = ["build"],
-        ["coverage"] = ["coverage"],
-        ["docs"] = ["docs"],
-        ["diagnostics"] = ["diagnostics"],
-        ["benchmark"] = ["benchmark/runs"],
-        ["package"] = ["package"],
-        ["cache"] = ["benchmark/cache"],
-        ["default"] = ["bin", "obj", "publish", "build", "test", "coverage", "diagnostics", "docs", "temp"],
-        ["all"] = [""]
-    };
+    private static readonly ImmutableArray<CleanTargetDescriptor> OwnedTargets =
+    [
+        new(CleanTargetKind.Test, "test", ["test"]),
+        new(CleanTargetKind.Build, "build", ["build"]),
+        new(CleanTargetKind.Coverage, "coverage", ["coverage"]),
+        new(CleanTargetKind.Docs, "docs", ["docs"]),
+        new(CleanTargetKind.Diagnostics, "diagnostics", ["diagnostics"]),
+        new(CleanTargetKind.Benchmark, "benchmark", ["benchmark/runs"]),
+        new(CleanTargetKind.Package, "package", ["package"]),
+        new(CleanTargetKind.Cache, "cache", ["benchmark/cache"]),
+        new(CleanTargetKind.Default, "default", ["bin", "obj", "publish", "build", "test", "coverage", "diagnostics", "docs", "temp"]),
+        new(CleanTargetKind.All, "all", [""], RemoveArtifactContents: true)
+    ];
+    private static readonly ImmutableDictionary<string, CleanTargetDescriptor> OwnedTargetsById
+        = OwnedTargets.ToImmutableDictionary(static target => target.Id, StringComparer.OrdinalIgnoreCase);
 
     private readonly ArtifactPaths _paths;
     private readonly ArtifactRunStore _runStore;
@@ -180,13 +203,13 @@ internal sealed class CleanService
             return "The clean service artefact root does not match the selected LeanCorpus checkout.";
         }
 
-        if (string.IsNullOrWhiteSpace(request.Target) || !OwnedTargets.TryGetValue(request.Target, out var relativeTargets))
+        if (string.IsNullOrWhiteSpace(request.Target) || !OwnedTargetsById.TryGetValue(request.Target, out var target))
         {
-            return $"Unknown clean target '{request.Target}'. Valid targets: {string.Join(", ", OwnedTargets.Keys.Order(StringComparer.Ordinal))}.";
+            return $"Unknown clean target '{request.Target}'. Valid targets: {string.Join(", ", OwnedTargets.Select(static item => item.Id).Order(StringComparer.Ordinal))}.";
         }
 
-        removeArtifactContents = string.Equals(request.Target, "all", StringComparison.OrdinalIgnoreCase);
-        targetPaths = relativeTargets.Select(relative => string.IsNullOrEmpty(relative)
+        removeArtifactContents = target.RemoveArtifactContents;
+        targetPaths = target.RelativePaths.Select(relative => string.IsNullOrEmpty(relative)
             ? _paths.ArtifactRoot
             : Path.GetFullPath(Path.Combine(_paths.ArtifactRoot, relative.Replace('/', Path.DirectorySeparatorChar)))).ToArray();
 
@@ -209,7 +232,7 @@ internal sealed class CleanService
 
     private HashSet<string> FindActiveRunDirectories(IReadOnlyList<string> targets, bool removeArtifactContents)
     {
-        var knownRunRoots = ArtifactPaths.RunCategories.Select(_paths.GetRunRoot);
+        var knownRunRoots = ArtifactPaths.RunCategories.Select(category => _paths.GetRunRoot(category.Id));
         var runRoots = knownRunRoots.Where(runRoot => removeArtifactContents || targets.Any(target => IsWithinOrEqual(target, runRoot) || IsWithinOrEqual(runRoot, target)));
         var manifestPaths = runRoots.SelectMany(root => EnumerateManifestPaths(root, skipDevOpsRoot: false)).Distinct(PathComparer());
         var protectedRuns = new HashSet<string>(PathComparer());

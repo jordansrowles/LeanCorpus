@@ -31,7 +31,12 @@ public sealed class ArtifactRunStoreTests
             RunState.Succeeded,
             childExitCode: 0,
             artifacts: ["artifacts/build/output.bin"],
-            cancellationToken: TestContext.Current.CancellationToken);
+            cancellationToken: TestContext.Current.CancellationToken,
+            additionalInputs: new Dictionary<string, string>
+            {
+                ["qualificationState"] = "Unqualified",
+                ["hostFingerprintSha256"] = new string('a', 64)
+            });
         var read = await store.ReadAsync(started.RunId, TestContext.Current.CancellationToken);
 
         Assert.Equal(RunState.Succeeded, finished.State);
@@ -45,6 +50,8 @@ public sealed class ArtifactRunStoreTests
         Assert.Equal(finished.SourceCommit, read.SourceCommit);
         Assert.Equal(finished.ChildExitCodes, read.ChildExitCodes);
         Assert.Equal(finished.Artifacts, read.Artifacts);
+        Assert.Equal("Unqualified", read.Inputs["qualificationState"]);
+        Assert.Equal(new string('a', 64), read.Inputs["hostFingerprintSha256"]);
     }
 
     [Fact]
@@ -141,6 +148,29 @@ public sealed class ArtifactRunStoreTests
 
         await File.WriteAllTextAsync(canonical, "{invalid", TestContext.Current.CancellationToken);
         await Assert.ThrowsAsync<JsonException>(() => store.ReadAsync(started.RunId, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ReadsFrozenSchemaOneLegacyRunEnvelope()
+    {
+        using var root = TemporaryRoot.Create();
+        var paths = new ArtifactPaths(root.Path);
+        var runId = Guid.Parse("97000000-0000-4000-8000-000000000001");
+        var runDirectory = paths.CreateBuildRunDirectory(runId);
+        var manifestPath = Path.Combine(runDirectory, "run.json");
+        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Legacy", "run-manifest-v1.json");
+        var original = await File.ReadAllTextAsync(fixturePath, TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(manifestPath, original, TestContext.Current.CancellationToken);
+
+        var manifest = await new ArtifactRunStore(paths).ReadAsync(runId, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(manifest);
+        Assert.Equal(1, manifest.SchemaVersion);
+        Assert.Equal(runId, manifest.RunId);
+        Assert.Equal("test", manifest.Command);
+        Assert.Equal(RunState.Succeeded, manifest.State);
+        Assert.Equal("1aaed96aa1829b43b2574735f10e92de73781fe8", manifest.SourceCommit);
+        Assert.Equal(original, await File.ReadAllTextAsync(manifestPath, TestContext.Current.CancellationToken));
     }
 
     private sealed class FailingWriter : IAtomicFileWriter

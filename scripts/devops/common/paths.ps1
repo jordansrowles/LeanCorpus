@@ -14,7 +14,8 @@ function Get-AotProjectPath {
 }
 
 function Get-BenchmarkProjectPath {
-    return Join-Path (Get-RepoRoot) 'src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj'
+    $projects = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-projects'
+    return Join-Path (Get-RepoRoot) $projects.core.Project
 }
 
 function Get-DefaultFramework {

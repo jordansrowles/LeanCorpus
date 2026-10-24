@@ -1,5 +1,29 @@
 {
   "schemaVersion": 1,
+  "areas": [
+    "Foundation",
+    "CodecKit",
+    "Diagnostics",
+    "Document",
+    "Index",
+    "Linq",
+    "Mapping",
+    "Search",
+    "Serialisation",
+    "Store",
+    "TextIntegration",
+    "Util",
+    "Analysers",
+    "Filters",
+    "Stemmers",
+    "Tokenisers",
+    "Dictionaries",
+    "Languages",
+    "Architecture",
+    "Functional",
+    "Orchard",
+    "Server"
+  ],
   "data": {
     "architecture": {
       "Coverage": false,
@@ -12,7 +36,9 @@
         "net10.0",
         "net11.0"
       ],
-      "Name": "Architecture"
+      "Name": "Architecture",
+      "Order": 40,
+      "DataForgeQualification": true
     },
     "dataforge": {
       "Coverage": false,
@@ -27,7 +53,8 @@
         "net10.0",
         "net11.0"
       ],
-      "Name": "DataForge"
+      "Name": "DataForge",
+      "DataForgeQualification": true
     },
     "server-orchard-functional": {
       "Coverage": false,
@@ -60,7 +87,8 @@
         "net10.0",
         "net11.0"
       ],
-      "Name": "Server Core"
+      "Name": "Server Core",
+      "Order": 60
     },
     "text": {
       "Coverage": false,
@@ -75,7 +103,8 @@
         "net10.0",
         "net11.0"
       ],
-      "Name": "Text"
+      "Name": "Text",
+      "Order": 20
     },
     "aot": {
       "Coverage": false,
@@ -87,7 +116,8 @@
         "net11.0"
       ],
       "ExpandFrameworksByDefault": true,
-      "Name": "AOT"
+      "Name": "AOT",
+      "Order": 80
     },
     "core": {
       "Coverage": true,
@@ -102,7 +132,8 @@
         "net10.0",
         "net11.0"
       ],
-      "Name": "Core"
+      "Name": "Core",
+      "Order": 10
     },
     "docs-site": {
       "Coverage": false,
@@ -131,7 +162,8 @@
         "net10.0",
         "net11.0"
       ],
-      "Name": "SourceGen"
+      "Name": "SourceGen",
+      "Order": 30
     },
     "server-orchard": {
       "Coverage": false,
@@ -163,7 +195,8 @@
         "net10.0",
         "net11.0"
       ],
-      "Name": "Server Abstractions"
+      "Name": "Server Abstractions",
+      "Order": 50
     },
     "server-integration": {
       "Coverage": false,
@@ -179,7 +212,9 @@
         "net10.0",
         "net11.0"
       ],
-      "Name": "Server Integration"
+      "Name": "Server Integration",
+      "Order": 70,
+      "DataForgeQualification": true
     }
   }
 }

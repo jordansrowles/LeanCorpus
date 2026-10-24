@@ -1,11 +1,47 @@
+using System.Collections.Immutable;
+
 namespace Rowles.LeanCorpus.DevOps.Artifacts;
+
+internal enum ArtifactRunCategoryKind
+{
+    Build,
+    Test,
+    Coverage,
+    Benchmark,
+    Diagnostics,
+    Report,
+    Package,
+    Distribution,
+    Docs,
+    Data,
+    DataForge,
+    Server
+}
+
+internal sealed record ArtifactRunCategoryDescriptor(ArtifactRunCategoryKind Kind, string Id);
 
 internal sealed class ArtifactPaths
 {
-    public static IReadOnlyList<string> RunCategories { get; } = Array.AsReadOnly(new[]
-    {
-        "build", "test", "coverage", "benchmark", "diagnostics", "report", "package", "distribution", "docs", "data", "dataforge", "server"
-    });
+    private static readonly ImmutableArray<ArtifactRunCategoryDescriptor> CategoryCatalog =
+    [
+        new(ArtifactRunCategoryKind.Build, "build"),
+        new(ArtifactRunCategoryKind.Test, "test"),
+        new(ArtifactRunCategoryKind.Coverage, "coverage"),
+        new(ArtifactRunCategoryKind.Benchmark, "benchmark"),
+        new(ArtifactRunCategoryKind.Diagnostics, "diagnostics"),
+        new(ArtifactRunCategoryKind.Report, "report"),
+        new(ArtifactRunCategoryKind.Package, "package"),
+        new(ArtifactRunCategoryKind.Distribution, "distribution"),
+        new(ArtifactRunCategoryKind.Docs, "docs"),
+        new(ArtifactRunCategoryKind.Data, "data"),
+        new(ArtifactRunCategoryKind.DataForge, "dataforge"),
+        new(ArtifactRunCategoryKind.Server, "server")
+    ];
+
+    private static readonly ImmutableDictionary<string, ArtifactRunCategoryDescriptor> CategoriesById
+        = CategoryCatalog.ToImmutableDictionary(static category => category.Id, StringComparer.Ordinal);
+
+    public static ImmutableArray<ArtifactRunCategoryDescriptor> RunCategories => CategoryCatalog;
 
     public ArtifactPaths(string repositoryRoot)
     {
@@ -33,7 +69,7 @@ internal sealed class ArtifactPaths
     public string GetRunRoot(string category)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(category);
-        if (!RunCategories.Contains(category, StringComparer.Ordinal))
+        if (!CategoriesById.ContainsKey(category))
         {
             throw new ArgumentException($"'{category}' is not a supported artefact run category.", nameof(category));
         }

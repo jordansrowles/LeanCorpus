@@ -269,6 +269,11 @@
     },
     "benchmark-runner-config": {
       "Globs": [
+        ".config/devops/benchmark-groups.json",
+        ".config/devops/benchmark-projects.json",
+        ".config/devops/benchmark-suites.json",
+        ".config/devops/benchmark-strategies.json",
+        ".config/devops/benchmark-datasets.json",
         "scripts/devops/config/benchmark-groups.psd1",
         "scripts/devops/config/benchmark-suites.psd1",
         "scripts/devops/config/code-areas.psd1"

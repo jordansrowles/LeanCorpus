@@ -118,5 +118,5 @@ if ($failures.Count -gt 0) {
 }
 
 if (-not $WriteJson) {
-    Write-Output 'All six managed JSON files match the authoritative PowerShell data.'
+    Write-Output 'All six PowerShell compatibility snapshots match managed JSON data.'
 }

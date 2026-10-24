@@ -49,11 +49,11 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
     public async Task<ReportExecutionResult> GenerateAsync(ReportRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var group = request.Group.Trim().ToLowerInvariant();
-        if (group is not ("all" or "git" or "files" or "code"))
+        if (!RepositoryReportGroupCatalog.TryParse(request.Group, out var group))
         {
-            return Invalid(request, $"Unknown report group '{request.Group}'. Valid groups: all, git, files, code.");
+            return Invalid(request, $"Unknown report group '{request.Group}'. Valid groups: {string.Join(", ", RepositoryReportGroupCatalog.Names)}.");
         }
+        var groupName = RepositoryReportGroupCatalog.GetName(group);
         if (request.Top is < 1 or > 1000)
         {
             return Invalid(request, "Report --top must be between 1 and 1000.");
@@ -68,7 +68,7 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
         var runStore = new ArtifactRunStore(artifactPaths, runCategory: "report");
         var inputs = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["group"] = group,
+            ["group"] = groupName,
             ["top"] = request.Top.ToString(CultureInfo.InvariantCulture),
             ["strict"] = request.Strict.ToString(CultureInfo.InvariantCulture)
         };
@@ -111,23 +111,23 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
             var sections = new JsonObject();
             GitHistory? history = null;
             IReadOnlyList<TrackedFile>? tree = null;
-            if (group is "all" or "git" or "files")
+            if (group is RepositoryReportGroup.All or RepositoryReportGroup.Git or RepositoryReportGroup.Files)
             {
                 history = await ReadGitHistoryAsync(git, cancellationToken).ConfigureAwait(false);
             }
-            if (group is "all" or "files")
+            if (group is RepositoryReportGroup.All or RepositoryReportGroup.Files)
             {
                 tree = await ReadTrackedFilesAsync(git, cancellationToken).ConfigureAwait(false);
             }
-            if (group is "all" or "git")
+            if (group is RepositoryReportGroup.All or RepositoryReportGroup.Git)
             {
                 sections["Git"] = await BuildGitReportAsync(repositorySnapshot, git, history!, request.Top, cancellationToken).ConfigureAwait(false);
             }
-            if (group is "all" or "files")
+            if (group is RepositoryReportGroup.All or RepositoryReportGroup.Files)
             {
                 sections["Files"] = BuildFileReport(history!, tree!, request.Path, request.Top);
             }
-            if (group is "all" or "code")
+            if (group is RepositoryReportGroup.All or RepositoryReportGroup.Code)
             {
                 sections["Code"] = await BuildCodeReportAsync(git, request.Path, request.Top, cancellationToken).ConfigureAwait(false);
             }
@@ -136,7 +136,7 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
             var outcome = request.Strict && violations > 0 ? OutcomeKind.CommandFailure : OutcomeKind.Success;
             var ended = DateTimeOffset.UtcNow;
             elapsed.Stop();
-            var document = CreateDocument(manifest, request, group, sourceCommit, sourceBranch, sourceDirty,
+            var document = CreateDocument(manifest, request, groupName, sourceCommit, sourceBranch, sourceDirty,
                 outcome, started, ended, elapsed.Elapsed, sections, violations, errors: [], processes,
                 warnings: CollectWarnings(sections));
             var reportPath = Path.Combine(runDirectory, "report.json");
@@ -162,7 +162,7 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
             elapsed.Stop();
             var runDirectory = manifest is null ? null : artifactPaths.GetRunDirectory("report", manifest.RunId);
             var document = manifest is null ? ErrorDocument(OutcomeKind.Cancelled, "Report generation was cancelled.", request) :
-                CreateDocument(manifest, request, group, manifest.SourceCommit, manifest.SourceBranch, manifest.SourceDirty,
+                CreateDocument(manifest, request, groupName, manifest.SourceCommit, manifest.SourceBranch, manifest.SourceDirty,
                     OutcomeKind.Cancelled, startedUtc, DateTimeOffset.UtcNow, elapsed.Elapsed, new JsonObject(), 0,
                     ["Report generation was cancelled."], processes);
             if (manifest is not null)
@@ -200,7 +200,7 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
             };
             var runDirectory = manifest is null ? null : artifactPaths.GetRunDirectory("report", manifest.RunId);
             var document = manifest is null ? ErrorDocument(outcome, message, request) :
-                CreateDocument(manifest, request, group, manifest.SourceCommit, manifest.SourceBranch, manifest.SourceDirty,
+                CreateDocument(manifest, request, groupName, manifest.SourceCommit, manifest.SourceBranch, manifest.SourceDirty,
                     outcome, startedUtc, DateTimeOffset.UtcNow, elapsed.Elapsed, new JsonObject(), 0, [message], processes);
             if (manifest is not null)
             {
@@ -704,7 +704,7 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
 
     private async Task<object?> BuildDependencyGraphAsync(GitCommandContext git, CancellationToken cancellationToken)
     {
-        var solutionPath = Path.Combine(git.RepositoryRoot, "Rowles.LeanCorpus.slnx");
+        var solutionPath = RepositoryPaths.GetSolutionPath(git.RepositoryRoot);
         IReadOnlyList<string> projects;
         int? solutionProjectCount = null;
         int trackedProjectCount;

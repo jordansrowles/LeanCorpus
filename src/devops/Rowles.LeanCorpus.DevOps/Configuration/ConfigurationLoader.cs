@@ -6,12 +6,6 @@ namespace Rowles.LeanCorpus.DevOps.Configuration;
 internal sealed class ConfigurationLoader
 {
     private const int SupportedSchemaVersion = 1;
-    private static readonly HashSet<string> TestAreas = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "Foundation", "CodecKit", "Diagnostics", "Document", "Index", "Linq", "Mapping", "Search",
-        "Serialisation", "Store", "TextIntegration", "Util", "Analysers", "Filters", "Stemmers",
-        "Tokenisers", "Dictionaries", "Languages", "Architecture", "Functional", "Orchard", "Server"
-    };
 
     private readonly string _repositoryRoot;
     private readonly string _configurationRoot;
@@ -27,29 +21,152 @@ internal sealed class ConfigurationLoader
 
     public DevOpsConfiguration Load()
     {
-        var testSuites = ReadMap("test-suites.json", ReadTestSuite);
-        var benchmarkSuites = ReadMap("benchmark-suites.json", (value, propertyPath) => ReadString(value, Path.Combine(_configurationRoot, "benchmark-suites.json"), propertyPath));
+        var (testSuites, testAreas) = ReadTestSuites();
+        var benchmarkProjects = ReadMap("benchmark-projects.json", ReadBenchmarkProject, StringComparer.Ordinal);
+        var (benchmarkSuites, historicalSuiteLabels) = ReadBenchmarkSuites();
         var codeAreas = ReadMap("code-areas.json", ReadCodeArea);
         var benchmarkStrategies = ReadMap("benchmark-strategies.json", ReadBenchmarkStrategy);
-        var benchmarkDatasets = ReadMap("benchmark-datasets.json", (value, propertyPath) => ReadStringArray(value, Path.Combine(_configurationRoot, "benchmark-datasets.json"), propertyPath));
+        var (benchmarkDatasets, defaultBenchmarkDataset) = ReadBenchmarkDatasets();
         var benchmarkGroups = ReadMap("benchmark-groups.json", ReadBenchmarkGroup);
+        var requiredDataForgeProfiles = ReadDataForgeSyntheticProfiles();
+        var benchmarkCaseManifest = ReadBenchmarkCases();
+        var benchmarkCorrectnessAudit = ReadBenchmarkCorrectnessAudit();
 
-        ValidateReferences(testSuites, codeAreas, benchmarkSuites, benchmarkDatasets, benchmarkGroups);
-        return new DevOpsConfiguration(testSuites, codeAreas, benchmarkSuites, benchmarkStrategies, benchmarkDatasets, benchmarkGroups);
+        var configuration = new DevOpsConfiguration(testSuites, codeAreas, benchmarkProjects, benchmarkSuites,
+            benchmarkStrategies, benchmarkDatasets, benchmarkGroups)
+        {
+            DefaultBenchmarkDataset = defaultBenchmarkDataset,
+            HistoricalBenchmarkSuiteLabels = historicalSuiteLabels,
+            TestAreas = testAreas,
+            RequiredDataForgeSyntheticProfiles = requiredDataForgeProfiles,
+            BenchmarkCases = benchmarkCaseManifest.CaseFamilies,
+            BenchmarkCaseExclusions = benchmarkCaseManifest.Exclusions,
+            BenchmarkCorrectnessAudit = benchmarkCorrectnessAudit
+        };
+        return ConfigurationValidator.Validate(configuration, _repositoryRoot, _projectExists);
     }
 
-    private ImmutableDictionary<string, TValue> ReadMap<TValue>(string fileName, Func<JsonElement, string, TValue> readValue)
+    private (ImmutableDictionary<string, TestSuiteConfiguration> Suites, ImmutableArray<string> Areas) ReadTestSuites()
+    {
+        const string fileName = "test-suites.json";
+        var path = Path.Combine(_configurationRoot, fileName);
+        using var document = ReadDocument(fileName);
+        ValidateDocument(document.RootElement, path, ["areas"]);
+        if (!document.RootElement.TryGetProperty("areas", out var areasElement))
+            throw Error(path, "$.areas", "required property 'areas' is missing");
+
+        var areas = ReadStringArray(areasElement, path, "$.areas");
+        var suites = ReadDataMap(document.RootElement.GetProperty("data"), path, ReadTestSuite);
+        return (suites, areas);
+    }
+
+    private ImmutableDictionary<string, TValue> ReadMap<TValue>(
+        string fileName,
+        Func<JsonElement, string, TValue> readValue,
+        StringComparer? idComparer = null)
+    {
+        var path = Path.Combine(_configurationRoot, fileName);
+        using var document = ReadDocument(fileName);
+        ValidateDocument(document.RootElement, path);
+        return ReadDataMap(document.RootElement.GetProperty("data"), path, readValue, idComparer);
+    }
+
+    private (ImmutableDictionary<string, BenchmarkSuiteConfiguration> Suites, ImmutableDictionary<string, string> HistoricalLabels) ReadBenchmarkSuites()
+    {
+        const string fileName = "benchmark-suites.json";
+        var path = Path.Combine(_configurationRoot, fileName);
+        using var document = ReadDocument(fileName);
+        ValidateDocument(document.RootElement, path, ["suiteMetadata", "historicalLabels"]);
+        var descriptions = ReadDataMap(document.RootElement.GetProperty("data"), path,
+            (value, propertyPath) => ReadString(value, path, propertyPath), StringComparer.Ordinal);
+        var historicalLabels = document.RootElement.TryGetProperty("historicalLabels", out var historicalLabelsElement)
+            ? ReadDataMap(historicalLabelsElement, path, (value, propertyPath) => ReadString(value, path, propertyPath), StringComparer.Ordinal)
+            : ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);
+
+        var metadata = ImmutableDictionary.CreateBuilder<string, BenchmarkSuiteMetadata>(StringComparer.Ordinal);
+        if (document.RootElement.TryGetProperty("suiteMetadata", out var metadataElement))
+        {
+            if (metadataElement.ValueKind != JsonValueKind.Object)
+                throw Error(path, "$.suiteMetadata", "must be an object keyed by benchmark suite ID");
+
+            foreach (var property in metadataElement.EnumerateObject())
+            {
+                var propertyPath = "$.suiteMetadata." + property.Name;
+                metadata.Add(property.Name, ReadBenchmarkSuiteMetadata(property.Value, path, propertyPath, property.Name));
+            }
+        }
+
+        var suites = ImmutableDictionary.CreateBuilder<string, BenchmarkSuiteConfiguration>(StringComparer.Ordinal);
+        foreach (var (id, description) in descriptions)
+        {
+            var suiteMetadata = metadata.TryGetValue(id, out var configured)
+                ? configured
+                : new BenchmarkSuiteMetadata(
+                    DisplayName: DisplayNameFromId(id),
+                    Project: "core",
+                    BenchmarkClasses: [],
+                    Aliases: [],
+                    Frameworks: [],
+                    Datasets: [],
+                    ExplicitOnly: false,
+                    ControlledCorpusOnly: true,
+                    CorpusOnly: false,
+                    RequiresGutenbergData: false,
+                    IsSelector: false,
+                    IncludeInAll: null,
+                    IncludeWithExplicit: null);
+
+            suites.Add(id, new BenchmarkSuiteConfiguration(
+                description,
+                suiteMetadata.DisplayName,
+                suiteMetadata.Project,
+                suiteMetadata.BenchmarkClasses,
+                suiteMetadata.Aliases,
+                suiteMetadata.Frameworks,
+                suiteMetadata.Datasets,
+                suiteMetadata.ExplicitOnly,
+                suiteMetadata.ControlledCorpusOnly,
+                suiteMetadata.CorpusOnly,
+                suiteMetadata.RequiresGutenbergData,
+                suiteMetadata.IsSelector,
+                suiteMetadata.IncludeInAll,
+                suiteMetadata.IncludeWithExplicit));
+        }
+
+        foreach (var (id, suiteMetadata) in metadata)
+        {
+            if (!descriptions.ContainsKey(id))
+            {
+                suites.Add(id, new BenchmarkSuiteConfiguration(
+                    string.Empty,
+                    suiteMetadata.DisplayName,
+                    suiteMetadata.Project,
+                    suiteMetadata.BenchmarkClasses,
+                    suiteMetadata.Aliases,
+                    suiteMetadata.Frameworks,
+                    suiteMetadata.Datasets,
+                    suiteMetadata.ExplicitOnly,
+                    suiteMetadata.ControlledCorpusOnly,
+                    suiteMetadata.CorpusOnly,
+                    suiteMetadata.RequiresGutenbergData,
+                    suiteMetadata.IsSelector,
+                    suiteMetadata.IncludeInAll,
+                    suiteMetadata.IncludeWithExplicit));
+            }
+        }
+
+        return (suites.ToImmutable(), historicalLabels);
+    }
+
+    private JsonDocument ReadDocument(string fileName)
     {
         var path = Path.Combine(_configurationRoot, fileName);
         if (!File.Exists(path))
-        {
             throw new FileNotFoundException($"Managed DevOps configuration file '{path}' is missing.", path);
-        }
 
-        JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions
+            return JsonDocument.Parse(File.ReadAllBytes(path), new JsonDocumentOptions
             {
                 AllowTrailingCommas = false,
                 CommentHandling = JsonCommentHandling.Disallow,
@@ -60,49 +177,174 @@ internal sealed class ConfigurationLoader
         {
             throw new InvalidDataException($"Configuration '{path}' contains invalid JSON: {exception.Message}", exception);
         }
-
-        using (document)
-        {
-            RejectDuplicateProperties(document.RootElement, path, "$", caseInsensitive: true);
-            RequireObjectProperties(document.RootElement, path, "$", ["schemaVersion", "data"], ["schemaVersion", "data"]);
-            var version = ReadInt(document.RootElement.GetProperty("schemaVersion"), path, "$.schemaVersion");
-            if (version != SupportedSchemaVersion)
-            {
-                throw Error(path, "$.schemaVersion", $"unsupported version {version}; supported version is {SupportedSchemaVersion}");
-            }
-
-            var data = document.RootElement.GetProperty("data");
-            if (data.ValueKind != JsonValueKind.Object)
-            {
-                throw Error(path, "$.data", "must be an object keyed by configuration ID");
-            }
-
-            var builder = ImmutableDictionary.CreateBuilder<string, TValue>(StringComparer.OrdinalIgnoreCase);
-            foreach (var property in data.EnumerateObject())
-            {
-                if (string.IsNullOrWhiteSpace(property.Name))
-                {
-                    throw Error(path, "$.data", "configuration IDs cannot be empty");
-                }
-
-                builder.Add(property.Name, readValue(property.Value, $"$.data.{property.Name}"));
-            }
-
-            if (builder.Count == 0)
-            {
-                throw Error(path, "$.data", "must contain at least one configuration entry");
-            }
-
-            return builder.ToImmutable();
-        }
     }
+
+    private static void ValidateDocument(JsonElement root, string path, IReadOnlyCollection<string>? optionalProperties = null)
+    {
+        RejectDuplicateProperties(root, path, "$", caseInsensitive: true);
+        var allowed = new HashSet<string>(["schemaVersion", "data"], StringComparer.Ordinal);
+        if (optionalProperties is not null)
+            allowed.UnionWith(optionalProperties);
+        RequireObjectProperties(root, path, "$", allowed, ["schemaVersion", "data"]);
+        var version = ReadInt(root.GetProperty("schemaVersion"), path, "$.schemaVersion");
+        if (version != SupportedSchemaVersion)
+            throw Error(path, "$.schemaVersion", $"unsupported version {version}; supported version is {SupportedSchemaVersion}");
+    }
+
+    private static ImmutableDictionary<string, TValue> ReadDataMap<TValue>(
+        JsonElement data,
+        string path,
+        Func<JsonElement, string, TValue> readValue,
+        StringComparer? idComparer = null)
+    {
+        if (data.ValueKind != JsonValueKind.Object)
+            throw Error(path, "$.data", "must be an object keyed by configuration ID");
+
+        var builder = ImmutableDictionary.CreateBuilder<string, TValue>(idComparer ?? StringComparer.OrdinalIgnoreCase);
+        foreach (var property in data.EnumerateObject())
+        {
+            if (string.IsNullOrWhiteSpace(property.Name))
+                throw Error(path, "$.data", "configuration IDs cannot be empty");
+
+            try
+            {
+                builder.Add(property.Name, readValue(property.Value, "$.data." + property.Name));
+            }
+            catch (ArgumentException exception)
+            {
+                throw Error(path, "$.data." + property.Name, $"duplicate configuration ID '{property.Name}' ({exception.Message})");
+            }
+        }
+
+        if (builder.Count == 0)
+            throw Error(path, "$.data", "must contain at least one configuration entry");
+
+        return builder.ToImmutable();
+    }
+
+    private BenchmarkProjectConfiguration ReadBenchmarkProject(JsonElement value, string propertyPath)
+    {
+        const string fileName = "benchmark-projects.json";
+        var path = Path.Combine(_configurationRoot, fileName);
+        RequireObjectProperties(value, path, propertyPath,
+            ["DisplayName", "Project", "Frameworks", "Capabilities", "IncludeInAll", "IncludeWithExplicit"],
+            ["Project", "Frameworks", "Capabilities", "IncludeInAll", "IncludeWithExplicit"]);
+
+        var displayName = OptionalString(value, "DisplayName", path, propertyPath) ?? DisplayNameFromId(propertyPath[(propertyPath.LastIndexOf('.') + 1)..]);
+        var project = ReadString(value.GetProperty("Project"), path, propertyPath + ".Project");
+        var frameworks = ReadStringArray(value.GetProperty("Frameworks"), path, propertyPath + ".Frameworks");
+        var capabilities = ReadStringArray(value.GetProperty("Capabilities"), path, propertyPath + ".Capabilities");
+
+        return new BenchmarkProjectConfiguration(
+            displayName,
+            project,
+            frameworks,
+            capabilities,
+            ReadBoolean(value.GetProperty("IncludeInAll"), path, propertyPath + ".IncludeInAll"),
+            ReadBoolean(value.GetProperty("IncludeWithExplicit"), path, propertyPath + ".IncludeWithExplicit"));
+    }
+
+    private (ImmutableDictionary<string, ImmutableArray<string>> Datasets, string DefaultDataset) ReadBenchmarkDatasets()
+    {
+        const string fileName = "benchmark-datasets.json";
+        var path = Path.Combine(_configurationRoot, fileName);
+        using var document = ReadDocument(fileName);
+        ValidateDocument(document.RootElement, path, ["defaultDataset"]);
+        var datasets = ReadDataMap(document.RootElement.GetProperty("data"), path,
+            (value, propertyPath) => ReadStringArray(value, path, propertyPath), StringComparer.Ordinal);
+        var defaultDataset = document.RootElement.TryGetProperty("defaultDataset", out var defaultElement)
+            ? ReadString(defaultElement, path, "$.defaultDataset")
+            : "synthetic";
+        return (datasets, defaultDataset);
+    }
+
+    private ImmutableArray<DataForgeProfileRequirement> ReadDataForgeSyntheticProfiles()
+    {
+        const string fileName = "dataforge-qualification.json";
+        var path = Path.Combine(_configurationRoot, fileName);
+        using var document = ReadDocument(fileName);
+        ValidateDocument(document.RootElement, path);
+        var data = document.RootElement.GetProperty("data");
+        RequireObjectProperties(data, path, "$.data", ["requiredSyntheticProfiles"], ["requiredSyntheticProfiles"]);
+        var profiles = ReadDataMap(data.GetProperty("requiredSyntheticProfiles"), path,
+            (value, propertyPath) =>
+            {
+                var version = ReadInt(value, path, propertyPath);
+                if (version < 1)
+                    throw Error(path, propertyPath, "profile version must be positive");
+                return version;
+            }, StringComparer.Ordinal);
+        return profiles.OrderBy(static item => item.Key, StringComparer.Ordinal)
+            .Select(static item => new DataForgeProfileRequirement(item.Key, item.Value))
+            .ToImmutableArray();
+    }
+
+    private BenchmarkCaseManifestConfiguration ReadBenchmarkCases()
+    {
+        const string fileName = "benchmark-cases.json";
+        var path = Path.Combine(_configurationRoot, fileName);
+        using var document = ReadDocument(fileName);
+        return BenchmarkCaseManifestReader.Read(document.RootElement, path);
+    }
+
+    private BenchmarkCorrectnessAuditConfiguration ReadBenchmarkCorrectnessAudit()
+    {
+        const string fileName = "benchmark-correctness-audit.json";
+        var path = Path.Combine(_configurationRoot, fileName);
+        using var document = ReadDocument(fileName);
+        return BenchmarkCorrectnessAuditReader.Read(document.RootElement, path, _repositoryRoot);
+    }
+
+    private BenchmarkSuiteMetadata ReadBenchmarkSuiteMetadata(JsonElement value, string path, string propertyPath, string suiteId)
+    {
+        RequireObjectProperties(value, path, propertyPath,
+            ["DisplayName", "Project", "BenchmarkClasses", "Aliases", "Frameworks", "Datasets", "ExplicitOnly", "ControlledCorpusOnly", "CorpusOnly", "RequiresGutenbergData", "IsSelector", "IncludeInAll", "IncludeWithExplicit"],
+            []);
+
+        return new BenchmarkSuiteMetadata(
+            OptionalString(value, "DisplayName", path, propertyPath) ?? DisplayNameFromId(suiteId),
+            OptionalString(value, "Project", path, propertyPath) ?? "core",
+            OptionalStringArray(value, "BenchmarkClasses", path, propertyPath),
+            OptionalStringArray(value, "Aliases", path, propertyPath),
+            OptionalStringArray(value, "Frameworks", path, propertyPath),
+            OptionalStringArray(value, "Datasets", path, propertyPath),
+            OptionalBoolean(value, "ExplicitOnly", path, propertyPath) ?? false,
+            OptionalBoolean(value, "ControlledCorpusOnly", path, propertyPath) ?? true,
+            OptionalBoolean(value, "CorpusOnly", path, propertyPath) ?? false,
+            OptionalBoolean(value, "RequiresGutenbergData", path, propertyPath) ?? false,
+            OptionalBoolean(value, "IsSelector", path, propertyPath) ?? false,
+            OptionalBoolean(value, "IncludeInAll", path, propertyPath),
+            OptionalBoolean(value, "IncludeWithExplicit", path, propertyPath));
+    }
+
+    private static ImmutableArray<string> OptionalStringArray(JsonElement value, string name, string path, string propertyPath)
+        => value.TryGetProperty(name, out var element) ? ReadStringArray(element, path, propertyPath + "." + name) : [];
+
+    private static string DisplayNameFromId(string id)
+        => string.Join(' ', id.Split('-', StringSplitOptions.RemoveEmptyEntries)
+            .Select(static part => char.ToUpperInvariant(part[0]) + part[1..]));
+
+    private sealed record BenchmarkSuiteMetadata(
+        string DisplayName,
+        string Project,
+        ImmutableArray<string> BenchmarkClasses,
+        ImmutableArray<string> Aliases,
+        ImmutableArray<string> Frameworks,
+        ImmutableArray<string> Datasets,
+        bool ExplicitOnly,
+        bool ControlledCorpusOnly,
+        bool CorpusOnly,
+        bool RequiresGutenbergData,
+        bool IsSelector,
+        bool? IncludeInAll,
+        bool? IncludeWithExplicit);
 
     private TestSuiteConfiguration ReadTestSuite(JsonElement value, string propertyPath)
     {
         const string file = "test-suites.json";
         var path = Path.Combine(_configurationRoot, file);
         RequireObjectProperties(value, path, propertyPath,
-            ["Name", "Project", "Runner", "Frameworks", "DefaultFramework", "Coverage", "Capabilities", "IncludeInAll", "ExpandFrameworksByDefault", "DefaultFilter"],
+            ["Name", "Project", "Runner", "Frameworks", "DefaultFramework", "Coverage", "Capabilities", "IncludeInAll", "ExpandFrameworksByDefault", "DefaultFilter", "Order", "DataForgeQualification"],
             ["Name", "Project", "Runner", "Frameworks", "Coverage", "Capabilities"]);
 
         var name = ReadString(value.GetProperty("Name"), path, propertyPath + ".Name");
@@ -133,8 +375,8 @@ internal sealed class ConfigurationLoader
         }
 
         var capabilities = ReadStringArray(value.GetProperty("Capabilities"), path, propertyPath + ".Capabilities");
-        var allowedCapabilities = new HashSet<string>(["Trx", "HangDump", "CrashDump"], StringComparer.OrdinalIgnoreCase);
-        if (capabilities.Any(capability => !allowedCapabilities.Contains(capability)) || capabilities.Distinct(StringComparer.OrdinalIgnoreCase).Count() != capabilities.Length)
+        if (capabilities.Any(capability => !TestRunnerCapabilityCatalog.TryParse(capability, out _)) ||
+            capabilities.Distinct(StringComparer.OrdinalIgnoreCase).Count() != capabilities.Length)
         {
             throw Error(path, propertyPath + ".Capabilities", "contains an unknown or duplicate capability");
         }
@@ -149,7 +391,11 @@ internal sealed class ConfigurationLoader
             capabilities,
             OptionalBoolean(value, "IncludeInAll", path, propertyPath),
             OptionalBoolean(value, "ExpandFrameworksByDefault", path, propertyPath),
-            OptionalString(value, "DefaultFilter", path, propertyPath));
+            OptionalString(value, "DefaultFilter", path, propertyPath),
+            value.TryGetProperty("Order", out var orderElement) ? ReadInt(orderElement, path, propertyPath + ".Order") : null,
+            value.TryGetProperty("DataForgeQualification", out var qualificationElement)
+                ? ReadBoolean(qualificationElement, path, propertyPath + ".DataForgeQualification")
+                : false);
     }
 
     private CodeAreaConfiguration ReadCodeArea(JsonElement value, string propertyPath)
@@ -186,15 +432,6 @@ internal sealed class ConfigurationLoader
         RequireObjectProperties(value, path, propertyPath, ["Area", "Globs", "Project", "Benchmarks"], ["Area", "Globs", "Project", "Benchmarks"]);
         var area = ReadString(value.GetProperty("Area"), path, propertyPath + ".Area");
         var project = ReadString(value.GetProperty("Project"), path, propertyPath + ".Project");
-        if (!TestAreas.Contains(area))
-        {
-            throw Error(path, propertyPath + ".Area", $"unknown test area '{area}'");
-        }
-
-        if (project is not ("core" or "text"))
-        {
-            throw Error(path, propertyPath + ".Project", $"unknown benchmark project '{project}'; allowed values are core and text");
-        }
 
         var globs = ReadStringArray(value.GetProperty("Globs"), path, propertyPath + ".Globs");
         var benchmarks = ReadStringArray(value.GetProperty("Benchmarks"), path, propertyPath + ".Benchmarks");
@@ -263,57 +500,6 @@ internal sealed class ConfigurationLoader
         return ReadBoolean(element, path, propertyPath + "." + name);
     }
 
-    private void ValidateReferences(
-        ImmutableDictionary<string, TestSuiteConfiguration> testSuites,
-        ImmutableDictionary<string, CodeAreaConfiguration> codeAreas,
-        ImmutableDictionary<string, string> benchmarkSuites,
-        ImmutableDictionary<string, ImmutableArray<string>> benchmarkDatasets,
-        ImmutableDictionary<string, BenchmarkGroupConfiguration> benchmarkGroups)
-    {
-        foreach (var (areaName, area) in codeAreas)
-        {
-            foreach (var target in area.Targets)
-            {
-                var separator = target.IndexOf(':');
-                if (separator <= 0 || separator == target.Length - 1)
-                {
-                    throw Error("code-areas.json", $"$.data.{areaName}.Targets", $"'{target}' must use suite:area format");
-                }
-
-                var suite = target[..separator];
-                var testArea = target[(separator + 1)..];
-                if (!testSuites.ContainsKey(suite))
-                {
-                    throw Error("code-areas.json", $"$.data.{areaName}.Targets", $"'{target}' refers to unknown test suite '{suite}'");
-                }
-
-                if (!TestAreas.Contains(testArea))
-                {
-                    throw Error("code-areas.json", $"$.data.{areaName}.Targets", $"'{target}' refers to unknown test area '{testArea}'");
-                }
-            }
-        }
-
-        foreach (var (datasetName, suites) in benchmarkDatasets)
-        {
-            foreach (var suite in suites)
-            {
-                if (!benchmarkSuites.ContainsKey(suite))
-                {
-                    throw Error("benchmark-datasets.json", $"$.data.{datasetName}", $"unknown benchmark suite reference '{suite}'");
-                }
-            }
-        }
-
-        foreach (var (groupName, group) in benchmarkGroups)
-        {
-            if (group.Area.Length == 0 || groupName.Length == 0)
-            {
-                throw Error("benchmark-groups.json", $"$.data.{groupName}", "group key and area must not be empty");
-            }
-        }
-    }
-
     private static void RequireObjectProperties(JsonElement value, string path, string propertyPath, IReadOnlyCollection<string> allowed, IReadOnlyCollection<string> required)
     {
         if (value.ValueKind != JsonValueKind.Object)
@@ -378,4 +564,5 @@ internal sealed class ConfigurationLoader
         return normalizedPath.StartsWith(normalizedRoot + Path.DirectorySeparatorChar,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
     }
+
 }

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-04-function-score-modes-docvalues",
+  "deterministic": true,
+  "seed": 9704,
+  "domain": "function-score-docvalues-and-modes",
+  "input": {
+    "segments": [
+      {
+        "id": "segment-a",
+        "documents": [
+          { "id": "doc-a", "price": 3.0, "priceDocValuePresent": true },
+          { "id": "doc-b", "price": 5.0, "priceDocValuePresent": true }
+        ]
+      },
+      {
+        "id": "segment-b",
+        "documents": [
+          { "id": "doc-missing", "price": null, "priceDocValuePresent": false },
+          { "id": "doc-negative", "price": -2.0, "priceDocValuePresent": true }
+        ]
+      }
+    ],
+    "baseScore": 1.0,
+    "numericEncoding": "IEEE754-binary64-raw-bits",
+    "modes": ["Multiply", "Replace", "Sum", "Max"]
+  },
+  "expected": {
+    "scoresByMode": {
+      "Multiply": { "doc-a": 3.0, "doc-b": 5.0, "doc-missing": 1.0, "doc-negative": -2.0 },
+      "Replace": { "doc-a": 3.0, "doc-b": 5.0, "doc-missing": 1.0, "doc-negative": -2.0 },
+      "Sum": { "doc-a": 4.0, "doc-b": 6.0, "doc-missing": 1.0, "doc-negative": -1.0 },
+      "Max": { "doc-a": 3.0, "doc-b": 5.0, "doc-missing": 1.0, "doc-negative": 1.0 }
+    },
+    "logicalTopKByMode": {
+      "Multiply": ["doc-b", "doc-a", "doc-missing", "doc-negative"],
+      "Replace": ["doc-b", "doc-a", "doc-missing", "doc-negative"],
+      "Sum": ["doc-b", "doc-a", "doc-missing", "doc-negative"],
+      "Max": ["doc-b", "doc-a", "doc-missing", "doc-negative"]
+    },
+    "expectedSegmentCount": 2,
+    "allPresentPriceDocValuesAreRead": true,
+    "missingPriceUsesBaseScore": true,
+    "nonPositivePriceUsesSelectedMode": true,
+    "logicalTopKMustMatchForEachMode": true
+  }
+}

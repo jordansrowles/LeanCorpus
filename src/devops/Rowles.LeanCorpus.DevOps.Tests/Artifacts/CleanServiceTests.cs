@@ -80,8 +80,9 @@ public sealed class CleanServiceTests
         using var checkout = TemporaryCheckout.Create();
         var paths = new ArtifactPaths(checkout.Root);
         var manifests = new List<string>();
-        foreach (var category in ArtifactPaths.RunCategories)
+        foreach (var categoryDescriptor in ArtifactPaths.RunCategories)
         {
+            var category = categoryDescriptor.Id;
             var run = await new ArtifactRunStore(paths, runCategory: category).StartAsync(category,
                 cancellationToken: TestContext.Current.CancellationToken);
             manifests.Add(Path.Combine(paths.GetRunDirectory(category, run.RunId), "run.json"));
@@ -92,6 +93,14 @@ public sealed class CleanServiceTests
 
         Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
         Assert.All(manifests, path => Assert.True(File.Exists(path), path));
+    }
+
+    [Fact]
+    public void RunCategoryCataloguePreservesStableNamesAndDistribution()
+    {
+        Assert.Equal(
+            ["build", "test", "coverage", "benchmark", "diagnostics", "report", "package", "distribution", "docs", "data", "dataforge", "server"],
+            ArtifactPaths.RunCategories.Select(static category => category.Id));
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 {
   "schemaVersion": 1,
+  "defaultDataset": "synthetic",
   "data": {
     "wikipedia": [
       "index",
@@ -7,7 +8,8 @@
       "boolean",
       "phrase",
       "prefix",
-      "fuzzy",
+      "fuzzy-parity",
+      "fuzzy-cache",
       "wildcard",
       "regexp",
       "mlt",
