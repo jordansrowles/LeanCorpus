@@ -41,7 +41,7 @@ public class IndexSortIndexBenchmarks
 {
     private const string Bval06FixturePath = ".config/devops/benchmark-correctness-fixtures/bval-06-presorted-ingestion-identities.json";
 
-    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(1_000, BenchmarkData.DefaultDocCount);
 
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }

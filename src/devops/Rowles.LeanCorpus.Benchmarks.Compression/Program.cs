@@ -2,6 +2,7 @@
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
 using System.Text.Json;
+using Rowles.LeanCorpus.Benchmarks.Infrastructure;
 using Rowles.LeanCorpus.Benchmarks.Compression;
 using Rowles.LeanCorpus.Compression.LZ4;
 using Rowles.LeanCorpus.Compression.Snappy;
@@ -35,7 +36,8 @@ internal static class Program
         var artifactsPath = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR")
             ?? Path.Combine(FindRepositoryRoot(), "artifacts", "benchmark", "runs", "direct", "compression");
         Directory.CreateDirectory(artifactsPath);
-        var config = DefaultConfig.Instance.WithArtifactsPath(Path.Combine(artifactsPath, "_runner"));
+        var config = BenchmarkParameterSelectionFilter.Apply(
+            DefaultConfig.Instance.WithArtifactsPath(Path.Combine(artifactsPath, "_runner")));
         var summary = BenchmarkRunner.Run<CompressionBenchmarks>(config, args);
         if (args.Any(static argument => argument.Equals("--list", StringComparison.OrdinalIgnoreCase) ||
             argument.StartsWith("--list=", StringComparison.OrdinalIgnoreCase)))
@@ -55,7 +57,7 @@ internal static class Program
         }
 
         throw new InvalidOperationException(
-            "LeanCorpus repository root could not be found. Run this benchmark through pwsh ./devops.ps1 benchmark or from inside the repository.");
+            "LeanCorpus repository root could not be found. Run this benchmark through ./devops benchmark or from inside the repository.");
     }
 
     private static bool HasInvalidResults(Summary summary)

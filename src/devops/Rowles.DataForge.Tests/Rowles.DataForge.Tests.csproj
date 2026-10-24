@@ -20,6 +20,7 @@
     <ProjectReference Include="..\Rowles.DataForge.Workloads\Rowles.DataForge.Workloads.csproj" />
     <ProjectReference Include="..\Rowles.DataForge.Tool\Rowles.DataForge.Tool.csproj" />
     <ProjectReference Include="..\Rowles.LeanCorpus.Benchmarks\Rowles.LeanCorpus.Benchmarks.csproj" />
+    <ProjectReference Include="..\Rowles.LeanCorpus.Benchmarks.Compression\Rowles.LeanCorpus.Benchmarks.Compression.csproj" />
   </ItemGroup>
 
 </Project>

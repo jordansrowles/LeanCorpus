@@ -10,6 +10,7 @@
       ],
       "parameterValues": {
         "DocumentCount": [
+          "1000",
           "20000"
         ]
       },
@@ -1376,6 +1377,1128 @@
       "estimatedBudget": "short"
     },
     {
+      "id": "compression-compress-bytes-v1",
+      "project": "compression",
+      "benchmarkClass": "CompressionBenchmarks",
+      "benchmarkMethods": [
+        "Compress"
+      ],
+      "parameterValues": {
+        "Policy": [
+          "None",
+          "Deflate",
+          "Brotli",
+          "Lz4",
+          "Snappy",
+          "Zstandard"
+        ],
+        "Size": [
+          "small",
+          "medium",
+          "large"
+        ]
+      },
+      "semanticParameters": {
+        "seed": "42",
+        "language": "en",
+        "corpusRecords": "1024",
+        "payloadSelection": "UTF-8 byte prefix",
+        "operationsPerInvoke": "1",
+        "timedBoundary": "codec-call",
+        "codecState": "registered-and-warmed-in-setup"
+      },
+      "engineId": "leancorpus",
+      "category": "Storage",
+      "operation": "Compress",
+      "datasetProfile": "rowles-text-multilingual-v1",
+      "workloadId": "compression-byte-prefix-v1",
+      "algorithmFamily": "CodecByteTransform",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "NotApplicable",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "encoded-bytes",
+      "qualityProof": "Setup rejects unknown payload sizes, verifies exact decoded bytes and writes original/encoded byte counts, hashes and DataForge identity before timing. CompressionRatio is a size ratio, not a competitive speed ratio.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        },
+        {
+          "name": "OriginalBytes",
+          "unit": "B",
+          "role": "secondary"
+        },
+        {
+          "name": "CompressedBytes",
+          "unit": "B",
+          "role": "secondary"
+        },
+        {
+          "name": "CompressionRatio",
+          "unit": "ratio",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "compression-decompress-bytes-v1",
+      "project": "compression",
+      "benchmarkClass": "CompressionBenchmarks",
+      "benchmarkMethods": [
+        "Decompress"
+      ],
+      "parameterValues": {
+        "Policy": [
+          "None",
+          "Deflate",
+          "Brotli",
+          "Lz4",
+          "Snappy",
+          "Zstandard"
+        ],
+        "Size": [
+          "small",
+          "medium",
+          "large"
+        ]
+      },
+      "semanticParameters": {
+        "seed": "42",
+        "language": "en",
+        "corpusRecords": "1024",
+        "payloadSelection": "UTF-8 byte prefix",
+        "operationsPerInvoke": "1",
+        "timedBoundary": "codec-call",
+        "codecState": "registered-and-warmed-in-setup"
+      },
+      "engineId": "leancorpus",
+      "category": "Storage",
+      "operation": "Decompress",
+      "datasetProfile": "rowles-text-multilingual-v1",
+      "workloadId": "compression-byte-prefix-v1",
+      "algorithmFamily": "CodecByteTransform",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "NotApplicable",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "exact-original-bytes",
+      "qualityProof": "Setup rejects unknown payload sizes, verifies exact decoded bytes and writes original/encoded byte counts, hashes and DataForge identity before timing. CompressionRatio is a size ratio, not a competitive speed ratio.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        },
+        {
+          "name": "OriginalBytes",
+          "unit": "B",
+          "role": "secondary"
+        },
+        {
+          "name": "CompressedBytes",
+          "unit": "B",
+          "role": "secondary"
+        },
+        {
+          "name": "CompressionRatio",
+          "unit": "ratio",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "similarity-bm25-standard-leancorpus-20000",
+      "project": "core",
+      "benchmarkClass": "SimilarityBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_Bm25_TermQuery"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "queryField": "body",
+        "queryTerm": "government",
+        "topN": "25",
+        "similarityProfile": "BM25(k1=1.2,b=0.75)",
+        "norms": "enabled"
+      },
+      "engineId": "leancorpus",
+      "category": "Search",
+      "operation": "TermQuerySimilarity",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "similarity-term-government-v1",
+      "algorithmFamily": "BM25",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": "similarity-bm25-standard-20000",
+      "classification": "Unqualified",
+      "resultContract": "matched-profile-and-logical-hit-set",
+      "qualityProof": "Global setup validates the explicit BM25 index and searcher profile, field norms, and the complete logical hit set against the other engine before timing.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "similarity-bm25-standard-lucenenet-20000",
+      "project": "core",
+      "benchmarkClass": "SimilarityBenchmarks",
+      "benchmarkMethods": [
+        "LuceneNet_Bm25_TermQuery"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "queryField": "body",
+        "queryTerm": "government",
+        "topN": "25",
+        "similarityProfile": "BM25(k1=1.2,b=0.75)",
+        "norms": "enabled"
+      },
+      "engineId": "lucenenet",
+      "category": "Search",
+      "operation": "TermQuerySimilarity",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "similarity-term-government-v1",
+      "algorithmFamily": "BM25",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": "similarity-bm25-standard-20000",
+      "classification": "Unqualified",
+      "resultContract": "matched-profile-and-logical-hit-set",
+      "qualityProof": "Global setup validates the explicit BM25 index and searcher profile, field norms, and the complete logical hit set against the other engine before timing.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "similarity-classic-as-shipped-lucenenet-20000",
+      "project": "core",
+      "benchmarkClass": "SimilarityBenchmarks",
+      "benchmarkMethods": [
+        "LuceneNet_TfIdf_TermQuery"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "queryField": "body",
+        "queryTerm": "government",
+        "topN": "25",
+        "similarityProfile": "LuceneDefaultClassicTfIdf",
+        "indexProfile": "LuceneDefaultClassicTfIdf"
+      },
+      "engineId": "lucenenet",
+      "category": "Search",
+      "operation": "TermQuerySimilarity",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "similarity-term-government-v1",
+      "algorithmFamily": "ClassicTFIDF",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": "similarity-classic-as-shipped-20000",
+      "classification": "Unqualified",
+      "resultContract": "Lucene-default-classic-tfidf-reference",
+      "qualityProof": "The writer and searcher retain Lucene.NET's default Classic TF-IDF profile; this as-shipped reference is not grouped with the matched BM25 cases.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "mlt-bval03-leancorpus-fixturecoldextraction",
+      "project": "core",
+      "benchmarkClass": "MoreLikeThisBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_MoreLikeThisQuery_FixtureColdExtraction"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "fixture": "bval-03-morelikethis-cache-boundaries",
+        "sourceDocument": "0",
+        "corpusSelection": "pinned fixture, independent of DocumentCount",
+        "timedBoundary": "ColdExtractQuerySearch",
+        "termCache": "reset-before-single-invocation"
+      },
+      "engineId": "leancorpus",
+      "category": "Search",
+      "operation": "ColdExtractQuerySearch",
+      "datasetProfile": "bval-03-morelikethis-cache-boundaries-v1",
+      "workloadId": "bval03-coldextractquerysearch-v1",
+      "algorithmFamily": "MoreLikeThis",
+      "cachePolicy": "Disabled",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": "bval03-coldextractquerysearch",
+      "classification": "Unqualified",
+      "resultContract": "complete-fixture-hit-count-excluding-source",
+      "qualityProof": "Existing ValidateBval03Fixture checks selected terms and logical hit IDs from both engines against the pinned BVAL-03 fixture before timing; cold and warm cache boundaries are explicit iteration setup. No measurement qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "mlt-bval03-leancorpus-fixtureprebuiltsearch",
+      "project": "core",
+      "benchmarkClass": "MoreLikeThisBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_MoreLikeThisQuery_FixturePrebuiltSearch"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "fixture": "bval-03-morelikethis-cache-boundaries",
+        "sourceDocument": "0",
+        "corpusSelection": "pinned fixture, independent of DocumentCount",
+        "timedBoundary": "PrebuiltQuerySearch",
+        "termCache": "not-used"
+      },
+      "engineId": "leancorpus",
+      "category": "Search",
+      "operation": "PrebuiltQuerySearch",
+      "datasetProfile": "bval-03-morelikethis-cache-boundaries-v1",
+      "workloadId": "bval03-prebuiltquerysearch-v1",
+      "algorithmFamily": "MoreLikeThis",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": "bval03-prebuiltquerysearch",
+      "classification": "Unqualified",
+      "resultContract": "complete-fixture-hit-count-excluding-source",
+      "qualityProof": "Existing ValidateBval03Fixture checks selected terms and logical hit IDs from both engines against the pinned BVAL-03 fixture before timing; cold and warm cache boundaries are explicit iteration setup. No measurement qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "mlt-bval03-leancorpus-fixturewarmcachehit",
+      "project": "core",
+      "benchmarkClass": "MoreLikeThisBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_MoreLikeThisQuery_FixtureWarmCacheHit"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "fixture": "bval-03-morelikethis-cache-boundaries",
+        "sourceDocument": "0",
+        "corpusSelection": "pinned fixture, independent of DocumentCount",
+        "timedBoundary": "WarmTermCacheQuerySearch",
+        "termCache": "seeded"
+      },
+      "engineId": "leancorpus",
+      "category": "Search",
+      "operation": "WarmTermCacheQuerySearch",
+      "datasetProfile": "bval-03-morelikethis-cache-boundaries-v1",
+      "workloadId": "bval03-warmtermcachequerysearch-v1",
+      "algorithmFamily": "MoreLikeThis",
+      "cachePolicy": "WarmExpansion",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "complete-fixture-hit-count-excluding-source",
+      "qualityProof": "Existing ValidateBval03Fixture checks selected terms and logical hit IDs from both engines against the pinned BVAL-03 fixture before timing; cold and warm cache boundaries are explicit iteration setup. No measurement qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "mlt-bval03-lucenenet-fixturecoldextraction",
+      "project": "core",
+      "benchmarkClass": "MoreLikeThisBenchmarks",
+      "benchmarkMethods": [
+        "LuceneNet_MoreLikeThis_FixtureColdExtraction"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "fixture": "bval-03-morelikethis-cache-boundaries",
+        "sourceDocument": "0",
+        "corpusSelection": "pinned fixture, independent of DocumentCount",
+        "timedBoundary": "ColdExtractQuerySearch",
+        "termCache": "reset-before-single-invocation"
+      },
+      "engineId": "lucenenet",
+      "category": "Search",
+      "operation": "ColdExtractQuerySearch",
+      "datasetProfile": "bval-03-morelikethis-cache-boundaries-v1",
+      "workloadId": "bval03-coldextractquerysearch-v1",
+      "algorithmFamily": "MoreLikeThis",
+      "cachePolicy": "Disabled",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": "bval03-coldextractquerysearch",
+      "classification": "Unqualified",
+      "resultContract": "complete-fixture-hit-count-excluding-source",
+      "qualityProof": "Existing ValidateBval03Fixture checks selected terms and logical hit IDs from both engines against the pinned BVAL-03 fixture before timing; cold and warm cache boundaries are explicit iteration setup. No measurement qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "mlt-bval03-lucenenet-fixtureprebuiltsearch",
+      "project": "core",
+      "benchmarkClass": "MoreLikeThisBenchmarks",
+      "benchmarkMethods": [
+        "LuceneNet_MoreLikeThis_FixturePrebuiltSearch"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "fixture": "bval-03-morelikethis-cache-boundaries",
+        "sourceDocument": "0",
+        "corpusSelection": "pinned fixture, independent of DocumentCount",
+        "timedBoundary": "PrebuiltQuerySearch",
+        "termCache": "not-used"
+      },
+      "engineId": "lucenenet",
+      "category": "Search",
+      "operation": "PrebuiltQuerySearch",
+      "datasetProfile": "bval-03-morelikethis-cache-boundaries-v1",
+      "workloadId": "bval03-prebuiltquerysearch-v1",
+      "algorithmFamily": "MoreLikeThis",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": "bval03-prebuiltquerysearch",
+      "classification": "Unqualified",
+      "resultContract": "complete-fixture-hit-count-excluding-source",
+      "qualityProof": "Existing ValidateBval03Fixture checks selected terms and logical hit IDs from both engines against the pinned BVAL-03 fixture before timing; cold and warm cache boundaries are explicit iteration setup. No measurement qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "fst-build-sorted-utf8-terms",
+      "project": "core",
+      "benchmarkClass": "FstBuildBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_Fst_BuildSortedUtf8Terms"
+      ],
+      "parameterValues": {
+        "TermCount": [
+          "1000",
+          "10000",
+          "100000"
+        ]
+      },
+      "semanticParameters": {
+        "keyEncoding": "fixed-width UTF-8 term{i:D8}",
+        "sortOrder": "strict lexicographic byte order",
+        "output": "zero-based term ordinal",
+        "timedBoundary": "fresh builder allocation, all Add calls, Finish serialisation",
+        "inputOwnership": "UTF-8 key arrays prepared once in setup"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "BuildAndSerialiseFst",
+      "datasetProfile": "synthetic-fst-utf8-terms-v1",
+      "workloadId": "fst-build-sorted-utf8-terms-v1",
+      "algorithmFamily": "MinimalAcyclicFiniteStateTransducer",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "new-index",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "serialised-fst-byte-length-for-term-count",
+      "qualityProof": "GlobalSetup opens the serialised FST, verifies the exact key count, and checks every deterministic UTF-8 key maps to its expected ordinal before measurement. The timed method returns the serialised byte length; no cross-engine timing claim is made.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "fst-lookup-exact-hit-count",
+      "project": "core",
+      "benchmarkClass": "FstLookupBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_Fst_Lookup"
+      ],
+      "parameterValues": {
+        "TermCount": [
+          "1000",
+          "10000",
+          "100000"
+        ]
+      },
+      "semanticParameters": {
+        "queryCount": "TermCount",
+        "hitRate": "50 percent",
+        "missNamespace": "miss, disjoint from term keys",
+        "timedBoundary": "exact lookup over an already-open in-memory FST"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "FstExactLookup",
+      "datasetProfile": "synthetic-fst-utf8-terms-v1",
+      "workloadId": "fst-exact-lookup-50-percent-v1",
+      "algorithmFamily": "MinimalAcyclicFiniteStateTransducer",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "exactly-half-of-query-keys-hit",
+      "qualityProof": "Setup verifies every stored UTF-8 key maps to its ordinal and validates the complete prefix enumeration and automaton result sequence. The timed lookup checks the exact expected hit count for the deterministic half-hit, half-miss query set.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "fst-prefix-enumeration-exact-sequence",
+      "project": "core",
+      "benchmarkClass": "FstLookupBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_Fst_EnumeratePrefix"
+      ],
+      "parameterValues": {
+        "TermCount": [
+          "1000",
+          "10000",
+          "100000"
+        ]
+      },
+      "semanticParameters": {
+        "prefix": "term",
+        "expectedMatches": "all stored terms",
+        "timedBoundary": "prefix enumeration over an already-open in-memory FST"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "FstPrefixEnumeration",
+      "datasetProfile": "synthetic-fst-utf8-terms-v1",
+      "workloadId": "fst-prefix-enumeration-v1",
+      "algorithmFamily": "MinimalAcyclicFiniteStateTransducer",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "all-keys-in-byte-order-with-exact-ordinal-outputs",
+      "qualityProof": "Setup compares every enumerated UTF-8 key and output ordinal with the deterministic sorted fixture. The timed method checks the exact full-match count.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "fst-prefix-automaton-exact-sequence",
+      "project": "core",
+      "benchmarkClass": "FstLookupBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_Fst_IntersectAutomaton"
+      ],
+      "parameterValues": {
+        "TermCount": [
+          "1000",
+          "10000",
+          "100000"
+        ]
+      },
+      "semanticParameters": {
+        "automaton": "prefix automaton for term",
+        "expectedMatches": "all stored terms",
+        "timedBoundary": "automaton construction and FST intersection"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "FstAutomatonIntersection",
+      "datasetProfile": "synthetic-fst-utf8-terms-v1",
+      "workloadId": "fst-prefix-automaton-intersection-v1",
+      "algorithmFamily": "MinimalAcyclicFiniteStateTransducer",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "warm-open",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "all-keys-in-byte-order-with-exact-ordinal-outputs",
+      "qualityProof": "Setup compares every automaton result UTF-8 key and output ordinal with the deterministic sorted fixture. The timed method checks the exact full-match count.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "concurrent-write-sequential-c1",
+      "project": "core",
+      "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
+      "benchmarkMethods": [
+        "Sequential_AddDocument"
+      ],
+      "parameterValues": {
+        "BatchSize": [
+          "100",
+          "1000",
+          "10000"
+        ],
+        "IndexingConcurrency": [
+          "1"
+        ]
+      },
+      "semanticParameters": {
+        "dataset": "DataForge leancorpus-search v1 seed 42",
+        "idFormat": "invariant-culture integer ordinal",
+        "fields": "stored ID, indexed body, numeric price",
+        "writerConfig": "IndexingConcurrency=1; MaxBufferedDocs=10000; RamBufferSizeMB=256",
+        "timedBoundary": "new file-backed directory and writer, document insertion, one explicit commit",
+        "operationCount": "BatchSize documents"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "IndexBatchCommit",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "bounded-concurrent-write-commit-v1",
+      "algorithmFamily": "SequentialAddDocument",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "commit",
+      "comparisonGroup": "bounded-concurrent-write-c1",
+      "classification": "InternalReference",
+      "resultContract": "exact-reopened-document-count-and-sorted-stored-id-set",
+      "qualityProof": "GlobalSetup commits the configured DataForge-backed batch, closes the writer, reopens the file-backed index, and verifies the exact count and complete sorted stored ID set. At concurrency 1 the same setup validates both sequential and concurrent insertion paths.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "concurrent-write-batch-c1",
+      "project": "core",
+      "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
+      "benchmarkMethods": [
+        "Concurrent_AddDocumentsConcurrent"
+      ],
+      "parameterValues": {
+        "BatchSize": [
+          "100",
+          "1000",
+          "10000"
+        ],
+        "IndexingConcurrency": [
+          "1"
+        ]
+      },
+      "semanticParameters": {
+        "dataset": "DataForge leancorpus-search v1 seed 42",
+        "idFormat": "invariant-culture integer ordinal",
+        "fields": "stored ID, indexed body, numeric price",
+        "writerConfig": "IndexingConcurrency=1; MaxBufferedDocs=10000; RamBufferSizeMB=256",
+        "timedBoundary": "new file-backed directory and writer, document insertion, one explicit commit",
+        "operationCount": "BatchSize documents"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "IndexBatchCommit",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "bounded-concurrent-write-commit-v1",
+      "algorithmFamily": "BoundedAddDocumentsConcurrent",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "commit",
+      "comparisonGroup": "bounded-concurrent-write-c1",
+      "classification": "InternalReference",
+      "resultContract": "exact-reopened-document-count-and-sorted-stored-id-set",
+      "qualityProof": "GlobalSetup commits the configured DataForge-backed batch, closes the writer, reopens the file-backed index, and verifies the exact count and complete sorted stored ID set. At concurrency 1 the same setup validates both sequential and concurrent insertion paths.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "concurrent-write-batch-c2",
+      "project": "core",
+      "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
+      "benchmarkMethods": [
+        "Concurrent_AddDocumentsConcurrent"
+      ],
+      "parameterValues": {
+        "BatchSize": [
+          "100",
+          "1000",
+          "10000"
+        ],
+        "IndexingConcurrency": [
+          "2"
+        ]
+      },
+      "semanticParameters": {
+        "dataset": "DataForge leancorpus-search v1 seed 42",
+        "idFormat": "invariant-culture integer ordinal",
+        "fields": "stored ID, indexed body, numeric price",
+        "writerConfig": "IndexingConcurrency=2; MaxBufferedDocs=10000; RamBufferSizeMB=256",
+        "timedBoundary": "new file-backed directory and writer, AddDocumentsConcurrent, one explicit commit",
+        "operationCount": "BatchSize documents"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "ConcurrentBatchIndexCommit",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "bounded-concurrent-write-commit-v1",
+      "algorithmFamily": "BoundedAddDocumentsConcurrent",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "commit",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "exact-reopened-document-count-and-sorted-stored-id-set",
+      "qualityProof": "GlobalSetup commits the configured DataForge-backed batch, closes the writer, reopens the file-backed index, and verifies the exact count and complete sorted stored ID set. This concurrency setting has no sequential ratio peer in this case family.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "concurrent-write-batch-c4",
+      "project": "core",
+      "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
+      "benchmarkMethods": [
+        "Concurrent_AddDocumentsConcurrent"
+      ],
+      "parameterValues": {
+        "BatchSize": [
+          "100",
+          "1000",
+          "10000"
+        ],
+        "IndexingConcurrency": [
+          "4"
+        ]
+      },
+      "semanticParameters": {
+        "dataset": "DataForge leancorpus-search v1 seed 42",
+        "idFormat": "invariant-culture integer ordinal",
+        "fields": "stored ID, indexed body, numeric price",
+        "writerConfig": "IndexingConcurrency=4; MaxBufferedDocs=10000; RamBufferSizeMB=256",
+        "timedBoundary": "new file-backed directory and writer, AddDocumentsConcurrent, one explicit commit",
+        "operationCount": "BatchSize documents"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "ConcurrentBatchIndexCommit",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "bounded-concurrent-write-commit-v1",
+      "algorithmFamily": "BoundedAddDocumentsConcurrent",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "commit",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "exact-reopened-document-count-and-sorted-stored-id-set",
+      "qualityProof": "GlobalSetup commits the configured DataForge-backed batch, closes the writer, reopens the file-backed index, and verifies the exact count and complete sorted stored ID set. This concurrency setting has no sequential ratio peer in this case family.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "delete-queue-leancorpus",
+      "project": "core",
+      "benchmarkClass": "DeletionQueueBenchmarks",
+      "benchmarkMethods": [
+        "LeanLucene_QueueDeletes"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "dataset": "DataForge leancorpus-search v1 seed 42",
+        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
+        "deleteSet": "first max(1, DocumentCount divided by 10) IDs",
+        "storage": "file-backed index; stored IDs and indexed DataForge body",
+        "timedBoundary": "queue one term deletion for each selected ID; no commit",
+        "verificationBoundary": "commit after timing, close, reopen and verify exact survivor IDs"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "QueueDeleteTerms",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "delete-queue-10-percent-v1",
+      "algorithmFamily": "TermDeleteQueue",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "commit",
+      "comparisonGroup": "delete-queue-10-percent",
+      "classification": "QualifiedParity",
+      "resultContract": "exact-queued-delete-count-and-post-commit-survivor-id-set",
+      "qualityProof": "Each iteration builds and commits the same deterministic DataForge IDs for both engines. Cleanup commits outside the timed boundary, reopens each index and checks exact live count and sorted stored IDs against the expected survivor set.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "delete-queue-lucenenet",
+      "project": "core",
+      "benchmarkClass": "DeletionQueueBenchmarks",
+      "benchmarkMethods": [
+        "LuceneNet_QueueDeletes"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "dataset": "DataForge leancorpus-search v1 seed 42",
+        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
+        "deleteSet": "first max(1, DocumentCount divided by 10) IDs",
+        "storage": "file-backed index; stored IDs and indexed DataForge body",
+        "timedBoundary": "queue one term deletion for each selected ID; no commit",
+        "verificationBoundary": "commit after timing, close, reopen and verify exact survivor IDs"
+      },
+      "engineId": "lucenenet",
+      "category": "Index",
+      "operation": "QueueDeleteTerms",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "delete-queue-10-percent-v1",
+      "algorithmFamily": "TermDeleteQueue",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "commit",
+      "comparisonGroup": "delete-queue-10-percent",
+      "classification": "QualifiedParity",
+      "resultContract": "exact-queued-delete-count-and-post-commit-survivor-id-set",
+      "qualityProof": "Each iteration builds and commits the same deterministic DataForge IDs for both engines. Cleanup commits outside the timed boundary, reopens each index and checks exact live count and sorted stored IDs against the expected survivor set.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "delete-commit-leancorpus",
+      "project": "core",
+      "benchmarkClass": "DeletionCommitBenchmarks",
+      "benchmarkMethods": [
+        "LeanLucene_CommitDeletes"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "dataset": "DataForge leancorpus-search v1 seed 42",
+        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
+        "deleteSet": "first max(1, DocumentCount divided by 10) IDs, queued before timing",
+        "storage": "file-backed index; stored IDs and indexed DataForge body",
+        "timedBoundary": "one commit applying the queued term deletions",
+        "verificationBoundary": "close, reopen and verify exact survivor IDs after timing"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "CommitQueuedDeleteTerms",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "delete-commit-10-percent-v1",
+      "algorithmFamily": "TermDeleteCommit",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "commit",
+      "comparisonGroup": "delete-commit-10-percent",
+      "classification": "QualifiedParity",
+      "resultContract": "one-commit-and-exact-post-commit-survivor-id-set",
+      "qualityProof": "Each iteration builds and commits the same deterministic DataForge IDs and queues identical first-ten-per-cent deletes before timing. The measured method performs one commit; cleanup commits both indexes outside timing, closes and reopens them, and verifies the exact sorted survivor IDs.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "delete-commit-lucenenet",
+      "project": "core",
+      "benchmarkClass": "DeletionCommitBenchmarks",
+      "benchmarkMethods": [
+        "LuceneNet_CommitDeletes"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "dataset": "DataForge leancorpus-search v1 seed 42",
+        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
+        "deleteSet": "first max(1, DocumentCount divided by 10) IDs, queued before timing",
+        "storage": "file-backed index; stored IDs and indexed DataForge body",
+        "timedBoundary": "one commit applying the queued term deletions",
+        "verificationBoundary": "close, reopen and verify exact survivor IDs after timing"
+      },
+      "engineId": "lucenenet",
+      "category": "Index",
+      "operation": "CommitQueuedDeleteTerms",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "delete-commit-10-percent-v1",
+      "algorithmFamily": "TermDeleteCommit",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "commit",
+      "comparisonGroup": "delete-commit-10-percent",
+      "classification": "QualifiedParity",
+      "resultContract": "one-commit-and-exact-post-commit-survivor-id-set",
+      "qualityProof": "Each iteration builds and commits the same deterministic DataForge IDs and queues identical first-ten-per-cent deletes before timing. The measured method performs one commit; cleanup commits both indexes outside timing, closes and reopens them, and verifies the exact sorted survivor IDs.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "delete-replacement-refresh-10-percent",
+      "project": "core",
+      "benchmarkClass": "DeletionReplacementRefreshBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_ReplaceAndRefresh"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "1000",
+          "20000"
+        ]
+      },
+      "semanticParameters": {
+        "dataset": "DataForge leancorpus-search v1 seed 42",
+        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
+        "replacementSet": "first max(1, DocumentCount divided by 10) IDs updated from generation 0 to 1",
+        "storage": "file-backed LeanCorpus index with stored IDs and generation",
+        "timedBoundary": "update selected documents, commit once and synchronously publish through MaybeRefresh",
+        "verificationBoundary": "read published searcher after timing and verify exact IDs and generation map"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "ReplaceCommitAndRefresh",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "delete-replace-refresh-10-percent-v1",
+      "algorithmFamily": "DocumentReplacementAndSearcherRefresh",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "refresh",
+      "comparisonGroup": null,
+      "classification": "Directional",
+      "resultContract": "exact-logical-id-set-and-published-generation-map",
+      "qualityProof": "Each iteration seeds the deterministic DataForge ID set at generation zero. Cleanup acquires the published searcher and verifies every logical ID and that exactly the replaced ten per cent expose generation one after the commit and refresh operation.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
       "id": "merge-hnsw-output",
       "project": "core",
       "benchmarkClass": "MergeBenchmarks",
@@ -1810,641 +2933,9 @@
         }
       ],
       "estimatedBudget": "short"
-    },
-    {
-      "id": "concurrent-write-batch-c1",
-      "project": "core",
-      "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
-      "benchmarkMethods": [
-        "Concurrent_AddDocumentsConcurrent"
-      ],
-      "parameterValues": {
-        "BatchSize": [
-          "100",
-          "1000",
-          "10000"
-        ],
-        "IndexingConcurrency": [
-          "1"
-        ]
-      },
-      "semanticParameters": {
-        "dataset": "DataForge leancorpus-search v1 seed 42",
-        "idFormat": "invariant-culture integer ordinal",
-        "fields": "stored ID, indexed body, numeric price",
-        "writerConfig": "IndexingConcurrency=1; MaxBufferedDocs=10000; RamBufferSizeMB=256",
-        "timedBoundary": "new file-backed directory and writer, document insertion, one explicit commit",
-        "operationCount": "BatchSize documents"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "IndexBatchCommit",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "bounded-concurrent-write-commit-v1",
-      "algorithmFamily": "BoundedAddDocumentsConcurrent",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "commit",
-      "comparisonGroup": "bounded-concurrent-write-c1",
-      "classification": "InternalReference",
-      "resultContract": "exact-reopened-document-count-and-sorted-stored-id-set",
-      "qualityProof": "GlobalSetup commits the configured DataForge-backed batch, closes the writer, reopens the file-backed index, and verifies the exact count and complete sorted stored ID set. At concurrency 1 the same setup validates both sequential and concurrent insertion paths.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "concurrent-write-batch-c2",
-      "project": "core",
-      "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
-      "benchmarkMethods": [
-        "Concurrent_AddDocumentsConcurrent"
-      ],
-      "parameterValues": {
-        "BatchSize": [
-          "100",
-          "1000",
-          "10000"
-        ],
-        "IndexingConcurrency": [
-          "2"
-        ]
-      },
-      "semanticParameters": {
-        "dataset": "DataForge leancorpus-search v1 seed 42",
-        "idFormat": "invariant-culture integer ordinal",
-        "fields": "stored ID, indexed body, numeric price",
-        "writerConfig": "IndexingConcurrency=2; MaxBufferedDocs=10000; RamBufferSizeMB=256",
-        "timedBoundary": "new file-backed directory and writer, AddDocumentsConcurrent, one explicit commit",
-        "operationCount": "BatchSize documents"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "ConcurrentBatchIndexCommit",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "bounded-concurrent-write-commit-v1",
-      "algorithmFamily": "BoundedAddDocumentsConcurrent",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "commit",
-      "comparisonGroup": null,
-      "classification": "Directional",
-      "resultContract": "exact-reopened-document-count-and-sorted-stored-id-set",
-      "qualityProof": "GlobalSetup commits the configured DataForge-backed batch, closes the writer, reopens the file-backed index, and verifies the exact count and complete sorted stored ID set. This concurrency setting has no sequential ratio peer in this case family.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "concurrent-write-batch-c4",
-      "project": "core",
-      "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
-      "benchmarkMethods": [
-        "Concurrent_AddDocumentsConcurrent"
-      ],
-      "parameterValues": {
-        "BatchSize": [
-          "100",
-          "1000",
-          "10000"
-        ],
-        "IndexingConcurrency": [
-          "4"
-        ]
-      },
-      "semanticParameters": {
-        "dataset": "DataForge leancorpus-search v1 seed 42",
-        "idFormat": "invariant-culture integer ordinal",
-        "fields": "stored ID, indexed body, numeric price",
-        "writerConfig": "IndexingConcurrency=4; MaxBufferedDocs=10000; RamBufferSizeMB=256",
-        "timedBoundary": "new file-backed directory and writer, AddDocumentsConcurrent, one explicit commit",
-        "operationCount": "BatchSize documents"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "ConcurrentBatchIndexCommit",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "bounded-concurrent-write-commit-v1",
-      "algorithmFamily": "BoundedAddDocumentsConcurrent",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "commit",
-      "comparisonGroup": null,
-      "classification": "Directional",
-      "resultContract": "exact-reopened-document-count-and-sorted-stored-id-set",
-      "qualityProof": "GlobalSetup commits the configured DataForge-backed batch, closes the writer, reopens the file-backed index, and verifies the exact count and complete sorted stored ID set. This concurrency setting has no sequential ratio peer in this case family.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "concurrent-write-sequential-c1",
-      "project": "core",
-      "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
-      "benchmarkMethods": [
-        "Sequential_AddDocument"
-      ],
-      "parameterValues": {
-        "BatchSize": [
-          "100",
-          "1000",
-          "10000"
-        ],
-        "IndexingConcurrency": [
-          "1"
-        ]
-      },
-      "semanticParameters": {
-        "dataset": "DataForge leancorpus-search v1 seed 42",
-        "idFormat": "invariant-culture integer ordinal",
-        "fields": "stored ID, indexed body, numeric price",
-        "writerConfig": "IndexingConcurrency=1; MaxBufferedDocs=10000; RamBufferSizeMB=256",
-        "timedBoundary": "new file-backed directory and writer, document insertion, one explicit commit",
-        "operationCount": "BatchSize documents"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "IndexBatchCommit",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "bounded-concurrent-write-commit-v1",
-      "algorithmFamily": "SequentialAddDocument",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "commit",
-      "comparisonGroup": "bounded-concurrent-write-c1",
-      "classification": "InternalReference",
-      "resultContract": "exact-reopened-document-count-and-sorted-stored-id-set",
-      "qualityProof": "GlobalSetup commits the configured DataForge-backed batch, closes the writer, reopens the file-backed index, and verifies the exact count and complete sorted stored ID set. At concurrency 1 the same setup validates both sequential and concurrent insertion paths.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "delete-commit-leancorpus",
-      "project": "core",
-      "benchmarkClass": "DeletionCommitBenchmarks",
-      "benchmarkMethods": [
-        "LeanLucene_CommitDeletes"
-      ],
-      "parameterValues": {
-        "DocumentCount": [
-          "20000"
-        ]
-      },
-      "semanticParameters": {
-        "dataset": "DataForge leancorpus-search v1 seed 42",
-        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
-        "deleteSet": "first max(1, DocumentCount divided by 10) IDs, queued before timing",
-        "storage": "file-backed index; stored IDs and indexed DataForge body",
-        "timedBoundary": "one commit applying the queued term deletions",
-        "verificationBoundary": "close, reopen and verify exact survivor IDs after timing"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "CommitQueuedDeleteTerms",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "delete-commit-10-percent-v1",
-      "algorithmFamily": "TermDeleteCommit",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "commit",
-      "comparisonGroup": "delete-commit-10-percent",
-      "classification": "QualifiedParity",
-      "resultContract": "one-commit-and-exact-post-commit-survivor-id-set",
-      "qualityProof": "Each iteration builds and commits the same deterministic DataForge IDs and queues identical first-ten-per-cent deletes before timing. The measured method performs one commit; cleanup commits both indexes outside timing, closes and reopens them, and verifies the exact sorted survivor IDs.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "delete-commit-lucenenet",
-      "project": "core",
-      "benchmarkClass": "DeletionCommitBenchmarks",
-      "benchmarkMethods": [
-        "LuceneNet_CommitDeletes"
-      ],
-      "parameterValues": {
-        "DocumentCount": [
-          "20000"
-        ]
-      },
-      "semanticParameters": {
-        "dataset": "DataForge leancorpus-search v1 seed 42",
-        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
-        "deleteSet": "first max(1, DocumentCount divided by 10) IDs, queued before timing",
-        "storage": "file-backed index; stored IDs and indexed DataForge body",
-        "timedBoundary": "one commit applying the queued term deletions",
-        "verificationBoundary": "close, reopen and verify exact survivor IDs after timing"
-      },
-      "engineId": "lucenenet",
-      "category": "Index",
-      "operation": "CommitQueuedDeleteTerms",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "delete-commit-10-percent-v1",
-      "algorithmFamily": "TermDeleteCommit",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "commit",
-      "comparisonGroup": "delete-commit-10-percent",
-      "classification": "QualifiedParity",
-      "resultContract": "one-commit-and-exact-post-commit-survivor-id-set",
-      "qualityProof": "Each iteration builds and commits the same deterministic DataForge IDs and queues identical first-ten-per-cent deletes before timing. The measured method performs one commit; cleanup commits both indexes outside timing, closes and reopens them, and verifies the exact sorted survivor IDs.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "delete-queue-leancorpus",
-      "project": "core",
-      "benchmarkClass": "DeletionQueueBenchmarks",
-      "benchmarkMethods": [
-        "LeanLucene_QueueDeletes"
-      ],
-      "parameterValues": {
-        "DocumentCount": [
-          "20000"
-        ]
-      },
-      "semanticParameters": {
-        "dataset": "DataForge leancorpus-search v1 seed 42",
-        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
-        "deleteSet": "first max(1, DocumentCount divided by 10) IDs",
-        "storage": "file-backed index; stored IDs and indexed DataForge body",
-        "timedBoundary": "queue one term deletion for each selected ID; no commit",
-        "verificationBoundary": "commit after timing, close, reopen and verify exact survivor IDs"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "QueueDeleteTerms",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "delete-queue-10-percent-v1",
-      "algorithmFamily": "TermDeleteQueue",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "commit",
-      "comparisonGroup": "delete-queue-10-percent",
-      "classification": "QualifiedParity",
-      "resultContract": "exact-queued-delete-count-and-post-commit-survivor-id-set",
-      "qualityProof": "Each iteration builds and commits the same deterministic DataForge IDs for both engines. Cleanup commits outside the timed boundary, reopens each index and checks exact live count and sorted stored IDs against the expected survivor set.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "delete-queue-lucenenet",
-      "project": "core",
-      "benchmarkClass": "DeletionQueueBenchmarks",
-      "benchmarkMethods": [
-        "LuceneNet_QueueDeletes"
-      ],
-      "parameterValues": {
-        "DocumentCount": [
-          "20000"
-        ]
-      },
-      "semanticParameters": {
-        "dataset": "DataForge leancorpus-search v1 seed 42",
-        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
-        "deleteSet": "first max(1, DocumentCount divided by 10) IDs",
-        "storage": "file-backed index; stored IDs and indexed DataForge body",
-        "timedBoundary": "queue one term deletion for each selected ID; no commit",
-        "verificationBoundary": "commit after timing, close, reopen and verify exact survivor IDs"
-      },
-      "engineId": "lucenenet",
-      "category": "Index",
-      "operation": "QueueDeleteTerms",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "delete-queue-10-percent-v1",
-      "algorithmFamily": "TermDeleteQueue",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "commit",
-      "comparisonGroup": "delete-queue-10-percent",
-      "classification": "QualifiedParity",
-      "resultContract": "exact-queued-delete-count-and-post-commit-survivor-id-set",
-      "qualityProof": "Each iteration builds and commits the same deterministic DataForge IDs for both engines. Cleanup commits outside the timed boundary, reopens each index and checks exact live count and sorted stored IDs against the expected survivor set.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "delete-replacement-refresh-10-percent",
-      "project": "core",
-      "benchmarkClass": "DeletionReplacementRefreshBenchmarks",
-      "benchmarkMethods": [
-        "LeanCorpus_ReplaceAndRefresh"
-      ],
-      "parameterValues": {
-        "DocumentCount": [
-          "1000",
-          "20000"
-        ]
-      },
-      "semanticParameters": {
-        "dataset": "DataForge leancorpus-search v1 seed 42",
-        "idSet": "invariant-culture integer ordinal IDs from 0 to DocumentCount minus 1",
-        "replacementSet": "first max(1, DocumentCount divided by 10) IDs updated from generation 0 to 1",
-        "storage": "file-backed LeanCorpus index with stored IDs and generation",
-        "timedBoundary": "update selected documents, commit once and synchronously publish through MaybeRefresh",
-        "verificationBoundary": "read published searcher after timing and verify exact IDs and generation map"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "ReplaceCommitAndRefresh",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "delete-replace-refresh-10-percent-v1",
-      "algorithmFamily": "DocumentReplacementAndSearcherRefresh",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "refresh",
-      "comparisonGroup": null,
-      "classification": "Directional",
-      "resultContract": "exact-logical-id-set-and-published-generation-map",
-      "qualityProof": "Each iteration seeds the deterministic DataForge ID set at generation zero. Cleanup acquires the published searcher and verifies every logical ID and that exactly the replaced ten per cent expose generation one after the commit and refresh operation.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "fst-build-sorted-utf8-terms",
-      "project": "core",
-      "benchmarkClass": "FstBuildBenchmarks",
-      "benchmarkMethods": [
-        "LeanCorpus_Fst_BuildSortedUtf8Terms"
-      ],
-      "parameterValues": {
-        "TermCount": [
-          "1000",
-          "10000",
-          "100000"
-        ]
-      },
-      "semanticParameters": {
-        "keyEncoding": "fixed-width UTF-8 term{i:D8}",
-        "sortOrder": "strict lexicographic byte order",
-        "output": "zero-based term ordinal",
-        "timedBoundary": "fresh builder allocation, all Add calls, Finish serialisation",
-        "inputOwnership": "UTF-8 key arrays prepared once in setup"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "BuildAndSerialiseFst",
-      "datasetProfile": "synthetic-fst-utf8-terms-v1",
-      "workloadId": "fst-build-sorted-utf8-terms-v1",
-      "algorithmFamily": "MinimalAcyclicFiniteStateTransducer",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "new-index",
-      "comparisonGroup": null,
-      "classification": "Directional",
-      "resultContract": "serialised-fst-byte-length-for-term-count",
-      "qualityProof": "GlobalSetup opens the serialised FST, verifies the exact key count, and checks every deterministic UTF-8 key maps to its expected ordinal before measurement. The timed method returns the serialised byte length; no cross-engine timing claim is made.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "fst-lookup-exact-hit-count",
-      "project": "core",
-      "benchmarkClass": "FstLookupBenchmarks",
-      "benchmarkMethods": [
-        "LeanCorpus_Fst_Lookup"
-      ],
-      "parameterValues": {
-        "TermCount": [
-          "1000",
-          "10000",
-          "100000"
-        ]
-      },
-      "semanticParameters": {
-        "queryCount": "TermCount",
-        "hitRate": "50 percent",
-        "missNamespace": "miss, disjoint from term keys",
-        "timedBoundary": "exact lookup over an already-open in-memory FST"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "FstExactLookup",
-      "datasetProfile": "synthetic-fst-utf8-terms-v1",
-      "workloadId": "fst-exact-lookup-50-percent-v1",
-      "algorithmFamily": "MinimalAcyclicFiniteStateTransducer",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "warm-open",
-      "comparisonGroup": null,
-      "classification": "Directional",
-      "resultContract": "exactly-half-of-query-keys-hit",
-      "qualityProof": "Setup verifies every stored UTF-8 key maps to its ordinal and validates the complete prefix enumeration and automaton result sequence. The timed lookup checks the exact expected hit count for the deterministic half-hit, half-miss query set.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "fst-prefix-automaton-exact-sequence",
-      "project": "core",
-      "benchmarkClass": "FstLookupBenchmarks",
-      "benchmarkMethods": [
-        "LeanCorpus_Fst_IntersectAutomaton"
-      ],
-      "parameterValues": {
-        "TermCount": [
-          "1000",
-          "10000",
-          "100000"
-        ]
-      },
-      "semanticParameters": {
-        "automaton": "prefix automaton for term",
-        "expectedMatches": "all stored terms",
-        "timedBoundary": "automaton construction and FST intersection"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "FstAutomatonIntersection",
-      "datasetProfile": "synthetic-fst-utf8-terms-v1",
-      "workloadId": "fst-prefix-automaton-intersection-v1",
-      "algorithmFamily": "MinimalAcyclicFiniteStateTransducer",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "warm-open",
-      "comparisonGroup": null,
-      "classification": "Directional",
-      "resultContract": "all-keys-in-byte-order-with-exact-ordinal-outputs",
-      "qualityProof": "Setup compares every automaton result UTF-8 key and output ordinal with the deterministic sorted fixture. The timed method checks the exact full-match count.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
-      "id": "fst-prefix-enumeration-exact-sequence",
-      "project": "core",
-      "benchmarkClass": "FstLookupBenchmarks",
-      "benchmarkMethods": [
-        "LeanCorpus_Fst_EnumeratePrefix"
-      ],
-      "parameterValues": {
-        "TermCount": [
-          "1000",
-          "10000",
-          "100000"
-        ]
-      },
-      "semanticParameters": {
-        "prefix": "term",
-        "expectedMatches": "all stored terms",
-        "timedBoundary": "prefix enumeration over an already-open in-memory FST"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "FstPrefixEnumeration",
-      "datasetProfile": "synthetic-fst-utf8-terms-v1",
-      "workloadId": "fst-prefix-enumeration-v1",
-      "algorithmFamily": "MinimalAcyclicFiniteStateTransducer",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "warm-open",
-      "comparisonGroup": null,
-      "classification": "Directional",
-      "resultContract": "all-keys-in-byte-order-with-exact-ordinal-outputs",
-      "qualityProof": "Setup compares every enumerated UTF-8 key and output ordinal with the deterministic sorted fixture. The timed method checks the exact full-match count.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
     }
   ],
   "exclusions": [
-    {
-      "project": "compression",
-      "benchmarkClass": "CompressionBenchmarks",
-      "benchmarkMethod": "Compress",
-      "reason": "Unqualified: BVAL-10 verifies equal accepted documents and indexed tokens for this same-work method, but the Dry run is not a reviewed performance qualification. Exclude it from competitive claims until controlled evidence is reviewed.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "compression",
-      "benchmarkClass": "CompressionBenchmarks",
-      "benchmarkMethod": "Decompress",
-      "reason": "Unqualified: BVAL-10 verifies equal accepted documents and indexed tokens for this same-work method, but the Dry run is not a reviewed performance qualification. Exclude it from competitive claims until controlled evidence is reviewed.",
-      "expiresOn": "2027-01-31"
-    },
     {
       "project": "core",
       "benchmarkClass": "AggregationBenchmarks",
@@ -2861,43 +3352,19 @@
     {
       "project": "core",
       "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
-      "benchmarkMethod": "Concurrent_AddDocumentsConcurrent",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "ConcurrentVsSequentialBenchmarks",
       "benchmarkMethod": "Sequential_AddDocument",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DeletionCommitBenchmarks",
-      "benchmarkMethod": "LeanLucene_CommitDeletes",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DeletionCommitBenchmarks",
-      "benchmarkMethod": "LuceneNet_CommitDeletes",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DeletionQueueBenchmarks",
-      "benchmarkMethod": "LeanLucene_QueueDeletes",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "DeletionQueueBenchmarks",
-      "benchmarkMethod": "LuceneNet_QueueDeletes",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
+      "parameterValues": {
+        "BatchSize": [
+          "100",
+          "1000",
+          "10000"
+        ],
+        "IndexingConcurrency": [
+          "2",
+          "4"
+        ]
+      },
+      "reason": "Not applicable: the sequential comparison fixes IndexingConcurrency at 1, so discovered concurrency 2 and 4 rows are duplicate baseline operations and remain excluded.",
       "expiresOn": "2027-01-31"
     },
     {
@@ -2967,27 +3434,6 @@
       "project": "core",
       "benchmarkClass": "FlushBenchmarks",
       "benchmarkMethod": "LeanCorpus_Flush_WithVectors",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "FstLookupBenchmarks",
-      "benchmarkMethod": "LeanCorpus_Fst_EnumeratePrefix",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "FstLookupBenchmarks",
-      "benchmarkMethod": "LeanCorpus_Fst_IntersectAutomaton",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "FstLookupBenchmarks",
-      "benchmarkMethod": "LeanCorpus_Fst_Lookup",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },

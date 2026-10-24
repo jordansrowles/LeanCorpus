@@ -1,5 +1,5 @@
 ﻿using System.Runtime.CompilerServices;
-using System.Text;
+using System.Globalization;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Columns;
 using BenchmarkDotNet.Configs;
@@ -33,6 +33,8 @@ public class CompressionBenchmarks
     private byte[] _compressed  = [];
     private int    _originalSize;
 
+    internal CompressionMeasurement Measurement { get; private set; } = null!;
+
     /// <summary>Compression policy under test.</summary>
     [Params(
         FieldCompressionPolicy.None,
@@ -64,16 +66,14 @@ public class CompressionBenchmarks
         SnappyCompression.Register();
         ZstandardCompression.Register();
 
-        _payload = Size switch
-        {
-            "small"  => SmallPayload,
-            "large"  => LargePayload,
-            _        => MediumPayload,
-        };
-
+        _payload = GetPayload(Size);
         var codec = CompressionCodecRegistry.Get(Policy);
-        _compressed  = codec.Compress(_payload);
+        _compressed = codec.Compress(_payload);
         _originalSize = _payload.Length;
+        Measurement = CompressionFixture.Measure(Policy, _payload, _compressed,
+            codec.Decompress(_compressed, _originalSize));
+        if (Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR") is { Length: > 0 } artifacts)
+            CompressionFixture.WriteEvidence(artifacts, Measurement);
     }
 
     /// <summary>Benchmarks the compress path for the current policy and payload size.</summary>
@@ -94,21 +94,15 @@ public class CompressionBenchmarks
         return codec.Decompress(_compressed, _originalSize);
     }
 
-    internal static byte[] BuildPayload(int size)
+    internal static byte[] BuildPayload(int size) => CompressionFixture.BuildPayload(size);
+
+    private static byte[] GetPayload(string size) => size switch
     {
-        const string source =
-            "The quick brown fox jumps over the lazy dog. " +
-            "LeanCorpus stores documents in compressed blocks for efficient retrieval. " +
-            "Segment-centric indexing provides atomic commit semantics and memory-mapped reads. " +
-            "Compression benchmarks compare throughput and ratio across all registered codecs. ";
-
-        var sourceBytes = Encoding.UTF8.GetBytes(source);
-        var result = new byte[size];
-        for (var i = 0; i < size; i++)
-            result[i] = sourceBytes[i % sourceBytes.Length];
-
-        return result;
-    }
+        "small" => SmallPayload,
+        "medium" => MediumPayload,
+        "large" => LargePayload,
+        _ => throw new ArgumentOutOfRangeException(nameof(size), size, "Unknown compression payload size.")
+    };
 
     private static object? GetParamValue(BenchmarkCase benchmarkCase, string name)
     {
@@ -129,7 +123,9 @@ public class CompressionBenchmarks
             AddColumn(StatisticColumn.Min);
             AddColumn(StatisticColumn.Max);
             AddColumn(new ThroughputColumn());
-            AddColumn(new CompressionRatioColumn());
+            AddColumn(new PayloadMetricColumn("OriginalBytes"));
+            AddColumn(new PayloadMetricColumn("CompressedBytes"));
+            AddColumn(new PayloadMetricColumn("CompressionRatio"));
 
             AddExporter(MarkdownExporter.GitHub);
             AddExporter(HtmlExporter.Default);
@@ -182,55 +178,40 @@ public class CompressionBenchmarks
         public bool IsDefault(Summary summary, BenchmarkCase benchmarkCase)       => false;
     }
 
-    /// <summary>
-    /// Shows the compression ratio (original size / compressed size). Always shows "1:1"
-    /// for <see cref="FieldCompressionPolicy.None"/>; shows "N/A" for unregistered codecs.
-    /// </summary>
-    private sealed class CompressionRatioColumn : IColumn
+    private sealed class PayloadMetricColumn(string metric) : IColumn
     {
-        public string        Id                  => nameof(CompressionRatioColumn);
-        public string        ColumnName          => "Ratio";
-        public bool          AlwaysShow          => true;
-        public ColumnCategory Category           => ColumnCategory.Custom;
-        public int           PriorityInCategory  => 2;
-        public bool          IsNumeric           => false;
-        public UnitType      UnitType            => UnitType.Dimensionless;
-        public string        Legend              => "Compression ratio: original size / compressed size";
+        public string Id => metric;
+        public string ColumnName => metric;
+        public bool AlwaysShow => true;
+        public ColumnCategory Category => ColumnCategory.Custom;
+        public int PriorityInCategory => 2;
+        public bool IsNumeric => true;
+        public UnitType UnitType => UnitType.Dimensionless;
+        public string Legend => metric == "CompressionRatio"
+            ? "Original bytes / encoded bytes; this is a size ratio, not a competitive speed ratio"
+            : "Exact preflight workload byte count";
 
         public string GetValue(Summary summary, BenchmarkCase benchmarkCase)
         {
             if (GetParamValue(benchmarkCase, "Policy") is not FieldCompressionPolicy policy)
                 return "N/A";
-
-            if (policy == FieldCompressionPolicy.None)
-                return "1:1";
-
-            var sizeLabel = GetParamValue(benchmarkCase, "Size") as string ?? "medium";
-            var payload = sizeLabel switch
+            var payload = GetPayload(GetParamValue(benchmarkCase, "Size") as string ?? "medium");
+            var codec = CompressionCodecRegistry.Get(policy);
+            var compressed = codec.Compress(payload);
+            var measurement = CompressionFixture.Measure(policy, payload, compressed,
+                codec.Decompress(compressed, payload.Length));
+            return metric switch
             {
-                "small"  => SmallPayload,
-                "large"  => LargePayload,
-                _        => MediumPayload,
+                "OriginalBytes" => measurement.OriginalBytes.ToString(CultureInfo.InvariantCulture),
+                "CompressedBytes" => measurement.CompressedBytes.ToString(CultureInfo.InvariantCulture),
+                "CompressionRatio" => measurement.CompressionRatio.ToString("F3", CultureInfo.InvariantCulture),
+                _ => throw new InvalidOperationException($"Unknown compression metric '{metric}'.")
             };
-
-            if (!CompressionCodecRegistry.TryGet((byte)policy, out var codec) || codec is null)
-                return "N/A";
-
-            try
-            {
-                var compressed = codec.Compress(payload);
-                return $"{(double)payload.Length / compressed.Length:F2}x";
-            }
-            catch
-            {
-                return "N/A";
-            }
         }
 
         public string GetValue(Summary summary, BenchmarkCase benchmarkCase, SummaryStyle style)
             => GetValue(summary, benchmarkCase);
-
-        public bool IsAvailable(Summary summary)                                  => true;
-        public bool IsDefault(Summary summary, BenchmarkCase benchmarkCase)       => false;
+        public bool IsAvailable(Summary summary) => true;
+        public bool IsDefault(Summary summary, BenchmarkCase benchmarkCase) => false;
     }
 }

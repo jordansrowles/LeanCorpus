@@ -6,6 +6,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\BenchmarkParameterSelectionFilter.cs" Link="Infrastructure\BenchmarkParameterSelectionFilter.cs" />
+    <ProjectReference Include="..\Rowles.DataForge.Workloads\Rowles.DataForge.Workloads.csproj" />
+    <InternalsVisibleTo Include="Rowles.DataForge.Tests" />
     <ProjectReference Include="..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
     <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.LZ4\Rowles.LeanCorpus.Compression.LZ4.csproj" />
     <ProjectReference Include="..\..\core\Rowles.LeanCorpus.Compression.Snappy\Rowles.LeanCorpus.Compression.Snappy.csproj" />

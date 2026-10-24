@@ -22,7 +22,7 @@ public class SimilarityBenchmarks
 {
     private const int TopN = 25;
 
-    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(500, BenchmarkData.DefaultDocCount);
 
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
