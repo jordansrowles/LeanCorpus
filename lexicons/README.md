@@ -92,9 +92,9 @@ Before changing a checked-in file:
 8. Document compatibility impact for `.jlc` changes.
 
 ```bash
-./devops test -Suite text
-./devops test -Suite core -Area TextIntegration
-./devops test -Suite affected
+pwsh ./devops.ps1 test -Suite text
+pwsh ./devops.ps1 test -Suite core -Area TextIntegration
+pwsh ./devops.ps1 test -Suite affected
 ```
 
 There is currently no single repository command that regenerates every lexicon. A replacement change must therefore include enough provenance and conversion detail to be independently reproduced.

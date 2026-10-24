@@ -41,7 +41,7 @@ public sealed class MetadataClassificationTests
         Assert.True(Enum.GetValues<TestArea>().All(static a => a is
             TestArea.Foundation or TestArea.CodecKit or TestArea.Diagnostics or TestArea.Document or
             TestArea.Index or TestArea.Linq or TestArea.Mapping or TestArea.Search or
-            TestArea.Serialization or TestArea.Store or TestArea.TextIntegration or TestArea.Util or
+            TestArea.Serialisation or TestArea.Store or TestArea.TextIntegration or TestArea.Util or
             TestArea.Analysers or TestArea.Filters or TestArea.Stemmers or TestArea.Tokenisers or
             TestArea.Dictionaries or TestArea.Languages));
     }

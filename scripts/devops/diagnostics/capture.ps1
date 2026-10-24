@@ -128,7 +128,7 @@ function Invoke-DiagnosticsSymbols {
     )
 
     if ($Parsed.Positionals.Count -eq 0) {
-        throw 'Usage: devops diagnostics symbols <artifact> [-- <dotnet-symbol arguments>]'
+        throw 'Usage: pwsh ./devops.ps1 diagnostics symbols <artifact> [-- <dotnet-symbol arguments>]'
     }
     $artifact = [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path $Parsed.Positionals[0]))
     if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {

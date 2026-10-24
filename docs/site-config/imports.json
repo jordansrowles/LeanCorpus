@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "imports": [
+    {
+      "source": "README.md",
+      "destination": "about/repository-overview.md"
+    },
+    {
+      "source": "CONTRIBUTING.md",
+      "destination": "contributors/contributing.md"
+    },
+    {
+      "source": "lexicons/README.md",
+      "destination": "analysis/06-lexicons.md"
+    },
+    {
+      "source": "src/core/Rowles.Text/README.md",
+      "destination": "analysis/08-rowles-text.md"
+    },
+    {
+      "source": "src/core/Rowles.Text/CONTRIBUTING.md",
+      "destination": "contributors/rowles-text.md"
+    },
+    {
+      "source": "src/core/Rowles.LeanCorpus.SourceGen/README.md",
+      "destination": "getting-started/04-source-generated-mapping.md"
+    },
+    {
+      "source": "src/core/Rowles.LeanCorpus.Compression.LZ4/README.md",
+      "destination": "tips/compression/lz4.md"
+    },
+    {
+      "source": "src/core/Rowles.LeanCorpus.Compression.Snappy/README.md",
+      "destination": "tips/compression/snappy.md"
+    },
+    {
+      "source": "src/core/Rowles.LeanCorpus.Compression.Zstandard/README.md",
+      "destination": "tips/compression/zstandard.md"
+    },
+    {
+      "source": "src/examples/README.md",
+      "destination": "examples/index.md"
+    },
+    {
+      "source": "src/examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch/README.md",
+      "destination": "examples/linux-kernel-code-search.md"
+    },
+    {
+      "source": "src/devops/README.md",
+      "destination": "contributors/devops-projects.md"
+    },
+    {
+      "source": "src/devops/CONTRIBUTING.md",
+      "destination": "contributors/devops-and-tests.md"
+    },
+    {
+      "source": "src/server/README.md",
+      "destination": "server/community-server.md"
+    }
+  ]
+}

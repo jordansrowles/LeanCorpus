@@ -1,0 +1,59 @@
+---
+adr: ADR004
+title: "ConcurrentDictionary with generation-swap eviction for read-heavy caches"
+date: 2026-06-16
+status: Accepted
+version-added: 2.0.0
+summary: "Evict read-heavy query caches with generation-swapped ConcurrentDictionary instances."
+areas: [search, caching, concurrency]
+---
+
+# ADR004: ConcurrentDictionary with generation-swap eviction for read-heavy caches
+
+- **Date:** 2026-06-16
+- **Status:** Accepted
+
+## Context
+
+Two hot-path caches used `Dictionary` behind a `Lock`:
+
+- `QueryCache` held an LRU of query results and incremented hit/miss
+  counters inside the lock, coupling diagnostic counters to eviction.
+- `TermDictionaryReader` held wildcard and fuzzy automaton caches with
+  a lock-guarded read-through pattern. Automaton construction ran under
+  the lock, serialising all concurrent fuzzy and wildcard queries.
+
+## Decision
+
+Replace `Dictionary`+`Lock` with `ConcurrentDictionary` and use
+`Interlocked.Exchange` to swap in a fresh dictionary when the
+soft entry cap is exceeded. For the wildcard automaton cache, wrap
+values in `Lazy<T>` so only the constructing thread pays the build cost.
+
+## Rationale
+
+`ConcurrentDictionary.GetOrAdd` is lock-free for readers on the common
+path. The generation-swap eviction strategy avoids `Clear()` calls
+(which are unsafe under concurrent reads) and lets existing readers
+finish with the old dictionary while new readers pick up the replacement.
+The approach adds no allocations on the read path and removes two `Lock`
+instances from the library.
+
+## Consequences
+
+- `QueryCache` uses `ConcurrentDictionary` with an approximate count
+  tracked via `Interlocked.Increment`. The `Put` path
+  writes through the indexer and triggers a generation swap when the
+  soft cap is exceeded. `TryGet` is lock-free: it reads the volatile
+  dictionary reference and does a single `TryGetValue` plus a
+  generation check. The `Lock` and `LinkedList` are removed.
+- `TermDictionaryReader` automaton caches use `ConcurrentDictionary`
+  with `Lazy<WildcardAutomaton>` and generation-swap eviction.
+- Any future read-heavy cache with a soft size cap should use this
+  pattern rather than `Dictionary`+`Lock`+`Clear()`.
+
+## Changes
+
+| Date | Type | Change | Reference |
+| --- | --- | --- | --- |
+| 2026-06-16 | Accepted | Original decision accepted. | `b93a098e9` |

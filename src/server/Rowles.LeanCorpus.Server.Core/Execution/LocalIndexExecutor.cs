@@ -31,7 +31,7 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
         ArgumentNullException.ThrowIfNull(index);
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        using IDisposable operationLease = await index.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
+        using LocalIndexHandle.OperationLease operationLease = await index.EnterOperationWithLeaseAsync(cancellationToken).ConfigureAwait(false);
         if (index.Mode != LocalIndexOpenMode.ReadWrite)
             throw new InvalidOperationException("The selected local index is read-only.");
 
@@ -39,6 +39,7 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
         int accepted = 0;
         LocalCommitReceipt? receipt = null;
         bool committed = false;
+        bool commitRequired = false;
         long lastSequence = 0;
         IndexRuntime runtime = index.Runtime;
         lock (runtime.WriteLock)
@@ -153,16 +154,19 @@ public sealed class LocalIndexExecutor(ServerCoreOptions options) : ILocalIndexE
             }
 
             if (accepted > 0 && (request.Refresh || request.Durability == RequestedWriteDurability.LocalFsync || runtime.PendingOperations >= _options.MaximumUncommittedOperations))
+                commitRequired = true;
+        }
+
+        if (commitRequired)
+        {
+            CommitResult result = runtime.Commits.CommitUnderOperation(request.Refresh, operationLease.PhysicalOperation);
+            receipt = result switch
             {
-                CommitResult result = runtime.Commits.Commit(request.Refresh);
-                receipt = result switch
-                {
-                    CommitPublished published => published.Receipt,
-                    CommitFailed failed => throw new IOException(failed.Message, failed.Exception),
-                    NothingToCommit => null
-                };
-                committed = receipt is not null;
-            }
+                CommitPublished published => published.Receipt,
+                CommitFailed failed => throw new IOException(failed.Message, failed.Exception),
+                NothingToCommit => null
+            };
+            committed = receipt is not null;
         }
 
         using SearcherLease visible = runtime.Searchers.AcquireLease();

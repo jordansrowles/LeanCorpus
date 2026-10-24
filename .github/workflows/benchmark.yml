@@ -80,6 +80,9 @@ jobs:
           global-json-file: global.json
           dotnet-quality: preview
 
+      - name: Bootstrap managed DevOps host
+        run: pwsh ./setup.ps1
+
       - name: Run benchmarks
         shell: pwsh
         env:
@@ -96,7 +99,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $suites = Import-PowerShellDataFile './scripts/devops/config/benchmark-suites.psd1'
           if ($env:BENCHMARK_SUITE -notin @('core', 'text', 'compression') -and -not $suites.ContainsKey($env:BENCHMARK_SUITE)) {
-            throw "Unknown benchmark suite '$env:BENCHMARK_SUITE'. Use ./devops benchmark -List to list suites."
+            throw "Unknown benchmark suite '$env:BENCHMARK_SUITE'. Use pwsh ./devops.ps1 benchmark -List to list suites."
           }
           $docCount = 0
           if (-not [int]::TryParse($env:BENCHMARK_DOC_COUNT, [ref]$docCount) -or $docCount -lt 0) {
@@ -117,7 +120,8 @@ jobs:
           if ($env:BENCHMARK_CORPUS_ONLY -eq 'true') { $benchmarkArguments += '-CorpusOnly' }
           if ($env:BENCHMARK_DRY_RUN -eq 'true') { $benchmarkArguments += '-Dry' }
           if ($env:BENCHMARK_FILTER) { $benchmarkArguments += @('--', '--filter', $env:BENCHMARK_FILTER) }
-          & ./devops.ps1 @benchmarkArguments
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost @benchmarkArguments
           exit $LASTEXITCODE
 
       - name: Upload benchmark results

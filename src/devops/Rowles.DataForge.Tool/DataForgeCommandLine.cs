@@ -41,7 +41,7 @@ public static class DataForgeCommandLine
         catch (CommandLineException exception)
         {
             error.WriteLine($"Invalid command: {exception.Message}");
-            error.WriteLine("Run './devops dataforge help' for usage.");
+            error.WriteLine("Run 'devops dataforge help' for usage.");
             return 2;
         }
         catch (OperationCanceledException)
@@ -389,21 +389,21 @@ public static class DataForgeCommandLine
         if (args.Length != 0)
             throw new CommandLineException("Help does not accept arguments.");
         output.WriteLine("Usage:");
-        output.WriteLine("  ./devops dataforge profiles [-Json]");
+        output.WriteLine("  devops dataforge profiles [-Json]");
         output.WriteLine("    -Json writes profile descriptors with version, kind, defaults and description.");
-        output.WriteLine("  ./devops dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000 [-Output <path>] [-Force]");
-        output.WriteLine("  ./devops dataforge generate -Profile leancorpus-vector -Version 1 -Seed 42 -Count 1000 [-Dimension 64] [-VectorDistribution Uniform] [-ClusterCount 8] [-QueryCount 1] [-Output <path>] [-Force]");
-        output.WriteLine("  ./devops dataforge generate -Profile leancorpus-hybrid -Version 1 -Seed 42 -Count 20000 [-Dimension 64] [-Output <path>] [-Force]");
-        output.WriteLine("  ./devops dataforge generate -Profile leancorpus-stress -Mode search|vector|hybrid [-Version 1] [-Seed 42] [-Count <count>] [-AllowLarge] [-Output <path>] [-Force]");
-        output.WriteLine("  ./devops dataforge generate -Profile rowles-text-multilingual -Language en|fr|de|es|it|pt|nl|ru|ar|zh|ja|ko [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
-        output.WriteLine("  ./devops dataforge generate -Profile leancorpus-e2e [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
-        output.WriteLine("  ./devops dataforge reference download [-Cache <path>] [-Force]");
-        output.WriteLine("  ./devops dataforge reference build [-Cache <path>] [-Output <path>]");
-        output.WriteLine("  ./devops dataforge reference inspect [-ReferencePath <path>]");
-        output.WriteLine("  ./devops dataforge reference verify [-ReferencePath <path>]");
-        output.WriteLine("  ./devops dataforge inspect <dataset-dir-or-manifest>");
-        output.WriteLine("  ./devops dataforge verify <dataset-dir-or-manifest>");
-        output.WriteLine("  ./devops dataforge reproduce <dataset-dir-or-manifest>");
+        output.WriteLine("  devops dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000 [-Output <path>] [-Force]");
+        output.WriteLine("  devops dataforge generate -Profile leancorpus-vector -Version 1 -Seed 42 -Count 1000 [-Dimension 64] [-VectorDistribution Uniform] [-ClusterCount 8] [-QueryCount 1] [-Output <path>] [-Force]");
+        output.WriteLine("  devops dataforge generate -Profile leancorpus-hybrid -Version 1 -Seed 42 -Count 20000 [-Dimension 64] [-Output <path>] [-Force]");
+        output.WriteLine("  devops dataforge generate -Profile leancorpus-stress -Mode search|vector|hybrid [-Version 1] [-Seed 42] [-Count <count>] [-AllowLarge] [-Output <path>] [-Force]");
+        output.WriteLine("  devops dataforge generate -Profile rowles-text-multilingual -Language en|fr|de|es|it|pt|nl|ru|ar|zh|ja|ko [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
+        output.WriteLine("  devops dataforge generate -Profile leancorpus-e2e [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
+        output.WriteLine("  devops dataforge reference download [-Cache <path>] [-Force]");
+        output.WriteLine("  devops dataforge reference build [-Cache <path>] [-Output <path>]");
+        output.WriteLine("  devops dataforge reference inspect [-ReferencePath <path>]");
+        output.WriteLine("  devops dataforge reference verify [-ReferencePath <path>]");
+        output.WriteLine("  devops dataforge inspect <dataset-dir-or-manifest>");
+        output.WriteLine("  devops dataforge verify <dataset-dir-or-manifest>");
+        output.WriteLine("  devops dataforge reproduce <dataset-dir-or-manifest>");
         return 0;
     }
 

@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Tests.Core.Infrastructure;
+﻿using Rowles.LeanCorpus.Tests.Core.Infrastructure;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index.Chaos.StateMachine;
 
@@ -93,16 +93,8 @@ internal sealed class IndexReaderLifecycleHarness : IDisposable
     public void AssertDiagnostics(IndexReaderLifecycleModel expected)
     {
         var diagnostics = _manager.GetDiagnostics();
-        // ReaderManagerDiagnostics subtracts the manager's ownership reference
-        // from every reader, including retired readers. That means each retired
-        // reader group is reported one lease short while it is still retained.
-        int expectedActiveLeases = expected.Leases
-            .Values
-            .GroupBy(static lease => lease.ReaderVersion)
-            .Sum(group => group.Key == expected.ManagerReaderVersion
-                ? group.Count()
-                : Math.Max(0, group.Count() - 1));
-        Assert.Equal(expectedActiveLeases, diagnostics.ActiveLeases);
+        // Every held lease remains counted after its reader generation retires.
+        Assert.Equal(expected.Leases.Count, diagnostics.ActiveLeases);
         Assert.True(diagnostics.ActiveReaders >= 1);
     }
 

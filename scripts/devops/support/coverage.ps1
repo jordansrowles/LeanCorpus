@@ -26,6 +26,7 @@ function Find-CoverageResults {
 
 function New-CoverageReport {
     param(
+        [string]$RepoRoot,
         [System.IO.FileInfo[]]$XmlFiles,
         [string]$OutputDir,
         [string]$Title = 'LeanCorpus Coverage'
@@ -35,7 +36,8 @@ function New-CoverageReport {
     $reportPaths = ($XmlFiles | ForEach-Object { $_.FullName }) -join ';'
 
     Write-Heading 'Generating coverage report...'
-    reportgenerator "-reports:$reportPaths" "-targetdir:$OutputDir" '-reporttypes:Html' "-title:$Title" '-filefilters:-**/obj/**/*.cs'
+    reportgenerator "-reports:$reportPaths" "-targetdir:$OutputDir" '-reporttypes:Html' "-title:$Title" `
+        "-sourcedirs:$RepoRoot" '-assemblyfilters:+Rowles.*;+leancorpus-cli' '-filefilters:-**/obj/**/*.cs'
     if ($LASTEXITCODE -eq 0) {
         Write-Success "Coverage report written to: $OutputDir"
     }

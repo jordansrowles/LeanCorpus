@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-15-suggester-quality-ground-truth",
+  "deterministic": true,
+  "seed": 9715,
+  "domain": "suggestion-quality",
+  "input": {
+    "maximumEditDistance": 2,
+    "topN": 5,
+    "queryNormalisation": "Unicode Form C followed by invariant lowercase; normalisation occurs before timed calls",
+    "correctionCases": [
+      { "id": "dataforge-government", "query": "goverment", "acceptableCorrections": ["government"] },
+      { "id": "dataforge-president", "query": "presiden", "acceptableCorrections": ["president"] },
+      { "id": "dataforge-market", "query": "markts", "acceptableCorrections": ["market"] },
+      { "id": "dataforge-company", "query": "compny", "acceptableCorrections": ["company"] },
+      { "id": "dataforge-million", "query": "milion", "acceptableCorrections": ["million"] },
+      { "id": "dataforge-financial", "query": "finanical", "acceptableCorrections": ["financial"] },
+      { "id": "dataforge-reported", "query": "reportd", "acceptableCorrections": ["reported"] },
+      { "id": "dataforge-political", "query": "politcal", "acceptableCorrections": ["political"] },
+      { "id": "dataforge-economic", "query": "econmic", "acceptableCorrections": ["economic"] },
+      { "id": "dataforge-hospital", "query": "hosptal", "acceptableCorrections": ["hospital"] },
+      { "id": "dataforge-computer", "query": "computr", "acceptableCorrections": ["computer"] },
+      { "id": "dataforge-network", "query": "netork", "acceptableCorrections": ["network"] },
+      { "id": "dataforge-message", "query": "mesage", "acceptableCorrections": ["message"] },
+      { "id": "dataforge-article", "query": "artcle", "acceptableCorrections": ["article"] },
+      { "id": "dataforge-because", "query": "becuase", "acceptableCorrections": ["because"] },
+      { "id": "dataforge-people", "query": "pepole", "acceptableCorrections": ["people"] },
+      { "id": "dataforge-national", "query": "nationl", "acceptableCorrections": ["national"] },
+      { "id": "dataforge-through", "query": "throgh", "acceptableCorrections": ["through"] },
+      { "id": "dataforge-without", "query": "withut", "acceptableCorrections": ["without"] },
+      { "id": "dataforge-believe", "query": "beleive", "acceptableCorrections": ["believe"] }
+    ],
+    "noSuggestionCase": {
+      "id": "intentional-no-suggestion",
+      "query": "qzxwvvv",
+      "acceptableCorrections": [],
+      "expectNoSuggestion": true,
+      "includeInTimedWorkload": true
+    },
+    "probes": [
+      { "id": "case-variant", "query": "GOVERMENT", "acceptableCorrections": ["government"], "normaliseBeforeSuggesting": true },
+      { "id": "unicode-canonical-variant", "query": "financi\u0061\u0301l", "acceptableCorrections": ["financial"], "normaliseBeforeSuggesting": true },
+      { "id": "compound-variant", "query": "marketplac", "acceptableCorrections": ["marketplace"], "normaliseBeforeSuggesting": true }
+    ]
+  },
+  "expected": {
+    "correctionCaseSource": "BenchmarkData.BuildMisspelledTerms",
+    "accuracyAt1": "relevant correction at rank one divided by correction-query count",
+    "recallAt5": "relevant corrections in the first five divided by all acceptable corrections",
+    "meanReciprocalRank": "mean reciprocal rank of the first acceptable correction; a miss contributes zero",
+    "coverage": "timed queries returning at least one candidate divided by all timed queries",
+    "candidateCount": "all candidates returned for the timed query batch",
+    "intentionalNoSuggestionCaseMustReturnNoCandidates": true,
+    "normalisationProbesAreOutsideTimedLatency": true,
+    "candidateCountAloneProvesQuality": false,
+    "qualityMismatchClaimClass": "Directional"
+  }
+}

@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Globalization;
@@ -44,6 +44,7 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
     private readonly DateTimeOffset _startedUtc;
     private readonly ConcurrentDictionary<string, IdempotencyStore> _idempotency = new(StringComparer.Ordinal);
     private readonly object _operationLock = new();
+    private readonly object _shutdownLock = new();
     private readonly ManualResetEventSlim _operationsDrained = new(initialState: true);
     private int _activeOperations;
     private int _draining;
@@ -475,7 +476,7 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
                 }
                 break;
             case InspectionResource.ReaderState:
-                ReaderManagerDiagnostics diagnostics = entry!.Runtime.Searchers.GetDiagnostics();
+                ReaderManagerDiagnostics diagnostics = entry!.Runtime.Searchers.GetReaderDiagnostics();
                 payload = new ReaderInspectionPayload(
                     indexName,
                     diagnostics.ActiveReaders,
@@ -571,12 +572,17 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
     /// <summary>Disposes all local index resources.</summary>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _draining, 1) != 0)
-            return;
-
-        _operationsDrained.Wait(_options.ShutdownTimeout);
-        Interlocked.Exchange(ref _disposed, 1);
-        _registry.Dispose();
+        lock (_shutdownLock)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+            lock (_operationLock)
+                Volatile.Write(ref _draining, 1);
+            if (!_operationsDrained.Wait(_options.ShutdownTimeout))
+                throw new TimeoutException("Server shutdown is still draining admitted requests. Physical ownership is retained; retry disposal after those requests finish.");
+            _registry.Dispose();
+            Volatile.Write(ref _disposed, 1);
+        }
     }
 
     private async ValueTask<OperationStart> BeginAsync(OperationKind operation, string? indexName, string? correlationId, string? idempotencyKey, CancellationToken cancellationToken)

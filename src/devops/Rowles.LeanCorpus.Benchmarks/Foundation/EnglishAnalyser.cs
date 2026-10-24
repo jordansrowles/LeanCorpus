@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// <summary>
 /// English analysis pipeline used by LeanCorpus indexing benchmarks.
 /// </summary>
-internal sealed class EnglishAnalyser : IAnalyser
+internal sealed class EnglishAnalyser : IThreadLocalAnalyser
 {
     private readonly Analyser _pipeline = new(
         new Tokeniser(),
@@ -17,4 +17,6 @@ internal sealed class EnglishAnalyser : IAnalyser
         new PorterStemmerFilter());
 
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink) => _pipeline.Analyse(input, sink);
+
+    public IAnalyser CreateThreadLocalAnalyser() => new EnglishAnalyser();
 }

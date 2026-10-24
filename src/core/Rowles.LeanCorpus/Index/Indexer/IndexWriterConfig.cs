@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Analysis;
+﻿using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Index;
@@ -185,6 +185,9 @@ public sealed class IndexWriterConfig
 
     /// <summary>Test-only callback invoked after physical-flush admission.</summary>
     internal Action? PhysicalFlushStarted { get; set; }
+
+    /// <summary>Test-only barrier after merge source ownership has been acquired.</summary>
+    internal Action? MergeStarting { get; set; }
 
     /// <summary>Test-only callback invoked while coordinator submission owns its ordering gate.</summary>
     internal Action? FlushSubmissionReserved { get; set; }

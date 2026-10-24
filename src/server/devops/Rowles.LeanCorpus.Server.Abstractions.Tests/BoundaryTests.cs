@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Server.Abstractions.Community;
+﻿using Rowles.LeanCorpus.Server.Abstractions.Community;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
 using Rowles.LeanCorpus.Server.Abstractions.Ports;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Search;
@@ -9,6 +9,20 @@ namespace Rowles.LeanCorpus.Server.Abstractions.Tests;
 [Trait("Area", "Server")]
 public sealed class BoundaryTests
 {
+    [Fact]
+    public void UnionCasesRemainUsableFromASeparateConsumerAssembly()
+    {
+        OperationRoute route = new RemoteRoute("remote-node");
+        string target = route switch
+        {
+            LocalRoute => "local",
+            RemoteRoute remote => remote.TargetId,
+            RejectedRoute rejected => rejected.Reason,
+        };
+        Assert.Equal("remote-node", target);
+        Assert.Equal(RouteTargetKind.Remote, route.TargetKind);
+    }
+
     [Fact]
     public void AbstractionsAssemblyHasNoFrameworkOrPrivateReferences()
     {

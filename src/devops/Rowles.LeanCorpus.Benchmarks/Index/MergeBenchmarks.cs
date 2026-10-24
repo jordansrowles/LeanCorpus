@@ -39,6 +39,8 @@ public class MergeBenchmarks
     private string _hnswPath = string.Empty;
     private List<SegmentInfo> _plainSegments = [];
     private List<SegmentInfo> _hnswSegments = [];
+    private SegmentInfo? _plainMergedSegment;
+    private SegmentInfo? _hnswMergedSegment;
 
     [GlobalSetup]
     public void Setup()
@@ -52,6 +54,8 @@ public class MergeBenchmarks
     [IterationSetup]
     public void IterationSetup()
     {
+        _plainMergedSegment = null;
+        _hnswMergedSegment = null;
         _plainPath = BenchmarkHelpers.CreateTempDirectory("lc-merge-plain");
         _plainSegments = BuildSegments(_plainPath, withHnswVectors: false);
         if (!BenchmarkData.IsWikipediaReferenceMode)
@@ -64,12 +68,24 @@ public class MergeBenchmarks
     [IterationCleanup]
     public void IterationCleanup()
     {
-        BenchmarkHelpers.DeleteDirectory(_plainPath);
-        if (!string.IsNullOrEmpty(_hnswPath))
-            BenchmarkHelpers.DeleteDirectory(_hnswPath);
-        _hnswPath = string.Empty;
-        _plainSegments = [];
-        _hnswSegments = [];
+        try
+        {
+            if (_plainMergedSegment is not null)
+                VerifyMergedIds(_plainPath, _plainMergedSegment, DocumentCount);
+            if (_hnswMergedSegment is not null)
+                VerifyMergedIds(_hnswPath, _hnswMergedSegment, DocumentCount);
+        }
+        finally
+        {
+            BenchmarkHelpers.DeleteDirectory(_plainPath);
+            if (!string.IsNullOrEmpty(_hnswPath))
+                BenchmarkHelpers.DeleteDirectory(_hnswPath);
+            _hnswPath = string.Empty;
+            _plainSegments = [];
+            _hnswSegments = [];
+            _plainMergedSegment = null;
+            _hnswMergedSegment = null;
+        }
     }
 
     [Benchmark(Baseline = true, Description = "Merge plain text segments")]
@@ -79,8 +95,9 @@ public class MergeBenchmarks
         using var directory = new MMapDirectory(_plainPath);
         var merger = new SegmentMerger(directory, mergeThreshold: SegmentCount + 1);
         int nextOrdinal = NextOrdinal(_plainSegments);
-        _ = merger.MergeAll(_plainSegments, ref nextOrdinal);
-        return _plainSegments.Sum(static segment => segment.DocCount);
+        _plainMergedSegment = merger.MergeAll(_plainSegments, ref nextOrdinal)
+            ?? throw new InvalidOperationException("Plain-text merge produced no live segment.");
+        return _plainMergedSegment.DocCount;
     }
 
     [Benchmark(Description = "Merge segments with HNSW vectors")]
@@ -92,8 +109,35 @@ public class MergeBenchmarks
         using var directory = new MMapDirectory(_hnswPath);
         var merger = new SegmentMerger(directory, mergeThreshold: SegmentCount + 1);
         int nextOrdinal = NextOrdinal(_hnswSegments);
-        _ = merger.MergeAll(_hnswSegments, ref nextOrdinal);
-        return _hnswSegments.Sum(static segment => segment.DocCount);
+        _hnswMergedSegment = merger.MergeAll(_hnswSegments, ref nextOrdinal)
+            ?? throw new InvalidOperationException("HNSW merge produced no live segment.");
+        return _hnswMergedSegment.DocCount;
+    }
+
+    private static void VerifyMergedIds(string path, SegmentInfo mergedSegment, int expectedCount)
+    {
+        if (mergedSegment.DocCount != expectedCount || mergedSegment.LiveDocCount != expectedCount)
+        {
+            throw new InvalidOperationException(
+                $"Merge expected {expectedCount} live documents, but found " +
+                $"DocCount={mergedSegment.DocCount}, LiveDocCount={mergedSegment.LiveDocCount}.");
+        }
+
+        using var directory = new MMapDirectory(path);
+        using var reader = new SegmentReader(directory, mergedSegment);
+        var actualIds = new HashSet<string>(StringComparer.Ordinal);
+        for (int documentId = 0; documentId < mergedSegment.DocCount; documentId++)
+            actualIds.Add(reader.GetStoredFields(documentId)["id"][0]);
+
+        if (actualIds.Count != expectedCount
+            || Enumerable.Range(0, expectedCount)
+                .Select(static id => id.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                .Any(id => !actualIds.Contains(id)))
+        {
+            throw new InvalidOperationException(
+                $"Merge returned {actualIds.Count} distinct IDs; expected the complete " +
+                $"{expectedCount}-ID set.");
+        }
     }
 
     private List<SegmentInfo> BuildSegments(string path, bool withHnswVectors)

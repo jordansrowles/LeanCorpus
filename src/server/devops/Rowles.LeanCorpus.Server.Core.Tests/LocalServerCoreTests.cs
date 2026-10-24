@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Documents;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
@@ -14,6 +14,41 @@ namespace Rowles.LeanCorpus.Server.Core.Tests;
 [Trait("Area", "Server")]
 public sealed class LocalServerCoreTests
 {
+    [Fact]
+    public async Task FailedRegistryOpenReleasesIndexesOpenedBeforeTheFailure()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-partial-open-{Guid.NewGuid():N}");
+        bool completed = false;
+        try
+        {
+            var options = new ServerCoreOptions { DataRoot = root };
+            string firstId, secondId;
+            using (var server = await LocalServerCore.OpenAsync(options, cancellationToken: TestContext.Current.CancellationToken))
+            {
+                firstId = (await server.CreateAsync(CreateRequest("first"), TestContext.Current.CancellationToken)).Value!.IndexId;
+                secondId = (await server.CreateAsync(CreateRequest("second"), TestContext.Current.CancellationToken)).Value!.IndexId;
+            }
+            string firstLock = Path.Combine(root, "indices", firstId, "write.lock");
+            string secondLock = Path.Combine(root, "indices", secondId, "write.lock");
+            using (File.Open(secondLock, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                await Assert.ThrowsAnyAsync<IOException>(async () =>
+                {
+                    using var unexpected = await LocalServerCore.OpenAsync(options, cancellationToken: TestContext.Current.CancellationToken);
+                });
+                using (File.Open(firstLock, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) { }
+            }
+            using (var recovered = await LocalServerCore.OpenAsync(options, cancellationToken: TestContext.Current.CancellationToken))
+                Assert.Equal(2, (await recovered.ListAsync(TestContext.Current.CancellationToken)).Value!.Count);
+            completed = true;
+        }
+        finally
+        {
+            if (completed) Directory.Delete(root, recursive: true);
+            else Console.WriteLine($"Partial-open characterisation root retained at {root}");
+        }
+    }
+
     [Fact]
     public async Task HealthyAfterCleanStartup()
     {
@@ -45,7 +80,7 @@ public sealed class LocalServerCoreTests
     }
 
     [Fact]
-    public async Task CommitFailureMakesHealthDegraded()
+    public async Task ObserverFailureMakesHealthDegradedWithoutCountingAsCommitFailure()
     {
         string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-failure-{Guid.NewGuid():N}");
         ToggleCommitObserver observer = new();
@@ -63,8 +98,8 @@ public sealed class LocalServerCoreTests
             Assert.False(health.Value!.IsHealthy);
             Assert.Equal("degraded", health.Value.Status);
             IndexHealthSummary index = Assert.Single(health.Value.Indices!);
-            Assert.Equal(1, index.ConsecutiveCommitFailures);
-            Assert.NotNull(index.LastCommitError);
+            Assert.Equal(0, index.ConsecutiveCommitFailures);
+            Assert.Null(index.LastCommitError);
             Assert.True(index.IsDegraded);
 
             ServiceResult<ReadinessResponse> readiness = await scope.Server.GetReadinessAsync();
@@ -78,7 +113,7 @@ public sealed class LocalServerCoreTests
     }
 
     [Fact]
-    public async Task RecoveredCommitFailureReturnsHealthyAfterOneSuccessfulCommit()
+    public async Task SuccessfulCommitClearsDegradedStateAfterObserverFailure()
     {
         string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-recovery-{Guid.NewGuid():N}");
         ToggleCommitObserver observer = new();
@@ -106,6 +141,41 @@ public sealed class LocalServerCoreTests
         finally
         {
             if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task ShutdownTimeoutRetainsPhysicalOwnershipUntilTheAdmittedRequestFinishes()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-timeout-{Guid.NewGuid():N}");
+        BlockingAuthorisation authorisation = new();
+        LocalServerCore server = await LocalServerCore.OpenAsync(
+            new ServerCoreOptions { DataRoot = root, ShutdownTimeout = TimeSpan.FromMilliseconds(50) },
+            ServerPortSet.Community with { Authorisation = authorisation }, TestContext.Current.CancellationToken);
+        Task<ServiceResult<SearchResponse>>? pending = null;
+        try
+        {
+            Assert.True((await server.CreateAsync(CreateRequest("books"), TestContext.Current.CancellationToken)).IsSuccess);
+            string lockPath = Assert.Single(Directory.EnumerateFiles(root, "write.lock", SearchOption.AllDirectories));
+            authorisation.Block();
+            pending = server.SearchAsync("books", new SearchRequest(new TermQueryDefinition("content", "value")),
+                TestContext.Current.CancellationToken).AsTask();
+            await authorisation.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            await Assert.ThrowsAsync<TimeoutException>(() => Task.Run(server.Dispose, TestContext.Current.CancellationToken));
+            Assert.Equal("draining", (await server.GetReadinessAsync(TestContext.Current.CancellationToken)).Value!.Status);
+            Assert.Throws<IOException>(() => File.Open(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None).Dispose());
+            authorisation.Release();
+            await pending.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            server.Dispose();
+            using (File.Open(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) { }
+            server.Dispose();
+        }
+        finally
+        {
+            authorisation.Release();
+            if (pending is not null) await pending.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            server.Dispose();
+            Directory.Delete(root, recursive: true);
         }
     }
 

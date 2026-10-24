@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-05-matched-bm25-index-and-query",
+  "deterministic": true,
+  "seed": 9705,
+  "domain": "matched-similarity-profile",
+  "input": {
+    "analyser": "standard-lowercase-v1",
+    "query": { "field": "body", "term": "orchard" },
+    "documents": [
+      { "id": "doc-a", "body": "orchard" },
+      { "id": "doc-b", "body": "orchard orchard orchard" },
+      { "id": "doc-c", "body": "orchard cottage garden road" }
+    ],
+    "similarity": { "name": "BM25", "k1": 1.2, "b": 0.75 }
+  },
+  "expected": {
+    "indexTimeSimilarity": "BM25(k1=1.2,b=0.75)",
+    "queryTimeSimilarity": "BM25(k1=1.2,b=0.75)",
+    "logicalHitIds": ["doc-a", "doc-b", "doc-c"],
+    "matchedComparisonGroupId": "similarity-bm25-standard-500",
+    "asShippedComparisonGroupId": "similarity-classic-as-shipped-500",
+    "normsMustBeCreatedForTheSelectedIndexSimilarity": true,
+    "classicTfIdfDefaultMustUseASeparateAsShippedComparisonId": true
+  }
+}

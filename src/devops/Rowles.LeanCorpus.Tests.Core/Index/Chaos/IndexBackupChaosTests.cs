@@ -2,7 +2,7 @@ using System.Text.Json;
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Core.Infrastructure;
 

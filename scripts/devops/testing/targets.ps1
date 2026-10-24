@@ -11,7 +11,10 @@ function Get-TestSuiteRegistry {
 }
 
 function Get-OrderedTestSuiteKeys {
-    param([hashtable]$TestSuites = (Get-TestSuiteRegistry))
+    param(
+        [hashtable]$TestSuites = (Get-TestSuiteRegistry),
+        [switch]$IncludeExplicitOnly
+    )
 
     $preferredOrder = @(
         'core',
@@ -27,11 +30,17 @@ function Get-OrderedTestSuiteKeys {
     $keys = [System.Collections.Generic.List[string]]::new()
     foreach ($key in $preferredOrder) {
         if ($TestSuites.ContainsKey($key)) {
+            if (-not $IncludeExplicitOnly -and $TestSuites[$key].ContainsKey('IncludeInAll') -and -not [bool]$TestSuites[$key].IncludeInAll) {
+                continue
+            }
             [void]$keys.Add($key)
         }
     }
 
     foreach ($key in @($TestSuites.Keys | Sort-Object)) {
+        if (-not $IncludeExplicitOnly -and $TestSuites[$key].ContainsKey('IncludeInAll') -and -not [bool]$TestSuites[$key].IncludeInAll) {
+            continue
+        }
         if (-not $keys.Contains([string]$key)) {
             [void]$keys.Add([string]$key)
         }
@@ -415,6 +424,13 @@ function Resolve-TestTargets {
             $targetAreas = if ($hasAffectedAreas) { $affectedAreas } else { @() }
             $targetFilter = Build-TestFilter -AffectedAreas $targetAreas -Area $Area `
                 -Category $Category -Technique $Technique -Filter $Filter
+            if ($suiteConfig.ContainsKey('DefaultFilter') -and $suiteConfig.DefaultFilter) {
+                $targetFilter = if ($targetFilter) {
+                    "($targetFilter)&($($suiteConfig.DefaultFilter))"
+                } else {
+                    [string]$suiteConfig.DefaultFilter
+                }
+            }
             $targetRuntimeIdentifier = if ($runner -eq 'AotNative') {
                 if ($RuntimeIdentifier) { $RuntimeIdentifier } else { Get-DefaultRuntimeIdentifier }
             } else {

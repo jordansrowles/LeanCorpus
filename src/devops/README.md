@@ -1,21 +1,23 @@
 # DevOps projects and repository tooling
 
-Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The supported repository interface is `./devops` on Linux and macOS and `./devops.ps1` on Windows.
+Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The managed apphost is `./devops` on Linux and macOS and `./devops.exe` on Windows. The PowerShell transition dispatcher remains the production route for commands whose migration gate is still open.
 
 ## Choose a task
 
 | I want to... | Command |
 | --- | --- |
 | Build the normal Release target | `./devops build` |
-| Run every configured test route | `./devops test` |
-| Run tests affected by current changes | `./devops test -Suite affected` |
-| Run one production area | `./devops test -Suite core -Area Index` |
-| Repeat a focused target with artefacts | `./devops test core --count 3 --filter 'FullyQualifiedName~Writer'` |
+| Run the managed test executor | `./devops test all` |
+| Run managed tests affected by current changes | `./devops test affected` |
+| Run one managed production area | `./devops test core --area Index` |
+| Repeat a focused managed target with artefacts | `./devops test core --count 3 --filter 'FullyQualifiedName~Writer'` |
 | Capture managed test diagnostics | `./devops test core --diagnostics` |
-| Validate Native AOT | `./devops aot` |
-| Generate coverage and HTML | `./devops coverage -Clean -GenerateReport` |
-| List benchmark suites | `./devops benchmark -List` |
-| Build documentation | `./devops docs build` |
+| Validate Native AOT through the managed executor | `./devops aot` |
+| Attach standard .NET diagnostics | `./devops diagnostics ps` |
+| Generate coverage and HTML | `pwsh ./devops.ps1 coverage -Clean -GenerateReport` |
+| List benchmark suites | `./devops benchmark --list` |
+| Build a release archive | `./devops distribute --rid linux-x64` |
+| Build documentation | `pwsh ./devops.ps1 docs build` |
 
 Run `./devops --help` for the complete current command surface.
 
@@ -33,14 +35,21 @@ A test selection combines independent dimensions:
 | Category | What role does the test have? | `Unit`, `Integration`, `Chaos` |
 | Filter | Which runner-level name or expression matches? | `FullyQualifiedName~Writer` |
 
+The Core JSON metadata source paths, namespaces, test selectors, affected-source selectors and benchmark area/group selectors use British `Serialisation`. The interactive workbench also needs an ANSI-capable terminal; use the documented commands directly when ANSI selection is unavailable.
+
 Examples:
 
 ```bash
-./devops test -Suite core -Area Search
-./devops test -Suite core -Area Index -Category Chaos
-./devops test -Suite text -Area Filters
-./devops test -Suite core -Filter 'FullyQualifiedName~Writer'
+./devops test core --area Search
+./devops test core --area Index --category Chaos
+./devops test text --area Filters
+./devops test core --filter 'FullyQualifiedName~Writer'
 ```
+
+The PowerShell dispatcher still invokes its established `test` and `aot`
+implementations. The managed routes remain in qualification while the complete
+Phase 5 platform, stress and skip-evidence gate is open; CI has not switched to
+them.
 
 `Area` and `Category` become trait filters. `Filter` is passed to the test runner.
 
@@ -119,6 +128,10 @@ an explicitly selected .NET process, use the standard diagnostic tools:
 ./devops diagnostics capture --pid 1234 --duration 5s
 ```
 
+On Windows, run the managed apphost as `./devops.exe diagnostics ...` after
+`pwsh ./setup.ps1` publishes it. `pwsh ./devops.ps1 diagnostics ...` forwards
+the same arguments through the checked apphost.
+
 Trace, GC dump, dump and capture output is written under
 `artifacts/diagnostics/runs/<run-id>/`. Dumps can contain sensitive application
 memory. Pass tool-specific options after `--` where the command supports it.
@@ -126,7 +139,7 @@ memory. Pass tool-specific options after `--` where the command supports it.
 ## Run affected tests
 
 ```bash
-./devops test -Suite affected
+./devops test affected
 ```
 
 Affected selection:
@@ -150,7 +163,7 @@ The AOT route publishes and runs a smoke executable for both supported framework
 ## Generate coverage
 
 ```bash
-./devops coverage -Clean -GenerateReport
+pwsh ./devops.ps1 coverage -Clean -GenerateReport
 ```
 
 Each invocation writes raw data and an optional HTML report under
@@ -163,41 +176,71 @@ Coverage proves that code executed. It does not prove that the assertions or ora
 List suites and strategy presets:
 
 ```bash
-./devops benchmark -List
+./devops benchmark --list
+```
+
+Validate the managed DevOps catalogues without building products. Add `--deep`
+to compare them with already-built Core, Text and Compression benchmark host
+manifests; manifest checks do not run benchmark workloads.
+
+```bash
+./devops config validate
+./devops config validate --deep
 ```
 
 Run a bounded smoke workload:
 
 ```bash
-./devops benchmark -Suite query -Strat fast
+./devops benchmark --suite query --strat fast
 ```
 
 Run the controlled preset:
 
 ```bash
-./devops benchmark -Suite query -Controlled
+./devops benchmark --suite query --controlled
 ```
+
+Select benchmark classes that match current dirty paths with
+`./devops benchmark affected --dry`. The command refuses to run zero classes
+and records changed paths and matched groups in the benchmark run evidence.
+Area and group filters can narrow the selected classes.
+
+Remote runs use SSH and tmux without invoking the legacy PowerShell benchmark
+script:
+
+```bash
+./devops benchmark remote start --host jordan@debian --path /home/jordan/code/leancorpus --branch main -- --suite query --strat intense
+./devops benchmark remote status --run-id <run-id>
+./devops benchmark remote cancel --run-id <run-id>
+```
+
+The remote checkout must be clean and its managed apphost current. The local
+run record keeps the remote host, path, branch, session and source revision.
+SSH disconnects and cancellation leave remote lifetime unknown until a status
+check confirms completion.
 
 Record corpus, workload, commit, framework, host state and provenance before making a comparison claim.
 
 ## Build documentation
 
 ```bash
-./devops docs build
+pwsh ./devops.ps1 docs build
 ```
 
 Skip expensive generated inputs when they are outside the documentation change:
 
 ```bash
-./devops docs build -SkipBenchmarks -SkipCoverage
+pwsh ./devops.ps1 docs build -SkipBenchmarks -SkipCoverage
 ```
 
-Serve the site locally with `./devops docs serve`.
+Serve the site locally with `pwsh ./devops.ps1 docs serve`.
 
-The docs command stages selected repository READMEs and contribution guides under
-`artifacts/docs/generated/repository/` before DocFX runs. Edit the canonical
-repository file, not the generated site copy. API metadata, coverage pages and
-the site are also written beneath `artifacts/docs/`.
+The docs command reads `docs/site-config/imports.json` and stages selected
+repository READMEs and contribution guides under
+`artifacts/docs/content/generated/` before DocFX runs. Edit the canonical
+repository file, not the generated site copy. API metadata, changelogs,
+benchmarks, coverage pages and the site are also written beneath
+`artifacts/docs/`.
 
 ## Project map
 

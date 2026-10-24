@@ -12,7 +12,7 @@ using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
 using Rowles.LeanCorpus.Index.Format;
 using Rowles.LeanCorpus.Index.Segment;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 using Rowles.LeanCorpus.Store;
 using System.Text.Json;
 

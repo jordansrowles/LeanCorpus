@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-08-similarity-specific-norms",
+  "deterministic": true,
+  "seed": 9708,
+  "domain": "index-time-similarity-norms",
+  "input": {
+    "documents": [
+      { "id": "short", "body": "orchard" },
+      { "id": "short-tie", "body": "orchard" },
+      { "id": "long", "body": "orchard cottage garden path road" }
+    ],
+    "models": [
+      {
+        "id": "bm25",
+        "indexSimilarity": "BM25(k1=1.2,b=0.75)",
+        "querySimilarity": "BM25(k1=1.2,b=0.75)",
+        "expectedNorms": { "short": 124, "short-tie": 124, "long": 119 },
+        "expectedScores": [
+          { "id": "short", "score": 0.17426978 },
+          { "id": "short-tie", "score": 0.17426978 },
+          { "id": "long", "score": 0.08861383 }
+        ]
+      },
+      {
+        "id": "classic-tfidf",
+        "indexSimilarity": "ClassicTFIDF",
+        "querySimilarity": "ClassicTFIDF",
+        "expectedNorms": { "short": 124, "short-tie": 124, "long": 119 },
+        "expectedScores": [
+          { "id": "short", "score": 0.71231794 },
+          { "id": "short-tie", "score": 0.71231794 },
+          { "id": "long", "score": 0.3116391 }
+        ]
+      },
+      {
+        "id": "dirichlet",
+        "indexSimilarity": "Dirichlet(mu=2000)",
+        "querySimilarity": "Dirichlet(mu=2000)",
+        "expectedNorms": { "short": 124, "short-tie": 124, "long": 119 },
+        "expectedScores": [
+          { "id": "short", "score": 0.00049969676 },
+          { "id": "short-tie", "score": 0.00049969676 },
+          { "id": "long", "score": 0.0 }
+        ]
+      },
+      {
+        "id": "jelinek-mercer",
+        "indexSimilarity": "JelinekMercer(lambda=0.1)",
+        "querySimilarity": "JelinekMercer(lambda=0.1)",
+        "expectedNorms": { "short": 124, "short-tie": 124, "long": 119 },
+        "expectedScores": [
+          { "id": "short", "score": 2.944439 },
+          { "id": "short-tie", "score": 2.944439 },
+          { "id": "long", "score": 1.4918501 }
+        ]
+      }
+    ],
+    "query": { "field": "body", "term": "orchard" }
+  },
+  "expected": {
+    "oneIndexFixturePerIncompatibleNormModel": true,
+    "writerAndSearcherModelMustMatch": true,
+    "shortAndLongDocumentNormsMustBeRecordedPerModel": true,
+    "logicalHitIds": ["short", "short-tie", "long"],
+    "tieLogicalHitIds": ["short", "short-tie"],
+    "scoreTolerance": 0.000001,
+    "scoreVectorsMustBeFinite": true
+  }
+}

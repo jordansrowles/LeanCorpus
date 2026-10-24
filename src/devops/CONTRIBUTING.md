@@ -54,7 +54,7 @@ public sealed class IndexPersistenceTests
 ### 5. Run the focused selection
 
 ```bash
-./devops test -Suite core -Area Search -Category Unit
+pwsh ./devops.ps1 test -Suite core -Area Search -Category Unit
 ```
 
 ### 6. Connect new production paths
@@ -74,10 +74,10 @@ Update `scripts/devops/config/code-areas.psd1` when adding or moving a productio
 ### 7. Run affected tests
 
 ```bash
-./devops test affected
-./devops test affected -Commit HEAD
-./devops test affected -Commit caf4bd5
-./devops test affected -Range HEAD~3..HEAD
+pwsh ./devops.ps1 test affected
+pwsh ./devops.ps1 test affected -Commit HEAD
+pwsh ./devops.ps1 test affected -Commit caf4bd5
+pwsh ./devops.ps1 test affected -Range HEAD~3..HEAD
 ```
 
 Plain `affected` selects modified, staged and untracked non-ignored files only.
@@ -181,7 +181,7 @@ For a new top-level command:
 4. Add concise top-level help and one useful example.
 5. Put generic helpers and declarative data in their owning directories.
 6. Exercise the command directly.
-7. Run `./devops test affected`.
+7. Run `pwsh ./devops.ps1 test affected`.
 8. Update contributor documentation and the changelog when behaviour is visible.
 
 Keep the root `devops` and `devops.ps1` wrappers small.
@@ -216,10 +216,10 @@ to core, filesystem, concurrency, codec or indexing tests.
 Useful local checks include:
 
 ```bash
-./devops test core --count 2 --filter 'FullyQualifiedName~Writer'
-./devops test core --count 2 --fail-fast --filter 'FullyQualifiedName~Writer'
-./devops test all --ci --framework net10.0
-./devops diagnostics ps
+pwsh ./devops.ps1 test core --count 2 --filter 'FullyQualifiedName~Writer'
+pwsh ./devops.ps1 test core --count 2 --fail-fast --filter 'FullyQualifiedName~Writer'
+pwsh ./devops.ps1 test all --ci --framework net10.0
+pwsh ./devops.ps1 diagnostics ps
 ```
 
 Use `--diagnostics` for MTP diagnostic logs and the standalone
@@ -245,7 +245,7 @@ documenting or reproducing either run.
 List registered suites with:
 
 ```bash
-./devops benchmark -List
+pwsh ./devops.ps1 benchmark -List
 ```
 
 ## Validation by change
@@ -254,16 +254,16 @@ List registered suites with:
 | --- | --- |
 | Normal test addition | Focused selection, then `-Suite affected` |
 | Test infrastructure | Affected tests plus every directly impacted suite |
-| Architecture boundary | `./devops test -Suite architecture` |
-| AOT smoke path | `./devops aot` |
-| Benchmark registration | `./devops benchmark -List` and a bounded smoke run |
-| Coverage tooling | `./devops coverage -Clean` |
-| Documentation tooling | `./devops docs build -SkipBenchmarks` |
+| Architecture boundary | `pwsh ./devops.ps1 test -Suite architecture` |
+| AOT smoke path | `pwsh ./devops.ps1 aot` |
+| Benchmark registration | `pwsh ./devops.ps1 benchmark -List` and a bounded smoke run |
+| Coverage tooling | `pwsh ./devops.ps1 coverage -Clean` |
+| Documentation tooling | `pwsh ./devops.ps1 docs build -SkipBenchmarks` |
 
 > [!WARNING]
 > Generated coverage, benchmark and DocFX output must not be hand-edited. Change the inputs or generator and regenerate it through `./devops`.
 
-Repository guides copied into the site are mapped by `Copy-RepositoryDocumentation`. Add the canonical source and its site destination there, then update `docs/toc.yml`. Do not introduce a second metadata file when the repository README already contains the required catalogue or workflow.
+Repository guides copied into the site are mapped by `docs/site-config/imports.json`. Add the canonical source and its site destination there, then update `docs/content/toc.yml` when the page belongs in the top-level navigation. Do not introduce a second metadata file when the repository README already contains the required catalogue or workflow.
 
 ## Before submitting
 

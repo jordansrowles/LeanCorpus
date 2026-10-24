@@ -176,17 +176,21 @@ try {
         @('| Method | Mean |', '| --- | --- |', '| COMPRESSION-PASSED | 1 ns |') |
             Set-Content -LiteralPath (Join-Path $compressionResults 'compression-report-github.md') -Encoding UTF8
 
-        $publishedRoot = Join-Path $Root 'published-benchmark-docs'
-        [void][System.IO.Directory]::CreateDirectory($publishedRoot)
-        Set-Content -LiteralPath (Join-Path $publishedRoot 'unrelated.md') -Value 'PUBLISHED-BASELINE' -Encoding UTF8
         $outputRoot = Join-Path $Root 'generated-benchmark-docs'
-        & $Generator -BenchDir (Join-Path $artifactRoot 'benchmark/runs') -OutputDir $outputRoot -PublishedDir $publishedRoot
+        [void][System.IO.Directory]::CreateDirectory($outputRoot)
+        Set-Content -LiteralPath (Join-Path $outputRoot 'stale.md') -Value 'STALE-OUTPUT' -Encoding UTF8
+        $chartBundle = Join-Path $Root 'chart.umd.js'
+        Set-Content -LiteralPath $chartBundle -Value 'CHART-BUNDLE' -Encoding UTF8
+        & $Generator -BenchDir (Join-Path $artifactRoot 'benchmark/runs') -OutputDir $outputRoot -ChartJsPath $chartBundle
         Assert-Smoke (Test-Path (Join-Path $outputRoot 'query.md')) 'Core benchmark page was not generated.'
         $textPage = Get-Content -LiteralPath (Join-Path $outputRoot 'text.md') -Raw
         Assert-Smoke ($textPage.Contains('OLDER-PASSED')) 'older passed text evidence was not selected.'
         Assert-Smoke (-not $textPage.Contains('NEWER-FAILED')) 'newer failed text evidence replaced passed evidence.'
         Assert-Smoke ((Get-Content -LiteralPath (Join-Path $outputRoot 'compression.md') -Raw).Contains('COMPRESSION-PASSED')) 'compression-only evidence was not generated.'
-        Assert-Smoke (Test-Path (Join-Path $outputRoot 'unrelated.md')) 'published baseline page was erased.'
+        Assert-Smoke (-not (Test-Path (Join-Path $outputRoot 'stale.md'))) 'stale generated benchmark output was retained.'
+        Assert-Smoke (Test-Path (Join-Path $outputRoot 'overview.md')) 'benchmark overview was not generated.'
+        Assert-Smoke (Test-Path (Join-Path $outputRoot 'toc.yml')) 'benchmark TOC was not generated.'
+        Assert-Smoke (Test-Path (Join-Path $outputRoot 'chart.umd.js')) 'pinned Chart.js runtime asset was not staged.'
 
         # E. One-shot and repeated test classifications.
         . (Join-Path $RepositoryRoot 'scripts/devops/commands/pack.ps1')
@@ -422,21 +426,97 @@ try {
         Assert-Smoke ($diagnosticsWorkflow.Contains("'--diagnostics',") -and $diagnosticsWorkflow.Contains("'--profile',") -and $diagnosticsWorkflow.Contains("'integration',")) 'diagnostics workflow does not pass --diagnostics and --profile integration.'
         Assert-Smoke ($diagnosticsWorkflow.Contains('name: test-diagnostics-linux') -and $diagnosticsWorkflow.Contains('name: test-diagnostics-windows')) 'diagnostics workflow artefact names are incorrect.'
 
+        foreach ($workflowPath in @(
+            '.github/workflows/build.yml',
+            '.github/workflows/test-diagnostics.yml',
+            '.github/workflows/test-stress.yml'
+        )) {
+            $workflow = Get-Content -LiteralPath (Join-Path $RepositoryRoot $workflowPath) -Raw
+            $buildSteps = [regex]::Matches(
+                $workflow,
+                '(?ms)^\s*- name: (?:Build solution|Build prepared test output)\s*\r?\n(?<body>.*?)(?=^\s*- name:|\z)'
+            )
+            Assert-Smoke ($buildSteps.Count -gt 0) "workflow '$workflowPath' has no recognised product build step."
+            foreach ($buildStep in $buildSteps) {
+                $stepBody = $buildStep.Groups['body'].Value
+                Assert-Smoke ($stepBody -match '(?m)^\s*\$managedHost\s*=\s*if \(\$IsWindows\)') "workflow '$workflowPath' does not select the checked-out host for the current OS."
+                Assert-Smoke ($stepBody -match '(?m)^\s*&\s*\$managedHost\s+build(?:\s|$)') "workflow '$workflowPath' does not invoke the checked-out host for its product build."
+                Assert-Smoke ($stepBody -notmatch '(?i)devops\.ps1\s+build') "workflow '$workflowPath' still invokes the PowerShell dispatcher for a product build."
+            }
+        }
+        $benchmarkWorkflow = Get-Content -LiteralPath (Join-Path $RepositoryRoot '.github/workflows/benchmark.yml') -Raw
+        $benchmarkSteps = [regex]::Matches(
+            $benchmarkWorkflow,
+            '(?ms)^\s*- name: Run benchmarks\s*\r?\n(?<body>.*?)(?=^\s*- name:|\z)'
+        )
+        Assert-Smoke ($benchmarkSteps.Count -eq 1) 'the manual benchmark workflow does not define one benchmark execution step.'
+        $benchmarkStepBody = $benchmarkSteps[0].Groups['body'].Value
+        Assert-Smoke ($benchmarkStepBody -match '(?m)^\s*\$managedHost\s*=\s*if \(\$IsWindows\)') 'the benchmark workflow does not select the checked-out host for the current OS.'
+        Assert-Smoke ($benchmarkStepBody -match '(?m)^\s*&\s*\$managedHost\s+@benchmarkArguments\b') 'the benchmark workflow does not invoke its arguments through the checked-out host.'
+        Assert-Smoke ($benchmarkStepBody -notmatch '(?im)^\s*&\s*\./devops\.ps1\s+@benchmarkArguments') 'the benchmark workflow still invokes the PowerShell dispatcher.'
+
+        $buildWorkflow = Get-Content -LiteralPath (Join-Path $RepositoryRoot '.github/workflows/build.yml') -Raw
+        $foundationJob = [regex]::Match(
+            $buildWorkflow,
+            '(?ms)^  managed-devops-foundation:\s*\r?\n(?<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*$|\z)'
+        )
+        Assert-Smoke $foundationJob.Success 'Build workflow is missing the managed DevOps foundation job.'
+        $foundationBody = $foundationJob.Groups['body'].Value
+        foreach ($platform in @(
+            @{ Name = 'linux-arm64'; Runner = 'ubuntu-24.04-arm' },
+            @{ Name = 'osx-arm64'; Runner = 'macos-15' }
+        )) {
+            $platformPattern = '(?m)^\s{10}- platform: ' + [regex]::Escape($platform.Name) + '\s*\r?\n\s{12}runner: ' + [regex]::Escape($platform.Runner) + '\s*$'
+            Assert-Smoke ($foundationBody -match $platformPattern) "managed DevOps foundation does not bootstrap '$($platform.Name)' on '$($platform.Runner)'."
+        }
+        foreach ($packageJob in @(
+            @{ Name = 'package-validation'; StepName = 'Validate shipping package APIs and archives'; Expected = 'pack --clean' },
+            @{ Name = 'package-consumer'; StepName = 'Validate generated package consumers'; Expected = 'pack --clean --validate-packages' }
+        )) {
+            $jobMatch = [regex]::Match(
+                $buildWorkflow,
+                "(?ms)^  $([regex]::Escape($packageJob.Name)):\s*\r?\n(?<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*$|\z)"
+            )
+            Assert-Smoke $jobMatch.Success "Build workflow is missing the '$($packageJob.Name)' job."
+            $jobBody = $jobMatch.Groups['body'].Value
+            Assert-Smoke ($jobBody -match '(?m)^\s{6}- name: Bootstrap managed DevOps host\s*\r?\n\s{8}shell: pwsh\s*\r?\n\s{8}run: pwsh -NoProfile -File \./setup\.ps1\s*$') "package job '$($packageJob.Name)' does not bootstrap the checked-out managed host."
+            $bootstrapIndex = $jobBody.IndexOf('- name: Bootstrap managed DevOps host', [StringComparison]::Ordinal)
+            $packIndex = $jobBody.IndexOf("- name: $($packageJob.StepName)", [StringComparison]::Ordinal)
+            Assert-Smoke ($bootstrapIndex -ge 0 -and $packIndex -gt $bootstrapIndex) "package job '$($packageJob.Name)' does not bootstrap before package validation."
+            $packStep = [regex]::Match(
+                $jobBody,
+                "(?ms)^\s{6}- name: $([regex]::Escape($packageJob.StepName))\s*\r?\n(?<body>.*?)(?=^\s{6}- name:|\z)"
+            )
+            Assert-Smoke $packStep.Success "package job '$($packageJob.Name)' is missing its package validation step."
+            $packStepBody = $packStep.Groups['body'].Value
+            Assert-Smoke ($packStepBody -match '(?m)^\s{10}\$managedHost\s*=\s*if \(\$IsWindows\)') "package job '$($packageJob.Name)' does not select the checked-out host for the current OS."
+            $packageCommandPattern = '(?m)^\s{10}&\s*\$managedHost\s+' + [regex]::Escape($packageJob.Expected) + '(?:\s|$)'
+            Assert-Smoke ($packStepBody -match $packageCommandPattern) "package job '$($packageJob.Name)' does not invoke the managed package route '$($packageJob.Expected)'."
+            Assert-Smoke ($packStepBody -notmatch '(?i)devops\.ps1\s+pack') "package job '$($packageJob.Name)' still invokes the PowerShell dispatcher."
+        }
+
         # I. Orchard functional and explicit performance suite separation.
         $testSuites = Get-TestSuiteRegistry
         $functionalProject = 'src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj'
         $functionalProjectSuites = @($testSuites.Keys | Where-Object { [string]$testSuites[$_].Project -ceq $functionalProject })
         Assert-Smoke ($functionalProjectSuites.Count -eq 1 -and $functionalProjectSuites[0] -ceq 'server-orchard-functional') 'the Orchard functional project is registered more than once or under another suite.'
         Assert-Smoke (-not $testSuites.ContainsKey('server-orchard-performance')) 'the duplicate Orchard performance suite remains registered.'
-        $functionalArguments = @($testSuites['server-orchard-functional'].AdditionalArguments)
-        Assert-Smoke ($functionalArguments.Count -eq 2 -and
-            $functionalArguments[0] -ceq '--filter-not-class' -and
-            $functionalArguments[1] -ceq 'Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.ProviderPerformanceTests') 'the functional suite does not exclude the explicit performance class.'
+        Assert-Smoke ([string]$testSuites['server-orchard-functional'].DefaultFilter -ceq
+            'FullyQualifiedName!~Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.ProviderPerformanceTests.') 'the functional suite does not exclude the explicit performance class.'
         $codeAreas = Import-PowerShellDataFile -LiteralPath (Join-Path $RepositoryRoot 'scripts/devops/config/code-areas.psd1')
         foreach ($areaName in $codeAreas.Keys) {
             foreach ($targetName in @($codeAreas[$areaName].Targets)) {
                 Assert-Smoke (-not ([string]$targetName).StartsWith('server-orchard-performance:', [StringComparison]::Ordinal)) "affected-test area '$areaName' still references the removed Orchard performance suite."
             }
+        }
+
+        # J. Published host consumers must exercise every supported runtime target.
+        . (Join-Path $RepositoryRoot 'scripts/devops/packaging/validate-package-consumers.ps1')
+        $packagePolicy = Get-Content -LiteralPath (Join-Path $RepositoryRoot 'scripts/devops/packaging/package-policy.json') -Raw | ConvertFrom-Json -AsHashtable
+        $consumerScenarios = @(Get-ConsumerScenarioDefinitions -Scope all -Policy $packagePolicy -RepoRoot $RepositoryRoot)
+        foreach ($name in @('server-abstractions', 'server-core', 'server-aspnetcore', 'server-grpc', 'studio', 'orchard-search', 'server-local')) {
+            $frameworks = @($consumerScenarios | Where-Object Name -eq $name | ForEach-Object Framework | Sort-Object -Unique)
+            Assert-Smoke ($frameworks.Count -eq 2 -and 'net10.0' -in $frameworks -and 'net11.0' -in $frameworks) "package consumer '$name' does not cover both host frameworks."
         }
 
         Write-Host 'Artefact infrastructure smoke validation passed.'

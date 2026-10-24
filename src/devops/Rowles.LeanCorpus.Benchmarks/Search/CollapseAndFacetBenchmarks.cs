@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Facet;
@@ -41,6 +43,9 @@ public class CollapseAndFacetBenchmarks
     private const int HighCardinalityCount = 10_000;
     private const int FacetPageSize = 10;
     private const int FacetOffset = 100;
+    private const string Bval07FixturePath = ".config/devops/benchmark-correctness-fixtures/bval-07-collapse-and-facet-pagination.json";
+    private const string FieldFixtureGroup = "fixture-group";
+    private const string FieldFixtureFacet = "fixture-facet";
     private const string FieldBody = "body";
     private const string FieldCategory = "category";
     private const string FieldHighCardinality = "tag";
@@ -79,6 +84,7 @@ public class CollapseAndFacetBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        ValidateBval07Fixture();
         var documents = BenchmarkData.BuildDocuments(DocumentCount);
         _leanQuery = new TermQuery(FieldBody, QueryTerm);
         _leanMatchAllQuery = new LeanMatchAllDocsQuery();
@@ -166,16 +172,10 @@ public class CollapseAndFacetBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_SearchWithCollapse()
     {
-        var hits = _luceneSearcher!.Search(_luceneQuery!, Math.Min(_luceneReader!.MaxDoc, TopN * 10));
-        var seen = new HashSet<int>();
-        int collapsedCount = 0;
-        foreach (var sd in hits.ScoreDocs)
-        {
-            int categoryOrd = _luceneCollapseValues!.GetOrd(sd.Doc);
-            if (categoryOrd >= 0 && seen.Add(categoryOrd) && ++collapsedCount == TopN)
-                break;
-        }
-        return collapsedCount;
+        var collapsed = CollectLuceneCollapse(
+            _luceneSearcher!, _luceneReader!, _luceneQuery!, _luceneCollapseValues!,
+            TopN, _luceneReader!.MaxDoc);
+        return collapsed.TotalGroupCount;
     }
 
     [Benchmark]
@@ -198,7 +198,7 @@ public class CollapseAndFacetBenchmarks
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_HighCardinalityFacetsWithOffset()
-        => SearchLuceneFacets(FieldHighCardinality, FacetOffset + FacetPageSize);
+        => SearchLuceneFacetPage(FieldHighCardinality, FacetOffset, FacetPageSize);
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -250,6 +250,14 @@ public class CollapseAndFacetBenchmarks
             _luceneSearcher!, _luceneMatchAllQuery!, TopN, collector);
         var facets = new SortedSetDocValuesFacetCounts(_luceneFacetState!, collector);
         return hits.TotalHits + GetChildCount(facets.GetTopChildren(topChildren, dimension));
+    }
+
+    private int SearchLuceneFacetPage(string dimension, int offset, int pageSize)
+    {
+        var page = CollectLuceneFacetPage(
+            _luceneSearcher!, _luceneFacetState!, _luceneMatchAllQuery!, TopN,
+            dimension, offset, pageSize);
+        return page.TotalHits + page.Labels.Length;
     }
 
     private static int GetChildCount(Lucene.Net.Facet.FacetResult? result) => result?.ChildCount ?? 0;
@@ -333,6 +341,316 @@ public class CollapseAndFacetBenchmarks
             yield return (i, i.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 $"cat{i % CategoryCount}", documents[i]);
     }
+
+    private static void ValidateBval07Fixture()
+    {
+        string fixturePath = Path.Combine(BenchmarkHelpers.RepositoryRoot,
+            Bval07FixturePath.Replace('/', Path.DirectorySeparatorChar));
+        using JsonDocument fixture = JsonDocument.Parse(File.ReadAllBytes(fixturePath));
+        JsonElement root = fixture.RootElement;
+        if (root.GetProperty("schemaVersion").GetInt32() != 1
+            || !string.Equals(root.GetProperty("fixtureId").GetString(),
+                "bval-07-collapse-and-facet-pagination", StringComparison.Ordinal)
+            || !root.GetProperty("deterministic").GetBoolean())
+            throw new InvalidOperationException($"BVAL-07 fixture metadata is invalid: {Bval07FixturePath}.");
+
+        JsonElement input = root.GetProperty("input");
+        JsonElement expected = root.GetProperty("expected");
+        int topN = input.GetProperty("topN").GetInt32();
+        int originalCandidateLimit = input.GetProperty("luceneCandidateLimit").GetInt32();
+        JsonElement orderedPrefix = input.GetProperty("orderedPrefix");
+        int prefixCount = orderedPrefix.GetProperty("documentCount").GetInt32();
+        int firstRank = orderedPrefix.GetProperty("firstRank").GetInt32();
+        string prefixIdPattern = orderedPrefix.GetProperty("idPattern").GetString()!;
+        string prefixGroupKey = orderedPrefix.GetProperty("groupKey").GetString()!;
+        string queryTerm = input.GetProperty("queryTerm").GetString()!;
+        string facetField = input.GetProperty("facetField").GetString()!;
+        int facetOffset = input.GetProperty("facetOffset").GetInt32();
+        int facetPageSize = input.GetProperty("facetPageSize").GetInt32();
+        var documents = new List<Bval07Document>(expected.GetProperty("documentCount").GetInt32());
+
+        for (int rank = firstRank; rank < firstRank + prefixCount; rank++)
+        {
+            string id = prefixIdPattern.Replace(
+                "{rank:D3}", rank.ToString("D3", CultureInfo.InvariantCulture), StringComparison.Ordinal);
+            documents.Add(new Bval07Document(id, prefixGroupKey, queryTerm, FacetBucket: null));
+        }
+
+        var afterPrefix = input.GetProperty("afterPrefix").EnumerateArray()
+            .Select(static item => new Bval07Document(
+                item.GetProperty("id").GetString()!,
+                item.GetProperty("groupKey").GetString()!,
+                "",
+                FacetBucket: null,
+                Rank: item.GetProperty("rank").GetInt32()))
+            .ToArray();
+        for (int index = 0; index < afterPrefix.Length; index++)
+            documents.Add(afterPrefix[index] with { Body = queryTerm });
+
+        foreach (JsonElement item in input.GetProperty("facetDocuments").EnumerateArray())
+        {
+            documents.Add(new Bval07Document(
+                item.GetProperty("id").GetString()!,
+                item.GetProperty("groupKey").GetString()!,
+                queryTerm,
+                item.GetProperty("bucket").GetString()!));
+        }
+
+        string[] expectedGroupKeys = expected.GetProperty("collapsedGroupKeys").EnumerateArray()
+            .Select(static item => item.GetString()!)
+            .OrderBy(static value => value, StringComparer.Ordinal)
+            .ToArray();
+        Dictionary<string, string> expectedRepresentatives = expected.GetProperty("representativesByGroup")
+            .EnumerateObject()
+            .ToDictionary(static property => property.Name, static property => property.Value.GetString()!, StringComparer.Ordinal);
+        string[] expectedFacetPage = expected.GetProperty("facetPageIds").EnumerateArray()
+            .Select(static item => item.GetString()!)
+            .ToArray();
+        bool pageMustBeCompleteAndUnique = expected.GetProperty("noMissingOrDuplicatePageEntries").GetBoolean();
+
+        if (topN <= 0
+            || originalCandidateLimit != topN * 10
+            || prefixCount != originalCandidateLimit
+            || firstRank != 1
+            || string.IsNullOrWhiteSpace(prefixIdPattern)
+            || !string.Equals(prefixGroupKey, "A", StringComparison.Ordinal)
+            || afterPrefix.Length != 1
+            || afterPrefix[0].Rank != originalCandidateLimit + 1
+            || !string.Equals(afterPrefix[0].GroupKey, "B", StringComparison.Ordinal)
+            || documents.Count != expected.GetProperty("documentCount").GetInt32()
+            || documents.Select(static document => document.Id).Distinct(StringComparer.Ordinal).Count() != documents.Count
+            || !string.Equals(expectedRepresentatives["B"], expected.GetProperty("representativeForGroupB").GetString(), StringComparison.Ordinal)
+            || facetPageSize != expectedFacetPage.Length
+            || facetOffset < 0
+            || string.IsNullOrWhiteSpace(facetField))
+            throw new InvalidOperationException($"BVAL-07 fixture structure is invalid: {Bval07FixturePath}.");
+
+        string leanPath = BenchmarkHelpers.CreateTempDirectory("lc-bval-07-collapse-facet");
+        string lucenePath = BenchmarkHelpers.CreateTempDirectory("lucene-bval-07-collapse-facet");
+        try
+        {
+            using (var directory = new LeanMMapDirectory(leanPath))
+            {
+                using var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
+                    directory, new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig());
+                foreach (Bval07Document item in documents)
+                {
+                    var leanDocument = new LeanDocument();
+                    leanDocument.Add(new LeanStringField("id", item.Id));
+                    leanDocument.Add(new LeanTextField(FieldBody, item.Body));
+                    leanDocument.Add(new LeanStringField(FieldFixtureGroup, item.GroupKey));
+                    if (item.FacetBucket is not null)
+                        leanDocument.Add(new LeanStringField(facetField, item.FacetBucket));
+                    writer.AddDocument(leanDocument);
+                }
+                writer.Commit();
+            }
+
+            using (var directory = new LeanMMapDirectory(leanPath))
+            using (var searcher = new LeanIndexSearcher(directory))
+            {
+                var collapsed = searcher.SearchWithCollapse(
+                    new TermQuery(FieldBody, queryTerm), topN,
+                    new Rowles.LeanCorpus.Search.Scoring.CollapseField(FieldFixtureGroup));
+                var representatives = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var scoreDoc in collapsed.ScoreDocs)
+                {
+                    var stored = searcher.GetStoredFields(scoreDoc.DocId);
+                    if (!representatives.TryAdd(stored[FieldFixtureGroup][0], stored["id"][0]))
+                        throw new InvalidOperationException("BVAL-07 LeanCorpus collapse returned a duplicate group representative.");
+                }
+                AssertBval07Collapse(
+                    collapsed.TotalHits, representatives, expected.GetProperty("totalGroupCount").GetInt32(),
+                    expectedGroupKeys, expectedRepresentatives, "LeanCorpus");
+
+                var (facetHits, leanFacets) = searcher.SearchWithFacetRequests(
+                    new LeanMatchAllDocsQuery(), topN,
+                    [new Rowles.LeanCorpus.Search.Scoring.FacetRequest(
+                        facetField, facetOffset, facetPageSize,
+                        Rowles.LeanCorpus.Search.Scoring.FacetBucketOrder.ValueAscending)]);
+                var leanFacet = leanFacets.Single();
+                AssertBval07FacetPage(
+                    facetHits.TotalHits, leanFacet.TotalBucketCount,
+                    leanFacet.Buckets.Select(static bucket => bucket.Value).ToArray(),
+                    expected.GetProperty("facetMatchedDocumentCount").GetInt32(),
+                    expected.GetProperty("facetTotalBucketCount").GetInt32(),
+                    expectedFacetPage, pageMustBeCompleteAndUnique, "LeanCorpus");
+            }
+
+            using (var directory = new LuceneMMapDirectory(new System.IO.DirectoryInfo(lucenePath)))
+            using (var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48))
+            {
+                var facetsConfig = new FacetsConfig();
+                using var writer = new Lucene.Net.Index.IndexWriter(
+                    directory,
+                    new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
+                foreach (Bval07Document item in documents)
+                {
+                    var luceneDocument = new LuceneDocument();
+                    luceneDocument.Add(new LuceneStringField("id", item.Id, Lucene.Net.Documents.Field.Store.YES));
+                    luceneDocument.Add(new LuceneStringField(FieldFixtureGroup, item.GroupKey, Lucene.Net.Documents.Field.Store.YES));
+                    luceneDocument.Add(new LuceneSortedDocValuesField(FieldFixtureGroup, new BytesRef(item.GroupKey)));
+                    luceneDocument.Add(new LuceneTextField(FieldBody, item.Body, Lucene.Net.Documents.Field.Store.NO));
+                    if (item.FacetBucket is not null)
+                        luceneDocument.Add(new SortedSetDocValuesFacetField(facetField, item.FacetBucket));
+                    writer.AddDocument(facetsConfig.Build(luceneDocument));
+                }
+                writer.Commit();
+            }
+
+            using (var directory = new LuceneMMapDirectory(new System.IO.DirectoryInfo(lucenePath)))
+            using (var reader = LuceneDirectoryReader.Open(directory))
+            {
+                if (reader.NumDocs != documents.Count || reader.MaxDoc != documents.Count)
+                    throw new InvalidOperationException("BVAL-07 Lucene.NET fixture changed the exact document count.");
+                var searcher = new LuceneIndexSearcher(reader);
+                var luceneQuery = new LuceneTermQuery(new LuceneTerm(FieldBody, queryTerm));
+                var collapseValues = MultiDocValues.GetSortedValues(reader, FieldFixtureGroup)
+                    ?? throw new InvalidOperationException("BVAL-07 Lucene.NET fixture is missing collapse DocValues.");
+                var collapsed = CollectLuceneCollapse(
+                    searcher, reader, luceneQuery, collapseValues, topN, reader.MaxDoc);
+                var representatives = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var scoreDoc in collapsed.Representatives)
+                {
+                    var stored = reader.Document(scoreDoc.Doc);
+                    if (!representatives.TryAdd(stored.Get(FieldFixtureGroup)!, stored.Get("id")!))
+                        throw new InvalidOperationException("BVAL-07 Lucene.NET collapse returned a duplicate group representative.");
+                }
+                AssertBval07Collapse(
+                    collapsed.TotalGroupCount, representatives, expected.GetProperty("totalGroupCount").GetInt32(),
+                    expectedGroupKeys, expectedRepresentatives, "Lucene.NET");
+
+                var facetState = new DefaultSortedSetDocValuesReaderState(reader);
+                var facetPage = CollectLuceneFacetPage(
+                    searcher, facetState, new Lucene.Net.Search.MatchAllDocsQuery(), topN,
+                    facetField, facetOffset, facetPageSize);
+                AssertBval07FacetPage(
+                    facetPage.TotalHits, facetPage.TotalBucketCount, facetPage.Labels,
+                    expected.GetProperty("facetMatchedDocumentCount").GetInt32(),
+                    expected.GetProperty("facetTotalBucketCount").GetInt32(),
+                    expectedFacetPage, pageMustBeCompleteAndUnique, "Lucene.NET");
+            }
+        }
+        finally
+        {
+            DeleteDir(leanPath);
+            DeleteDir(lucenePath);
+        }
+    }
+
+    private static LuceneCollapseResult CollectLuceneCollapse(
+        LuceneIndexSearcher searcher,
+        LuceneDirectoryReader reader,
+        Lucene.Net.Search.Query query,
+        SortedDocValues collapseValues,
+        int topN,
+        int candidateLimit)
+    {
+        var hits = searcher.Search(query, Math.Min(reader.MaxDoc, candidateLimit));
+        var firstByGroup = new Dictionary<int, Lucene.Net.Search.ScoreDoc>();
+        foreach (var hit in hits.ScoreDocs)
+        {
+            int groupOrd = collapseValues.GetOrd(hit.Doc);
+            if (groupOrd >= 0)
+                firstByGroup.TryAdd(groupOrd, hit);
+        }
+
+        Lucene.Net.Search.ScoreDoc[] representatives = firstByGroup.Values
+            .OrderByDescending(static hit => hit.Score)
+            .ThenBy(static hit => hit.Doc)
+            .Take(topN)
+            .ToArray();
+        return new LuceneCollapseResult(firstByGroup.Count, representatives);
+    }
+
+    private static LuceneFacetPage CollectLuceneFacetPage(
+        LuceneIndexSearcher searcher,
+        DefaultSortedSetDocValuesReaderState facetState,
+        Lucene.Net.Search.Query query,
+        int topN,
+        string field,
+        int offset,
+        int pageSize)
+    {
+        var collector = new Lucene.Net.Facet.FacetsCollector();
+        var hits = Lucene.Net.Facet.FacetsCollector.Search(searcher, query, topN, collector);
+        var counts = new SortedSetDocValuesFacetCounts(facetState, collector);
+        var result = counts.GetTopChildren(checked(offset + pageSize), field);
+        string[] labels = result?.LabelValues
+            .Skip(offset)
+            .Take(pageSize)
+            .Select(static value => value.Label)
+            .ToArray() ?? [];
+        return new LuceneFacetPage(hits.TotalHits, result?.ChildCount ?? 0, labels);
+    }
+
+    private static void AssertBval07Collapse(
+        int actualTotalGroups,
+        IReadOnlyDictionary<string, string> actualRepresentatives,
+        int expectedTotalGroups,
+        string[] expectedGroupKeys,
+        IReadOnlyDictionary<string, string> expectedRepresentatives,
+        string engine)
+    {
+        string[] actualGroupKeys = actualRepresentatives.Keys
+            .OrderBy(static value => value, StringComparer.Ordinal)
+            .ToArray();
+        bool representativesMatch = expectedRepresentatives.Count == actualRepresentatives.Count
+            && expectedRepresentatives.All(pair => actualRepresentatives.TryGetValue(pair.Key, out string? id)
+                && string.Equals(id, pair.Value, StringComparison.Ordinal));
+        if (actualTotalGroups != expectedTotalGroups
+            || actualRepresentatives.Count != expectedGroupKeys.Length
+            || !actualGroupKeys.SequenceEqual(expectedGroupKeys, StringComparer.Ordinal)
+            || !representativesMatch)
+        {
+            throw new InvalidOperationException(
+                $"BVAL-07 {engine} collapse mismatch. Expected groups=[{string.Join(",", expectedGroupKeys)}], " +
+                $"total={expectedTotalGroups}, representatives=[{string.Join(",", expectedRepresentatives.Select(static pair => $"{pair.Key}:{pair.Value}"))}]; " +
+                $"actual groups=[{string.Join(",", actualGroupKeys)}], total={actualTotalGroups}, " +
+                $"representatives=[{string.Join(",", actualRepresentatives.Select(static pair => $"{pair.Key}:{pair.Value}"))}].");
+        }
+    }
+
+    private static void AssertBval07FacetPage(
+        int actualTotalHits,
+        int actualTotalBuckets,
+        string[] actualPage,
+        int expectedTotalHits,
+        int expectedTotalBuckets,
+        string[] expectedPage,
+        bool requireCompleteUniquePage,
+        string engine)
+    {
+        bool pageIsCompleteAndUnique = actualPage.Length == expectedPage.Length
+            && actualPage.Distinct(StringComparer.Ordinal).Count() == actualPage.Length;
+        if (actualTotalHits != expectedTotalHits
+            || actualTotalBuckets != expectedTotalBuckets
+            || !actualPage.SequenceEqual(expectedPage, StringComparer.Ordinal)
+            || (requireCompleteUniquePage && !pageIsCompleteAndUnique))
+        {
+            throw new InvalidOperationException(
+                $"BVAL-07 {engine} facet page mismatch. Expected totalHits={expectedTotalHits}, " +
+                $"totalBuckets={expectedTotalBuckets}, page=[{string.Join(",", expectedPage)}]; " +
+                $"actual totalHits={actualTotalHits}, totalBuckets={actualTotalBuckets}, " +
+                $"page=[{string.Join(",", actualPage)}].");
+        }
+    }
+
+    private readonly record struct Bval07Document(
+        string Id,
+        string GroupKey,
+        string Body,
+        string? FacetBucket,
+        int Rank = 0);
+
+    private readonly record struct LuceneCollapseResult(
+        int TotalGroupCount,
+        Lucene.Net.Search.ScoreDoc[] Representatives);
+
+    private readonly record struct LuceneFacetPage(
+        int TotalHits,
+        int TotalBucketCount,
+        string[] Labels);
 
     private static void DeleteDir(string path)
     {

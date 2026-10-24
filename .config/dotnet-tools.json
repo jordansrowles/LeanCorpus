@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "docfx": {
+      "version": "2.78.5",
+      "commands": [
+        "docfx"
+      ]
+    },
+    "dotnet-reportgenerator-globaltool": {
+      "version": "5.5.11",
+      "commands": [
+        "reportgenerator"
+      ]
+    },
+    "dotnet-counters": {
+      "version": "9.0.661903",
+      "commands": [
+        "dotnet-counters"
+      ]
+    },
+    "dotnet-dump": {
+      "version": "9.0.661903",
+      "commands": [
+        "dotnet-dump"
+      ]
+    },
+    "dotnet-gcdump": {
+      "version": "9.0.661903",
+      "commands": [
+        "dotnet-gcdump"
+      ]
+    },
+    "dotnet-symbol": {
+      "version": "9.0.661903",
+      "commands": [
+        "dotnet-symbol"
+      ]
+    },
+    "dotnet-trace": {
+      "version": "9.0.661903",
+      "commands": [
+        "dotnet-trace"
+      ]
+    }
+  }
+}

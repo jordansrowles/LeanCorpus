@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-06-presorted-ingestion-identities",
+  "deterministic": true,
+  "seed": 9706,
+  "domain": "presorted-ingestion-directional",
+  "input": {
+    "originalDocuments": [
+      { "externalId": "doc-a", "body": "orchard", "price": 30 },
+      { "externalId": "doc-b", "body": "orchard", "price": 10 },
+      { "externalId": "doc-c", "body": "orchard", "price": 20 }
+    ],
+    "luceneInputOrderByPrice": ["doc-b", "doc-c", "doc-a"],
+    "storageBoundary": "file-backed"
+  },
+  "expected": {
+    "externalIdPriceMap": { "doc-a": 30, "doc-b": 10, "doc-c": 20 },
+    "priceSortedIds": ["doc-b", "doc-c", "doc-a"],
+    "documentIdSet": ["doc-a", "doc-b", "doc-c"],
+    "claimClass": "Directional",
+    "competitiveRatioAllowed": false
+  }
+}

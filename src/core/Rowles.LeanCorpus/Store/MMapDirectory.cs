@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Store;
+﻿namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
 /// Primary directory implementation using memory-mapped files for reads
@@ -11,6 +11,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     private readonly FileLifetimeRegistry.DirectoryState _fileLifetimes;
     private readonly OperationDrain _operations = new();
     private int _disposeStarted;
+    private int _directoryRegistrationReleased;
     private volatile bool _disposed;
 
     /// <inheritdoc/>
@@ -28,14 +29,16 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         DirectoryPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 
         Directory.CreateDirectory(DirectoryPath);
-        _fileLifetimes = FileLifetimeRegistry.ForDirectory(DirectoryPath);
+        _fileLifetimes = FileLifetimeRegistry.RegisterDirectory(DirectoryPath);
     }
 
     /// <inheritdoc/>
     public override IndexOutput CreateOutput(string fileName)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var filePath = Path.Combine(DirectoryPath, ValidateFileName(fileName));
+        fileName = ValidateFileName(fileName);
+        _fileLifetimes.PrepareForWrite(fileName);
+        var filePath = Path.Combine(DirectoryPath, fileName);
         return new IndexOutput(filePath);
     }
 
@@ -127,10 +130,8 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (Interlocked.CompareExchange(ref _disposeStarted, 1, 0) != 0)
-            return;
-
-        _disposed = true;
+        if (Interlocked.Exchange(ref _disposeStarted, 1) == 0)
+            _disposed = true;
         _operations.BeginDisposeAndWait();
         lock (_trackLock)
         {
@@ -139,9 +140,35 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
                 if (weakRef.TryGetTarget(out var input))
                     input.Dispose();
             }
-            _trackedInputs.Clear();
+            _trackedInputs.RemoveAll(reference => !reference.TryGetTarget(out var input) || input.ResourcesReleased);
+            if (_trackedInputs.Count > 0)
+                throw new IOException("Mapped input cleanup has not completed.");
+        }
+        if (Interlocked.Exchange(ref _directoryRegistrationReleased, 1) == 0)
+            FileLifetimeRegistry.ReleaseDirectory(_fileLifetimes);
+    }
+
+    internal (int Inputs, int MappedViews) GetOwnedResourceSnapshot()
+    {
+        lock (_trackLock)
+        {
+            int inputs = 0, views = 0;
+            foreach (var reference in _trackedInputs)
+            {
+                if (reference.TryGetTarget(out var input) && !input.ResourcesReleased)
+                {
+                    inputs++;
+                    if (input.OwnsMappedView) views++;
+                }
+            }
+            return (inputs, views);
         }
     }
+
+    // Directory-wide file references can include independent embedded readers.
+    internal (int FileLeases, int PendingDeletes) GetFileResourceSnapshot() => _fileLifetimes.GetResourceSnapshot();
+    internal void CompletePendingDeletes() => _fileLifetimes.CompletePendingDeletes();
+    internal FileLifetimeRegistry.DirectoryState FileLifetimeStateForTesting => _fileLifetimes;
 
     internal LifetimeLease AcquireOperationLease() => _operations.Acquire(this);
 
@@ -153,7 +180,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
             if (_trackedInputs.Count > 0 && _trackedInputs.Count % 64 == 0)
                 _trackedInputs.RemoveAll(r => !r.TryGetTarget(out _));
 
-            _trackedInputs.Add(new WeakReference<IndexInput>(input));
+            _trackedInputs.Add(new WeakReference<IndexInput>(input, trackResurrection: true));
         }
     }
 

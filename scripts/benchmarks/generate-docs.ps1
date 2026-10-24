@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     Scans completed runs under artifacts/benchmark/runs and keeps the
-    newest run per suite and writes one markdown page per suite into docs/benchmarks/.
+    newest run per suite and writes benchmark pages plus a local index and TOC
+    into the documentation staging tree.
 
     Run this before docfx build; docs.ps1 calls it automatically.
 
@@ -12,7 +13,10 @@
     Path to the benchmark run directory. Defaults to artifacts/benchmark/runs.
 
 .PARAMETER OutputDir
-    Path to write the generated files. Defaults to ../docs/benchmarks.
+    Path to write the generated files. Defaults to artifacts/docs/content/benchmarks.
+
+.PARAMETER SkipRunScan
+    Create an empty benchmark overview and TOC without scanning retained runs.
 
 .EXAMPLE
     .\scripts\generate-benchmark-docs.ps1
@@ -21,7 +25,8 @@
 param(
     [string]$BenchDir  = '',
     [string]$OutputDir = '',
-    [string]$PublishedDir = ''
+    [string]$ChartJsPath = '',
+    [switch]$SkipRunScan
 )
 
 Set-StrictMode -Version Latest
@@ -30,21 +35,67 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 
 if ([string]::IsNullOrEmpty($BenchDir))  { $BenchDir  = Join-Path $repoRoot 'artifacts/benchmark/runs' }
-if ([string]::IsNullOrEmpty($OutputDir)) { $OutputDir = Join-Path $repoRoot 'artifacts\docs\generated\benchmarks' }
-if ([string]::IsNullOrEmpty($PublishedDir)) { $PublishedDir = Join-Path $repoRoot 'docs/benchmarks' }
+if ([string]::IsNullOrEmpty($OutputDir)) { $OutputDir = Join-Path $repoRoot 'artifacts/docs/content/benchmarks' }
+if ([string]::IsNullOrEmpty($ChartJsPath)) {
+    $ChartJsPath = Join-Path $repoRoot 'docs/site-config/diagrams/node_modules/chart.js/dist/chart.umd.js'
+}
 
 $BenchDir  = [System.IO.Path]::GetFullPath($BenchDir)
 $OutputDir = [System.IO.Path]::GetFullPath($OutputDir)
-$PublishedDir = [System.IO.Path]::GetFullPath($PublishedDir)
+$ChartJsPath = [System.IO.Path]::GetFullPath($ChartJsPath)
+if (-not (Test-Path -LiteralPath $ChartJsPath -PathType Leaf)) {
+    throw "Pinned Chart.js browser bundle not found at '$ChartJsPath'. Restore the site dependencies with npm ci --prefix docs/site-config/diagrams."
+}
 
-# Preserve the last published benchmark documentation until a newer run exists.
-# This keeps a clean checkout buildable while moving generated output out of docs/.
 [void][System.IO.Directory]::CreateDirectory($OutputDir)
 foreach ($stagedItem in @(Get-ChildItem $OutputDir -Force -ErrorAction SilentlyContinue)) {
     Remove-Item -LiteralPath $stagedItem.FullName -Recurse -Force
 }
-foreach ($publishedFile in @(Get-ChildItem $PublishedDir -File -ErrorAction SilentlyContinue)) {
-    Copy-Item -LiteralPath $publishedFile.FullName -Destination (Join-Path $OutputDir $publishedFile.Name) -Force
+
+function ConvertTo-BenchmarkYamlString([string]$Value) {
+    return "'$($Value.Replace("'", "''"))'"
+}
+
+function New-BenchmarkCatalog {
+    $pages = @(Get-ChildItem -LiteralPath $OutputDir -File -Filter '*.md' |
+        Where-Object { $_.Name -notin @('overview.md', 'toc.yml') } |
+        Sort-Object Name)
+    $markdown = [System.Collections.Generic.List[string]]::new()
+    $markdown.Add('# Benchmarks')
+    $markdown.Add('')
+    if ($pages.Count -eq 0) {
+        $markdown.Add('No benchmark reports are available in the retained run artefacts for this build.')
+    } else {
+        $markdown.Add('Generated reports from the latest successful retained benchmark runs.')
+        $markdown.Add('')
+        foreach ($page in $pages) {
+            $heading = Get-Content -LiteralPath $page.FullName -Encoding UTF8 |
+                Where-Object { $_ -match '^#\s+(.+?)\s*$' } |
+                Select-Object -First 1
+            $title = if ($heading -match '^#\s+(.+?)\s*$') { $Matches[1].Trim() } else { $page.BaseName }
+            $link = [Uri]::EscapeDataString($page.Name)
+            $markdown.Add("- [$title]($link)")
+        }
+    }
+
+    $toc = [System.Collections.Generic.List[string]]::new()
+    $toc.Add('- name: Benchmarks')
+    $toc.Add('  href: overview.md')
+    if ($pages.Count -gt 0) {
+        $toc.Add('  items:')
+        foreach ($page in $pages) {
+            $heading = Get-Content -LiteralPath $page.FullName -Encoding UTF8 |
+                Where-Object { $_ -match '^#\s+(.+?)\s*$' } |
+                Select-Object -First 1
+            $title = if ($heading -match '^#\s+(.+?)\s*$') { $Matches[1].Trim() } else { $page.BaseName }
+            $toc.Add("    - name: $(ConvertTo-BenchmarkYamlString $title)")
+            $toc.Add("      href: $(ConvertTo-BenchmarkYamlString $page.Name)")
+        }
+    }
+
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllLines((Join-Path $OutputDir 'overview.md'), $markdown, $utf8NoBom)
+    [System.IO.File]::WriteAllLines((Join-Path $OutputDir 'toc.yml'), $toc, $utf8NoBom)
 }
 
 # ── Suite display names ───────────────────────────────────────────────────────
@@ -145,7 +196,11 @@ function Test-CoreReportShape($Report) {
 
 $newestPerSuite = @{}
 $newestProjectEvidence = @{}
-$runDirectories = if (Test-Path $BenchDir) { @(Get-ChildItem $BenchDir -Directory) } else { @() }
+$runDirectories = @(
+    if (-not $SkipRunScan -and (Test-Path $BenchDir)) {
+        Get-ChildItem $BenchDir -Directory
+    }
+)
 if ($runDirectories.Count -eq 0) {
     Write-Warning "No benchmark runs found in $BenchDir"
 }
@@ -361,171 +416,14 @@ foreach ($projectKey in @('text', 'compression')) {
 
 # ── benchmark-charts.js ───────────────────────────────────────────────────────
 
-$benchmarkChartsJs = @'
-(function(){
-"use strict";
-
-var canvas = document.querySelector("canvas[id^='chart-bench-']");
-if(!canvas)return;
-var suite = canvas.id.replace("chart-bench-","");
-var jsonUrl = suite + ".json";
-var status = document.createElement("p");
-status.className = "benchmark-chart-status";
-status.textContent = "Loading chart…";
-canvas.before(status);
-
-var chartJs = document.createElement("script");
-chartJs.src = "https://cdn.jsdelivr.net/npm/chart.js@4";
-chartJs.onload = function(){ fetch(jsonUrl).then(function(r){if(!r.ok)throw new Error("Benchmark data request failed");return r.json();}).then(render).catch(showError); };
-chartJs.onerror = showError;
-document.head.appendChild(chartJs);
-
-function render(full){
-  var benchmarks = full.Benchmarks;
-  if(!benchmarks||!benchmarks.length){showError();return;}
-  status.remove();
-
-  var colors=["#4e79a7","#f28e2b","#e15759","#76b7b2","#59a14f","#edc948","#b07aa1","#ff9da7","#9c755f","#bab0ac"];
-
-  var chartData=[];
-  benchmarks.forEach(function(b){
-    var label=b.MethodTitle;
-    if(b.Parameters)label+=" ["+b.Parameters+"]";
-    var iters=[];
-    b.Measurements.forEach(function(m){if(m.IterationStage==="Result")iters.push(m.Nanoseconds);});
-    chartData.push({
-      label:label,
-      meanNs:Math.round(b.Statistics.Mean),
-      allocBytes:b.Memory.BytesAllocatedPerOperation,
-      iterations:iters
-    });
-  });
-
-  var labels=chartData.map(function(x){return x.label;});
-
-  var datasets=[];
-
-  datasets.push({
-    type:"bar",
-    label:"Allocated",
-    data:chartData.map(function(x){return x.allocBytes;}),
-    backgroundColor:colors[0]+"cc",
-    yAxisID:"y",
-    order:1
-  });
-
-  datasets.push({
-    type:"line",
-    label:"Mean time",
-    data:chartData.map(function(x){return x.meanNs;}),
-    borderColor:"#e15759",
-    backgroundColor:"#e1575933",
-    yAxisID:"y1",
-    pointRadius:4,
-    pointHoverRadius:6,
-    order:0
-  });
-
-  chartData.forEach(function(m,i){
-    datasets.push({
-      type:"scatter",
-      label:m.label,
-      data:m.iterations.map(function(ns){return{x:m.label,y:ns};}),
-      backgroundColor:colors[i%colors.length]+"55",
-      yAxisID:"y1",
-      pointRadius:2,
-      pointHoverRadius:4,
-      showLine:false,
-      order:2
-    });
-  });
-
-  var chart = new Chart(canvas,{
-    data:{labels:labels,datasets:datasets},
-    options:{
-      responsive:true,
-      maintainAspectRatio:false,
-      interaction:{mode:"index",intersect:false},
-      plugins:{
-        legend:{labels:{generateLabels:function(chart){var d=chart.data.datasets;return[{text:d[0].label,fillStyle:d[0].backgroundColor,strokeStyle:d[0].borderColor,hidden:!chart.isDatasetVisible(0),datasetIndex:0},{text:d[1].label,fillStyle:d[1].backgroundColor||d[1].borderColor,strokeStyle:d[1].borderColor,hidden:!chart.isDatasetVisible(1),datasetIndex:1,pointStyle:"circle",pointStyleWidth:8}];}}},
-        tooltip:{callbacks:{label:function(c){var v=c.raw.y||c.raw;if(c.dataset.yAxisID==="y")return fmtBytes(v);return fmtNs(v);}}}
-      },
-      scales:{
-        y:{
-          type:"linear",
-          position:"left",
-          title:{display:true,text:"Allocated"},
-          ticks:{callback:fmtBytes},
-          grid:{drawOnChartArea:false}
-        },
-        y1:makeScale("log2")
-      }
-    }
-  });
-
-  // Scale switcher
-  var sel = document.getElementById("chart-scale-"+suite);
-  if(sel){
-    sel.addEventListener("change",function(){
-      chart.options.scales.y1 = makeScale(this.value);
-      chart.update();
-    });
-  }
-
-  // Width / height sliders
-  var wrap = document.getElementById("chart-wrap-"+suite);
-  var widthSlider = document.getElementById("chart-width-"+suite);
-  var heightSlider = document.getElementById("chart-height-"+suite);
-  if(widthSlider && wrap){
-    widthSlider.addEventListener("input",function(){
-      wrap.style.maxWidth = this.value + "px";
-      chart.resize();
-    });
-  }
-  if(heightSlider){
-    heightSlider.addEventListener("input",function(){
-      canvas.style.height = this.value + "px";
-      chart.resize();
-    });
-  }
-
-  function makeScale(mode){
-    var base = {
-      type:"logarithmic",
-      position:"right",
-      title:{display:true,text:"Time (log\u2082)"},
-      ticks:{callback:fmtNs}
-    };
-    if(mode==="log10"){
-      base.title.text = "Time (log\u2081\u2080)";
-    } else if(mode==="linear"){
-      base.type = "linear";
-      base.title.text = "Time (linear)";
-    } else {
-      // log2 — afterBuildTicks to show powers of 2
-      base.afterBuildTicks = function(axis){
-        var min = axis.min, max = axis.max;
-        var ticks = [];
-        var v = Math.pow(2, Math.floor(Math.log2(min||1)));
-        while(v <= max){ ticks.push({value:v}); v *= 2; }
-        axis.ticks = ticks;
-      };
-    }
-    return base;
-  }
-
-  function fmtBytes(v){if(v>=1e9)return(v/1e9).toFixed(1)+" GB";if(v>=1e6)return(v/1e6).toFixed(1)+" MB";if(v>=1e3)return(v/1e3).toFixed(1)+" KB";return v+" B";}
-  function fmtNs(v){if(v>=1e9)return(v/1e9).toFixed(2)+" s";if(v>=1e6)return(v/1e6).toFixed(2)+" ms";if(v>=1e3)return(v/1e3).toFixed(2)+" μs";return v.toFixed(0)+" ns";}
-}
-
-function showError(){
-  status.textContent = "The interactive chart could not be loaded. The benchmark table and JSON results are still available."
-}
-})();
-'@
-
+$benchmarkChartsJs = [System.IO.File]::ReadAllText((Join-Path $PSScriptRoot '../../docs/site-config/benchmark-charts.js'))
 $benchmarkChartsJs | Set-Content (Join-Path $OutputDir 'benchmark-charts.js') -Encoding UTF8
 Write-Host "Written: benchmark-charts.js" -ForegroundColor Green
+Copy-Item -LiteralPath $ChartJsPath -Destination (Join-Path $OutputDir 'chart.umd.js') -Force
+Write-Host 'Copied pinned Chart.js browser bundle.' -ForegroundColor Green
+
+New-BenchmarkCatalog
+Write-Host 'Written: overview.md and toc.yml' -ForegroundColor Green
 
 if ($pageCount -eq 0) {
     Write-Warning "No pages generated."

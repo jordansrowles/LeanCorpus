@@ -50,7 +50,7 @@ global using Rowles.LeanCorpus.Search.Scoring;
 global using Rowles.LeanCorpus.Search.Searcher;
 global using Rowles.LeanCorpus.Search.Simd;
 global using Rowles.LeanCorpus.Search.Suggestions;
-global using Rowles.LeanCorpus.Serialization;
+global using Rowles.LeanCorpus.Serialisation;
 global using Rowles.LeanCorpus.Store;
 global using Rowles.LeanCorpus.Tests.Metadata;
 global using Rowles.LeanCorpus.Tests.Shared.Fixtures;

@@ -1,7 +1,7 @@
 ﻿using System.Text.Json;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Segment;

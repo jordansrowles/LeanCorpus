@@ -2,6 +2,7 @@
 using Rowles.DataForge.Workloads.Legacy;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Documents;
+using Lucene.Net.Index;
 using Lucene.Net.Util;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
@@ -14,6 +15,7 @@ using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
 using LuceneIndexWriter = Lucene.Net.Index.IndexWriter;
 using LuceneStringField = Lucene.Net.Documents.StringField;
 using LuceneTextField = Lucene.Net.Documents.TextField;
+using LuceneDirectory = Lucene.Net.Store.Directory;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -31,11 +33,20 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [InvocationCount(1)]
 public class GutenbergIndexingBenchmarks
 {
+    public static IEnumerable<string> PersistenceProfiles => GutenbergPersistenceFixtureVerifier.GetProfileIds();
+
+    [ParamsSource(nameof(PersistenceProfiles))]
+    public string PersistenceProfile { get; set; } = "as-shipped-persistence";
+
     private BookParagraph[] _paragraphs = [];
     private readonly List<string> _iterationPaths = [];
 
     [GlobalSetup]
-    public void Setup() => _paragraphs = GutenbergCorpusLoader.Load();
+    public void Setup()
+    {
+        _ = GutenbergPersistenceFixtureVerifier.Verify(BenchmarkHelpers.RepositoryRoot);
+        _paragraphs = GutenbergCorpusLoader.Load();
+    }
 
     [GlobalCleanup]
     public void Cleanup()
@@ -73,14 +84,22 @@ public class GutenbergIndexingBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_Index()
     {
+        var profile = GutenbergPersistenceFixtureVerifier.GetProfile(PersistenceProfile);
+        var settings = profile.Lucene;
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"lucenenet-realdata-idx-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         _iterationPaths.Add(path);
-        using var directory = Lucene.Net.Store.FSDirectory.Open(new DirectoryInfo(path));
+        using LuceneDirectory directory = GutenbergPersistenceFixtureVerifier.OpenLuceneDirectory(settings.Directory, path);
         using var analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        var config = new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer)
+        {
+            RAMBufferSizeMB = settings.RamBufferSizeMB,
+            RAMPerThreadHardLimitMB = checked((int)settings.RamPerThreadHardLimitMB),
+            MaxBufferedDocs = settings.MaxBufferedDocs,
+            UseCompoundFile = settings.UseCompoundFile
+        };
         using var writer = new LuceneIndexWriter(
-            directory,
-            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer));
+            directory, config);
 
         foreach (var para in _paragraphs)
         {
@@ -103,12 +122,15 @@ public class GutenbergIndexingBenchmarks
         Directory.CreateDirectory(path);
         _iterationPaths.Add(path);
         using var directory = new MMapDirectory(path);
+        var settings = GutenbergPersistenceFixtureVerifier.GetProfile(PersistenceProfile).LeanCorpus;
         using var writer = new LeanIndexWriter(directory, new LeanIndexWriterConfig
         {
             DefaultAnalyser = analyser,
-            MaxBufferedDocs = 10_000,
-            RamBufferSizeMB = 256,
-            DurableCommits = false
+            MaxBufferedDocs = settings.MaxBufferedDocs,
+            RamBufferSizeMB = settings.RamBufferSizeMB,
+            RamPerThreadHardLimitMB = settings.RamPerThreadHardLimitMB,
+            DurableCommits = settings.DurableCommits,
+            UseCompoundFile = settings.UseCompoundFile
         });
 
         foreach (var para in _paragraphs)

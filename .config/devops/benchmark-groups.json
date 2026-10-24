@@ -1,0 +1,259 @@
+{
+  "schemaVersion": 1,
+  "data": {
+    "Parser": {
+      "Globs": [
+        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/QueryParserBenchmarks.cs"
+      ],
+      "Area": "Search",
+      "Project": "core",
+      "Benchmarks": [
+        "QueryParserBenchmarks"
+      ]
+    },
+    "Tokenisers": {
+      "Globs": [
+        "src/core/Rowles.Text/Analysis/Tokenisers/**",
+        "src/devops/Rowles.Text.Benchmarks/LexiconPrefixBenchmarks.cs"
+      ],
+      "Area": "Tokenisers",
+      "Project": "text",
+      "Benchmarks": [
+        "NGramTokeniserBenchmarks",
+        "PatternTokeniserBenchmarks",
+        "LexiconPrefixBenchmarks"
+      ]
+    },
+    "Stemmers": {
+      "Globs": [
+        "src/core/Rowles.Text/Analysis/Stemmers/**"
+      ],
+      "Area": "Stemmers",
+      "Project": "text",
+      "Benchmarks": [
+        "StemmerParityBenchmarks",
+        "HunspellBenchmarks"
+      ]
+    },
+    "BoundedLruCacheFailures": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Index/Segment/BoundedLruCache.cs",
+        "src/devops/Rowles.LeanCorpus.Tests.Core/Index/Unit/BoundedLruCacheTests.cs",
+        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/BoundedLruCacheFailureBenchmarks.cs"
+      ],
+      "Area": "Index",
+      "Project": "core",
+      "Benchmarks": [
+        "BoundedLruCacheFailureBenchmarks"
+      ]
+    },
+    "MMapIO": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Store/**"
+      ],
+      "Area": "Store",
+      "Project": "core",
+      "Benchmarks": [
+        "MMapDirectoryIOBenchmarks",
+        "CompoundFileBenchmarks"
+      ]
+    },
+    "Indexing": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Index/**",
+        "src/devops/Rowles.LeanCorpus.Benchmarks/Index/LanguageAnalysisIndexingBenchmarks.cs"
+      ],
+      "Area": "Index",
+      "Project": "core",
+      "Benchmarks": [
+        "IndexingBenchmarks",
+        "LanguageAnalysisIndexingBenchmarks",
+        "MergeBenchmarks",
+        "FlushBenchmarks",
+        "PostingsArenaBenchmarks",
+        "DeletionQueueBenchmarks",
+        "VectorFirstTouchBenchmarks"
+      ]
+    },
+    "Mapping": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Mapping/**"
+      ],
+      "Area": "Mapping",
+      "Project": "core",
+      "Benchmarks": [
+        "IndexingBenchmarks"
+      ]
+    },
+    "TextIntegration": {
+      "Globs": [
+        "src/core/Rowles.Text/**"
+      ],
+      "Area": "TextIntegration",
+      "Project": "core",
+      "Benchmarks": [
+        "TokenBudgetBenchmarks",
+        "LanguageAnalysisIndexingBenchmarks"
+      ]
+    },
+    "Search": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Search/**",
+        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/PhraseQueryBenchmarks.cs"
+      ],
+      "Area": "Search",
+      "Project": "core",
+      "Benchmarks": [
+        "TermQueryBenchmarks",
+        "BooleanQueryBenchmarks",
+        "PhraseQueryBenchmarks",
+        "HnswSearchBenchmarks"
+      ]
+    },
+    "CachingGraphEdges": {
+      "Globs": [
+        "src/core/Rowles.Text/Analysis/Filters/CachingTokenFilter.cs",
+        "src/devops/Rowles.Text.Benchmarks/CachingGraphEdgeBenchmarks.cs"
+      ],
+      "Area": "Filters",
+      "Project": "text",
+      "Benchmarks": [
+        "CachingGraphEdgeBenchmarks"
+      ]
+    },
+    "Analysers": {
+      "Globs": [
+        "src/core/Rowles.Text/Analysis/Analysers/**"
+      ],
+      "Area": "Analysers",
+      "Project": "text",
+      "Benchmarks": [
+        "AnalysisBenchmarks",
+        "AnalyserParityBenchmarks"
+      ]
+    },
+    "Diagnostics": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Diagnostics/**"
+      ],
+      "Area": "Diagnostics",
+      "Project": "core",
+      "Benchmarks": [
+        "DiagnosticsBenchmarks",
+        "NumericAggregatorSimdBenchmarks"
+      ]
+    },
+    "CodecKit": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Codecs/**"
+      ],
+      "Area": "CodecKit",
+      "Project": "core",
+      "Benchmarks": [
+        "PackedIntCodecBenchmarks",
+        "CodecFrameBenchmarks",
+        "DocValuesReadBenchmarks",
+        "BinaryDocValuesWriteBenchmarks",
+        "FstLookupBenchmarks"
+      ]
+    },
+    "Filters": {
+      "Globs": [
+        "src/core/Rowles.Text/Analysis/Filters/**"
+      ],
+      "Area": "Filters",
+      "Project": "text",
+      "Benchmarks": [
+        "TokenFilterBenchmarks",
+        "SynonymBenchmarks"
+      ]
+    },
+    "Serialisation": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Serialisation/**"
+      ],
+      "Area": "Serialisation",
+      "Project": "core",
+      "Benchmarks": [
+        "SchemaAndJsonBenchmarks"
+      ]
+    },
+    "Document": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Document/**"
+      ],
+      "Area": "Document",
+      "Project": "core",
+      "Benchmarks": [
+        "IndexingBenchmarks"
+      ]
+    },
+    "Linq": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Linq/**"
+      ],
+      "Area": "Linq",
+      "Project": "core",
+      "Benchmarks": [
+        "TermQueryBenchmarks"
+      ]
+    },
+    "TermCaches": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Index/Segment/QualifiedTermCache.cs",
+        "src/core/Rowles.LeanCorpus/Index/Segment/SegmentReader.cs",
+        "src/core/Rowles.LeanCorpus/Index/Segment/SegmentReader.Facade.cs",
+        "src/core/Rowles.LeanCorpus/Search/Searcher/IndexSearcher.cs",
+        "src/core/Rowles.LeanCorpus/Search/Searcher/BoundedGenerationCache.cs",
+        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/QualifiedTermCacheBenchmarks.cs"
+      ],
+      "Area": "Index",
+      "Project": "core",
+      "Benchmarks": [
+        "QualifiedTermCacheBenchmarks"
+      ]
+    },
+    "Util": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Util/**"
+      ],
+      "Area": "Util",
+      "Project": "core",
+      "Benchmarks": [
+        "PackedIntCodecBenchmarks"
+      ]
+    },
+    "StoredFields": {
+      "Globs": [
+        "src/core/Rowles.LeanCorpus/Codecs/StoredFields/**"
+      ],
+      "Area": "CodecKit",
+      "Project": "core",
+      "Benchmarks": [
+        "StoredFieldsReadBenchmarks",
+        "StoredFieldsWriteBenchmarks",
+        "StoredFieldsByteBoundedBenchmarks"
+      ]
+    },
+    "Approximation": {
+      "Globs": [
+        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/ApproximationBenchmarks.cs"
+      ],
+      "Area": "Search",
+      "Project": "core",
+      "Benchmarks": [
+        "ApproximationBenchmarks"
+      ]
+    },
+    "FlushTermCardinality": {
+      "Globs": [
+        "src/devops/Rowles.LeanCorpus.Benchmarks/Index/FlushTermCardinalityBenchmarks.cs"
+      ],
+      "Area": "Index",
+      "Project": "core",
+      "Benchmarks": [
+        "FlushTermCardinalityBenchmarks"
+      ]
+    }
+  }
+}

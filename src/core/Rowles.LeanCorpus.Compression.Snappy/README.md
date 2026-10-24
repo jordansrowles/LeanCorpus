@@ -4,6 +4,8 @@
 
 Use this package when you want fast stored-field compression with a speed and size profile similar to LZ4.
 
+> **Documentation preview:** This repository branch targets LeanCorpus 4.0.0 and `LeanCorpus.Compression.Snappy` 2.0.0. These versions are unreleased; the NuGet badge shows the latest published package.
+
 ## Enable Snappy compression
 
 Install the core and codec packages:
@@ -44,4 +46,4 @@ Use `config` when constructing the `IndexWriter`. The policy is stored in the se
 - interoperability with an existing Snappy-oriented deployment matters;
 - a modest compression ratio is acceptable.
 
-The core package already includes Deflate and Brotli. See [stored-field compression](../../../docs/tips/01-compression.md) for policy trade-offs and block-size guidance.
+The core package already includes Deflate and Brotli. See [stored-field compression](../../../docs/content/tips/01-compression.md) for policy trade-offs and block-size guidance.

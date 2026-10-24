@@ -22,7 +22,7 @@ LeanCorpus integration tests
 ### 2. Run the focused standalone tests
 
 ```bash
-./devops test -Suite text -Area Filters
+pwsh ./devops.ps1 test -Suite text -Area Filters
 ```
 
 Add the new test beside the component it protects:
@@ -68,13 +68,13 @@ Rowles.LeanCorpus.Analysis.Tokenisers
 Run LeanCorpus integration tests when the change affects analysed terms, offsets, positions or index-visible behaviour:
 
 ```bash
-./devops test -Suite core -Area TextIntegration
+pwsh ./devops.ps1 test -Suite core -Area TextIntegration
 ```
 
 ### 5. Run affected selection
 
 ```bash
-./devops test -Suite affected
+pwsh ./devops.ps1 test -Suite affected
 ```
 
 The mapping in `scripts/devops/config/code-areas.psd1` normally selects both the standalone area and `core:TextIntegration`. Update that mapping if a new source location or analysis area is introduced.
@@ -154,14 +154,14 @@ Keep generators bounded and retain explicit examples that communicate expected l
 List current suites before choosing one:
 
 ```bash
-./devops benchmark -List
+pwsh ./devops.ps1 benchmark -List
 ```
 
 Typical analysis smoke runs include:
 
 ```bash
-./devops benchmark -Suite analysis-parity -Strat fast
-./devops benchmark -Suite analysis-filters -Strat fast
+pwsh ./devops.ps1 benchmark -Suite analysis-parity -Strat fast
+pwsh ./devops.ps1 benchmark -Suite analysis-filters -Strat fast
 ```
 
 A benchmark is required when making a performance claim, not for every correctness fix.
@@ -170,7 +170,7 @@ A benchmark is required when making a performance claim, not for every correctne
 
 - [ ] Standalone area tests pass.
 - [ ] Core `TextIntegration` was run when index-visible behaviour changed.
-- [ ] `./devops test -Suite affected` was run.
+- [ ] `pwsh ./devops.ps1 test -Suite affected` was run.
 - [ ] Architecture tests were run for package or conditional-compilation changes.
 - [ ] Both target frameworks were built when framework behaviour differs.
 - [ ] Unicode and token metadata were considered.

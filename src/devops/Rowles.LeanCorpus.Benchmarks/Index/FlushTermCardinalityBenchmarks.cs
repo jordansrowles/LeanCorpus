@@ -1,5 +1,8 @@
 using BenchmarkDotNet.Attributes;
+using System.Runtime.CompilerServices;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
@@ -24,12 +27,17 @@ public class FlushTermCardinalityBenchmarks
     public int MaxConcurrentFlushes { get; set; }
 
     private string[] _documents = [];
+    private string[] _expectedIds = [];
     private readonly List<string> _createdPaths = [];
 
     [GlobalSetup]
     public void Setup()
     {
         const int documentCount = 1_000;
+        _expectedIds = Enumerable.Range(0, documentCount)
+            .Select(static id => id.ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .OrderBy(static id => id, StringComparer.Ordinal)
+            .ToArray();
         int termsPerDocument = (UniqueTermCount + documentCount - 1) / documentCount;
         _documents = new string[documentCount];
         for (int document = 0; document < documentCount; document++)
@@ -45,11 +53,41 @@ public class FlushTermCardinalityBenchmarks
     public void Cleanup()
     {
         foreach (string path in _createdPaths)
-            BenchmarkHelpers.DeleteDirectory(path);
+        {
+            try
+            {
+                VerifyCommittedIndex(path);
+            }
+            finally
+            {
+                BenchmarkHelpers.DeleteDirectory(path);
+            }
+        }
         _createdPaths.Clear();
     }
 
+    private void VerifyCommittedIndex(string path)
+    {
+        using var directory = new MMapDirectory(path);
+        using var searcher = new IndexSearcher(directory);
+        var result = searcher.Search(new MatchAllDocsQuery(), _documents.Length);
+        if (result.TotalHits != _documents.Length || result.ScoreDocs.Length != _documents.Length)
+        {
+            throw new InvalidOperationException(
+                $"Flush cardinality preflight expected {_documents.Length} committed documents, got " +
+                $"{result.TotalHits} total hits and {result.ScoreDocs.Length} returned.");
+        }
+
+        string[] actualIds = result.ScoreDocs
+            .Select(hit => searcher.GetStoredFields(hit.DocId)["id"][0])
+            .OrderBy(static id => id, StringComparer.Ordinal)
+            .ToArray();
+        if (!actualIds.SequenceEqual(_expectedIds, StringComparer.Ordinal))
+            throw new InvalidOperationException("Flush cardinality preflight did not preserve the exact committed ID set.");
+    }
+
     [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public int FlushUniqueTerms()
     {
         string path = Path.Combine(BenchmarkHelpers.TempRoot, $"lc-flush-terms-{Guid.NewGuid():N}");

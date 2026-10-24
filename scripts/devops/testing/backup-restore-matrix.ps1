@@ -55,7 +55,7 @@ function Invoke-BackupRestoreMatrix {
     $source = Get-BackupRestoreSourceManifest -RepoRoot $repoRoot -ManifestPath ([string]$parsed.Get('SourceManifest', ''))
     $run = New-ArtifactRun -Kind test -Framework $framework -Configuration $configuration `
         -Target 'backup-restore-matrix' -RepoRoot $repoRoot `
-        -CommandLine (ConvertTo-CommandLineText -Command './devops test backup-restore-matrix' -Arguments $Arguments)
+        -CommandLine (ConvertTo-CommandLineText -Command 'pwsh ./devops.ps1 test backup-restore-matrix' -Arguments $Arguments)
     Write-AtomicJsonFile -Path (Join-Path $run.RunDirectory 'source-manifest.json') -Value $source
     $variables = @('LEANCORPUS_BACKUP_RESTORE_MEASUREMENT', 'LEANCORPUS_BACKUP_COMPOUND',
         'LEANCORPUS_BACKUP_SOURCE_DURABLE', 'LEANCORPUS_BACKUP_TEMP_ROOT',

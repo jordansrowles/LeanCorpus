@@ -27,7 +27,7 @@ function Invoke-DevOpsCoverage {
         if ($clean -and (Test-Path $coverageRoot)) {
             Remove-OwnedArtifactPath -Path $coverageRoot -ArtifactRoot (Get-ArtifactRoot -RepoRoot $repoRoot)
         }
-        $commandLine = ConvertTo-CommandLineText -Command './devops coverage' -Arguments $Arguments
+        $commandLine = ConvertTo-CommandLineText -Command 'pwsh ./devops.ps1 coverage' -Arguments $Arguments
         $coverageRun = New-ArtifactRun -Kind coverage -Framework $framework -Configuration $configuration `
             -Target $suite -CommandLine $commandLine -RepoRoot $repoRoot
         Update-ArtifactRunManifest -RunDirectory $coverageRun.RunDirectory `
@@ -78,7 +78,7 @@ function Invoke-DevOpsCoverage {
         Write-Host "  Found $($xmlFiles.Count) coverage file(s)."
 
         if ($generateReport -and $xmlFiles.Count -gt 0) {
-            New-CoverageReport -XmlFiles $xmlFiles -OutputDir (Join-Path $coverageRun.RunDirectory 'html')
+            New-CoverageReport -RepoRoot $repoRoot -XmlFiles $xmlFiles -OutputDir (Join-Path $coverageRun.RunDirectory 'html')
         }
 
         $coverageStatus = if ($exitCode -eq 0 -and $xmlFiles.Count -gt 0) { 'Passed' } else { 'Failed' }

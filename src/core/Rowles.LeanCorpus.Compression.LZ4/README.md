@@ -4,6 +4,8 @@
 
 Use this package when stored-field write and retrieval speed matter more than achieving the smallest possible index.
 
+> **Documentation preview:** This repository branch targets LeanCorpus 4.0.0 and `LeanCorpus.Compression.LZ4` 2.0.0. These versions are unreleased; the NuGet badge shows the latest published package.
+
 ## Enable LZ4 compression
 
 Install the core and codec packages:
@@ -44,4 +46,4 @@ Use `config` when constructing the `IndexWriter`. The selected policy is recorde
 - stored fields are read frequently;
 - a modest compression ratio is acceptable.
 
-The core package already includes Deflate and Brotli. See [stored-field compression](../../../docs/tips/01-compression.md) for policy trade-offs and block-size guidance.
+The core package already includes Deflate and Brotli. See [stored-field compression](../../../docs/content/tips/01-compression.md) for policy trade-offs and block-size guidance.

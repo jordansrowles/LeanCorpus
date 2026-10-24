@@ -31,6 +31,7 @@ public sealed unsafe class IndexInput : IDisposable
     private long _position;
     private bool _disposed;
     private int _disposeStarted;
+    private int _resourcesReleased;
     private byte* _ptr;
 
     /// <summary>
@@ -119,6 +120,8 @@ public sealed unsafe class IndexInput : IDisposable
     }
 
     internal object MappingIdentity => _mappingIdentity;
+    internal bool ResourcesReleased => Volatile.Read(ref _resourcesReleased) != 0;
+    internal bool OwnsMappedView => _accessor is not null && !ResourcesReleased;
 
     /// <summary>Total input length in bytes.</summary>
     public long Length => _length;
@@ -800,6 +803,7 @@ public sealed unsafe class IndexInput : IDisposable
             _fileLease?.ReleaseFromFinaliser(_measurementContext);
         else
             _fileLease?.Dispose();
+        Volatile.Write(ref _resourcesReleased, 1);
     }
 
     /// <summary>

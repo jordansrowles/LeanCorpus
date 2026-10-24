@@ -31,7 +31,7 @@ public enum TestArea
     Linq,
     Mapping,
     Search,
-    Serialization,
+    Serialisation,
     Store,
     TextIntegration,
     Util,

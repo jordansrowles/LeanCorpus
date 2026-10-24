@@ -286,8 +286,27 @@ internal sealed class TermDictionaryReader : IDisposable
     public List<(string Term, long Offset, int Distance)> GetFuzzyMatches(
         string fieldPrefix, ReadOnlySpan<char> queryTerm, int maxEdits, int maxExpansions = 64)
     {
-        var key = new FuzzyCacheKey(fieldPrefix, queryTerm.ToString(), maxEdits, maxExpansions);
-        if (TryGetFuzzyCache(key, out var cached)) return cached;
+        return GetFuzzyMatches(fieldPrefix, queryTerm, maxEdits, maxExpansions, useCache: true);
+    }
+
+    internal List<(string Term, long Offset, int Distance)> GetFuzzyMatches(
+        string fieldPrefix, ReadOnlySpan<char> queryTerm, int maxEdits, int maxExpansions, bool useCache)
+        => GetFuzzyMatches(fieldPrefix, queryTerm, maxEdits, maxExpansions, useCache, beforeFstIntersection: null);
+
+    internal List<(string Term, long Offset, int Distance)> GetFuzzyMatches(
+        string fieldPrefix,
+        ReadOnlySpan<char> queryTerm,
+        int maxEdits,
+        int maxExpansions,
+        bool useCache,
+        Action? beforeFstIntersection)
+    {
+        var key = default(FuzzyCacheKey);
+        if (useCache)
+        {
+            key = new FuzzyCacheKey(fieldPrefix, queryTerm.ToString(), maxEdits, maxExpansions);
+            if (TryGetFuzzyCache(key, out var cached)) return cached;
+        }
 
         Span<byte> qualStack = stackalloc byte[256];
         var qualifier = EncodeUtf8(fieldPrefix.AsSpan(), qualStack, out byte[]? rented);
@@ -296,6 +315,7 @@ internal sealed class TermDictionaryReader : IDisposable
         var results = new List<(string, long, int)>();
         try
         {
+            beforeFstIntersection?.Invoke();
             foreach (var (k, output, finalState) in _fst.IntersectAutomaton(lev, qualifier))
             {
                 int distance = lev.MinDistance(finalState);
@@ -315,7 +335,8 @@ internal sealed class TermDictionaryReader : IDisposable
             results = results.GetRange(0, maxExpansions);
         }
 
-        StoreFuzzyCache(key, results);
+        if (useCache)
+            StoreFuzzyCache(key, results);
         return results;
     }
 

@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 using System.Threading.Channels;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 
 namespace Rowles.LeanCorpus.Diagnostics;
 

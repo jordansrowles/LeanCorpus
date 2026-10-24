@@ -5,13 +5,13 @@ function Show-DiagnosticsHelp {
     Write-Host ''
     Write-Host '  Diagnostics commands:'
     Write-Host ''
-    Write-Host '    devops diagnostics ps'
-    Write-Host '    devops diagnostics counters --pid <pid> [-- <tool arguments>]'
-    Write-Host '    devops diagnostics trace --pid <pid> [-- <tool arguments>]'
-    Write-Host '    devops diagnostics gcdump --pid <pid> [-- <tool arguments>]'
-    Write-Host '    devops diagnostics dump --pid <pid> [--type Mini|Heap|Full|Triage]'
-    Write-Host '    devops diagnostics symbols <artifact> [-- <tool arguments>]'
-    Write-Host '    devops diagnostics capture --pid <pid> [--duration 5s]'
+    Write-Host '    pwsh ./devops.ps1 diagnostics ps'
+    Write-Host '    pwsh ./devops.ps1 diagnostics counters --pid <pid> [-- <tool arguments>]'
+    Write-Host '    pwsh ./devops.ps1 diagnostics trace --pid <pid> [-- <tool arguments>]'
+    Write-Host '    pwsh ./devops.ps1 diagnostics gcdump --pid <pid> [-- <tool arguments>]'
+    Write-Host '    pwsh ./devops.ps1 diagnostics dump --pid <pid> [--type Mini|Heap|Full|Triage]'
+    Write-Host '    pwsh ./devops.ps1 diagnostics symbols <artifact> [-- <tool arguments>]'
+    Write-Host '    pwsh ./devops.ps1 diagnostics capture --pid <pid> [--duration 5s]'
     Write-Host ''
     Write-Host '  Trace, GC dump, dump and capture output is written under artifacts/diagnostics.'
     Write-Host '  Dumps may contain sensitive application memory.'
@@ -44,7 +44,7 @@ function Invoke-DevOpsDiagnostics {
 
         $parsed = ConvertFrom-DevOpsArguments $remaining
         $repoRoot = Get-RepoRoot
-        $commandLine = ConvertTo-CommandLineText -Command './devops diagnostics' -Arguments $Arguments
+        $commandLine = ConvertTo-CommandLineText -Command 'pwsh ./devops.ps1 diagnostics' -Arguments $Arguments
         switch ($subCommand) {
             'counters' { return Invoke-DiagnosticsCounters -Parsed $parsed -RepoRoot $repoRoot -CommandLine $commandLine }
             'trace'    { return Invoke-DiagnosticsTrace -Parsed $parsed -RepoRoot $repoRoot -CommandLine $commandLine }
@@ -53,7 +53,7 @@ function Invoke-DevOpsDiagnostics {
             'symbols'  { return Invoke-DiagnosticsSymbols -Parsed $parsed -RepoRoot $repoRoot -CommandLine $commandLine }
             'capture'  { return Invoke-DiagnosticsCapture -Parsed $parsed -RepoRoot $repoRoot -CommandLine $commandLine }
             default {
-                throw "Unknown diagnostics command '$subCommand'. Use 'devops diagnostics --help'."
+                throw "Unknown diagnostics command '$subCommand'. Use 'pwsh ./devops.ps1 diagnostics --help'."
             }
         }
     } catch {

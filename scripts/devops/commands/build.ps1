@@ -6,9 +6,7 @@ function Invoke-DevOpsBuild {
 
     $parsed = ConvertFrom-DevOpsArguments $Arguments
     $configuration = $parsed.Get('Configuration', 'Release')
-    # The Community Server is intentionally net11-only, so the solution build
-    # defaults to the framework that can build every project. Core libraries
-    # remain explicitly selectable with -Framework net10.0 when needed.
+    # Project builds default to net11.0; solution builds use every declared target.
     $framework = $parsed.Get('Framework', 'net11.0')
     $project = $parsed.Get('Project', '')
     $repoRoot = Get-RepoRoot
@@ -28,8 +26,8 @@ function Invoke-DevOpsBuild {
         $slnPath = Join-Path $repoRoot 'Rowles.LeanCorpus.slnx'
         $buildArgs = @('build', $slnPath, '-c', $configuration)
         Write-Heading 'Building LeanCorpus...'
-        # A solution contains the netstandard source generator and the
-        # net11-only server alongside multi-targeted libraries. Let MSBuild
+        # A solution contains the netstandard source generator alongside
+        # multi-targeted libraries and hosts. Let MSBuild
         # select each project's declared targets rather than forcing one TFM.
         $frameworkArgs = @()
     }
@@ -38,7 +36,7 @@ function Invoke-DevOpsBuild {
     if ($project) {
         Write-Host "  Framework:     $framework"
     } else {
-        Write-Host '  Framework:     each project target (net11.0 server)'
+        Write-Host '  Framework:     each declared project target'
     }
     if ($project) { Write-Host "  Project:       $project" }
     Write-Host ''

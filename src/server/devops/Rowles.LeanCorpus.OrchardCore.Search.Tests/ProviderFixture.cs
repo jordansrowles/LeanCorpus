@@ -12,6 +12,7 @@ internal sealed class ProviderFixture : IAsyncDisposable
     private LeanCorpusIndexHandleCache _handles;
 
     public SwitchableFailureInjector Failures { get; } = new();
+    internal object RootHostContext { get; } = new();
     public LeanCorpusIndexPathResolver Paths { get; }
     public LeanCorpusSchemaStore Schemas { get; }
     public LeanCorpusDocumentMapper Mapper { get; }
@@ -26,7 +27,7 @@ internal sealed class ProviderFixture : IAsyncDisposable
     {
         Directory.CreateDirectory(_root);
         Paths = new LeanCorpusIndexPathResolver(_root, "Default");
-        _handles = new LeanCorpusIndexHandleCache(Paths);
+        _handles = new LeanCorpusIndexHandleCache(Paths, lifetime: null, manualRootLifetimeContext: RootHostContext);
         Schemas = new LeanCorpusSchemaStore(Failures);
         Mapper = new LeanCorpusDocumentMapper(NullLogger<LeanCorpusDocumentMapper>.Instance);
         Indexes = new LeanCorpusIndexManager(Paths, _handles, Schemas, Failures, NullLogger<LeanCorpusIndexManager>.Instance);
@@ -48,7 +49,7 @@ internal sealed class ProviderFixture : IAsyncDisposable
     public async Task RestartAsync()
     {
         await _handles.DisposeAsync();
-        _handles = new LeanCorpusIndexHandleCache(Paths);
+        _handles = new LeanCorpusIndexHandleCache(Paths, lifetime: null, manualRootLifetimeContext: RootHostContext);
         Failures.Point = null;
         Indexes = new LeanCorpusIndexManager(Paths, _handles, Schemas, Failures, NullLogger<LeanCorpusIndexManager>.Instance);
         Documents = new LeanCorpusDocumentIndexManager(Paths, _handles, Schemas, Mapper, Failures,

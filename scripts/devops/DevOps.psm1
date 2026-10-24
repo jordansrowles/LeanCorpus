@@ -3,6 +3,7 @@ Set-StrictMode -Version Latest
 
 . "$PSScriptRoot/common/output.ps1"
 . "$PSScriptRoot/common/paths.ps1"
+. "$PSScriptRoot/common/configuration.ps1"
 . "$PSScriptRoot/common/arguments.ps1"
 . "$PSScriptRoot/common/processes.ps1"
 . "$PSScriptRoot/common/tools.ps1"
@@ -12,8 +13,6 @@ Set-StrictMode -Version Latest
 . "$PSScriptRoot/artifacts/clean.ps1"
 
 $Script:TestSuites = Import-PowerShellDataFile "$PSScriptRoot/config/test-suites.psd1"
-$Script:BenchmarkSuites = Import-PowerShellDataFile "$PSScriptRoot/config/benchmark-suites.psd1"
-$Script:BenchmarkStrategies = Import-PowerShellDataFile "$PSScriptRoot/config/benchmark-strategies.psd1"
 
 . "$PSScriptRoot/testing/targets.ps1"
 . "$PSScriptRoot/testing/events.ps1"
@@ -81,6 +80,9 @@ function Invoke-DevOpsHelp {
     Write-Host ''
     Write-Host '  LeanCorpus devops'
     Write-Host '  ================'
+    Write-Host '  The root managed apphost handles build, clean, report, coverage, diagnostics and server start.'
+    Write-Host '  Run this PowerShell-only surface as: pwsh ./devops.ps1 <command>.'
+    Write-Host '  Bootstrap or rebuild the managed host with: pwsh ./setup.ps1.'
     Write-Host ''
     Write-Host '  Commands:'
     Write-Host ''
@@ -191,10 +193,12 @@ function Invoke-DevOpsHelp {
     Write-Host '        -ReferencePath    Override the Wikipedia v1 reference directory'
     Write-Host '        -Dry              Print qualification commands without running them'
     Write-Host ''
-    Write-Host '    docs                 Build the documentation site'
+    Write-Host '    docs                 Managed route: ./devops docs; PowerShell implementation retained as rollback'
+    Write-Host '      prepare             Stage canonical content, imports and generated sections'
     Write-Host '      build               Full build: API metadata + static site (default)'
     Write-Host '      metadata            API YAML metadata only, no site build'
     Write-Host '      serve               Build and serve on http://0.0.0.0:8080'
+    Write-Host '      test                Run ADR/static validation and the docs-site Playwright suite'
     Write-Host '      -SkipBenchmarks     Skip regenerating benchmark pages'
     Write-Host '      -SkipCoverage       Skip regenerating coverage report'
     Write-Host '      DocFX warnings are summarised; full logs are written to artifacts/docs'
@@ -212,7 +216,7 @@ function Invoke-DevOpsHelp {
     Write-Host '      -ValidatePackages  Run isolated consumers for every shipping package'
     Write-Host '      -NoBuild           Pack existing builds'
     Write-Host '      -Clean             Remove previous package output before packing'
-    Write-Host '    ui                   Open the interactive DevOps workbench (PowerShell 7.4+; run setup -InstallUi once)'
+    Write-Host '    ui                   Open the interactive DevOps workbench (PowerShell 7.4+; run pwsh ./devops.ps1 setup -InstallUi once)'
     Write-Host '    report               Repository health report'
     Write-Host '      git                 Repository/commit-level stats (default: all groups)'
     Write-Host '      files               Per-file facts and history'
@@ -231,32 +235,34 @@ function Invoke-DevOpsHelp {
     Write-Host '        -- <args>         Pass application arguments to the host'
     Write-Host ''
     Write-Host '  Examples:'
-    Write-Host '    devops build'
-    Write-Host '    devops test -Suite core -Category Integration -Framework net11.0'
-    Write-Host '    devops test -Suite core -Category Unit -Verbosity detailed'
-    Write-Host '    devops test -Suite core,text -Area Index,Search -Technique PropertyBased,Metamorphic'
-    Write-Host '    ./devops test affected'
-    Write-Host '    ./devops test affected -Commit HEAD'
-    Write-Host '    ./devops test affected -Commit caf4bd5'
-    Write-Host '    ./devops test affected -Range HEAD~3..HEAD'
-    Write-Host '    devops test core --count 2 --filter FullyQualifiedName~Writer'
-    Write-Host '    devops test core --flaky --count 5'
-    Write-Host '    devops diagnostics ps'
-    Write-Host '    devops aot'
-    Write-Host '    devops coverage -Clean -GenerateReport'
-    Write-Host '    devops benchmark -List'
-    Write-Host '    devops benchmark -Suite query -Strat fast'
-    Write-Host '    devops benchmark -Suite mlt -Strat exhaustive -- --filter *SingleSegment*'
-    Write-Host '    devops docs serve'
-    Write-Host '    devops docs metadata'
-    Write-Host '    devops data gutenberg -BookCount 500'
-    Write-Host '    devops data migration-fixtures-311'
-    Write-Host '    devops dataforge profiles'
-    Write-Host '    devops dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000'
-    Write-Host '    devops report'
-    Write-Host '    devops report code -Strict'
-    Write-Host '    devops server start'
-    Write-Host '    devops server start -External'
+    Write-Host '    ./devops build'
+    Write-Host '    pwsh ./devops.ps1 test -Suite core -Category Integration -Framework net11.0'
+    Write-Host '    pwsh ./devops.ps1 test -Suite core -Category Unit -Verbosity detailed'
+    Write-Host '    pwsh ./devops.ps1 test -Suite core,text -Area Index,Search -Technique PropertyBased,Metamorphic'
+    Write-Host '    pwsh ./devops.ps1 test affected'
+    Write-Host '    pwsh ./devops.ps1 test affected -Commit HEAD'
+    Write-Host '    pwsh ./devops.ps1 test affected -Commit caf4bd5'
+    Write-Host '    pwsh ./devops.ps1 test affected -Range HEAD~3..HEAD'
+    Write-Host '    pwsh ./devops.ps1 test core --count 2 --filter FullyQualifiedName~Writer'
+    Write-Host '    pwsh ./devops.ps1 test core --flaky --count 5'
+    Write-Host '    pwsh ./devops.ps1 diagnostics ps'
+    Write-Host '    pwsh ./devops.ps1 aot'
+    Write-Host '    pwsh ./devops.ps1 coverage -Clean -GenerateReport'
+    Write-Host '    pwsh ./devops.ps1 benchmark -List'
+    Write-Host '    pwsh ./devops.ps1 benchmark -Suite query -Strat fast'
+    Write-Host '    pwsh ./devops.ps1 benchmark -Suite mlt -Strat exhaustive -- --filter *SingleSegment*'
+    Write-Host '    ./devops docs serve'
+    Write-Host '    ./devops docs test'
+    Write-Host '    ./devops docs metadata'
+    Write-Host '    ./devops docs prepare'
+    Write-Host '    pwsh ./devops.ps1 data gutenberg -BookCount 500'
+    Write-Host '    pwsh ./devops.ps1 data migration-fixtures-311'
+    Write-Host '    pwsh ./devops.ps1 dataforge profiles'
+    Write-Host '    pwsh ./devops.ps1 dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000'
+    Write-Host '    pwsh ./devops.ps1 report'
+    Write-Host '    pwsh ./devops.ps1 report code -Strict'
+    Write-Host '    ./devops server start'
+    Write-Host '    ./devops server start -External'
     Write-Host ''
     exit 0
 }

@@ -1,0 +1,446 @@
+{
+  "schemaVersion": 1,
+  "sourceRevision": "4ccdf1ba7ae447ed982a34dc64478df47879baf3",
+  "sourceFiles": [
+    "scripts/devops/commands/build.ps1",
+    "scripts/devops/commands/clean.ps1",
+    "scripts/devops/commands/server.ps1",
+    "scripts/devops/artifacts/clean.ps1",
+    "scripts/devops/common/processes.ps1",
+    "scripts/devops/commands/report.ps1",
+    "scripts/devops/commands/coverage.ps1",
+    "scripts/devops/support/coverage.ps1"
+  ],
+  "cases": [
+    {
+      "id": "build-solution-default",
+      "command": "build",
+      "legacyTokens": [],
+      "expectedRequest": {
+        "configuration": "Release",
+        "project": null,
+        "framework": null,
+        "target": "solution"
+      },
+      "expectedExternalCommand": [
+        "dotnet",
+        "build",
+        "<repo>/Rowles.LeanCorpus.slnx",
+        "-c",
+        "Release",
+        "--disable-build-servers",
+        "-m:1",
+        "-p:UseSharedCompilation=false",
+        "--tl:off",
+        "-bl:<run>/build.binlog",
+        "-fl",
+        "-flp:logfile=<run>/build.log;verbosity=normal"
+      ],
+      "expectedOutcome": "success-or-child-failure",
+      "expectedEvidence": {
+        "runRoot": "artifacts/build/runs/<run-id>",
+        "manifestTerminalStatus": [
+          "Passed",
+          "Failed"
+        ],
+        "textLog": "build.log",
+        "binaryLog": "build.binlog"
+      },
+      "platformRestrictions": [],
+      "intentionalChange": null
+    },
+    {
+      "id": "build-project-default-framework",
+      "command": "build",
+      "legacyTokens": [
+        "-Project",
+        "src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj"
+      ],
+      "expectedRequest": {
+        "configuration": "Release",
+        "project": "src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj",
+        "framework": "net11.0",
+        "target": "project"
+      },
+      "expectedExternalCommand": [
+        "dotnet",
+        "build",
+        "<repo>/src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj",
+        "-c",
+        "Release",
+        "-f",
+        "net11.0",
+        "--disable-build-servers",
+        "-m:1",
+        "-p:UseSharedCompilation=false",
+        "--tl:off",
+        "-bl:<run>/build.binlog",
+        "-fl",
+        "-flp:logfile=<run>/build.log;verbosity=normal"
+      ],
+      "expectedOutcome": "success-or-child-failure",
+      "expectedEvidence": {
+        "manifestFramework": "net11.0",
+        "manifestTarget": "src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj"
+      },
+      "platformRestrictions": [],
+      "intentionalChange": null
+    },
+    {
+      "id": "build-project-explicit-net10",
+      "command": "build",
+      "legacyTokens": [
+        "-Project",
+        "src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj",
+        "-Framework",
+        "net10.0"
+      ],
+      "expectedRequest": {
+        "configuration": "Release",
+        "project": "src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj",
+        "framework": "net10.0",
+        "target": "project"
+      },
+      "expectedExternalCommand": [
+        "dotnet",
+        "build",
+        "<repo>/src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj",
+        "-c",
+        "Release",
+        "-f",
+        "net10.0",
+        "--disable-build-servers",
+        "-m:1",
+        "-p:UseSharedCompilation=false",
+        "--tl:off",
+        "-bl:<run>/build.binlog",
+        "-fl",
+        "-flp:logfile=<run>/build.log;verbosity=normal"
+      ],
+      "expectedOutcome": "success-or-child-failure",
+      "expectedEvidence": {
+        "manifestFramework": "net10.0"
+      },
+      "platformRestrictions": [],
+      "intentionalChange": null
+    },
+    {
+      "id": "clean-default-preserves-package-and-benchmark-data",
+      "command": "clean",
+      "legacyTokens": [],
+      "expectedRequest": {
+        "target": "default",
+        "ownedRelativePaths": [
+          "bin",
+          "obj",
+          "publish",
+          "build",
+          "test",
+          "coverage",
+          "diagnostics",
+          "docs",
+          "temp"
+        ],
+        "preservedRelativePaths": [
+          "package",
+          "benchmark/cache",
+          "benchmark/runs"
+        ]
+      },
+      "expectedExternalCommand": null,
+      "expectedOutcome": "success-or-validation-failure",
+      "expectedEvidence": {
+        "deletionRoot": "artifacts",
+        "removeOnlyExistingOwnedPaths": true
+      },
+      "platformRestrictions": [],
+      "intentionalChange": "Managed clean adds path containment, link escape, active-run and apphost/bootstrap protections."
+    },
+    {
+      "id": "clean-build",
+      "command": "clean",
+      "legacyTokens": [
+        "build"
+      ],
+      "expectedRequest": {
+        "target": "build",
+        "ownedRelativePaths": [
+          "build"
+        ]
+      },
+      "expectedExternalCommand": null,
+      "expectedOutcome": "success-or-validation-failure",
+      "expectedEvidence": {
+        "deletionRoot": "artifacts/build"
+      },
+      "platformRestrictions": [],
+      "intentionalChange": null
+    },
+    {
+      "id": "clean-all-disposable-fixture-only",
+      "command": "clean",
+      "legacyTokens": [
+        "all"
+      ],
+      "expectedRequest": {
+        "target": "all",
+        "ownedRelativePaths": [
+          ""
+        ],
+        "deletionRoot": "artifacts"
+      },
+      "expectedExternalCommand": null,
+      "expectedOutcome": "success-or-validation-failure",
+      "expectedEvidence": {
+        "mustRunAgainst": "temporary-repository-fixture",
+        "liveRepositoryUse": false
+      },
+      "platformRestrictions": [],
+      "intentionalChange": "Managed clean validates all paths before deletion and preserves the root apphost/bootstrap."
+    },
+    {
+      "id": "server-start-default",
+      "command": "server",
+      "legacyTokens": [
+        "start"
+      ],
+      "expectedRequest": {
+        "framework": "net11.0",
+        "configuration": "Debug",
+        "noBuild": false,
+        "noRestore": false,
+        "external": false,
+        "applicationArguments": []
+      },
+      "expectedExternalCommand": [
+        "dotnet",
+        "run",
+        "--project",
+        "<repo>/src/server/Rowles.LeanCorpus.Server.Local/Rowles.LeanCorpus.Server.Local.csproj",
+        "--framework",
+        "net11.0",
+        "--configuration",
+        "Debug"
+      ],
+      "expectedOutcome": "foreground-child-exit",
+      "expectedEvidence": {
+        "listener": "http://127.0.0.1:5080",
+        "lifetime": "foreground-until-child-exits-or-cancelled"
+      },
+      "platformRestrictions": [],
+      "intentionalChange": null
+    },
+    {
+      "id": "server-start-external",
+      "command": "server",
+      "legacyTokens": [
+        "start",
+        "-External"
+      ],
+      "expectedRequest": {
+        "framework": "net11.0",
+        "configuration": "Debug",
+        "noBuild": false,
+        "noRestore": false,
+        "external": true,
+        "applicationArguments": [
+          "--urls=http://0.0.0.0:5080",
+          "--AllowedHosts=*"
+        ]
+      },
+      "expectedExternalCommand": [
+        "dotnet",
+        "run",
+        "--project",
+        "<repo>/src/server/Rowles.LeanCorpus.Server.Local/Rowles.LeanCorpus.Server.Local.csproj",
+        "--framework",
+        "net11.0",
+        "--configuration",
+        "Debug",
+        "--",
+        "--urls=http://0.0.0.0:5080",
+        "--AllowedHosts=*"
+      ],
+      "expectedOutcome": "foreground-child-exit",
+      "expectedEvidence": {
+        "listener": "http://0.0.0.0:5080",
+        "warning": "No TLS or authentication; trusted network only."
+      },
+      "platformRestrictions": [],
+      "intentionalChange": null
+    },
+    {
+      "id": "server-start-passthrough-token-boundaries",
+      "command": "server",
+      "legacyTokens": [
+        "start",
+        "--",
+        "--urls",
+        "http://127.0.0.1:5081"
+      ],
+      "expectedRequest": {
+        "framework": "net11.0",
+        "configuration": "Debug",
+        "applicationArguments": [
+          "--urls",
+          "http://127.0.0.1:5081"
+        ]
+      },
+      "expectedExternalCommand": [
+        "dotnet",
+        "run",
+        "--project",
+        "<repo>/src/server/Rowles.LeanCorpus.Server.Local/Rowles.LeanCorpus.Server.Local.csproj",
+        "--framework",
+        "net11.0",
+        "--configuration",
+        "Debug",
+        "--",
+        "--urls",
+        "http://127.0.0.1:5081"
+      ],
+      "expectedOutcome": "foreground-child-exit",
+      "expectedEvidence": {
+        "argumentTokenBoundariesPreserved": true
+      },
+      "platformRestrictions": [],
+      "intentionalChange": null
+    },
+    {
+      "id": "server-no-build-no-restore",
+      "command": "server",
+      "legacyTokens": [
+        "start",
+        "-NoBuild",
+        "-NoRestore"
+      ],
+      "expectedRequest": {
+        "framework": "net11.0",
+        "configuration": "Debug",
+        "noBuild": true,
+        "noRestore": true
+      },
+      "expectedExternalCommand": [
+        "dotnet",
+        "run",
+        "--project",
+        "<repo>/src/server/Rowles.LeanCorpus.Server.Local/Rowles.LeanCorpus.Server.Local.csproj",
+        "--framework",
+        "net11.0",
+        "--configuration",
+        "Debug",
+        "--no-build",
+        "--no-restore"
+      ],
+      "expectedOutcome": "foreground-child-exit",
+      "expectedEvidence": {},
+      "platformRestrictions": [],
+      "intentionalChange": null
+    },
+    {
+      "id": "report-git-json",
+      "command": "report",
+      "legacyTokens": [
+        "git",
+        "-Json"
+      ],
+      "expectedRequest": {
+        "group": "git",
+        "top": 10,
+        "path": null,
+        "strict": false,
+        "json": true
+      },
+      "expectedExternalCommand": null,
+      "expectedOutcome": "report-outcome-with-versioned-envelope",
+      "expectedEvidence": {
+        "runRoot": "artifacts/report/runs/<run-id>",
+        "contractVersion": 1,
+        "sourceIdentity": true,
+        "childAttempts": true,
+        "logRefs": true
+      },
+      "platformRestrictions": [],
+      "intentionalChange": "NUL-safe Git parsing retains churn from similarity-detected renames that the legacy text parser dropped; deterministic tie ordering is used for ranked files and commits."
+    },
+    {
+      "id": "coverage-core-default",
+      "command": "coverage",
+      "legacyTokens": [
+        "-Suite",
+        "core",
+        "-Framework",
+        "net10.0"
+      ],
+      "expectedRequest": {
+        "suite": "core",
+        "framework": "net10.0",
+        "configuration": "Release",
+        "clean": false,
+        "includePerformance": false,
+        "generateReport": false
+      },
+      "expectedExternalCommand": null,
+      "expectedOutcome": "coverage-outcome-with-versioned-run-envelope",
+      "expectedEvidence": {
+        "runRoot": "artifacts/coverage/runs/<run-id>",
+        "testRunIsLinkedAsChild": true,
+        "rawCoverage": "raw/**/*.coverage.cobertura.*.xml",
+        "coverageFilter": "Coverage!=Skip"
+      },
+      "platformRestrictions": [],
+      "intentionalChange": null
+    },
+    {
+      "id": "report-files-path-glob",
+      "command": "report",
+      "legacyTokens": [
+        "files",
+        "-Top",
+        "3",
+        "-Path",
+        "docs/**",
+        "-Json"
+      ],
+      "expectedRequest": {
+        "group": "files",
+        "top": 3,
+        "path": "docs/**",
+        "strict": false,
+        "json": true
+      },
+      "expectedExternalCommand": null,
+      "expectedOutcome": "report-outcome-with-versioned-envelope",
+      "expectedEvidence": {
+        "pathGlobAppliedToTrackedTree": true,
+        "stableTieOrdering": true
+      },
+      "platformRestrictions": [],
+      "intentionalChange": "Managed ranked lists use deterministic ordinal tie ordering where the legacy PowerShell sort ordered only by count."
+    },
+    {
+      "id": "report-code-strict-json",
+      "command": "report",
+      "legacyTokens": [
+        "code",
+        "-Strict",
+        "-Json"
+      ],
+      "expectedRequest": {
+        "group": "code",
+        "top": 10,
+        "path": null,
+        "strict": true,
+        "json": true
+      },
+      "expectedExternalCommand": null,
+      "expectedOutcome": "strict-violations-fail-with-report",
+      "expectedEvidence": {
+        "syntaxCountsAreAdvisory": true,
+        "strictViolationCount": true
+      },
+      "platformRestrictions": [],
+      "intentionalChange": "Managed strict checks return a non-zero result while retaining the full report document and evidence references."
+    }
+  ]
+}

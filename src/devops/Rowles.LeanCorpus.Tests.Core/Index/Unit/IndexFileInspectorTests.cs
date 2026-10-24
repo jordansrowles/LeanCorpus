@@ -1,7 +1,7 @@
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Category(TestCategory.Unit)]

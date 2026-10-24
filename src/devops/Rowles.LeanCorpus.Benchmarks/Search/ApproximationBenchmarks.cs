@@ -1,11 +1,12 @@
 using BenchmarkDotNet.Attributes;
 using Rowles.LeanCorpus.Search.Aggregations;
+using System.Runtime.CompilerServices;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>Compares bounded approximate metric states with their exact collection baselines.</summary>
 [MemoryDiagnoser]
-public sealed class ApproximationBenchmarks
+public class ApproximationBenchmarks
 {
     private long[] _values = [];
 
@@ -17,10 +18,12 @@ public sealed class ApproximationBenchmarks
         => _values = Enumerable.Range(0, ValueCount).Select(static value => (long)(value % 20_000)).ToArray();
 
     [Benchmark(Baseline = true)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public int ExactDistinct()
         => _values.ToHashSet().Count;
 
     [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public double HyperLogLogPlusPlus()
     {
         var sketch = new HyperLogLogPlusPlus();
@@ -29,6 +32,7 @@ public sealed class ApproximationBenchmarks
     }
 
     [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public long ExactP99()
     {
         var sorted = _values.ToArray();
@@ -37,6 +41,7 @@ public sealed class ApproximationBenchmarks
     }
 
     [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public double TDigestP99()
     {
         var digest = new TDigest();
@@ -45,6 +50,7 @@ public sealed class ApproximationBenchmarks
     }
 
     [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
     public long HdrHistogramP99()
     {
         var histogram = new HdrHistogram(20_000);

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "data": {
+    "requiredSyntheticProfiles": {
+      "leancorpus-hybrid": 1,
+      "leancorpus-search": 1,
+      "leancorpus-vector": 1,
+      "rowles-text-multilingual": 1
+    }
+  }
+}

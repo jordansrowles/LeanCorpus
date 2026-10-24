@@ -57,7 +57,7 @@ function ConvertTo-BashSingleQuotedString {
 $quotedPath = ConvertTo-BashSingleQuotedString -Value $RemotePath
 $quotedBranch = ConvertTo-BashSingleQuotedString -Value $Branch
 $quotedSession = ConvertTo-BashSingleQuotedString -Value $SessionName
-$benchmarkCommand = './devops benchmark'
+$benchmarkCommand = 'pwsh ./devops.ps1 benchmark'
 
 if (-not [string]::IsNullOrWhiteSpace($BenchmarkArgs)) {
     $benchmarkCommand = "$benchmarkCommand $BenchmarkArgs"

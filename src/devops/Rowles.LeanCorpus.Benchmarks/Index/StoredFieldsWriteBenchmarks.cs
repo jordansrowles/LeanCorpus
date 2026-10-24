@@ -67,4 +67,39 @@ public class StoredFieldsWriteBenchmarks
             blockSize: DocumentCount,
             compression: FieldCompressionPolicy.Deflate);
     }
+
+    [IterationCleanup]
+    public void VerifyWrittenDocuments()
+    {
+        using var reader = StoredFieldsReader.Open(_fdtPath, _fdxPath);
+        if (reader.DocCount != DocumentCount)
+        {
+            throw new InvalidOperationException(
+                $"Wide stored-fields write expected {DocumentCount} documents, but found {reader.DocCount}.");
+        }
+
+        for (int docId = 0; docId < DocumentCount; docId++)
+        {
+            var fields = reader.ReadDocumentValues(docId);
+            if (fields.Count != FieldCount)
+            {
+                throw new InvalidOperationException(
+                    $"Wide stored-fields document {docId} expected {FieldCount} fields, but found {fields.Count}.");
+            }
+
+            for (int fieldId = 0; fieldId < FieldCount; fieldId++)
+            {
+                string fieldName = _fieldNames[fieldId];
+                string expectedValue = $"value-{docId:D3}-{fieldId:D3}";
+                if (!fields.TryGetValue(fieldName, out var values)
+                    || values.Count != 1
+                    || values[0].Kind != StoredFieldValueKind.String
+                    || !StringComparer.Ordinal.Equals(values[0].StringValue, expectedValue))
+                {
+                    throw new InvalidOperationException(
+                        $"Wide stored-fields document {docId}, field '{fieldName}' did not round-trip its exact value.");
+                }
+            }
+        }
+    }
 }

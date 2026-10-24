@@ -69,10 +69,13 @@ public class VectorQuantisationBenchmarks
     private static float[][] s_luceneVectors = [];
 
     private float[] _query = [];
+    private BenchmarkVectorDataset _dataset = default!;
+    private int _searchChecksum;
 
     [GlobalSetup]
     public void Setup()
     {
+        BenchmarkVectorQuality.ValidateFixture();
         var key = (DocCount, Dimension, Quantisation);
         if (!s_built || s_lastKey != key)
         {
@@ -119,7 +122,27 @@ public class VectorQuantisationBenchmarks
             }
         }
 
-        _query = BenchmarkVectorData.Get(DocCount, Dimension).Query.Vector;
+        _dataset = BenchmarkVectorData.Get(DocCount, Dimension);
+        _query = _dataset.Query.Vector;
+
+        var quality = BenchmarkVectorQuality.Measure(
+            _dataset,
+            topK => s_searcher.Search(new VectorQuery(FieldName, _query, topK: topK), topK).ScoreDocs,
+            quantised: Quantisation != VectorQuantisation.None);
+        BenchmarkVectorData.WriteVectorQuality(
+            _dataset,
+            "quantisation",
+            Quantisation.ToString().ToLowerInvariant(),
+            new { quantisation = Quantisation.ToString(), topK = TopK },
+            quality);
+        BenchmarkVectorQuality.RequireMinimumRecall(
+            quality,
+            $"Vector quantisation {Quantisation}, docCount={DocCount}, dimension={Dimension}");
+
+        var setupResults = s_searcher.Search(new VectorQuery(FieldName, _query, topK: TopK), TopK);
+        if (setupResults.ScoreDocs.Length != TopK)
+            throw new InvalidOperationException($"Expected {TopK} vector results, got {setupResults.ScoreDocs.Length}.");
+        _searchChecksum = ResultChecksum(setupResults.ScoreDocs.Select(static hit => hit.DocId));
     }
 
     [Benchmark(Baseline = true, Description = "HNSW search")]
@@ -127,7 +150,12 @@ public class VectorQuantisationBenchmarks
     public int Search()
     {
         var q = new VectorQuery(FieldName, _query, topK: TopK);
-        return s_searcher.Search(q, TopK).TotalHits;
+        var results = s_searcher.Search(q, TopK);
+        if (results.ScoreDocs.Length != TopK)
+            throw new InvalidOperationException($"Expected {TopK} vector results, got {results.ScoreDocs.Length}.");
+        if (ResultChecksum(results.ScoreDocs.Select(static hit => hit.DocId)) != _searchChecksum)
+            throw new InvalidOperationException("The vector result changed from the quality-checked setup fixture.");
+        return results.TotalHits;
     }
 
     [Benchmark(Description = "Lucene.NET flat scan")]
@@ -218,6 +246,14 @@ public class VectorQuantisationBenchmarks
             s_luceneLastKey = key;
             s_luceneBuilt = true;
         }
+    }
+
+    private static int ResultChecksum(IEnumerable<int> documentIds)
+    {
+        int checksum = 17;
+        foreach (int documentId in documentIds)
+            checksum = unchecked((checksum * 31) + documentId);
+        return checksum;
     }
 
     /// <summary>Release static Lucene.NET resources.</summary>

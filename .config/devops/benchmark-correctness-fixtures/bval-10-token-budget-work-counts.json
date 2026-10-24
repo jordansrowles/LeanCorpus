@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-10-token-budget-work-counts",
+  "deterministic": true,
+  "seed": 9710,
+  "domain": "token-budget-accepted-work",
+  "input": {
+    "documents": [
+      { "id": "doc-a", "tokenCount": 101, "tokenPattern": "token{index:D3}" },
+      { "id": "doc-b", "tokenCount": 101, "tokenPattern": "token{index:D3}" }
+    ],
+    "maximumTokensPerDocument": 100,
+    "modes": ["Unlimited", "Truncate", "Reject"]
+  },
+  "expected": {
+    "acceptedDocuments": { "Unlimited": 2, "Truncate": 2, "Reject": 0 },
+    "acceptedTokens": { "Unlimited": 202, "Truncate": 200, "Reject": 0 },
+    "rejectedDocuments": { "Unlimited": 0, "Truncate": 0, "Reject": 2 },
+    "sameWorkComparisonAllowedAcrossModes": false
+  }
+}

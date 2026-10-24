@@ -258,11 +258,11 @@ function Test-PackageArchive {
         }
     }
     elseif ($kind -eq 'application') {
-        if ($frameworks.Count -ne 1) { throw "Application packages require exactly one target framework: $PackagePath" }
-        $framework = $frameworks[0]
         $applicationAssets = @(
-            "lib/$framework/$($project.assemblyName).dll",
-            "lib/$framework/$($project.assemblyName).runtimeconfig.json"
+            foreach ($framework in $frameworks) {
+                "lib/$framework/$($project.assemblyName).dll"
+                "lib/$framework/$($project.assemblyName).runtimeconfig.json"
+            }
         )
         foreach ($asset in $applicationAssets) {
             if ($asset -notin $entries) { throw "Missing expected application asset '$asset' in $PackagePath." }
@@ -270,7 +270,7 @@ function Test-PackageArchive {
         $applicationFrameworks = @($entries | ForEach-Object {
             if ($_ -match '^lib/([^/]+)/') { $Matches[1] }
         } | Sort-Object -Unique)
-        if (($applicationFrameworks -join ',') -cne $framework) {
+        if (($applicationFrameworks -join ',') -cne (($frameworks | Sort-Object) -join ',')) {
             throw "Unexpected application TFM folders in ${PackagePath}: '$($applicationFrameworks -join ',')'."
         }
         foreach ($entry in $entries | Where-Object { $_ -match '^lib/' }) {
@@ -302,7 +302,7 @@ function Test-PackageArchive {
             if ($entry -cne $expectedBinary) { throw "Unexpected package binary '$entry' in $PackagePath." }
         }
         elseif ($kind -eq 'analyzer' -and $entry -ceq "analyzers/dotnet/cs/$($project.assemblyName).dll") { continue }
-        elseif ($kind -eq 'application' -and $entry -ceq "lib/$($frameworks[0])/$($project.assemblyName).dll") { continue }
+        elseif ($kind -eq 'application' -and $entry -cin $applicationAssets) { continue }
         else { throw "Unexpected package binary '$entry' in $PackagePath." }
     }
 

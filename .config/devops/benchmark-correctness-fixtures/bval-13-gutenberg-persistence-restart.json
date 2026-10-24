@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-13-gutenberg-persistence-restart",
+  "deterministic": true,
+  "seed": 9713,
+  "domain": "gutenberg-index-persistence",
+  "input": {
+    "documents": [
+      { "id": "book-001", "title": "North Sea observations", "body": "A deterministic record about tides and coastal maps." },
+      { "id": "book-002", "title": "A garden journal", "body": "A deterministic record about seeds and spring rainfall." },
+      { "id": "book-003", "title": "The old observatory", "body": "A deterministic record about stars and measured light." }
+    ],
+    "profiles": [
+      {
+        "id": "as-shipped-persistence",
+        "claimClass": "Directional",
+        "leancorpus": {
+          "durableCommits": false,
+          "directory": "MMapDirectory",
+          "ramBufferSizeMB": 256,
+          "ramPerThreadHardLimitMB": 256,
+          "maxBufferedDocs": 10000,
+          "useCompoundFile": false,
+          "commit": "explicit-commit-before-close",
+          "metadataSync": "not-requested-by-durable-commit"
+        },
+        "lucene": {
+          "durableCommits": true,
+          "directory": "FSDirectory.Open",
+          "ramBufferSizeMB": 16,
+          "ramPerThreadHardLimitMB": 1945,
+          "maxBufferedDocs": -1,
+          "useCompoundFile": true,
+          "commit": "explicit-commit-before-close",
+          "metadataSync": "lucene-directory-commit-contract"
+        }
+      },
+      {
+        "id": "matched-persistence",
+        "claimClass": "Competitive",
+        "leancorpus": {
+          "durableCommits": true,
+          "directory": "MMapDirectory",
+          "ramBufferSizeMB": 256,
+          "ramPerThreadHardLimitMB": 1945,
+          "maxBufferedDocs": 10000,
+          "useCompoundFile": false,
+          "commit": "explicit-commit-before-close",
+          "metadataSync": "durable-commit-file-and-directory-sync"
+        },
+        "lucene": {
+          "durableCommits": true,
+          "directory": "MMapDirectory",
+          "ramBufferSizeMB": 256,
+          "ramPerThreadHardLimitMB": 1945,
+          "maxBufferedDocs": 10000,
+          "useCompoundFile": false,
+          "commit": "explicit-commit-before-close",
+          "metadataSync": "lucene-directory-commit-contract"
+        }
+      }
+    ],
+    "verification": "explicit-commit-close-writer-and-directory-reopen-reader"
+  },
+  "expected": {
+    "reopenedDocumentIds": ["book-001", "book-002", "book-003"],
+    "exactDocumentCount": 3,
+    "explicitCommitCount": 1,
+    "matchedPersistenceProfileRequiredForCompetitiveRatio": true,
+    "asShippedClaimClass": "Directional"
+  }
+}

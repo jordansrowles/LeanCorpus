@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-07-collapse-and-facet-pagination",
+  "deterministic": true,
+  "seed": 9707,
+  "domain": "collapse-completeness-and-facet-offset",
+  "input": {
+    "queryTerm": "common",
+    "topN": 25,
+    "luceneCandidateLimit": 250,
+    "orderedPrefix": { "documentCount": 250, "idPattern": "group-a-{rank:D3}", "groupKey": "A", "firstRank": 1 },
+    "afterPrefix": [
+      { "id": "group-b-only-at-251", "groupKey": "B", "rank": 251 }
+    ],
+    "facetField": "fixture-facet",
+    "facetDocuments": [
+      { "id": "facet-doc-a", "groupKey": "A", "bucket": "A" },
+      { "id": "facet-doc-b", "groupKey": "A", "bucket": "B" },
+      { "id": "facet-doc-c", "groupKey": "A", "bucket": "C" },
+      { "id": "facet-doc-d", "groupKey": "A", "bucket": "D" }
+    ],
+    "facetOffset": 2,
+    "facetPageSize": 2
+  },
+  "expected": {
+    "documentCount": 255,
+    "collapsedGroupKeys": ["A", "B"],
+    "totalGroupCount": 2,
+    "representativesByGroup": {
+      "A": "group-a-001",
+      "B": "group-b-only-at-251"
+    },
+    "facetMatchedDocumentCount": 255,
+    "facetTotalBucketCount": 4,
+    "facetPageIds": ["C", "D"],
+    "representativeForGroupB": "group-b-only-at-251",
+    "noMissingOrDuplicatePageEntries": true
+  }
+}

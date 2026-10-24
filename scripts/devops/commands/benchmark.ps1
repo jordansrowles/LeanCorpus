@@ -40,20 +40,41 @@ function Invoke-DevOpsBenchmark {
     $passThrough = $parsed.PassThrough
     $area = $parsed.Get('Area', '')
     $group = $parsed.Get('Group', '')
-    $dataset = ([string]$parsed.Get('Dataset', 'synthetic')).ToLowerInvariant()
+    $requestedDataset = ([string]$parsed.Get('Dataset', '')).ToLowerInvariant()
     $requestedReferencePath = [string]$parsed.Get('ReferencePath', '')
 
-    $suiteMap = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-suites.psd1"
-    $stratMap = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-strategies.psd1"
-    $datasetMap = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-datasets.psd1"
+    $suiteConfig = Get-DevOpsConfigurationDocument -ConfigurationName 'benchmark-suites'
+    $suiteMap = $suiteConfig.data
+    $suiteMetadata = if ($suiteConfig.Contains('suiteMetadata')) { $suiteConfig.suiteMetadata } else { [ordered]@{} }
+    $stratMap = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-strategies'
+    $datasetConfig = Get-DevOpsConfigurationDocument -ConfigurationName 'benchmark-datasets'
+    $datasetMap = $datasetConfig.data
+    $defaultDataset = if ($datasetConfig.Contains('defaultDataset') -and $datasetConfig.defaultDataset) { [string]$datasetConfig.defaultDataset } else { 'synthetic' }
+    $projectMap = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-projects'
+    $dataset = if ($requestedDataset) { $requestedDataset } else { $defaultDataset }
+    foreach ($suiteId in $suiteMetadata.Keys) {
+        $configuredAliases = if ($suiteMetadata[$suiteId].Contains('Aliases')) { @($suiteMetadata[$suiteId].Aliases) } else { @() }
+        if ($configuredAliases -contains $suite) {
+            $suite = [string]$suiteId
+            break
+        }
+    }
+    $suitePolicy = if ($suiteMetadata.Contains($suite)) { $suiteMetadata[$suite] } else { $null }
+    $suiteProject = if ($suitePolicy -and $suitePolicy.Contains('Project')) { [string]$suitePolicy.Project } else { 'core' }
+    $suiteClasses = if ($suitePolicy -and $suitePolicy.Contains('BenchmarkClasses')) { @($suitePolicy.BenchmarkClasses) } else { @() }
+    if ($suitePolicy -and @($suiteClasses).Count -gt 0 -and
+        @($passThrough | Where-Object { $_ -in @('--filter', '-f') -or $_ -match '^(--filter|-f)=' }).Count -gt 0) {
+        Write-Error 'A custom BenchmarkDotNet filter cannot be combined with a configured benchmark class selection.'
+        exit 1
+    }
 
     if ($list) {
         Write-Host ''
         Write-Host '  Available benchmark suites (-Suite):'
         Write-Host ''
-        Write-Host '    core                LeanCorpus core benchmarks'
-        Write-Host '    text                Rowles.Text analysis benchmarks'
-        Write-Host '    compression         Compression codec benchmarks'
+        foreach ($projectKey in $projectMap.Keys) {
+            Write-Host ("    {0,-22} {1} benchmarks" -f $projectKey, $projectMap[$projectKey].DisplayName)
+        }
         foreach ($name in $suiteMap.Keys) {
             Write-Host ("    {0,-22} {1}" -f $name, $suiteMap[$name])
         }
@@ -65,15 +86,15 @@ function Invoke-DevOpsBenchmark {
             Write-Host ("    {0,-16} {1}" -f $name, $stratMap[$name].Description)
         }
         Write-Host ''
-        Write-Host '  Dataset: -Dataset synthetic|wikipedia (default: synthetic)'
+        Write-Host "  Dataset: -Dataset $($defaultDataset)|$($datasetMap.Keys -join '|') (default: $defaultDataset)"
         Write-Host "  Wikipedia suites: $($datasetMap.wikipedia -join ', ')"
         Write-Host '  Wikipedia -ReferencePath defaults to artifacts/dataforge/reference/leancorpus-wikipedia-en-v1.'
         Write-Host ''
         exit 0
     }
 
-    if ($dataset -notin @('synthetic', 'wikipedia')) {
-        Write-Error "Unknown dataset '$dataset'. Choose synthetic or wikipedia."
+    if ($dataset -ne $defaultDataset -and -not $datasetMap.Contains($dataset)) {
+        Write-Error "Unknown dataset '$dataset'. Choose $defaultDataset or $($datasetMap.Keys -join ', ')."
         exit 1
     }
 
@@ -116,8 +137,7 @@ function Invoke-DevOpsBenchmark {
     if ($controlled) {
         if ($docCount -le 0 -and $stratDocCount -le 0) { $stratDocCount = 1000 }
         if ($stratJobArgs.Count -eq 0) { $stratJobArgs = @('--job', 'short') }
-        $standaloneSuites = @('codec-frame', 'codec-frame-read', 'codec-migration', 'compound-file', 'windows-filesystem', 'windows-storage')
-        if ($suite -notin $standaloneSuites) { $corpusOnly = $true }
+        if ($null -eq $suitePolicy -or -not $suitePolicy.Contains('ControlledCorpusOnly') -or $suitePolicy.ControlledCorpusOnly -ne $false) { $corpusOnly = $true }
     }
     $effectiveDocCount = if ($docCount -gt 0) { $docCount } else { [int]$stratDocCount }
 
@@ -138,7 +158,17 @@ function Invoke-DevOpsBenchmark {
         exit $LASTEXITCODE
     }
 
-    $projectKeys = if ($suite -eq 'all') { @('core', 'text', 'compression') } elseif ($suite -in @('core', 'text', 'compression')) { @($suite) } else { @('core') }
+    $projectKeys = if ($suite -eq 'all') {
+        @($projectMap.Keys | Where-Object { $projectMap[$_].IncludeInAll })
+    } elseif ($suite -eq 'all-with-explicit') {
+        @($projectMap.Keys | Where-Object { $projectMap[$_].IncludeWithExplicit })
+    } elseif ($projectMap.Contains($suite)) {
+        @($suite)
+    } elseif ($suiteMetadata.Contains($suite)) {
+        @($suiteProject)
+    } else {
+        @('core')
+    }
 
     if ($prepareData) {
         Prepare-BenchmarkData -RepoRoot $repoRoot -ScriptsPath $scriptsPath -BookCount $bookCount `
@@ -186,6 +216,9 @@ function Invoke-DevOpsBenchmark {
         foreach ($projectKey in $projectKeys) {
             $projectPath = Resolve-BenchmarkProjectPath $projectKey
             $runArgs = if ($projectKey -eq 'core') { @('--suite', $(if ($suite -in @('all', 'core')) { 'all' } else { $suite })) } else { @() }
+            if ($suitePolicy -and $projectKey -eq $suiteProject -and @($suiteClasses).Count -gt 0 -and $projectKey -eq 'text') {
+                $runArgs = @('--filter') + @($suiteClasses | ForEach-Object { "*$_*" })
+            }
             if ($effectiveDocCount -gt 0 -and $projectKey -eq 'core') { $runArgs += @('--doccount', $effectiveDocCount.ToString()) }
             if ($corpusOnly -and $projectKey -eq 'core') { $runArgs += '--corpus-only' }
             if ($dataset -eq 'wikipedia' -and $suite -eq 'merge') { $runArgs += @('--filter', '*LeanCorpus_Merge_PlainText*') }
@@ -218,7 +251,7 @@ function Invoke-DevOpsBenchmark {
     }
 
     Write-Host ''
-    $commandLine = ConvertTo-CommandLineText -Command './devops benchmark' -Arguments $Arguments
+    $commandLine = ConvertTo-CommandLineText -Command 'pwsh ./devops.ps1 benchmark' -Arguments $Arguments
     $benchmarkRun = New-ArtifactRun -Kind benchmark -Framework $framework -Configuration Release `
         -Target $suite -CommandLine $commandLine -RepoRoot $repoRoot
     $projectResults = [System.Collections.Generic.List[object]]::new()
@@ -230,6 +263,9 @@ function Invoke-DevOpsBenchmark {
             $projectDirectory = Join-Path $benchmarkRun.RunDirectory $projectKey
             [void][System.IO.Directory]::CreateDirectory($projectDirectory)
             $runArgs = if ($projectKey -eq 'core') { @('--suite', $(if ($suite -in @('all', 'core')) { 'all' } else { $suite })) } else { @() }
+            if ($suitePolicy -and $projectKey -eq $suiteProject -and @($suiteClasses).Count -gt 0 -and $projectKey -eq 'text') {
+                $runArgs = @('--filter') + @($suiteClasses | ForEach-Object { "*$_*" })
+            }
             if ($effectiveDocCount -gt 0 -and $projectKey -eq 'core') { $runArgs += @('--doccount', $effectiveDocCount.ToString()) }
             if ($corpusOnly -and $projectKey -eq 'core') { $runArgs += '--corpus-only' }
             if ($gcDump -and $projectKey -eq 'core') { $runArgs += '--gcdump' }
@@ -306,11 +342,9 @@ function Invoke-DevOpsBenchmark {
 function Resolve-BenchmarkProjectPath {
     param([string]$Suite)
 
-    switch ($Suite) {
-        'text'        { return Join-Path (Get-RepoRoot) 'src/devops/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj' }
-        'compression' { return Join-Path (Get-RepoRoot) 'src/devops/Rowles.LeanCorpus.Benchmarks.Compression/Rowles.LeanCorpus.Benchmarks.Compression.csproj' }
-        default       { return Get-BenchmarkProjectPath }
-    }
+    $projects = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-projects'
+    if (-not $projects.Contains($Suite)) { throw "Unknown benchmark project '$Suite'." }
+    return Join-Path (Get-RepoRoot) $projects[$Suite].Project
 }
 
 function Invoke-AffectedBenchmarks {
@@ -322,7 +356,7 @@ function Invoke-AffectedBenchmarks {
     $group = $parsed.Get('Group', '')
     $dry = $parsed.Has('Dry')
     $repoRoot = Get-RepoRoot
-    $groups = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-groups.psd1"
+    $groups = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-groups'
 
     $dirty = @(Get-DirtyFiles $repoRoot)
     Write-Heading 'Affected benchmark runner'
@@ -377,7 +411,7 @@ function Invoke-SelectedBenchmarks {
         throw 'A custom BenchmarkDotNet filter cannot be combined with area/group selection because each selected class already has its own filter.'
     }
 
-    $groups = Import-PowerShellDataFile "$PSScriptRoot/../config/benchmark-groups.psd1"
+    $groups = Get-DevOpsConfigurationData -ConfigurationName 'benchmark-groups'
     $targets = @{}
     foreach ($name in $groups.Keys) {
         $entry = $groups[$name]

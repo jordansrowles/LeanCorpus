@@ -40,7 +40,7 @@ function Invoke-DataForgeQualification {
     $parsed = ConvertFrom-DevOpsArguments $Arguments
     $unknownOptions = @($parsed.Parsed.Keys | Where-Object { $_ -notin @('ReferencePath', 'Dry') })
     if ($unknownOptions.Count -gt 0 -or $parsed.Positionals.Count -gt 0 -or $parsed.PassThrough.Count -gt 0) {
-        Write-Error 'Usage: devops dataforge qualify [-ReferencePath <path>] [-Dry]'
+        Write-Error 'Usage: pwsh ./devops.ps1 dataforge qualify [-ReferencePath <path>] [-Dry]'
         return 1
     }
 
@@ -56,8 +56,28 @@ function Invoke-DataForgeQualification {
         Join-Path $repoRoot 'artifacts/dataforge/reference/leancorpus-wikipedia-en-v1'
     }
 
+    $profilePolicyPath = Join-Path $repoRoot '.config/devops/dataforge-qualification.json'
+    $profilePolicy = Get-Content -LiteralPath $profilePolicyPath -Raw | ConvertFrom-Json
+    if ($profilePolicy.schemaVersion -ne 1 -or $null -eq $profilePolicy.data.requiredSyntheticProfiles) {
+        throw "DataForge qualification profile policy is missing or has an unsupported schema: $profilePolicyPath"
+    }
+    $requiredSyntheticProfiles = @(
+        foreach ($property in @($profilePolicy.data.requiredSyntheticProfiles.PSObject.Properties | Sort-Object Name)) {
+            $profileVersion = 0
+            if ([string]::IsNullOrWhiteSpace($property.Name) -or
+                -not [int]::TryParse([string]$property.Value, [ref]$profileVersion) -or $profileVersion -lt 1) {
+                throw "DataForge qualification profile policy contains an invalid profile or version: $($property.Name)"
+            }
+            [pscustomobject]@{ Id = $property.Name; Version = $profileVersion }
+        }
+    )
+    if ($requiredSyntheticProfiles.Count -eq 0) {
+        throw "DataForge qualification profile policy has no required profiles: $profilePolicyPath"
+    }
+
     $commands = [System.Collections.Generic.List[object]]::new()
     [void]$commands.Add([pscustomobject]@{ Group = 'build'; Name = 'Solution build'; Arguments = @('build'); RunKind = 'build' })
+    [void]$commands.Add([pscustomobject]@{ Group = 'profiles'; Name = 'Verify required DataForge profiles'; Arguments = @('dataforge', 'profiles', '-Json'); RunKind = ''; CaptureOutput = $true; OutputName = 'dataforge-profiles' })
     [void]$commands.Add([pscustomobject]@{ Group = 'wikipedia-reference'; Name = 'Verify frozen Wikipedia reference'; Arguments = @('dataforge', 'reference', 'verify', '-ReferencePath', $referencePath); RunKind = '' })
     [void]$commands.Add([pscustomobject]@{ Group = 'synthetic-tests'; Name = 'DataForge net10.0'; Arguments = @('test', '-Suite', 'dataforge', '-Framework', 'net10.0', '-CI'); RunKind = 'test' })
     [void]$commands.Add([pscustomobject]@{ Group = 'synthetic-tests'; Name = 'DataForge net11.0'; Arguments = @('test', '-Suite', 'dataforge', '-Framework', 'net11.0', '-CI'); RunKind = 'test' })
@@ -151,8 +171,45 @@ function Invoke-DataForgeQualification {
         -SyntheticIdentities $syntheticIdentities -ReferenceIdentity $referenceIdentity `
         -ReferenceVerified $referenceVerified -Path $summaryPath -Status 'Running'
 
-    $referenceCommand = @($commands | Where-Object { $_.Group -eq 'wikipedia-reference' } | Select-Object -First 1).Arguments
-    if (Test-Path -LiteralPath (Join-Path $referencePath 'manifest.json') -PathType Leaf) {
+    $profileCatalogVerified = $false
+    $profileCommand = @($commands | Where-Object { $_.Group -eq 'profiles' } | Select-Object -First 1)[0]
+    if ($buildPassed) {
+        $profileStep = Invoke-DataForgeQualificationCommand -Command $profileCommand -RepoRoot $repoRoot -QualificationDirectory $qualificationDirectory
+        if ($profileStep.status -eq 'Passed') {
+            try {
+                $availableProfiles = Read-DataForgeProfileCatalog -Path (Join-Path $qualificationDirectory $profileStep.outputPath)
+                $missingProfiles = @($requiredSyntheticProfiles | Where-Object {
+                    -not $availableProfiles.ContainsKey($_.Id) -or $availableProfiles[$_.Id] -ne $_.Version
+                })
+                if ($missingProfiles.Count -gt 0) {
+                    $profileStep.status = 'Failed'
+                    $profileStep.error = 'Required DataForge profiles are missing or have different versions: ' +
+                        (($missingProfiles | ForEach-Object { "$($_.Id)/v$($_.Version)" }) -join ', ')
+                } else {
+                    $profileCatalogVerified = $true
+                }
+            } catch {
+                $profileStep.status = 'Failed'
+                $profileStep.error = $_.Exception.Message
+            }
+        }
+        if ($profileStep.status -ne 'Passed') {
+            [void]$blockers.Add("$($profileCommand.Name) did not pass. $($profileStep.error)")
+        }
+    } else {
+        $profileStep = New-SkippedQualificationStep -Command $profileCommand -Reason 'Skipped because the solution build failed.'
+    }
+    [void]$steps.Add($profileStep)
+    Update-DataForgeQualificationSummary -Summary $summary -Steps $steps -Blockers $blockers `
+        -SyntheticIdentities $syntheticIdentities -ReferenceIdentity $referenceIdentity `
+        -ReferenceVerified $referenceVerified -Path $summaryPath -Status 'Running'
+
+    $referenceDefinition = @($commands | Where-Object { $_.Group -eq 'wikipedia-reference' } | Select-Object -First 1)[0]
+    $referenceCommand = $referenceDefinition.Arguments
+    if (-not $profileCatalogVerified) {
+        $referenceStep = New-SkippedQualificationStep -Command $referenceDefinition -Reason 'Skipped because required DataForge profiles were not verified.'
+        [void]$steps.Add($referenceStep)
+    } elseif (Test-Path -LiteralPath (Join-Path $referencePath 'manifest.json') -PathType Leaf) {
         $referenceStep = Invoke-DataForgeQualificationCommand -Command ([pscustomobject]@{
             Group = 'wikipedia-reference'
             Name = 'Verify frozen Wikipedia reference'
@@ -215,6 +272,10 @@ function Invoke-DataForgeQualification {
             [void]$steps.Add((New-SkippedQualificationStep -Command $command -Reason 'Skipped because the solution build failed.'))
             continue
         }
+        if (-not $profileCatalogVerified) {
+            [void]$steps.Add((New-SkippedQualificationStep -Command $command -Reason 'Skipped because required DataForge profiles were not verified.'))
+            continue
+        }
 
         $step = Invoke-DataForgeQualificationCommand -Command $command -RepoRoot $repoRoot -QualificationDirectory $qualificationDirectory
         [void]$steps.Add($step)
@@ -230,15 +291,9 @@ function Invoke-DataForgeQualification {
             -ReferenceVerified $referenceVerified -Path $summaryPath -Status 'Running'
     }
 
-    $requiredSyntheticProfiles = @(
-        'leancorpus-search',
-        'leancorpus-vector',
-        'leancorpus-hybrid',
-        'rowles-text-multilingual'
-    )
-    foreach ($profileId in $requiredSyntheticProfiles) {
-        if ((@($syntheticIdentities.Values | Where-Object { $_.profileId -eq $profileId })).Count -eq 0) {
-            [void]$blockers.Add("No normal benchmark run recorded the '$profileId' synthetic identity.")
+    foreach ($profile in $requiredSyntheticProfiles) {
+        if ((@($syntheticIdentities.Values | Where-Object { $_.profileId -ceq $profile.Id -and $_.profileVersion -eq $profile.Version })).Count -eq 0) {
+            [void]$blockers.Add("No normal benchmark run recorded the '$($profile.Id)' synthetic identity at version $($profile.Version).")
         }
     }
 
@@ -337,6 +392,40 @@ function ConvertTo-QualificationCommandText {
     return (ConvertTo-CommandLineText -Command $command -Arguments $remaining).Trim()
 }
 
+function Read-DataForgeProfileCatalog {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw "DataForge profile listing output was not created: $Path"
+    }
+    $lines = [System.IO.File]::ReadAllLines($Path)
+    for ($index = $lines.Length - 1; $index -ge 0; $index--) {
+        try {
+            $candidate = ConvertFrom-Json -InputObject $lines[$index] -NoEnumerate -ErrorAction Stop
+        } catch {
+            continue
+        }
+        if ($candidate -isnot [array]) { continue }
+        if ($candidate.Count -eq 0) { throw 'DataForge profile listing contains no profile descriptors.' }
+
+        $profiles = [System.Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
+        foreach ($profile in $candidate) {
+            if ($null -eq $profile -or [string]::IsNullOrWhiteSpace([string]$profile.profileId) -or
+                $null -eq $profile.profileVersion -or [int]$profile.profileVersion -lt 1) {
+                throw 'DataForge profile listing contains an invalid profile descriptor.'
+            }
+            $profileId = [string]$profile.profileId
+            if ($profiles.ContainsKey($profileId)) {
+                throw "DataForge profile listing contains duplicate profile ID '$profileId'."
+            }
+            $profiles.Add($profileId, [int]$profile.profileVersion)
+        }
+        return ,$profiles
+    }
+
+    throw 'DataForge profile listing did not contain a JSON descriptor array.'
+}
+
 function Invoke-DataForgeQualificationCommand {
     param(
         [Parameter(Mandatory = $true)][object]$Command,
@@ -359,10 +448,18 @@ function Invoke-DataForgeQualificationCommand {
     $exitCode = $null
     $elapsedSeconds = 0.0
     $processError = ''
+    $captureOutput = $false
+    if ($Command.PSObject.Properties.Name -contains 'CaptureOutput') {
+        $captureOutput = [bool]$Command.CaptureOutput
+    }
+    $outputName = if ($Command.PSObject.Properties.Name -contains 'OutputName') { [string]$Command.OutputName } else { 'qualification-command' }
+    $stdoutPath = if ($captureOutput) { Join-Path $QualificationDirectory "$outputName.stdout.log" } else { '' }
+    $stderrPath = if ($captureOutput) { Join-Path $QualificationDirectory "$outputName.stderr.log" } else { '' }
     try {
         $processArguments = @('-NoProfile', '-File', (Join-Path $RepoRoot 'devops.ps1')) + @($Command.Arguments)
         $processResult = Invoke-ProcessWithLifecycle -FileName 'pwsh' -Arguments $processArguments `
-            -WorkingDirectory $RepoRoot -CaptureOutput $false -MirrorOutput $false -ProgressIntervalSeconds 60 `
+            -WorkingDirectory $RepoRoot -StdOutPath $stdoutPath -StdErrPath $stderrPath `
+            -CaptureOutput $captureOutput -MirrorOutput $false -ProgressIntervalSeconds 60 `
             -OnProgress {
                 param($Process, $Elapsed)
                 $elapsedText = ([TimeSpan]$Elapsed).ToString('hh\:mm\:ss')
@@ -397,6 +494,7 @@ function Invoke-DataForgeQualificationCommand {
         runId = if ($null -ne $run) { [string]$run.RunId } else { $null }
         runKind = if ($null -ne $run) { [string]$Command.RunKind } else { $null }
         artifactPath = if ($null -ne $run) { [string]$run.RelativePath } else { $null }
+        outputPath = if ($captureOutput) { [System.IO.Path]::GetFileName($stdoutPath) } else { $null }
         error = if ($processError) { $processError } else { $null }
     }
 }
@@ -452,8 +550,8 @@ function Get-DataForgeWikipediaReportError {
 
     try {
         $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-        if ([int]$report.schemaVersion -ne 4) {
-            return "The benchmark report schema is $($report.schemaVersion); schema v4 is required."
+        if ([int]$report.schemaVersion -ne 5) {
+            return "The benchmark report schema is $($report.schemaVersion); schema v5 is required."
         }
 
         $datasets = @($report.provenance.datasets)
