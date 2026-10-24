@@ -20,6 +20,9 @@
 
 - Add a managed, bounded sustained-workload command with versioned input and terminal evidence for ingestion, read-only search and mixed ingest/search refresh scenarios.
 
+- Verify exact committed document ID sets for concurrent and sequential indexing benchmark cases.
+- Add a directional FST build benchmark for sorted UTF-8 terms with setup-time serialized-index and exact-output verification.
+- Add exact survivor checks to queued and committed deletion benchmarks, and a directional ten-per-cent replacement/commit/refresh case with published-generation verification.
 ## Changed
 
 - Emit Core benchmark report schema v5 with stable BenchmarkDotNet case and result-row identity, preserve duplicate and intermediate rows, validate terminal statistics, and treat schema v4 as historical-only comparison evidence.

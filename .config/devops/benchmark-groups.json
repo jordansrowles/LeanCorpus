@@ -72,6 +72,7 @@
         "FlushBenchmarks",
         "PostingsArenaBenchmarks",
         "DeletionQueueBenchmarks",
+        "DeletionReplacementRefreshBenchmarks",
         "VectorFirstTouchBenchmarks"
       ]
     },
@@ -154,7 +155,8 @@
         "CodecFrameBenchmarks",
         "DocValuesReadBenchmarks",
         "BinaryDocValuesWriteBenchmarks",
-        "FstLookupBenchmarks"
+        "FstLookupBenchmarks",
+        "FstBuildBenchmarks"
       ]
     },
     "Filters": {

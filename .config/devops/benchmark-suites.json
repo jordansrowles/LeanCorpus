@@ -33,6 +33,7 @@
     "function-score": "FunctionScoreQueryBenchmarks",
     "highlighter": "HighlighterBenchmarks",
     "fst-lookup": "FstLookupBenchmarks",
+    "fst-build": "FstBuildBenchmarks",
     "codec-frame-read": "CodecFrameReadBenchmarks",
     "windows-storage": "WindowsStoragePathBenchmarks",
     "gutenberg-search": "GutenbergSearch",
@@ -60,7 +61,8 @@
     "terminset": "TermInSetQueryBenchmarks",
     "range": "RangeQueryBenchmarks",
     "indexsort-search": "IndexSortSearchBenchmarks",
-    "deletion": "DeletionQueue/Commit",
+    "deletion": "Deletion queue and commit",
+    "deletion-replacement-refresh": "Deletion replacement and refresh lifecycle",
     "gutenberg-index": "GutenbergIndex",
     "blockjoin": "BlockJoinIndex/Search",
     "combined": "CombinedFieldsQueryBenchmarks",
@@ -259,6 +261,12 @@
       ],
       "ExplicitOnly": true
     },
+    "fst-build": {
+      "Aliases": [
+        "fstbuild"
+      ],
+      "ExplicitOnly": true
+    },
     "codec-frame-read": {
       "Aliases": [
         "codecframeread"
@@ -387,6 +395,10 @@
     },
     "deletion": {
       "DisplayName": "Deletion"
+    },
+    "deletion-replacement-refresh": {
+      "DisplayName": "Deletion replacement and refresh",
+      "ExplicitOnly": true
     },
     "gutenberg-index": {
       "DisplayName": "Gutenberg index",

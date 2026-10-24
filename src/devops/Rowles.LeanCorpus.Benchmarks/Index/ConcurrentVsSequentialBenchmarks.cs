@@ -44,6 +44,7 @@ public class ConcurrentVsSequentialBenchmarks
     public int IndexingConcurrency { get; set; }
 
     private LeanDocument[] _documents = [];
+    private string[] _expectedIds = [];
     private readonly List<string> _iterationPaths = [];
 
     [GlobalSetup]
@@ -51,14 +52,22 @@ public class ConcurrentVsSequentialBenchmarks
     {
         var bodies = BenchmarkData.BuildDocuments(BatchSize);
         _documents = new LeanDocument[bodies.Length];
+        _expectedIds = new string[bodies.Length];
         for (int i = 0; i < bodies.Length; i++)
         {
             var doc = new LeanDocument();
-            doc.Add(new StringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            string id = i.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            doc.Add(new StringField("id", id, stored: true));
             doc.Add(new TextField("body", bodies[i]));
             doc.Add(new NumericField("price", i * 1.5));
             _documents[i] = doc;
+            _expectedIds[i] = id;
         }
+
+        Array.Sort(_expectedIds, StringComparer.Ordinal);
+        ValidateCommittedIndex(concurrent: true);
+        if (IndexingConcurrency == 1)
+            ValidateCommittedIndex(concurrent: false);
     }
 
     [GlobalCleanup]
@@ -81,12 +90,7 @@ public class ConcurrentVsSequentialBenchmarks
         IODirectory.CreateDirectory(path);
         _iterationPaths.Add(path);
         using var dir = new MMapDirectory(path);
-        using var writer = new IndexWriter(dir, new IndexWriterConfig
-        {
-            IndexingConcurrency = 1,
-            MaxBufferedDocs = 10_000,
-            RamBufferSizeMB = 256
-        });
+        using var writer = new IndexWriter(dir, CreateWriterConfig(1));
         foreach (var doc in _documents)
             writer.AddDocument(doc);
         writer.Commit();
@@ -105,15 +109,59 @@ public class ConcurrentVsSequentialBenchmarks
         IODirectory.CreateDirectory(path);
         _iterationPaths.Add(path);
         using var dir = new MMapDirectory(path);
-        using var writer = new IndexWriter(dir, new IndexWriterConfig
-        {
-            IndexingConcurrency = IndexingConcurrency,
-            MaxBufferedDocs = 10_000,
-            RamBufferSizeMB = 256
-        });
+        using var writer = new IndexWriter(dir, CreateWriterConfig(IndexingConcurrency));
         writer.AddDocumentsConcurrent(_documents);
         writer.Commit();
         return _documents.Length;
     }
+
+    private void ValidateCommittedIndex(bool concurrent)
+    {
+        string path = BenchmarkHelpers.CreateTempDirectory(
+            concurrent ? "concurrent-write-preflight" : "sequential-write-preflight");
+        try
+        {
+            using (var directory = new MMapDirectory(path))
+            using (var writer = new IndexWriter(directory, CreateWriterConfig(concurrent ? IndexingConcurrency : 1)))
+            {
+                if (concurrent)
+                    writer.AddDocumentsConcurrent(_documents);
+                else
+                    foreach (var document in _documents)
+                        writer.AddDocument(document);
+
+                writer.Commit();
+            }
+
+            using var reopenedDirectory = new MMapDirectory(path);
+            using var searcher = new Rowles.LeanCorpus.Search.Searcher.IndexSearcher(reopenedDirectory);
+            var result = searcher.Search(
+                new Rowles.LeanCorpus.Search.Queries.MatchAllDocsQuery(),
+                _documents.Length);
+            if (result.TotalHits != _documents.Length || result.ScoreDocs.Length != _documents.Length)
+                throw new InvalidOperationException(
+                    $"{(concurrent ? "Concurrent" : "Sequential")} indexing preflight expected {_documents.Length} committed documents, got {result.TotalHits} total hits and {result.ScoreDocs.Length} returned.");
+
+            string[] actualIds = result.ScoreDocs
+                .Select(hit => searcher.GetStoredFields(hit.DocId)["id"][0])
+                .OrderBy(static id => id, StringComparer.Ordinal)
+                .ToArray();
+            if (!actualIds.SequenceEqual(_expectedIds, StringComparer.Ordinal))
+                throw new InvalidOperationException(
+                    $"{(concurrent ? "Concurrent" : "Sequential")} indexing preflight did not preserve the exact committed ID set.");
+        }
+        finally
+        {
+            BenchmarkHelpers.DeleteDirectory(path);
+        }
+    }
+
+    private static IndexWriterConfig CreateWriterConfig(int indexingConcurrency)
+        => new()
+        {
+            IndexingConcurrency = indexingConcurrency,
+            MaxBufferedDocs = 10_000,
+            RamBufferSizeMB = 256
+        };
 
 }

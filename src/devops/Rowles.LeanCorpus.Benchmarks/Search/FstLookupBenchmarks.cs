@@ -50,6 +50,15 @@ public class FstLookupBenchmarks
         _fstBlob = builder.Finish();
         _reader = FstReader.Open(_fstBlob);
 
+        if (_reader.Count != TermCount)
+            throw new InvalidOperationException($"FST fixture expected {TermCount} keys, got {_reader.Count}.");
+
+        VerifyKeySequence(_reader.EnumerateWithPrefix(_prefix), terms);
+        VerifyKeySequence(
+            _reader.IntersectAutomaton(new PrefixAutomaton(_prefix))
+                .Select(static match => (match.Key, match.Output)),
+            terms);
+
         int prefixMatches = _reader.EnumerateWithPrefix(_prefix).Count();
         if (prefixMatches != _expectedPrefixMatches)
             throw new InvalidOperationException($"FST prefix fixture expected {_expectedPrefixMatches} matches, got {prefixMatches}.");
@@ -64,6 +73,25 @@ public class FstLookupBenchmarks
             else
                 _keys[i] = Encoding.UTF8.GetBytes($"miss{rnd.NextInt32(100000):D8}"); // miss
         }
+    }
+
+    private static void VerifyKeySequence(IEnumerable<(byte[] Key, long Output)> actual, IReadOnlyList<string> expected)
+    {
+        int index = 0;
+        foreach (var (key, output) in actual)
+        {
+            if (index >= expected.Count
+                || !key.AsSpan().SequenceEqual(Encoding.UTF8.GetBytes(expected[index]))
+                || output != index)
+            {
+                throw new InvalidOperationException($"FST fixture entry {index} did not match its expected UTF-8 key and ordinal output.");
+            }
+
+            index++;
+        }
+
+        if (index != expected.Count)
+            throw new InvalidOperationException($"FST fixture expected {expected.Count} enumerated entries, got {index}.");
     }
 
     [Benchmark(Baseline = true, Description = "FST TryGetOutput")]
