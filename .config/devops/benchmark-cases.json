@@ -1374,6 +1374,144 @@
         }
       ],
       "estimatedBudget": "short"
+    },
+    {
+      "id": "merge-hnsw-output",
+      "project": "core",
+      "benchmarkClass": "MergeBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_Merge_WithHnswVectors"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "1000",
+          "10000"
+        ],
+        "SegmentCount": [
+          "5",
+          "20"
+        ]
+      },
+      "semanticParameters": {
+        "mergeMode": "full-segment-merge",
+        "storage": "file-backed",
+        "vectorDimension": "64"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "MergeSegmentsWithHnswVectors",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "merge-hnsw-v1",
+      "algorithmFamily": "HnswSegmentMerge",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "merge",
+      "comparisonGroup": null,
+      "classification": "Unqualified",
+      "resultContract": "exact-merged-id-set-and-live-count",
+      "qualityProof": "Iteration cleanup reads every stored ID from the merged segment and verifies DocCount, LiveDocCount, and the complete invariant-culture ID set. The HNSW merge case is correctness-only; no comparative qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "merge-plain-output",
+      "project": "core",
+      "benchmarkClass": "MergeBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_Merge_PlainText"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "1000",
+          "10000"
+        ],
+        "SegmentCount": [
+          "5",
+          "20"
+        ]
+      },
+      "semanticParameters": {
+        "mergeMode": "full-segment-merge",
+        "storage": "file-backed",
+        "vectors": "none"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "MergePlainTextSegments",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "merge-plain-text-v1",
+      "algorithmFamily": "SegmentMerge",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "merge",
+      "comparisonGroup": null,
+      "classification": "Unqualified",
+      "resultContract": "exact-merged-id-set-and-live-count",
+      "qualityProof": "Iteration cleanup reads every stored ID from the merged segment and verifies DocCount, LiveDocCount, and the complete invariant-culture ID set. This single-engine merge case is correctness-only; no comparative qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        },
+        {
+          "name": "Allocated",
+          "unit": "B",
+          "role": "secondary"
+        }
+      ],
+      "estimatedBudget": "short"
+    },
+    {
+      "id": "merge-deletion-heavy",
+      "project": "core",
+      "benchmarkClass": "MergeDeletionHeavyBenchmarks",
+      "benchmarkMethods": [
+        "LeanCorpus_Merge_DeletionHeavy"
+      ],
+      "parameterValues": {
+        "DocumentCount": [
+          "1000"
+        ],
+        "SegmentCount": [
+          "5",
+          "20"
+        ]
+      },
+      "semanticParameters": {
+        "deletionDensity": "0.5",
+        "deletedIds": "odd invariant-culture integer IDs",
+        "storage": "file-backed"
+      },
+      "engineId": "leancorpus",
+      "category": "Index",
+      "operation": "DeletionHeavySegmentMerge",
+      "datasetProfile": "leancorpus-search-v1",
+      "workloadId": "merge-deletion-heavy-v1",
+      "algorithmFamily": "SegmentMerge",
+      "cachePolicy": "NotApplicable",
+      "lifecyclePolicy": "merge",
+      "comparisonGroup": null,
+      "classification": "Unqualified",
+      "resultContract": "exact-live-id-set-and-live-count-after-merge",
+      "qualityProof": "Iteration setup requires 1,000 source documents and exactly 500 live documents after deleting odd IDs. Iteration cleanup reads every stored ID from the merged segment and verifies the complete even-ID survivor set and live count. This is correctness-only evidence; no comparative qualification is claimed.",
+      "metrics": [
+        {
+          "name": "Mean",
+          "unit": "ns",
+          "role": "primary"
+        }
+      ],
+      "estimatedBudget": "short"
     }
   ],
   "exclusions": [
@@ -2337,20 +2475,6 @@
       "project": "core",
       "benchmarkClass": "MMapDirectoryIOBenchmarks",
       "benchmarkMethod": "LeanCorpus_IO_SequentialWrite",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "MergeBenchmarks",
-      "benchmarkMethod": "LeanCorpus_Merge_PlainText",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "MergeBenchmarks",
-      "benchmarkMethod": "LeanCorpus_Merge_WithHnswVectors",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },

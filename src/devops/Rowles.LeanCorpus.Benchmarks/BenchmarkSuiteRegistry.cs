@@ -79,6 +79,7 @@ internal static class BenchmarkSuiteRegistry
         Workload("index-writer", typeof(IndexWriterContentionBenchmarks), false, true, "index-writer"),
         Workload("concurrent-write", typeof(ConcurrentVsSequentialBenchmarks), false, true, "concurrent-write"),
         Workload("merge", typeof(MergeBenchmarks), false, true, "merge"),
+        Workload("merge-deletion-heavy", typeof(MergeDeletionHeavyBenchmarks), false, true, "merge"),
         Workload("merge-vector-memory", typeof(VectorMergeMemoryBenchmarks), false, true, "merge"),
         Workload("merge-payload", typeof(MergePayloadBenchmarks), false, true, "merge-payload"),
         Workload("flush", typeof(FlushBenchmarks), false, true, "flush"),

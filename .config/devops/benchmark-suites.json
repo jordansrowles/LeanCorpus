@@ -49,7 +49,7 @@
     "regexp": "RegexpQueryBenchmarks",
     "prefix": "PrefixQueryBenchmarks",
     "bkd": "BKDTreeBenchmarks",
-    "merge": "MergeBenchmarks",
+    "merge": "MergeBenchmarks and MergeDeletionHeavyBenchmarks",
     "parallel": "ParallelSearchBenchmarks",
     "segment-reader-resource-cache": "SegmentReaderResourceCacheBenchmarks -- retained-byte budget under large DocValues reads",
     "deletion-commit": "DeletionCommitBenchmarks",
