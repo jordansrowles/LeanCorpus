@@ -295,10 +295,41 @@ try {
             $forwarded = [System.IO.File]::ReadAllLines($capturePath)
             Assert-BootstrapContract (($forwarded -join '|') -ceq 'benchmark|remote|start|--host|jordan@bench|--path|/srv/LeanCorpus checkout|--branch|issue-97|--|--suite|query|--filter|*Term Query*') 'PowerShell benchmark invocation should preserve exact remote and benchmark argument tokens'
 
+            & $powerShell.Source -NoProfile -File $dispatcher test core --ci --filter 'FullyQualifiedName~Writer' --timeout 2m
+            Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell test invocation should reach the promoted managed host'
+            $forwarded = [System.IO.File]::ReadAllLines($capturePath)
+            Assert-BootstrapContract (($forwarded -join '|') -ceq 'test|core|--ci|--filter|FullyQualifiedName~Writer|--timeout|2m') 'PowerShell test invocation should preserve selection, CI and timeout tokens'
+
+            & $powerShell.Source -NoProfile -File $dispatcher aot --framework net10.0 --RuntimeIdentifier linux-x64
+            Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell AOT invocation should reach the promoted managed host'
+            $forwarded = [System.IO.File]::ReadAllLines($capturePath)
+            Assert-BootstrapContract (($forwarded -join '|') -ceq 'aot|--framework|net10.0|--RuntimeIdentifier|linux-x64') 'PowerShell AOT invocation should preserve framework and RID tokens'
+
             & $powerShell.Source -NoProfile -File $dispatcher ui
             Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell workbench invocation should reach the promoted managed host'
             $forwarded = [System.IO.File]::ReadAllLines($capturePath)
             Assert-BootstrapContract (($forwarded -join '|') -ceq 'ui') 'PowerShell workbench invocation should preserve the managed command token'
+
+            $managedArgumentCases = @(
+                ,@('docs', 'build', '--skip-benchmarks')
+                ,@('dataforge', 'profiles')
+                ,@('data', 'gutenberg', '--book-count', '12')
+                ,@('config', 'validate')
+                ,@('benchmark', '--list')
+                ,@('pack', '--help')
+                ,@('distribute', '--help')
+            )
+            foreach ($managedArguments in $managedArgumentCases) {
+                $description = $managedArguments -join ' '
+                & $powerShell.Source -NoProfile -File $dispatcher @managedArguments
+                Assert-BootstrapContract ($LASTEXITCODE -eq 0) "Managed compatibility invocation '$description' should reach the promoted host"
+                $forwarded = [System.IO.File]::ReadAllLines($capturePath)
+                Assert-BootstrapContract (($forwarded -join '|') -ceq ($managedArguments -join '|')) "Managed compatibility invocation '$description' should preserve every argument token"
+            }
+
+            $helpOutput = & $powerShell.Source -NoProfile -File $dispatcher
+            Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'An empty compatibility invocation should display managed help'
+            Assert-BootstrapContract (($helpOutput -join "`n") -match 'LeanCorpus managed DevOps fixture') 'An empty compatibility invocation should forward managed help without loading the legacy application'
         } finally {
             $env:DEVOPS_CAPTURE_PATH = $previousCapturePath
         }

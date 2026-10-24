@@ -54,4 +54,4 @@ Cross-publishing is not runtime evidence. Until each required host gate runs, th
 
 ## Bootstrap compatibility
 
-Keep `setup.ps1` as the checkout bootstrap and retain the existing pinned local DocFX tool restore. `build`, `clean` and `server start` use the managed apphost; other commands remain on the explicit PowerShell dispatcher. Bootstrap failures preserve the previous root executable and manifest, as covered by the temporary-checkout failure and rollback smoke.
+Keep `setup.ps1` as the checkout bootstrap and retain the existing pinned local DocFX tool restore. Every supported command uses the managed apphost. `devops.ps1` is a fingerprint-checking compatibility shim that forwards arguments and never imports the retired PowerShell command application. Bootstrap failures preserve the previous root executable and manifest, as covered by the temporary-checkout failure and rollback smoke.

@@ -53,7 +53,7 @@ The directory holds segment files (`*.seg`, `*.dic`, `*.pos`, `*.fdt`, `*.fdx`, 
 
 ## Native AOT
 
-`LeanCorpus` is marked AOT-compatible for `net10.0` and `net11.0`. The core library avoids reflection-based JSON metadata and is validated by a dedicated xUnit smoke test (run with `pwsh ./devops.ps1 aot`) rather than the ASP.NET JSON API example.
+`LeanCorpus` is marked AOT-compatible for `net10.0` and `net11.0`. The core library avoids reflection-based JSON metadata and is validated by a dedicated xUnit smoke test (run with `./devops aot`) rather than the ASP.NET JSON API example.
 
 The smoke test publishes `src/examples/Rowles.LeanCorpus.Example.NativeAot` for `win-x64` with `PublishAot=true`, then runs the native executable through several code paths that have previously been problematic under AOT.
 

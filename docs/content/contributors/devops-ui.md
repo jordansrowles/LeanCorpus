@@ -15,7 +15,7 @@ pwsh -NoProfile -File ./setup.ps1
 ./devops ui
 ```
 
-On Windows, run `./devops.exe ui`. The transition dispatcher also forwards
+On Windows, run `./devops.exe ui`. The compatibility shim also forwards
 `pwsh ./devops.ps1 ui` to the fingerprint-validated managed host. No PowerShell
 UI module is required.
 

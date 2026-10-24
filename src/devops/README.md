@@ -1,6 +1,6 @@
 # DevOps projects and repository tooling
 
-Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The managed apphost is `./devops` on Linux and macOS and `./devops.exe` on Windows. The PowerShell transition dispatcher remains the production route for commands whose migration gate is still open.
+Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The managed apphost is `./devops` on Linux and macOS and `./devops.exe` on Windows. CI invokes the managed host directly. The `devops.ps1` compatibility shim forwards every invocation to the fingerprint-validated managed host and never imports the retired PowerShell command application.
 
 ## Choose a task
 
@@ -14,10 +14,10 @@ Use this directory when you need to run or extend LeanCorpus tests, benchmarks, 
 | Capture managed test diagnostics | `./devops test core --diagnostics` |
 | Validate Native AOT through the managed executor | `./devops aot` |
 | Attach standard .NET diagnostics | `./devops diagnostics ps` |
-| Generate coverage and HTML | `pwsh ./devops.ps1 coverage -Clean -GenerateReport` |
+| Generate coverage and HTML | `./devops coverage -Clean -GenerateReport` |
 | List benchmark suites | `./devops benchmark --list` |
 | Build a release archive | `./devops distribute --rid linux-x64` |
-| Build documentation | `pwsh ./devops.ps1 docs build` |
+| Build documentation | `./devops docs build` |
 
 Run `./devops --help` for the complete current command surface.
 
@@ -46,10 +46,9 @@ Examples:
 ./devops test core --filter 'FullyQualifiedName~Writer'
 ```
 
-The PowerShell dispatcher still invokes its established `test` and `aot`
-implementations. The managed routes remain in qualification while the complete
-Phase 5 platform, stress and skip-evidence gate is open; CI has not switched to
-them.
+The PowerShell compatibility shim forwards command arguments to the checked
+managed host. Cross-platform release qualification remains separate from this
+routing cut-over.
 
 `Area` and `Category` become trait filters. `Filter` is passed to the test runner.
 
@@ -129,8 +128,7 @@ an explicitly selected .NET process, use the standard diagnostic tools:
 ```
 
 On Windows, run the managed apphost as `./devops.exe diagnostics ...` after
-`pwsh ./setup.ps1` publishes it. `pwsh ./devops.ps1 diagnostics ...` forwards
-the same arguments through the checked apphost.
+`pwsh ./setup.ps1` publishes it. Use `./devops.exe diagnostics ...` directly.
 
 Trace, GC dump, dump and capture output is written under
 `artifacts/diagnostics/runs/<run-id>/`. Dumps can contain sensitive application
@@ -145,7 +143,7 @@ memory. Pass tool-specific options after `--` where the command supports it.
 Affected selection:
 
 1. collects changed, staged and untracked paths;
-2. maps production paths through `scripts/devops/config/code-areas.psd1`;
+2. maps production paths through `.config/devops/code-areas.json`;
 3. builds the required `suite:area` targets;
 4. runs tests carrying matching `Area` traits.
 
@@ -163,7 +161,7 @@ The AOT route publishes and runs a smoke executable for both supported framework
 ## Generate coverage
 
 ```bash
-pwsh ./devops.ps1 coverage -Clean -GenerateReport
+./devops coverage -Clean -GenerateReport
 ```
 
 Each invocation writes raw data and an optional HTML report under
@@ -224,16 +222,16 @@ Record corpus, workload, commit, framework, host state and provenance before mak
 ## Build documentation
 
 ```bash
-pwsh ./devops.ps1 docs build
+./devops docs build
 ```
 
 Skip expensive generated inputs when they are outside the documentation change:
 
 ```bash
-pwsh ./devops.ps1 docs build -SkipBenchmarks -SkipCoverage
+./devops docs build -SkipBenchmarks -SkipCoverage
 ```
 
-Serve the site locally with `pwsh ./devops.ps1 docs serve`.
+Serve the site locally with `./devops docs serve`.
 
 The docs command reads `docs/site-config/imports.json` and stages selected
 repository READMEs and contribution guides under

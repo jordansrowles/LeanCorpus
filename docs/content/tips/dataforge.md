@@ -7,16 +7,16 @@ DataForge has two explicit data paths. Synthetic profiles support repeatable dev
 List the available profiles and defaults:
 
 ```powershell
-pwsh ./devops.ps1 dataforge profiles
+./devops dataforge profiles
 ```
 
 Generate a named dataset, then inspect, verify or reproduce it from its manifest:
 
 ```powershell
-pwsh ./devops.ps1 dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000
-pwsh ./devops.ps1 dataforge inspect ./artifacts/dataforge/generated/leancorpus-search-v1-seed-42-count-20000
-pwsh ./devops.ps1 dataforge verify ./artifacts/dataforge/generated/leancorpus-search-v1-seed-42-count-20000
-pwsh ./devops.ps1 dataforge reproduce ./artifacts/dataforge/generated/leancorpus-search-v1-seed-42-count-20000
+./devops dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000
+./devops dataforge inspect ./artifacts/dataforge/generated/leancorpus-search-v1-seed-42-count-20000
+./devops dataforge verify ./artifacts/dataforge/generated/leancorpus-search-v1-seed-42-count-20000
+./devops dataforge reproduce ./artifacts/dataforge/generated/leancorpus-search-v1-seed-42-count-20000
 ```
 
 The manifest carries the profile, version, seed, parameters, record count and canonical content hash. Keep these fields with any benchmark result. Reproduction checks that the current profile generates the same identity and bytes.
@@ -37,10 +37,10 @@ The source contract pins the main file:
 Download the pinned checksum/status files, primary dump and index with the DataForge Tool. Interrupted primary/index transfers keep a `.partial` file and resume from its byte length. The published SHA-1 is checked before either large file receives its final filename. A mismatch stops the operation and is not a reason to change the pin.
 
 ```powershell
-pwsh ./devops.ps1 dataforge reference download
-pwsh ./devops.ps1 dataforge reference build
-pwsh ./devops.ps1 dataforge reference inspect
-pwsh ./devops.ps1 dataforge reference verify
+./devops dataforge reference download
+./devops dataforge reference build
+./devops dataforge reference inspect
+./devops dataforge reference verify
 ```
 
 `build` requires the verified source files to be present locally and does not download them. The immutable reference is written under `artifacts/dataforge/reference/leancorpus-wikipedia-en-v1/`. `verify` checks its records, manifest and support files without the source dump or network access.
@@ -72,7 +72,7 @@ The benchmark sidecar records the imported source kind, dataset ID/version, depe
 Run the full DataForge release qualification after building the frozen reference:
 
 ```powershell
-pwsh ./devops.ps1 dataforge qualify
+./devops dataforge qualify
 ```
 
 The command runs the solution build, DataForge tests on both supported frameworks, architecture and Server integration tests, and synthetic search/vector/hybrid and multilingual analysis benchmark smokes. It then runs fast Wikipedia indexing, term, phrase, prefix, wildcard and regexp smoke suites before the 20,000-record default Wikipedia indexing, search, highlighting and plain-text merge benchmarks. Wikipedia qualification requires a locally verified v1 artefact; it does not download the source dump or build the reference. Use `-ReferencePath` to select another local copy, or `-Dry` to print the command matrix.

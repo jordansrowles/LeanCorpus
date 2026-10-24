@@ -55,7 +55,7 @@ jobs:
           $project = 'src/devops/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj'
           & $managedHost build --project $project --framework net10.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh ./devops.ps1 build --project $project --framework net10.0
+          & $managedHost build --project $project --framework net10.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run report all through the promoted host
         shell: pwsh
@@ -140,23 +140,10 @@ jobs:
           if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
           pwsh $playwrightScript install --with-deps chromium
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Validate DevOps artefact infrastructure
-        if: matrix.framework == 'net10.0'
-        shell: pwsh
-        run: |
-          pwsh ./scripts/devops/validation/artifacts-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh ./scripts/devops/validation/test-selection-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh ./scripts/devops/validation/runtime-identifier-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh ./scripts/devops/validation/test-progress-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh ./scripts/devops/validation/affected-selection-smoke.ps1
       - name: Test deterministic suites
         shell: pwsh
         env: { CHAOS_ITERATIONS: 25 }
-        run: ./devops.ps1 test all --ci --framework '${{ matrix.framework }}' --HangTimeout 100s
+        run: ./devops test all --ci --framework '${{ matrix.framework }}' --HangTimeout 100s
       - name: Upload test run artefacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -238,9 +225,7 @@ jobs:
         env:
           CHAOS_ITERATIONS: 25
         run: |
-          pwsh ./scripts/devops/validation/test-progress-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./devops.ps1 test all --ci --HangTimeout 100s
+          ./devops.exe test all --ci --HangTimeout 100s
       - name: Upload test run artefacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -334,14 +319,18 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./setup.ps1
       - name: Run platform smoke and Native AOT
         shell: pwsh
         run: |
-          ./devops.ps1 test architecture --framework net10.0
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost test architecture --framework net10.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./devops.ps1 test core --framework net10.0 --Filter 'Scope=PlatformSmoke' --HangTimeout 100s
+          & $managedHost test core --framework net10.0 --Filter 'Scope=PlatformSmoke' --HangTimeout 100s
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./devops.ps1 aot --ci --framework net10.0 --RuntimeIdentifier '${{ matrix.rid }}'
+          & $managedHost aot --ci --framework net10.0 --RuntimeIdentifier '${{ matrix.rid }}'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload test run artefacts
         if: always()

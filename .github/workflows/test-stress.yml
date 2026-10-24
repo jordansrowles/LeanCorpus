@@ -161,7 +161,8 @@ jobs:
               $testArgs += @('--timeout', $env:TEST_PROCESS_TIMEOUT)
           }
 
-          & ./devops.ps1 @testArgs
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost @testArgs
           exit $LASTEXITCODE
 
       - name: Upload test run artefacts
@@ -247,7 +248,8 @@ jobs:
               $testArgs += @('--timeout', $env:TEST_PROCESS_TIMEOUT)
           }
 
-          & ./devops.ps1 @testArgs
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost @testArgs
           exit $LASTEXITCODE
 
       - name: Upload test run artefacts

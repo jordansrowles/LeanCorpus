@@ -54,7 +54,7 @@ public sealed class IndexPersistenceTests
 ### 5. Run the focused selection
 
 ```bash
-pwsh ./devops.ps1 test -Suite core -Area Search -Category Unit
+./devops test core --area Search --category Unit
 ```
 
 ### 6. Connect new production paths
@@ -69,15 +69,15 @@ flowchart LR
     Traits --> Run["Focused test projects"]
 ```
 
-Update `scripts/devops/config/code-areas.psd1` when adding or moving a production area.
+Update `.config/devops/code-areas.json` when adding or moving a production area.
 
 ### 7. Run affected tests
 
 ```bash
-pwsh ./devops.ps1 test affected
-pwsh ./devops.ps1 test affected -Commit HEAD
-pwsh ./devops.ps1 test affected -Commit caf4bd5
-pwsh ./devops.ps1 test affected -Range HEAD~3..HEAD
+./devops test affected
+./devops test affected --commit HEAD
+./devops test affected --commit caf4bd5
+./devops test affected --range HEAD~3..HEAD
 ```
 
 Plain `affected` selects modified, staged and untracked non-ignored files only.
@@ -175,23 +175,23 @@ Choose the destination by responsibility:
 
 For a new top-level command:
 
-1. Add an `Invoke-DevOps...` entry point under `commands/`.
-2. Import it from `DevOps.psm1`.
-3. Add it to the dispatcher.
-4. Add concise top-level help and one useful example.
-5. Put generic helpers and declarative data in their owning directories.
-6. Exercise the command directly.
-7. Run `pwsh ./devops.ps1 test affected`.
-8. Update contributor documentation and the changelog when behaviour is visible.
+1. Add the command options and route to the managed root command in `Program.cs`.
+2. Keep orchestration in a managed handler or service with an explicit result contract.
+3. Add concise help, one useful example and command-line contract coverage.
+4. Put generic helpers and declarative configuration in their owning directories.
+5. Exercise the route through the managed apphost and run focused or affected tests.
+6. Update contributor documentation and the DevOps changelog when behaviour changes.
 
-Keep the root `devops` and `devops.ps1` wrappers small.
+Keep the root apphost as the normal entry point. `devops.ps1` remains a small
+fingerprint-checking compatibility shim and must not import a second command
+implementation.
 
 ### Test execution infrastructure
 
 All normal, affected, repeated, flaky and CI test commands use the shared
 target pipeline. Add suite details such as the project, runner kind, supported
 frameworks, coverage eligibility and diagnostic capabilities to
-`scripts/devops/config/test-suites.psd1`; do not duplicate that information in
+`.config/devops/test-suites.json`; do not duplicate that information in
 workflow YAML or another runner.
 
 The pipeline resolves concrete targets, prepares each project or AOT publish
@@ -216,10 +216,10 @@ to core, filesystem, concurrency, codec or indexing tests.
 Useful local checks include:
 
 ```bash
-pwsh ./devops.ps1 test core --count 2 --filter 'FullyQualifiedName~Writer'
-pwsh ./devops.ps1 test core --count 2 --fail-fast --filter 'FullyQualifiedName~Writer'
-pwsh ./devops.ps1 test all --ci --framework net10.0
-pwsh ./devops.ps1 diagnostics ps
+./devops test core --count 2 --filter 'FullyQualifiedName~Writer'
+./devops test core --count 2 --fail-fast --filter 'FullyQualifiedName~Writer'
+./devops test all --ci --framework net10.0
+./devops diagnostics ps
 ```
 
 Use `--diagnostics` for MTP diagnostic logs and the standalone
@@ -229,7 +229,7 @@ a full trace or memory dump to every repeated test iteration.
 The manual GitHub Actions workflows **Test Stress** and **Test Diagnostics**
 are separate entry points. Stress always supplies `--ci --profile stress`;
 diagnostics supplies `--ci --diagnostics --profile integration`. Keep both as
-thin argument builders over `./devops.ps1 test`; add suite resolution,
+thin argument builders over the managed `./devops test` command; add suite resolution,
 preparation or reporting behaviour to the DevOps pipeline and suite registry,
 not to workflow YAML. Keep `count` and `CHAOS_ITERATIONS` independent when
 documenting or reproducing either run.
@@ -245,7 +245,7 @@ documenting or reproducing either run.
 List registered suites with:
 
 ```bash
-pwsh ./devops.ps1 benchmark -List
+./devops benchmark --list
 ```
 
 ## Validation by change
@@ -254,11 +254,11 @@ pwsh ./devops.ps1 benchmark -List
 | --- | --- |
 | Normal test addition | Focused selection, then `-Suite affected` |
 | Test infrastructure | Affected tests plus every directly impacted suite |
-| Architecture boundary | `pwsh ./devops.ps1 test -Suite architecture` |
-| AOT smoke path | `pwsh ./devops.ps1 aot` |
-| Benchmark registration | `pwsh ./devops.ps1 benchmark -List` and a bounded smoke run |
-| Coverage tooling | `pwsh ./devops.ps1 coverage -Clean` |
-| Documentation tooling | `pwsh ./devops.ps1 docs build -SkipBenchmarks` |
+| Architecture boundary | `./devops test architecture` |
+| AOT smoke path | `./devops aot` |
+| Benchmark registration | `./devops benchmark --list` and a bounded smoke run |
+| Coverage tooling | `./devops coverage -Clean` |
+| Documentation tooling | `./devops docs build --skip-benchmarks` |
 
 > [!WARNING]
 > Generated coverage, benchmark and DocFX output must not be hand-edited. Change the inputs or generator and regenerate it through `./devops`.

@@ -874,7 +874,7 @@ internal sealed class BrowserSite : IAsyncDisposable
         var siteDirectory = Path.GetFullPath(configuredSite ?? Path.Combine(repositoryRoot, "artifacts", "docs", "site"));
         if (!File.Exists(Path.Combine(siteDirectory, "index.html")))
         {
-            throw new DirectoryNotFoundException($"Generated docs site not found at '{siteDirectory}'. Run 'pwsh ./devops.ps1 docs build' first.");
+            throw new DirectoryNotFoundException($"Generated docs site not found at '{siteDirectory}'. Run './devops docs build' first.");
         }
 
         using var portProbe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);

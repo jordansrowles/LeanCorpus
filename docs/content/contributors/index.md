@@ -12,7 +12,7 @@ This section routes repository contributors to the shortest useful guide. Packag
 3. Choose the subsystem that owns the behaviour.
 4. Run one focused test selection.
 5. Make the change and add tests.
-6. Run `pwsh ./devops.ps1 test affected`.
+6. Run `./devops test affected`.
 7. Add compatibility, AOT, documentation or benchmark validation when the claim requires it.
 
 ## Choose your contributor path
@@ -61,10 +61,10 @@ Use the narrowest command that can disprove your claim, then widen only where ne
 
 ```bash
 ./devops build
-pwsh ./devops.ps1 test affected
-pwsh ./devops.ps1 test -Suite architecture
-pwsh ./devops.ps1 aot
-pwsh ./devops.ps1 docs build -SkipBenchmarks
+./devops test affected
+./devops test architecture
+./devops aot
+./devops docs build -SkipBenchmarks
 ```
 
 Run `./devops --help` for the current command surface.

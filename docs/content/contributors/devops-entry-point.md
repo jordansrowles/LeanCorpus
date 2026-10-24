@@ -8,20 +8,15 @@ current-RID single-file executable at the repository root. No dedicated DevOps
 solution is required.
 
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
-use `./devops.exe`. `devops.ps1` remains the PowerShell transition dispatcher.
-It forwards `build`, `clean`, `report`, `benchmark`, `diagnostics`, `ui`, and
-`server start` to a fresh managed host. The root apphost also contains managed
-`test` and `aot` commands for Phase 5 qualification, but the dispatcher and CI
-continue to use the established PowerShell implementations until the complete
-testing parity gate passes. Run documentation commands directly through
-`./devops docs`; the PowerShell docs implementation remains available as a
-rollback path until the later retirement phase. The apphost supports local and
-affected-source benchmark runs, managed SSH/tmux start, status and cancellation,
-and DataForge qualification through `./devops dataforge qualify`. Other
-commands remain on the legacy PowerShell implementation and must be invoked as
-`pwsh ./devops.ps1 <command>`. A missing or stale managed host is a setup
-error; the dispatcher does not fall back to the legacy command after a
-managed command fails.
+use `./devops.exe`. Every supported command runs through the managed host.
+`devops.ps1` remains a thin compatibility shim: it checks the host fingerprint
+and forwards arguments without importing the retired PowerShell command
+application. Workflows call the managed host directly. `setup.ps1` is the
+separate repository bootstrap. A missing or stale managed host is a setup
+error; a managed command failure never falls back to PowerShell. The apphost
+supports documentation, local/affected and SSH/tmux benchmark runs, DataForge
+generation/reference commands and qualification, diagnostics, reporting,
+packaging and distribution.
 
 ## Why it exists
 
@@ -43,27 +38,24 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | Command | Purpose | Typical example |
 |---|---|---|
 | `build` | Managed: restore and build the supported solution targets | `./devops build` |
-| `test` | Managed apphost: run registered suites; the PowerShell dispatcher remains the current CI route | `./devops test architecture --framework net10.0 --count 2` |
-| `aot` | Managed apphost: publish and run Native AOT smoke tests; full Phase 5 qualification is open | `./devops aot --framework net10.0` |
+| `test` | Managed: run registered suites with linked test evidence | `./devops test architecture --framework net10.0 --count 2` |
+| `aot` | Managed: publish and run Native AOT smoke tests; release qualification remains open | `./devops aot --framework net10.0` |
 | `coverage` | Managed apphost: run coverage-eligible suites and optionally generate a pinned HTML report | `./devops coverage -Suite sourcegen -GenerateReport` |
 | `benchmark` | Managed apphost: local and affected BenchmarkDotNet suites plus remote SSH/tmux lifecycle | `./devops benchmark --list` |
 | `config validate` | Validate managed metadata without building; `--deep` compares already-built benchmark host manifests | `./devops config validate --deep` |
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
-| `data` | PowerShell: prepare a named benchmark corpus | `pwsh ./devops.ps1 data gutenberg` |
-| `dataforge` | Managed apphost: run qualification; PowerShell: manage datasets and reference data | `./devops dataforge qualify` |
+| `data` | Managed: prepare benchmark datasets and migration fixtures | `./devops data gutenberg --book-count 200` |
+| `dataforge` | Managed apphost: run DataForge generation, reference and qualification commands | `./devops dataforge qualify` |
 | `docs` | Managed: prepare inputs, generate API metadata, build, validate or serve DocFX | `./devops docs build --skip-benchmarks` |
 | `server start` | Managed: start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
-| `benchmarks docs` | PowerShell: regenerate benchmark documentation pages | `pwsh ./devops.ps1 benchmarks docs` |
 | `clean` | Managed: remove selected DevOps-owned output | `./devops clean test` |
 | `pack` | Managed apphost: build release packages, validate APIs and archives, or run isolated package consumers | `./devops pack --clean --validate-packages` |
 | `distribute` | Managed apphost: publish one single-file DevOps executable and package its source manifest, notices and checksums | `./devops distribute --rid linux-x64` |
 | `report` | Managed: report repository history, tracked files or code health; `--json` writes a versioned evidence envelope | `./devops report git --json` |
-| `setup` | PowerShell: inspect the development environment | `pwsh ./devops.ps1 setup` |
 | `ui` | Managed apphost: open the interactive Spectre.Console workbench | `./devops ui` |
 
-The bootstrap is separate from the legacy `setup` command: run
-`pwsh -NoProfile -File ./setup.ps1` to restore tools and publish the managed
-host.
+Use `pwsh -NoProfile -File ./setup.ps1` to restore tools and publish the
+managed host. There is no `devops setup` command.
 
 The optional workbench is included in the managed apphost and does not require
 a PowerShell UI module.
@@ -128,20 +120,22 @@ outside `Rowles.LeanCorpus.slnx`, together with any solution-only entries.
 from SDK-evaluated metadata, including implicit package references, so they can
 differ from the legacy report's raw project-file scan.
 
-Use `benchmark` for running measurements and `benchmarks docs` for publishing existing result artefacts. The plural command is intentionally not a second benchmark runner.
+Use `benchmark` for running measurements. `docs build` prepares and publishes
+the benchmark pages from retained run artefacts as part of the documentation
+site build.
 
 `./devops dataforge qualify` verifies the frozen Wikipedia reference, runs the
 DataForge and related test suites, checks synthetic benchmark identities, and
 runs the Wikipedia smoke and default benchmark suites. It records each child
 run and validates every Wikipedia report against the verified reference
-identity. This is qualification evidence, not a performance comparison. Other
-DataForge commands remain on the PowerShell route while their managed slices
-are migrated.
+identity. This is qualification evidence, not a performance comparison. Generation and reference commands use the same managed route and retain their
+DataForge tool arguments.
 
 Coverage selects suites marked eligible in the managed test registry. `all`
 skips ineligible suites, and tests marked `Coverage=Skip` remain excluded unless
-`-IncludePerformance` is supplied. Raw Cobertura files and optional HTML output
-are retained under `artifacts/coverage/runs/`; `-GenerateReport` uses the pinned
+`-IncludePerformance` is supplied. Failed, cancelled or timed-out tests retain raw Cobertura files and their
+original outcome; HTML generation only follows successful tests. Raw files and
+optional HTML output are retained under `artifacts/coverage/runs/`; `-GenerateReport` uses the pinned
 repository-local ReportGenerator tool.
 
 ## Argument handling
@@ -161,12 +155,12 @@ Keep repository arguments before `--`. Everything after it is passed to the benc
 
 ## Test suites
 
-`scripts/devops/config/test-suites.psd1` is the canonical alias map. It maps short names to project paths or, for Native AOT, to the dedicated command route. The current suites are `core`, `text`, `sourcegen`, `architecture`, `server-abstractions`, `server-core`, `server-integration`, and `aot`. Server suites default to `net11.0`; their project and registry metadata currently also declare `net10.0`.
+`.config/devops/test-suites.json` is the canonical alias map. It maps short names to project paths or, for Native AOT, to the dedicated command route. The current suites are `core`, `text`, `sourcegen`, `architecture`, `server-abstractions`, `server-core`, `server-integration`, and `aot`. Server suites default to `net11.0`; their project and registry metadata currently also declare `net10.0`.
 
 When adding a test project:
 
 1. add it to the solution and normal build wiring;
-2. add a clear alias to `test-suites.psd1`;
+2. add a clear alias to `.config/devops/test-suites.json`;
 3. make the default test selection explicit;
 4. update CI only when the suite belongs in required validation;
 5. update contributor documentation when its role is not obvious.
@@ -181,9 +175,8 @@ strategy, dataset and group configuration. It accepts `--suite`, `--strat`,
 PowerShell option aliases are accepted by the apphost. Dataset selection is
 limited to synthetic and the frozen Wikipedia reference, whose supported
 suites and 20,000-document ceiling are checked before execution. Local
-BenchmarkDotNet arguments follow `--`. Remote SSH/tmux and affected-source
-workflows remain on the PowerShell route until their managed migration is
-qualified.
+BenchmarkDotNet arguments follow `--`. Remote SSH/tmux and affected-source workflows also use the managed host;
+release qualification remains separate from implementation.
 
 ```mermaid
 flowchart LR
@@ -231,7 +224,7 @@ argument boundaries.
 corpus-only cases. It does not make different hardware or runtime environments
 equivalent.
 
-When adding an alias, keep its name short and stable. Point it at an existing benchmark-suite selector rather than adding benchmark logic to `devops.ps1`.
+When adding an alias, keep its name short and stable. Point it at an existing benchmark-suite selector rather than adding duplicate benchmark logic.
 
 ## Documentation workflow
 
@@ -280,17 +273,19 @@ A new command should:
 - use existing helper functions and repository scripts;
 - return the underlying process exit code;
 - avoid changing generated or source directories outside its stated scope;
-- use `./devops` for the proven managed commands and `pwsh ./devops.ps1` for the remaining PowerShell commands;
+- implement command behaviour in the managed DevOps host and keep PowerShell entry points limited to bootstrap or argument forwarding;
 - have one concise example in contributor documentation;
 - remain non-interactive in CI.
 
-Keep download and data-preparation logic in `scripts`, with `devops.ps1` acting as the router.
+Keep repository command behaviour in the managed DevOps services. Use focused
+scripts only for standalone platform-independent validation or data-generation
+tasks that are not command routes.
 
 ## CI contract
 
 `.github/workflows/build.yml` is the required validation contract. The DevOps entry point and CI should use equivalent commands where practical, but local-only diagnostics and expensive repeated benchmarks should remain opt-in unless they are intentionally promoted to merge validation.
 
-CI bootstraps the checked-out DevOps host with `setup.ps1` and invokes the root apphost directly for product builds, `report all`, package archive validation, package consumers and the manual benchmark command. Test workflow routes remain governed by their own migration acceptance gate.
+CI bootstraps the checked-out DevOps host with `setup.ps1` and invokes the root apphost directly for product builds, tests, AOT, diagnostics, `report all`, package archive validation, package consumers and the manual benchmark workflow.
 
 When changing routing, inspect both local callers and workflow callers before removing an option or alias.
 
@@ -301,9 +296,9 @@ LeanCorpus.Compression.LZ4, Snappy and Zstandard 2.0.0. The optional packages
 require Core `[4.0.0,5.0.0)` and do not directly depend on Rowles.Text.
 
 ```bash
-pwsh ./devops.ps1 pack -CompressionOnly -ValidateCompression
+./devops pack -CompressionOnly -ValidateCompression
 # After a full solution build, reuse those binaries:
-pwsh ./devops.ps1 pack -CompressionOnly -NoBuild -ValidateCompression
+./devops pack -CompressionOnly -NoBuild -ValidateCompression
 ```
 
 The gate inspects the generated `.nupkg` and `.snupkg` identities, both TFM
@@ -329,10 +324,10 @@ the full build, docs build and `git diff --check` before release.
 ## Select affected tests
 
 ```powershell
-pwsh ./devops.ps1 test affected
-pwsh ./devops.ps1 test affected -Commit HEAD
-pwsh ./devops.ps1 test affected -Commit caf4bd5
-pwsh ./devops.ps1 test affected -Range HEAD~3..HEAD
+./devops test affected
+./devops test affected -Commit HEAD
+./devops test affected -Commit caf4bd5
+./devops test affected -Range HEAD~3..HEAD
 ```
 
 Plain `affected` selects only modified tracked, staged and untracked non-ignored
@@ -350,8 +345,7 @@ changed-file count and targets. Runs producing artefacts retain the source,
 supplied revision, resolved commit and first parent where applicable, current
 HEAD, selected paths and targets in `run.json` under `affectedSelection`.
 
-The tooling regressions use real temporary Git repositories. Run them with
-`pwsh ./scripts/devops/validation/affected-selection-smoke.ps1`; the build
-workflow also runs this smoke. The DevOps test command currently registers .NET
-suites only, so this PowerShell validation script follows the existing artefact
-smoke route. A future tooling suite could expose both through `pwsh ./devops.ps1 test`.
+The managed DevOps test suite covers argument selection and rejects invalid or
+empty affected-test selections. The standalone PowerShell compatibility smoke
+is retained for historical comparison and is not part of the managed command
+route or required CI workflow.
