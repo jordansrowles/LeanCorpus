@@ -1014,8 +1014,8 @@
       "lifecyclePolicy": "new-index",
       "comparisonGroup": null,
       "classification": "Unqualified",
-      "resultContract": "committed-index-contains-1000-documents",
-      "qualityProof": "The benchmark returns 1000 after commit; reopening and verifying the committed document count is not yet recorded.",
+      "resultContract": "reopened-index-contains-1000-documents-and-exact-stored-id-set",
+      "qualityProof": "Each iteration commits the deterministic 1,000-document flush workload. Iteration cleanup reopens the file-backed index, checks the exact live/result count, reads every stored ID and verifies the complete ordinal ID set before deleting the fixture.",
       "metrics": [
         {
           "name": "Mean",
