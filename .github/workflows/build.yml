@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   # Use the source branch for both push and pull-request events.
-  group: build-${{ github.workflow }}-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  group: build-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
