@@ -1,26 +1,157 @@
-- name: Home
+- name: Learn
   href: index.md
-- name: About
-  href: about/index.md
-- name: Get started
-  href: getting-started/index.md
-- name: Concepts
-  href: concepts/index.md
-- name: Guides
-  href: guides/index.md
-- name: Examples
-  href: generated/examples/index.md
-- name: Performance
-  href: performance.md
+  items:
+    - name: Get started
+      href: getting-started/index.md
+      items:
+        - name: Installation and first index
+          href: getting-started/01-installation.md
+        - name: Field types
+          href: getting-started/02-fields.md
+        - name: Writer configuration
+          href: getting-started/03-configuration.md
+    - name: Concepts
+      href: concepts/index.md
+      items:
+        - name: Documents and fields
+          href: concepts/documents-and-fields.md
+        - name: Queries and ranking
+          href: concepts/queries-and-ranking.md
+        - name: Vector search
+          href: concepts/vector-search.md
+    - name: Examples
+      href: examples/index.md
+      items:
+        - name: Linux kernel code search
+          href: examples/linux-kernel-code-search.md
+- name: Engine
+  href: searching/index.md
+  items:
+    - name: Index management
+      href: index-management/index.md
+      items:
+        - name: Update and delete documents
+          href: index-management/01-update-and-delete.md
+        - name: Backup and restore
+          href: index-management/08-backup-and-restore.md
+    - name: Searching
+      href: searching/index.md
+      items:
+        - name: Query types
+          href: searching/01-query-types.md
+        - name: The query parser
+          href: searching/04-query-parser.md
+        - name: Ranking profiles and query rules
+          href: searching/12-ranking.md
+        - name: Search sessions and cursor pagination
+          href: searching/13-search-sessions.md
+    - name: Analysis
+      href: analysis/index.md
+      items:
+        - name: Analysers
+          href: analysis/01-analysers.md
+        - name: Tokenisers
+          href: analysis/02-tokenisers.md
+        - name: Lexicons
+          href: analysis/06-lexicons.md
+    - name: Advanced search
+      href: advanced/index.md
+      items:
+        - name: Vector search
+          href: advanced/05-vector-search.md
+        - name: Geo search
+          href: advanced/10-geo-search.md
+        - name: Aggregations
+          href: advanced/01-aggregations.md
+    - name: Concurrency
+      href: concurrency/index.md
+      items:
+        - name: Searcher manager
+          href: concurrency/01-searcher-manager.md
+        - name: Concurrent indexing
+          href: concurrency/02-concurrent-indexing.md
+    - name: Observability
+      href: observability/index.md
+      items:
+        - name: Metrics
+          href: observability/01-metrics.md
+        - name: OpenTelemetry
+          href: observability/04-opentelemetry.md
+- name: Integrations
+  href: server/index.md
+  items:
+    - name: Rowles.Text
+      href: analysis/08-rowles-text.md
+      items:
+        - name: Rowles.Text contribution guide
+          href: contributors/rowles-text.md
+    - name: Source generation
+      href: getting-started/04-source-generated-mapping.md
+    - name: Compression
+      href: tips/01-compression.md
+      items:
+        - name: LZ4
+          href: tips/compression/lz4.md
+        - name: Snappy
+          href: tips/compression/snappy.md
+        - name: Zstandard
+          href: tips/compression/zstandard.md
+    - name: Community Server
+      href: server/index.md
+      items:
+        - name: Running and health
+          href: server/01-running.md
+        - name: REST and gRPC
+          href: server/05-rest-and-grpc.md
+        - name: Orchard Core search provider
+          href: server/orchard-core-search-provider.md
 - name: Reference
   href: reference/index.md
-- name: API reference
-  href: api/index.md
-- name: Articles
-  href: articles/index.md
-- name: Benchmarks
-  href: benchmarks/overview.md
-- name: Changelog
-  href: changelog/index.md
-- name: Contribute
-  href: contributors/index.md
+  items:
+    - name: API
+      href: api/index.md
+    - name: Architecture
+      href: architecture.md
+      items:
+        - name: Physical index lifetimes
+          href: articles/physical-index-lifetimes.md
+    - name: Architecture decisions
+      href: articles/ADRs/index.md
+      items:
+        - name: 'ADR041: Physical index runtime lifecycle'
+          href: articles/ADRs/ADR041-physical-index-runtime-lifecycle.md
+        - name: 'ADR021: Rowles.Text package boundary'
+          href: articles/ADRs/ADR021-rowles-text-analysis-package.md
+    - name: Performance
+      href: performance.md
+      items:
+        - name: Benchmarking guide
+          href: tips/03-benchmarking.md
+    - name: Benchmark results
+      href: benchmarks/overview.md
+- name: Project
+  href: about/index.md
+  items:
+    - name: Releases
+      href: changelog/index.md
+      items:
+        - name: Unreleased
+          href: changelog/unreleased.md
+        - name: LeanCorpus 3.1.1
+          href: changelog/3.1.1 - 2026-09-13.md
+    - name: Contributing
+      href: contributors/index.md
+      items:
+        - name: General contribution guide
+          href: contributors/contributing.md
+        - name: Documentation
+          href: contributors/documentation.md
+        - name: DevOps projects
+          href: contributors/devops-projects.md
+    - name: About LeanCorpus
+      href: about/index.md
+      items:
+        - name: Repository overview
+          href: about/repository-overview.md
+        - name: Why LeanCorpus?
+          href: why-leancorpus.md

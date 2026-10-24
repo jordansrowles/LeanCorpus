@@ -6,7 +6,6 @@ namespace Rowles.LeanCorpus.DevOps.Documentation;
 
 internal sealed class RepositoryDocumentationImporter
 {
-    private const string RepositoryUrl = "https://github.com/jordansrowles/LeanCorpus";
     private static readonly StringComparer PathComparer = OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
@@ -89,7 +88,7 @@ internal sealed class RepositoryDocumentationImporter
             var sourceContent = File.ReadAllText(plan.SourcePath);
             var rewritten = RewriteImportedLinks(sourceContent, plan.SourcePath, plan.DestinationPath,
                 repoRoot, docsRoot, contentRoot, destinationBySource, sourceCommit);
-            var sourceUrl = $"{RepositoryUrl}/blob/{sourceCommit.ToLowerInvariant()}/{plan.SourceRelative}";
+            var sourceUrl = RepositoryWebLinks.BlobUrl(sourceCommit, plan.SourceRelative);
             var notice = $"> [!NOTE]\n> This page is generated from [{plan.SourceRelative}]({sourceUrl}). Edit the repository file, not this copy.\n\n";
             plannedWrites.Add(plan.DestinationPath, notice + rewritten.TrimStart());
         }
@@ -336,7 +335,11 @@ internal sealed class RepositoryDocumentationImporter
     {
         var relativePath = Path.GetRelativePath(repositoryRoot, targetPath).Replace('\\', '/');
         var kind = Directory.Exists(targetPath) ? "tree" : "blob";
-        return $"{RepositoryUrl}/{kind}/{sourceCommit.ToLowerInvariant()}/{EscapeUriPath(relativePath)}{fragment}";
+        var escapedPath = EscapeUriPath(relativePath);
+        var sourceUrl = kind == "tree"
+            ? RepositoryWebLinks.TreeUrl(sourceCommit, escapedPath)
+            : RepositoryWebLinks.BlobUrl(sourceCommit, escapedPath);
+        return sourceUrl + fragment;
     }
 
     private static string ResolveRelativePath(string root, string relativePath, string description)

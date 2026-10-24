@@ -344,8 +344,8 @@ internal sealed class AdrIndexGenerator
             "",
             "## Template",
             "",
-            "New records should follow [the shared template](_template.md). Core identifiers",
-            "use the reserved ADRnnn sequence; Server identifiers use ADR-Snnn."
+            "New records should follow the repository's ADR authoring template. Core",
+            "identifiers use the reserved ADRnnn sequence; Server identifiers use ADR-Snnn."
         };
         File.WriteAllText(path, string.Join(Environment.NewLine, lines) + Environment.NewLine,
             new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
@@ -398,21 +398,28 @@ internal sealed class AdrIndexGenerator
             "  href: index.md",
             "  items:"
         };
-        foreach (var adr in adrs.Where(static adr => adr.NamespaceOrder == 0))
+        foreach (var group in adrs.Where(static adr => adr.NamespaceOrder == 0)
+            .GroupBy(static adr => (adr.Number - 1) / 10)
+            .OrderBy(static group => group.Key))
         {
-            lines.Add($"    - name: '{adr.Id}: {adr.Title.Replace("'", "''", StringComparison.Ordinal)}'");
-            lines.Add($"      href: {adr.File}");
+            var first = group.Key * 10 + 1;
+            var last = first + 9;
+            lines.Add($"    - name: 'ADR{first:D3}-{last:D3}'");
+            lines.Add("      items:");
+            foreach (var adr in group)
+            {
+                lines.Add($"        - name: '{adr.Id}: {adr.Title.Replace("'", "''", StringComparison.Ordinal)} ({adr.Status})'");
+                lines.Add($"          href: {adr.File}");
+            }
         }
         lines.Add("    - name: 'Community Server decisions'");
         lines.Add("      href: index.md#community-server-decisions");
         lines.Add("      items:");
         foreach (var adr in adrs.Where(static adr => adr.NamespaceOrder == 1))
         {
-            lines.Add($"        - name: '{adr.Id}: {adr.Title.Replace("'", "''", StringComparison.Ordinal)}'");
+            lines.Add($"        - name: '{adr.Id}: {adr.Title.Replace("'", "''", StringComparison.Ordinal)} ({adr.Status})'");
             lines.Add($"          href: {adr.File}");
         }
-        lines.Add("    - name: 'Shared ADR template'");
-        lines.Add("      href: _template.md");
         File.WriteAllLines(path, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
     }
 

@@ -630,3 +630,73 @@ checkpoint for more than five minutes and has no terminal manifest, target or
 child exit. All three are incomplete. Full
 §18 filter/trait/explicit/stress/diagnostics/CI-prepared/AOT and required
 Windows/Linux parity gates are still open; WP-07 is not complete.
+
+
+### Current-source hosted Build and one-off MTP evidence (2026-10-23)
+
+Source `258c959e45f3a5e2988c7a4d48fde6e9a70d6fda` is the current `issue-97`
+checkpoint. Push Build `39921970162` completed 11 jobs successfully; Linux
+tests, coverage and docs were skipped on that push event. PR Build `39921976343`
+is terminal with 14/15 jobs passed: Linux net10/net11, Windows full tests,
+managed DevOps foundations, platform smokes, package validation/consumers and
+coverage passed; `docs-site` alone failed.
+
+The docs child run `a7151d9c-785c-4f07-acb3-d7df2401b91e` executed 11 MTP
+cases according to stdout, with one real visual assertion failure. Its archived
+managed report parsed zero cases, records no TRX file and classifies the attempt
+as `DiscoveryFailure`; the parent run is `InfrastructureFailure`. The missing
+single-run TRX path and classification are tracked for correction. The
+`homepage-desktop` visual mismatch is 1.82% against the existing 0.50% limit;
+that run remains a historical failure. Its hosted actual viewport capture and
+browser/font diagnostics are retained in the Issue #97 handoff evidence. The
+continuation worktree now selects a reviewed Ubuntu 24.04 baseline for the
+desktop layout and pins the docs-site runner to Ubuntu 24.04; the threshold is
+unchanged. Dirty-worktree local docs build `d51a6aa5-d013-4412-be16-ed054bfd7de8`
+and acceptance run `5da8a4cd-9483-42db-a65c-d85cf0d6e847` passed on Debian 13;
+the hosted Ubuntu baseline and exact-source hosted revalidation remain open.
+
+A pre-refactor baseline at this same source SHA preserves the six `.config/devops`
+registries and package policy, plus successful managed benchmark list/dry
+commands and `report git --json`. The dry commands executed no benchmark
+workload. This status refresh is evidence-only; it changes no command, package,
+API or index contract. Phase 5 remains open for a current-source hosted browser
+child, full route parity, AOT and stress gates; the local one-off MTP evidence
+is recorded below.
+
+### S01 one-off MTP outcome correction (2026-10-23)
+
+The dirty worktree based on source `258c959e45f3a5e2988c7a4d48fde6e9a70d6fda`
+now enables result artefacts for every selected MTP target, including one-off
+runs. A valid zero-case TRX is `DiscoveryFailure`; missing or malformed TRX is
+`Incomplete`; a nonzero process exit after passing cases is
+`InfrastructureFailure`. Focused regressions passed 16/16, the default DevOps
+suite passed 303 with 11 intentional skips and zero failures, and real one-off
+MTP pass, assertion-failure and no-match probes passed. The fallback build and
+all detailed receipts are recorded in the Issue #97 sprint evidence. The
+managed setup restore stopped before build and host promotion, so these local
+results do not qualify setup, hosted CI or the real browser child. Phase 5
+remains open for current-source hosted browser evidence, route parity, AOT and
+stress gates.
+
+### Current hosted CI reconciliation (2026-10-24)
+
+GitHub reports draft PR #103 at pushed head
+`940334da5e5132e4a2d8378e21e8eedc1771ca95`. Build `40016380877` is terminal
+for that head’s merge SHA `d3d13d7c7b3f87f57148283e49573f0ae3b538d0`: 13/15
+jobs succeeded, coverage failed and `docs-site` was skipped. Linux net10/net11,
+Windows full tests (22/22 target executions), four platform smokes, package
+validation and package consumers passed. Coverage run
+`a9e48209-72df-4052-b8bb-244398097f15` linked test run
+`46325cb7-cd17-469b-a2ad-c4b6978ba939`; the lone Core net10 failure timed out
+at `release.Wait(10s)` after 10.021 seconds. The cause remains unproven.
+
+The prior docs child `a7151d9c-785c-4f07-acb3-d7df2401b91e` exited 2 and its
+stdout identifies the actual `homepage-desktop` visual assertion at 1.82%
+versus 0.50%. It ran with `artifacts=false`; no TRX was retained, so the child
+attempt was labelled `DiscoveryFailure` with zero parsed tests and its parent
+was `InfrastructureFailure`. This is evidence from the earlier PR source, not
+current-source hosted qualification. The local S01 dirty overlay has real
+passing, failing and no-discovery one-off MTP receipts; a current-source hosted
+browser child and full Phase 5 parity/AOT/stress gates remain open. The local
+Ubuntu baseline commit `086fbcb3d` has no workflow run yet; PR #103 remains at
+`940334da`.

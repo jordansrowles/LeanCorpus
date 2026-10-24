@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { resolveBuildRun, resolveDocsArtifact } from './resolve-docs-deployment-run.mjs';
 
@@ -62,6 +63,24 @@ test('admits a successful trusted Build push for automatic deployment', () => {
     branch: run.head_branch,
     runNumber: run.run_number
   });
+});
+
+test('restricts the automatic deployment trigger and job to main', () => {
+  const workflow = readFileSync('.github/workflows/deploy.yml', 'utf8');
+
+  assert.match(workflow, /workflow_run:\s*\n\s+workflows:\s*\["Build"\]\s*\n\s+types:\s*\[completed\]\s*\n\s+branches:\s*\[main\]/);
+  assert.match(workflow, /github\.event\.workflow_run\.head_branch == 'main'/);
+  assert.match(workflow, /node scripts\/devops\/validation\/resolve-docs-deployment-run\.mjs/);
+});
+
+test('rejects automatic production deployment from an unapproved source branch', () => {
+  const run = buildRun({ head_branch: 'issue-97' });
+
+  assert.throws(() => resolveBuildRun(run, {
+    repository,
+    eventName: 'workflow_run',
+    eventPayload: workflowRunPayload(run)
+  }), /not an authorised production source/);
 });
 
 test('rejects a same-repository pull request run even when manually selected', () => {
@@ -139,7 +158,7 @@ test('rejects automatic deployment unless the source commit opts in', () => {
 });
 
 test('allows manual recovery by selecting an earlier successful Build run', () => {
-  const previousRun = buildRun({ id: 39800000000, head_branch: 'issue-97', run_number: 347 });
+  const previousRun = buildRun({ id: 39800000000, head_branch: 'main', run_number: 347 });
   const result = resolveBuildRun(previousRun, {
     repository,
     eventName: 'workflow_dispatch',
@@ -147,8 +166,18 @@ test('allows manual recovery by selecting an earlier successful Build run', () =
   });
 
   assert.equal(result.runId, previousRun.id);
-  assert.equal(result.branch, 'issue-97');
+  assert.equal(result.branch, 'main');
   assert.equal(result.headSha, previousRun.head_sha);
+});
+
+test('rejects manual production deployment from an unapproved source branch', () => {
+  const run = buildRun({ head_branch: 'issue-97' });
+
+  assert.throws(() => resolveBuildRun(run, {
+    repository,
+    eventName: 'workflow_dispatch',
+    requestedRunId: String(run.id)
+  }), /not an authorised production source/);
 });
 
 test('rejects manual selection of a different run ID', () => {
@@ -199,7 +228,7 @@ test('rejects missing, expired, duplicated or mismatched docs artifacts', () => 
 });
 
 test('manual recovery resolves the earlier validated artifact instead of rebuilding', () => {
-  const earlierRun = buildRun({ id: 39800000000, head_branch: 'issue-97', run_number: 347 });
+  const earlierRun = buildRun({ id: 39800000000, head_branch: 'main', run_number: 347 });
   const earlierArtifact = docsArtifact(earlierRun, { id: 12440000000 });
   const selectedRun = resolveBuildRun(earlierRun, {
     repository,
@@ -209,4 +238,34 @@ test('manual recovery resolves the earlier validated artifact instead of rebuild
 
   assert.equal(selectedRun.runId, earlierRun.id);
   assert.equal(resolveDocsArtifact([earlierArtifact], earlierRun).artifactId, earlierArtifact.id);
+});
+
+test('automatic and manual admission select the same validated artifact identity', () => {
+  const run = buildRun();
+  const artifact = docsArtifact(run);
+  const automaticRun = resolveBuildRun(run, {
+    repository,
+    eventName: 'workflow_run',
+    eventPayload: workflowRunPayload(run)
+  });
+  const manualRun = resolveBuildRun(run, {
+    repository,
+    eventName: 'workflow_dispatch',
+    requestedRunId: String(run.id)
+  });
+  const automaticArtifact = resolveDocsArtifact([artifact], {
+    ...run,
+    id: automaticRun.runId,
+    head_sha: automaticRun.headSha,
+    head_branch: automaticRun.branch
+  });
+  const manualArtifact = resolveDocsArtifact([artifact], {
+    ...run,
+    id: manualRun.runId,
+    head_sha: manualRun.headSha,
+    head_branch: manualRun.branch
+  });
+
+  assert.deepEqual(manualRun, automaticRun);
+  assert.deepEqual(manualArtifact, automaticArtifact);
 });

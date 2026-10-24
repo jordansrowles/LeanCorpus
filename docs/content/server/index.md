@@ -16,6 +16,7 @@ REST is versioned under `/v1`; gRPC uses the typed v1 protobuf services. Enterpr
 
 Topics:
 
+- [Community Server overview and quick start](community-server.md)
 - [Running and health](01-running.md)
 - [Embedding](02-embedding.md)
 - [Schemas and writes](03-schemas-and-writes.md)

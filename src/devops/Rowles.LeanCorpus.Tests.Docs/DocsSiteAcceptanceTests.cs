@@ -8,17 +8,54 @@ namespace Rowles.LeanCorpus.Tests.Docs;
 internal static class DocsSiteViewports
 {
     public const int Phone = 390;
+    public const int NarrowPhone = 360;
     public const int Tablet = 768;
     public const int SmallLaptop = 1024;
     public const int Laptop = 1280;
     public const int Desktop = 1440;
     public const int Height = 900;
 
-    public static readonly int[] Widths = [Phone, Tablet, SmallLaptop, Laptop, Desktop];
+    public static readonly int[] Widths = [NarrowPhone, Phone, Tablet, SmallLaptop, Laptop, Desktop, 1920];
 }
 
 public sealed class DocsSiteAcceptanceTests
 {
+    private static readonly (string SourcePath, string Route)[] ExpectedImports =
+    [
+        ("README.md", "about/repository-overview.html"),
+        ("CONTRIBUTING.md", "contributors/contributing.html"),
+        ("lexicons/README.md", "analysis/06-lexicons.html"),
+        ("src/core/Rowles.Text/README.md", "analysis/08-rowles-text.html"),
+        ("src/core/Rowles.Text/CONTRIBUTING.md", "contributors/rowles-text.html"),
+        ("src/core/Rowles.LeanCorpus.SourceGen/README.md", "getting-started/04-source-generated-mapping.html"),
+        ("src/core/Rowles.LeanCorpus.Compression.LZ4/README.md", "tips/compression/lz4.html"),
+        ("src/core/Rowles.LeanCorpus.Compression.Snappy/README.md", "tips/compression/snappy.html"),
+        ("src/core/Rowles.LeanCorpus.Compression.Zstandard/README.md", "tips/compression/zstandard.html"),
+        ("src/examples/README.md", "examples/index.html"),
+        ("src/examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch/README.md", "examples/linux-kernel-code-search.html"),
+        ("src/devops/README.md", "contributors/devops-projects.html"),
+        ("src/devops/CONTRIBUTING.md", "contributors/devops-and-tests.html"),
+        ("src/server/README.md", "server/community-server.html")
+    ];
+
+    private static readonly (string LegacyPath, string CanonicalPath)[] LegacyImportRoutes =
+    [
+        ("repository-overview", "about/repository-overview"),
+        ("contributors/contributing", "contributors/contributing"),
+        ("analysis/06-lexicons", "analysis/06-lexicons"),
+        ("analysis/08-rowles-text", "analysis/08-rowles-text"),
+        ("contributors/rowles-text", "contributors/rowles-text"),
+        ("getting-started/04-source-generated-mapping", "getting-started/04-source-generated-mapping"),
+        ("tips/compression/lz4", "tips/compression/lz4"),
+        ("tips/compression/snappy", "tips/compression/snappy"),
+        ("tips/compression/zstandard", "tips/compression/zstandard"),
+        ("examples/index", "examples/index"),
+        ("examples/linux-kernel-code-search", "examples/linux-kernel-code-search"),
+        ("contributors/devops-projects", "contributors/devops-projects"),
+        ("contributors/devops-and-tests", "contributors/devops-and-tests"),
+        ("contributors/server-proof-of-concept", "server/community-server")
+    ];
+
     private const string MermaidPaletteExpression = """
         (() => {
             const svg = document.querySelector('article .mermaid svg');
@@ -33,6 +70,39 @@ public sealed class DocsSiteAcceptanceTests
             ];
             return palette.every(Boolean) ? palette.join('|') : null;
         })()
+        """;
+
+    private const string ContrastRatiosExpression = """
+        () => {
+            const channels = value => value.match(/[\d.]+/g).slice(0, 3).map(Number).map(channel => channel / 255);
+            const linear = channel => channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+            const luminance = value => {
+                const [red, green, blue] = channels(value).map(linear);
+                return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+            };
+            const background = luminance(getComputedStyle(document.body).backgroundColor);
+            const paragraph = document.querySelector('article p');
+            const link = document.querySelector('article p a');
+            if (!paragraph || !link) return [];
+            return [paragraph, link].map(element => {
+                const foreground = luminance(getComputedStyle(element).color);
+                return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+            });
+        }
+        """;
+
+    private const string FocusContrastExpression = """
+        element => {
+            const channels = value => value.match(/[\d.]+/g).slice(0, 3).map(Number).map(channel => channel / 255);
+            const linear = channel => channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
+            const luminance = value => {
+                const [red, green, blue] = channels(value).map(linear);
+                return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+            };
+            const outline = luminance(getComputedStyle(element).outlineColor);
+            const background = luminance(getComputedStyle(document.body).backgroundColor);
+            return (Math.max(outline, background) + 0.05) / (Math.min(outline, background) + 0.05);
+        }
         """;
 
     [Fact(DisplayName = "Docs Site: Landing Page Uses LeanCorpus Components")]
@@ -65,7 +135,8 @@ public sealed class DocsSiteAcceptanceTests
         try
         {
             await page.GotoAsync(site.Url("server/08-operational-limits.html"));
-            Assert.True(await page.Locator("article table").CountAsync() > 0);
+            var table = page.Locator("article table").First;
+            Assert.True(await table.CountAsync() > 0);
 
             foreach (var width in DocsSiteViewports.Widths)
             {
@@ -73,6 +144,15 @@ public sealed class DocsSiteAcceptanceTests
                 var documentWidth = await page.EvaluateAsync<int>("() => document.documentElement.scrollWidth");
                 var overflowElements = await page.EvaluateAsync<string>("""() => Array.from(document.querySelectorAll('body *')).filter(element => element.getBoundingClientRect().right > window.innerWidth + 1).slice(0, 8).map(element => element.tagName.toLowerCase() + '#' + element.id + '.' + Array.from(element.classList).join('.') + ':' + Math.round(element.getBoundingClientRect().right)).join(', ')""");
                 Assert.True(documentWidth <= width, $"The document overflows at {width}px: scroll width is {documentWidth}px. Elements: {overflowElements}");
+                Assert.Equal("auto", await table.EvaluateAsync<string>("element => getComputedStyle(element).overflowX"));
+            }
+
+            await page.GotoAsync(site.Url("api/Rowles.LeanCorpus.Index.Indexer.IndexWriter.html"));
+            foreach (var width in DocsSiteViewports.Widths)
+            {
+                await page.SetViewportSizeAsync(width, DocsSiteViewports.Height);
+                var documentWidth = await page.EvaluateAsync<int>("() => document.documentElement.scrollWidth");
+                Assert.True(documentWidth <= width, $"A long API identifier overflows at {width}px: scroll width is {documentWidth}px.");
             }
         }
         catch
@@ -95,12 +175,14 @@ public sealed class DocsSiteAcceptanceTests
             Assert.True(await code.CountAsync() > 0);
             var largestCodeBlock = await code.EvaluateAllAsync<int>("elements => Math.max(...elements.map(element => element.innerText.length))");
             Assert.True(largestCodeBlock >= 500, $"The representative large code block contains only {largestCodeBlock} characters.");
+            var preformattedBlock = page.Locator("article pre").First;
 
             foreach (var width in DocsSiteViewports.Widths)
             {
                 await page.SetViewportSizeAsync(width, DocsSiteViewports.Height);
                 var documentWidth = await page.EvaluateAsync<int>("() => document.documentElement.scrollWidth");
                 Assert.True(documentWidth <= width, $"A code block causes document overflow at {width}px: scroll width is {documentWidth}px.");
+                Assert.Equal("auto", await preformattedBlock.EvaluateAsync<string>("element => getComputedStyle(element).overflowX"));
             }
         }
         catch
@@ -114,22 +196,111 @@ public sealed class DocsSiteAcceptanceTests
     public async Task MobileHeader_OpensNavigationMenu()
     {
         await using var site = await BrowserSite.StartAsync();
-        var page = await site.NewPageAsync(DocsSiteViewports.Phone, DocsSiteViewports.Height);
+        var page = await site.NewPageAsync(DocsSiteViewports.Phone, DocsSiteViewports.Height, hasTouch: true);
 
         try
         {
             await page.GotoAsync(site.Url("index.html"));
             var toggle = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Toggle navigation" });
             Assert.True(await toggle.IsVisibleAsync());
-            await toggle.ClickAsync();
-            var firstLink = page.Locator("#navbar .navbar-nav a[href]").First;
+            await toggle.TapAsync();
+            var learn = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Learn", Exact = true });
+            await learn.TapAsync();
+            var getStarted = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Show pages in Get started", Exact = true });
+            await getStarted.TapAsync();
+            var hideGetStarted = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Hide pages in Get started", Exact = true });
+            Assert.Equal("true", await hideGetStarted.GetAttributeAsync("aria-expanded"));
+            var firstLink = page.GetByRole(AriaRole.Link, new PageGetByRoleOptions { Name = "Installation and first index", Exact = true });
             await firstLink.WaitForAsync();
             Assert.True(await firstLink.IsVisibleAsync());
-            Assert.Contains("Get started", await page.Locator("#navbar").InnerTextAsync(), StringComparison.OrdinalIgnoreCase);
+            var documentWidth = await page.EvaluateAsync<int>("() => document.documentElement.scrollWidth");
+            Assert.True(documentWidth <= DocsSiteViewports.Phone, $"Mobile navigation overflows to {documentWidth}px.");
+            await firstLink.TapAsync();
+            await page.WaitForFunctionAsync("() => location.pathname.endsWith('/getting-started/01-installation.html')");
+            Assert.Contains("getting-started/01-installation.html", page.Url, StringComparison.Ordinal);
         }
         catch
         {
             await site.CaptureFailureAsync(page, nameof(MobileHeader_OpensNavigationMenu));
+            throw;
+        }
+    }
+
+    [Fact(DisplayName = "Docs Site: Header Categories Open, Navigate And Close Accessibly")]
+    public async Task HeaderCategories_OpenNavigateAndCloseAccessibly()
+    {
+        await using var site = await BrowserSite.StartAsync();
+        var page = await site.NewPageAsync(1440, DocsSiteViewports.Height);
+
+        try
+        {
+            await page.GotoAsync(site.Url("index.html"));
+            var navigationToggle = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Toggle navigation" });
+            if (await navigationToggle.IsVisibleAsync()) await navigationToggle.ClickAsync();
+            var engine = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Engine", Exact = true });
+            await engine.WaitForAsync();
+            await engine.PressAsync("Enter");
+            Assert.Equal("true", await engine.GetAttributeAsync("aria-expanded"));
+            var focusStyle = await engine.EvaluateAsync<string[]>("element => { const style = getComputedStyle(element); return [style.outlineStyle, style.outlineWidth]; }");
+            Assert.NotEqual("none", focusStyle[0]);
+            Assert.True(double.Parse(focusStyle[1].Replace("px", "", StringComparison.Ordinal), System.Globalization.CultureInfo.InvariantCulture) >= 2,
+                $"The keyboard focus indicator is only {focusStyle[1]} wide.");
+            var focusContrast = await engine.EvaluateAsync<double>(FocusContrastExpression);
+            Assert.True(focusContrast >= 3, $"The keyboard focus indicator contrast is {focusContrast:F2}:1.");
+
+            var queryParser = page.GetByRole(AriaRole.Link, new PageGetByRoleOptions { Name = "The query parser", Exact = true });
+            await queryParser.WaitForAsync();
+            Assert.True(await queryParser.IsVisibleAsync());
+
+            await page.Keyboard.PressAsync("Escape");
+            Assert.Equal("false", await engine.GetAttributeAsync("aria-expanded"));
+            Assert.Equal("Engine", await page.EvaluateAsync<string>("() => document.activeElement?.getAttribute('aria-label')"));
+
+            await engine.ClickAsync();
+            await page.Locator("#autocollapse .navbar-brand").ClickAsync();
+            Assert.Equal("false", await engine.GetAttributeAsync("aria-expanded"));
+
+            await engine.ClickAsync();
+            await queryParser.ClickAsync();
+            Assert.Contains("searching/04-query-parser.html", page.Url, StringComparison.Ordinal);
+            await page.WaitForFunctionAsync("() => document.querySelector('.lc-menu-category-toggle[data-active=\"true\"]')?.textContent.includes('Engine') === true");
+            Assert.Equal("page", await page.Locator(".lc-menu-page-link[aria-current='page']").GetAttributeAsync("aria-current"));
+        }
+        catch
+        {
+            await site.CaptureFailureAsync(page, nameof(HeaderCategories_OpenNavigateAndCloseAccessibly));
+            throw;
+        }
+    }
+
+    [Fact(DisplayName = "Docs Site: Desktop Header Shows Five Unwrapped Categories")]
+    public async Task DesktopHeader_ShowsUnwrappedCategoriesAtWideViewports()
+    {
+        await using var site = await BrowserSite.StartAsync();
+        var page = await site.NewPageAsync(DocsSiteViewports.Laptop, DocsSiteViewports.Height);
+
+        try
+        {
+            await page.GotoAsync(site.Url("index.html"));
+            await page.Locator(".lc-primary-nav").WaitForAsync();
+            var navigationToggle = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Toggle navigation" });
+            var categoryButtons = page.Locator(".lc-menu-category-toggle");
+            Assert.Equal(5, await categoryButtons.CountAsync());
+
+            foreach (var width in new[] { DocsSiteViewports.Laptop, DocsSiteViewports.Desktop, 1920 })
+            {
+                await page.SetViewportSizeAsync(width, DocsSiteViewports.Height);
+                Assert.False(await navigationToggle.IsVisibleAsync(), $"The navigation drawer toggle remains visible at {width}px.");
+                Assert.True(await categoryButtons.First.IsVisibleAsync(), $"The category navigation is hidden at {width}px.");
+                var documentWidth = await page.EvaluateAsync<int>("() => document.documentElement.scrollWidth");
+                Assert.True(documentWidth <= width, $"The header overflows to {documentWidth}px at a {width}px viewport.");
+                var categoryHeights = await categoryButtons.EvaluateAllAsync<double[]>("elements => elements.map(element => element.getBoundingClientRect().height)");
+                Assert.All(categoryHeights, height => Assert.InRange(height, 0, 48));
+            }
+        }
+        catch
+        {
+            await site.CaptureFailureAsync(page, nameof(DesktopHeader_ShowsUnwrappedCategoriesAtWideViewports));
             throw;
         }
     }
@@ -173,7 +344,6 @@ public sealed class DocsSiteAcceptanceTests
                 new PageWaitForFunctionOptions { Timeout = 10_000 });
             var lightPalette = await page.EvaluateAsync<string>(MermaidPaletteExpression);
 
-            await page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Toggle navigation" }).ClickAsync();
             var themeControl = page.GetByTitle("Change theme");
             await themeControl.ClickAsync();
             await page.GetByText("Dark", new PageGetByTextOptions { Exact = true }).ClickAsync();
@@ -221,7 +391,7 @@ public sealed class DocsSiteAcceptanceTests
         }
     }
 
-    [Fact(DisplayName = "Docs Site: Native Navigation And Search Work")]
+    [Fact(DisplayName = "Docs Site: Header Navigation And Search Work")]
     public async Task NavigationAndSearch_AreAvailable()
     {
         await using var site = await BrowserSite.StartAsync();
@@ -229,9 +399,14 @@ public sealed class DocsSiteAcceptanceTests
 
         try
         {
-            await page.GotoAsync(site.Url("guides/index.html"));
-            await page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Toggle navigation" }).ClickAsync();
-            await page.Locator("#navbar .navbar-nav a[href]").First.WaitForAsync();
+            await page.GotoAsync(site.Url("getting-started/01-installation.html"));
+            var navigationToggle = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Toggle navigation" });
+            if (await navigationToggle.IsVisibleAsync()) await navigationToggle.ClickAsync();
+            await page.Locator("#navbar.lc-navigation-ready .lc-primary-nav").WaitForAsync();
+            await page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Learn", Exact = true }).ClickAsync();
+            var installation = page.Locator(".lc-primary-nav").GetByRole(AriaRole.Link, new LocatorGetByRoleOptions { Name = "Installation and first index", Exact = true });
+            await installation.WaitForAsync();
+            Assert.True(await installation.IsVisibleAsync());
             Assert.DoesNotContain("Loading section navigation", await page.Locator("body").InnerTextAsync(), StringComparison.Ordinal);
 
             await page.WaitForFunctionAsync("() => { const input = document.querySelector('#search-query'); return input && !input.disabled; }");
@@ -241,9 +416,50 @@ public sealed class DocsSiteAcceptanceTests
                 await page.Locator("#search").ClickAsync();
             }
 
-            await search.FillAsync("IndexWriter");
-            await page.Locator("#search-results .sr-item").First.WaitForAsync(new LocatorWaitForOptions { Timeout = 15_000 });
-            Assert.True(await page.Locator("#search-results .sr-item").CountAsync() > 0);
+            (string Text, string? ExpectedRoute, bool ExpectResults)[] queries =
+            [
+                ("API", null, true),
+                ("IndexWriter", "api/Rowles.LeanCorpus.Index.Indexer.IndexWriter.html", true),
+                ("ADR041", "articles/ADRs/ADR041-physical-index-runtime-lifecycle.html", true),
+                ("Rowles.Text", "analysis/08-rowles-text.html", true),
+                ("IndexWriterr", null, false)
+            ];
+
+            foreach (var query in queries)
+            {
+                await page.GotoAsync(site.Url("index.html"));
+                await page.WaitForFunctionAsync("() => { const input = document.querySelector('#search-query'); return input && !input.disabled; }");
+                search = page.Locator("#search-query");
+                if (!await search.IsVisibleAsync())
+                {
+                    await page.Locator("#search").ClickAsync();
+                }
+
+                await search.FillAsync(query.Text);
+                if (query.Text == "Rowles.Text")
+                {
+                    Assert.Equal("Rowles Text", await search.InputValueAsync());
+                }
+                await page.WaitForFunctionAsync(
+                    "() => { const results = document.querySelector('#search-results'); return results && (results.querySelector('.sr-item') || results.textContent.includes('No results for')); }",
+                    null,
+                    new PageWaitForFunctionOptions { Timeout = 15_000 });
+
+                var resultItems = page.Locator("#search-results .sr-item");
+                if (!query.ExpectResults)
+                {
+                    Assert.Equal(0, await resultItems.CountAsync());
+                    Assert.Contains("No results for", await page.Locator("#search-results").InnerTextAsync(), StringComparison.Ordinal);
+                    continue;
+                }
+
+                Assert.True(await resultItems.CountAsync() > 0, $"Search for '{query.Text}' returned no results.");
+                if (query.ExpectedRoute is not null)
+                {
+                    var resultRoutes = await resultItems.EvaluateAllAsync<string[]>("items => items.map(item => { const link = item instanceof HTMLAnchorElement ? item : item.querySelector('a'); return link?.getAttribute('href') ?? ''; })");
+                    Assert.Contains(resultRoutes, route => route.Contains(query.ExpectedRoute, StringComparison.OrdinalIgnoreCase));
+                }
+            }
         }
         catch
         {
@@ -261,7 +477,6 @@ public sealed class DocsSiteAcceptanceTests
         try
         {
             await page.GotoAsync(site.Url("index.html"));
-            await page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Toggle navigation" }).ClickAsync();
             var themeControl = page.GetByTitle("Change theme");
             await themeControl.ClickAsync();
             await page.GetByText("Dark", new PageGetByTextOptions { Exact = true }).ClickAsync();
@@ -278,6 +493,34 @@ public sealed class DocsSiteAcceptanceTests
         catch
         {
             await site.CaptureFailureAsync(page, nameof(NativeThemeControl_SwitchesBothThemes));
+            throw;
+        }
+    }
+
+    [Fact(DisplayName = "Docs Site: Article Text And Links Meet Contrast In Both Themes")]
+    public async Task ArticleTextAndLinks_MeetContrastInBothThemes()
+    {
+        await using var site = await BrowserSite.StartAsync();
+        var page = await site.NewPageAsync();
+
+        try
+        {
+            await page.GotoAsync(site.Url("getting-started/01-installation.html"));
+            var themeControl = page.GetByTitle("Change theme");
+            var contrastRatios = await page.EvaluateAsync<double[]>(ContrastRatiosExpression);
+            Assert.Equal(2, contrastRatios.Length);
+            Assert.All(contrastRatios, ratio => Assert.True(ratio >= 4.5, $"Article text contrast is {ratio:F2}:1."));
+
+            await themeControl.ClickAsync();
+            await page.GetByText("Dark", new PageGetByTextOptions { Exact = true }).ClickAsync();
+            await page.WaitForFunctionAsync("() => document.documentElement.dataset.bsTheme === 'dark'");
+            contrastRatios = await page.EvaluateAsync<double[]>(ContrastRatiosExpression);
+            Assert.Equal(2, contrastRatios.Length);
+            Assert.All(contrastRatios, ratio => Assert.True(ratio >= 4.5, $"Dark theme article text contrast is {ratio:F2}:1."));
+        }
+        catch
+        {
+            await site.CaptureFailureAsync(page, nameof(ArticleTextAndLinks_MeetContrastInBothThemes));
             throw;
         }
     }
@@ -344,6 +587,67 @@ public sealed class DocsSiteAcceptanceTests
                 Assert.True(await page.Locator("article :is(h1, h2, h3)").CountAsync() > 0, $"Route '{route}' has no article heading.");
             }
 
+            await page.GotoAsync(site.Url("benchmarks/overview.html"));
+            var benchmarkOverview = await page.Locator("article").InnerTextAsync();
+            Assert.Contains("No qualified benchmark results are published for this build", benchmarkOverview, StringComparison.Ordinal);
+            Assert.True(await page.GetByRole(AriaRole.Link, new PageGetByRoleOptions { Name = "Performance", Exact = true }).CountAsync() > 0);
+            Assert.True(await page.GetByRole(AriaRole.Link, new PageGetByRoleOptions { Name = "Benchmarking guide", Exact = true }).CountAsync() > 0);
+
+            await page.GotoAsync(site.Url("analysis/08-rowles-text.html"));
+            var sourceUrl = await page.Locator("meta[name='docfx:docurl']").GetAttributeAsync("content");
+            var editUrl = await page.Locator("a.edit-link").GetAttributeAsync("href");
+            Assert.NotNull(sourceUrl);
+            Assert.Equal(sourceUrl, editUrl);
+            Assert.EndsWith("/src/core/Rowles.Text/README.md", sourceUrl, StringComparison.Ordinal);
+            var breadcrumb = await page.Locator("#breadcrumb").InnerTextAsync();
+            Assert.Contains("Rowles.Text", breadcrumb, StringComparison.Ordinal);
+            Assert.DoesNotContain("Examples", breadcrumb, StringComparison.OrdinalIgnoreCase);
+
+            var searchIndexPath = Path.Combine(site.SiteDirectory, "index.json");
+            using var searchIndex = JsonDocument.Parse(await File.ReadAllTextAsync(searchIndexPath, TestContext.Current.CancellationToken));
+            var indexedRoutes = searchIndex.RootElement.EnumerateObject().Select(static entry => entry.Name).ToArray();
+            Assert.Single(indexedRoutes, static route => route.Equals("analysis/08-rowles-text.html", StringComparison.Ordinal));
+            Assert.DoesNotContain("generated/analysis/08-rowles-text.html", indexedRoutes);
+            Assert.DoesNotContain(indexedRoutes, static route => route.EndsWith("toc.html", StringComparison.OrdinalIgnoreCase));
+            var supportTocs = Directory.EnumerateFiles(site.SiteDirectory, "toc.html", SearchOption.AllDirectories).ToArray();
+            Assert.NotEmpty(supportTocs);
+            Assert.Equal(0, await page.Locator(".lc-primary-nav a[href*='toc.html']").CountAsync());
+            Assert.False(File.Exists(Path.Combine(site.SiteDirectory, "generated", "analysis", "08-rowles-text.html")));
+
+            foreach (var import in ExpectedImports)
+            {
+                var response = await page.GotoAsync(site.Url(import.Route), new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+                Assert.NotNull(response);
+                Assert.Equal(200, response.Status);
+                var importedSourceUrl = await page.Locator("meta[name='docfx:docurl']").GetAttributeAsync("content");
+                var importedEditUrl = await page.Locator("a.edit-link").GetAttributeAsync("href");
+                Assert.NotNull(importedSourceUrl);
+                Assert.Equal(importedSourceUrl, importedEditUrl);
+                Assert.Contains("/blob/", importedSourceUrl, StringComparison.Ordinal);
+                Assert.EndsWith($"/{import.SourcePath}", importedSourceUrl, StringComparison.Ordinal);
+            }
+
+            var redirectPath = Path.Combine(site.SiteDirectory, "_redirects");
+            Assert.True(File.Exists(redirectPath), "The Cloudflare Pages redirect manifest was not copied to the site output.");
+            var redirectRules = File.ReadAllLines(redirectPath)
+                .Where(static line => !string.IsNullOrWhiteSpace(line) && !line.TrimStart().StartsWith('#'))
+                .Select(static line => line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+                .ToArray();
+            Assert.All(redirectRules, static rule => Assert.Equal(3, rule.Length));
+            var redirectBySource = redirectRules.ToDictionary(static rule => rule[0], static rule => (rule[1], rule[2]), StringComparer.Ordinal);
+            Assert.Equal(LegacyImportRoutes.Length * 2, redirectBySource.Count);
+            foreach (var route in LegacyImportRoutes)
+            {
+                foreach (var suffix in new[] { string.Empty, ".html" })
+                {
+                    var source = $"/generated/{route.LegacyPath}{suffix}";
+                    Assert.True(redirectBySource.TryGetValue(source, out var redirect), $"Missing legacy route redirect: {source}");
+                    Assert.Equal($"/{route.CanonicalPath}.html", redirect.Item1);
+                    Assert.Equal("301", redirect.Item2);
+                }
+                Assert.Contains($"{route.CanonicalPath}.html", indexedRoutes);
+            }
+
             await page.WaitForTimeoutAsync(100);
             Assert.Empty(browserErrors);
 
@@ -363,15 +667,15 @@ public sealed class DocsSiteAcceptanceTests
             Assert.True(await page.Locator("article [data-uid*='IndexWriter.Commit']").CountAsync() > 0,
                 "The API member anchor does not resolve on its containing type page.");
 
-            await page.GotoAsync(site.Url("guides/index.html"));
+            await page.GotoAsync(site.Url("getting-started/01-installation.html"));
             var articleTopBeforeNavigation = await page.Locator("article h1").EvaluateAsync<double>("element => element.getBoundingClientRect().top");
-            await page.WaitForFunctionAsync("() => document.querySelector('#navbar .navbar-nav a[href]') !== null");
+            await page.WaitForFunctionAsync("() => document.querySelector('#navbar.lc-navigation-ready .lc-primary-nav') !== null");
             await page.WaitForTimeoutAsync(100);
             var articleTopAfterNavigation = await page.Locator("article h1").EvaluateAsync<double>("element => element.getBoundingClientRect().top");
             Assert.InRange(Math.Abs(articleTopAfterNavigation - articleTopBeforeNavigation), 0, 1);
-            var activeNavigation = page.Locator("#navbar .navbar-nav a.active, #navbar .navbar-nav a[aria-current='page']");
+            var activeNavigation = page.Locator(".lc-menu-page-link[aria-current='page']");
             var activeCount = await activeNavigation.CountAsync();
-            var navigationState = await page.Locator("#navbar").EvaluateAsync<string>("element => Array.from(element.querySelectorAll('a[href]')).map(link => `${link.textContent.trim()}|${link.getAttribute('href')}|${link.className}|${link.getAttribute('aria-current')}`).join('; ')");
+            var navigationState = await page.Locator("#navbar").EvaluateAsync<string>("element => Array.from(element.querySelectorAll('.lc-menu-category-toggle, .lc-menu-section, .lc-menu-page-link')).map(item => `${item.textContent.trim()}|${item.className}|${item.getAttribute('aria-current') || item.dataset.active || ''}`).join('; ')");
             Assert.True(activeCount > 0, $"The current navigation item is not marked active. Navigation: {navigationState}");
         }
         catch
@@ -407,11 +711,11 @@ public sealed class DocsSiteAcceptanceTests
                 if (layout.Dark)
                 {
                     var navigationToggle = page.GetByRole(AriaRole.Button, new PageGetByRoleOptions { Name = "Toggle navigation" });
-                    await navigationToggle.ClickAsync();
+                    if (await navigationToggle.IsVisibleAsync()) await navigationToggle.ClickAsync();
                     await page.GetByTitle("Change theme").ClickAsync();
                     await page.GetByText("Dark", new PageGetByTextOptions { Exact = true }).ClickAsync();
                     await page.WaitForFunctionAsync("() => document.documentElement.dataset.bsTheme === 'dark'");
-                    if (string.Equals(await navigationToggle.GetAttributeAsync("aria-expanded"), "true", StringComparison.Ordinal))
+                    if (await navigationToggle.IsVisibleAsync() && string.Equals(await navigationToggle.GetAttributeAsync("aria-expanded"), "true", StringComparison.Ordinal))
                     {
                         await navigationToggle.ClickAsync();
                     }
@@ -433,7 +737,7 @@ public sealed class DocsSiteAcceptanceTests
     private static async Task AssertVisualBaselineAsync(BrowserSite site, IPage page, string name)
     {
         var repositoryRoot = site.RepositoryRoot;
-        var baselinePath = Path.Combine(repositoryRoot, "src", "devops", "Rowles.LeanCorpus.Tests.Docs", "VisualBaselines", $"{name}.png");
+        var baselinePath = GetVisualBaselinePath(repositoryRoot, name);
         var diagnosticsDirectory = Path.Combine(repositoryRoot, "artifacts", "docs", "diagnostics", "docs-site-visuals");
         Directory.CreateDirectory(diagnosticsDirectory);
         var actualPath = Path.Combine(diagnosticsDirectory, $"{name}.actual.png");
@@ -485,7 +789,49 @@ public sealed class DocsSiteAcceptanceTests
             """,
             new[] { expected, observed });
 
-        Assert.True(changedPixelRatio <= 0.005, $"Visual baseline '{name}' differs in {changedPixelRatio:P2} of pixels (limit 0.50%). Actual screenshot: '{actualPath}'.");
+        Assert.True(changedPixelRatio <= 0.005, $"Visual baseline '{name}' at '{baselinePath}' differs in {changedPixelRatio:P2} of pixels (limit 0.50%). Actual screenshot: '{actualPath}'.");
+    }
+
+    private static string GetVisualBaselinePath(string repositoryRoot, string name)
+    {
+        var baselineDirectory = Path.Combine(repositoryRoot, "src", "devops", "Rowles.LeanCorpus.Tests.Docs", "VisualBaselines");
+        var defaultPath = Path.Combine(baselineDirectory, $"{name}.png");
+        var updateBaselines = string.Equals(Environment.GetEnvironmentVariable("LEAN_CORPUS_UPDATE_DOCS_VISUAL_BASELINES"), "1", StringComparison.Ordinal);
+        var variant = GetVisualBaselineVariant();
+        if (variant is null)
+        {
+            return defaultPath;
+        }
+
+        var variantPath = Path.Combine(baselineDirectory, $"{name}.{variant}.png");
+        return File.Exists(variantPath) || updateBaselines ? variantPath : defaultPath;
+    }
+
+    private static string? GetVisualBaselineVariant()
+    {
+        if (!OperatingSystem.IsLinux() || !File.Exists("/etc/os-release"))
+        {
+            return null;
+        }
+
+        string? id = null;
+        string? versionId = null;
+        foreach (var line in File.ReadLines("/etc/os-release"))
+        {
+            if (line.StartsWith("ID=", StringComparison.Ordinal))
+            {
+                id = line[3..].Trim().Trim('"');
+            }
+            else if (line.StartsWith("VERSION_ID=", StringComparison.Ordinal))
+            {
+                versionId = line["VERSION_ID=".Length..].Trim().Trim('"');
+            }
+        }
+
+        return string.Equals(id, "ubuntu", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(versionId, "24.04", StringComparison.Ordinal)
+                ? "ubuntu-24.04"
+                : null;
     }
 }
 
@@ -565,12 +911,14 @@ internal sealed class BrowserSite : IAsyncDisposable
 
     public bool IsSameOrigin(string address) => new Uri(address).Authority == new Uri(BaseAddress).Authority;
 
-    public async Task<IPage> NewPageAsync(int width = 1280, int height = 900, bool javaScriptEnabled = true)
+    public async Task<IPage> NewPageAsync(int width = 1280, int height = 900, bool javaScriptEnabled = true, bool hasTouch = false)
     {
         var context = await _browser.NewContextAsync(new BrowserNewContextOptions
         {
             ViewportSize = new ViewportSize { Width = width, Height = height },
-            JavaScriptEnabled = javaScriptEnabled
+            JavaScriptEnabled = javaScriptEnabled,
+            HasTouch = hasTouch,
+            IsMobile = hasTouch
         });
         _contexts.Add(context);
         return await context.NewPageAsync();

@@ -94,35 +94,10 @@ For example, this matches analysed text in one field:
 
 Supported clause types are `match`, `term`, `range`, `exists`, `isNull`, `and`, `or`, `not`, `geoDistance`, and `vectorKnn`. Field names and supported operations are checked against the index schema. Boolean clauses accept 1 to 32 child clauses. Queries are limited to 16,384 JSON characters, nesting depth 16, and a `take` value of at most 100; `skip` is limited to 1,000,000. Vector queries must match the indexed dimensions, and their `topK` is limited to 100.
 
-## Functional and performance evidence
-
-The paired provider run used Orchard Core 3.0.1 on Debian GNU/Linux 13 with .NET 11 preview 7, an Intel Xeon E3-1220 V2 at 3.10 GHz, and 2,000 published content items. It compared the Orchard Lucene and LeanCorpus profiles in one host. Search and single-update measurements used one cold sample, three warm-ups, and ten measured samples per provider.
-
-| Operation | Lucene | LeanCorpus |
-| --- | ---: | ---: |
-| Term search median / p95 | 3.20 / 11.09 ms | 54.97 / 131.52 ms |
-| Multi-term search median / p95 | 5.56 / 5.60 ms | 38.88 / 45.01 ms |
-| Single-document update plus task processing, median / p95 | 25.48 / 37.64 ms | 112.96 / 187.28 ms |
-| Initial build, median of three | 1,457.46 ms | 2,438.29 ms |
-| Rebuild, median of three | 853.95 ms | 1,529.74 ms |
-| Index reopen after host restart | 0.012 ms | 174.345 ms |
-
-Search timing is measured inside `ISearchService.SearchAsync` and excludes loopback transport. Update timing sums Orchard content mutation and the target provider's indexing-task processing; a separate search checks visibility but is not included in the duration. Both providers receive each content task independently.
-
-Builds and rebuilds replay the same 2,000 Orchard indexing tasks through each provider's regular task-processing and content-field refresh path. Each provider had three initial-build runs and three rebuild runs. Three 100-item mutation and delete batches also passed, as did cursor-drain and host-restart/index-open checks. The raw report contains sample values, allocations, working set, index sizes, and startup timings. Operating-system caches were not flushed. These are results from one local run and are not a cross-machine performance guarantee.
-
-### Recommendation
-
-Keep the provider opt-in and experimental. It passes Orchard lifecycle, task replay, cursor recovery, field mapping, native geo/vector query, and restart checks, and it supplies local embedded storage without a remote search service. In this 2,000-item run it was slower than Lucene for both search queries, single-item updates, initial build, rebuild, and index reopen. It is therefore not yet a recommended default or a Lucene replacement for search-heavy sites. Consider it where local storage or native LeanCorpus capabilities matter and the measured workload fits; qualify it with a representative production corpus and deployment topology before adoption.
-
-The complete measurement record, including sample data and host provenance, is in [the raw run report](evidence/orchard-core-search-provider-runs.json). Run the phases in order; each command is a separate DevOps invocation and keeps the configured 100 second hang deadline:
-
-```bash
-pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase00_SeedSharedOrchardCorpus' -ExplicitOnly -HangTimeout 100s
-pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase10_BuildAndRebuildLucene' -ExplicitOnly -HangTimeout 100s
-pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase20_BuildAndRebuildLeanCorpus' -ExplicitOnly -HangTimeout 100s
-pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase30_SearchAndSingleDocumentUpdates' -ExplicitOnly -HangTimeout 100s
-pwsh ./devops.ps1 test -Suite server-orchard-performance -Framework net11.0 -Filter 'FullyQualifiedName~Phase40_BatchMutationsAndIndexRestart' -ExplicitOnly -HangTimeout 100s
-```
+## Validation and performance status
 
 The functional browser test installs a test Orchard site with paired Lucene and LeanCorpus profiles, then checks search results through publish, update, unpublish, hard removal, reset, and index-queue processing. The provider unit and integration suite covers schema mapping, persistence, replacement, cursor safety, and failure recovery.
+
+This package remains opt-in and alpha. No release-qualified provider performance results are published, so this page makes no comparative latency, throughput, allocation or index-size claim. A historical local paired run is retained as maintainer evidence and is not a current release result.
+
+For measurement requirements and reproducibility, see the [Performance overview](../performance.md) and [Benchmarking guide](../tips/03-benchmarking.md). Qualify the provider with a representative corpus and deployment topology before making a performance-based adoption decision.

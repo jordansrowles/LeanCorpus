@@ -8,11 +8,11 @@ _layout: landing
 
 # LeanCorpus
 
-**Fast embedded search with control over your index, query execution and deployment.**
+**Embedded search with control over your index, query execution and deployment.**
 
 Built for modern .NET, Native AOT and large local search workloads.
 
-<p class="lc-hero-install"><code>dotnet add package LeanCorpus</code></p>
+<p class="lc-hero-install"><code>dotnet add package LeanCorpus --version 4.0.0</code></p>
 
 <p class="lc-hero-actions">
 <a class="lc-button lc-button-primary" href="getting-started/01-installation.md">Build your first search</a>
@@ -22,53 +22,26 @@ Built for modern .NET, Native AOT and large local search workloads.
 
 </section>
 
-## Five-minute quick start
-
-```csharp
-using Rowles.LeanCorpus.Document;
-using Rowles.LeanCorpus.Document.Fields;
-using Rowles.LeanCorpus.Index.Indexer;
-using Rowles.LeanCorpus.Search.Queries;
-using Rowles.LeanCorpus.Search.Searcher;
-using Rowles.LeanCorpus.Store;
-
-// Create an index
-using var dir = new MMapDirectory("./my-index");
-using var writer = new IndexWriter(dir, new IndexWriterConfig());
-
-// Add documents
-var doc = new LeanDocument();
-doc.Add(new TextField("title", "The quick brown fox"));
-doc.Add(new StringField("id", "1"));
-writer.AddDocument(doc);
-writer.Commit();
-
-// Search
-using var searcher = new IndexSearcher(dir);
-var hits = searcher.Search(new TermQuery("title", "fox"), topN: 10);
-
-foreach (var hit in hits.ScoreDocs)
-    Console.WriteLine($"docId={hit.DocId}  score={hit.Score:F3}");
-```
+> **Documentation preview:** This branch describes the unreleased LeanCorpus 4.0.0 and Rowles.Text 2.0.0 package set. The NuGet badges below show published versions, which can differ from this source. Community Server is a separate alpha track.
 
 ## Why LeanCorpus
 
 | | |
 |---|---|
-| **Zero allocations in the hot path** | Ref-struct token pipeline. No per-token heap allocation during analysis or scoring. |
+| **Span-based analysis** | Ref-struct token pipeline designed to avoid per-token heap allocation during analysis. |
 | **Modern scoring** | BM25 (default), BM25+, BM25L, TF-IDF, Dirichlet, Jelinek-Mercer, and SIMD-accelerated cosine. Block-Max WAND for sublinear top-k. |
-| **Vector search built in** | HNSW graphs with pre/post-filtering and BBQ quantisation (32x compression). Not a plugin. |
+| **Vector search built in** | HNSW graphs with pre/post-filtering and BBQ quantisation. Not a plugin. |
 | **Native AOT** | Trim-safe, publish-ready with `PublishAot`. Validated by a dedicated smoke-test suite. |
 | **LINQ queries** | `IQueryable<T>` provider translates expression trees to LeanCorpus queries. |
 | **Observability built in** | OpenTelemetry tracing and metrics, slow-query log, Aspire dashboard integration. |
-| **Competitive performance** | Benchmarks against Lucene.Net 4.8 on 100k-document corpora. Up to 63x faster highlighting, 33x faster geo-distance queries, with 10x to 100x less allocation. |
+| **Performance evidence** | No release-qualified benchmark results are published for this preview. See the [comparison and reproducibility guidance](performance.md). |
 
 ## Start here
 
 | | Start with this |
 |---|---|
 | **Build your first search** | Create an index, add documents, and run a query in [three short steps](getting-started/01-installation.md). |
-| **Choose a package** | Find the core library, standalone [Rowles.Text](https://leancorpus.com/analysis/08-rowles-text.html), source generator and compression packages below. |
+| **Choose a package** | Find the core library, standalone [Rowles.Text](analysis/08-rowles-text.md), source generator and compression packages below. |
 | **Learn the architecture** | Understand documents, analysis, segments, readers, queries and vectors in [Concepts](concepts/index.md). |
 
 ## Is LeanCorpus right for me?
@@ -82,7 +55,7 @@ Choose LeanCorpus when you need embedded, local .NET search with control over in
 <section class="lc-feature-card" markdown="1">
 
 ### Analysis
-Zero-allocation span-based pipeline: tokenisers, 28 token filters, 11 language stemmers, synonym graphs, Hunspell dictionary stemming, ICU, CJK tokenisation, pattern tokenisers, phonetic filters (Metaphone, Beider-Morse style).
+Span-based analysis pipeline with tokenisers, 28 token filters, 11 language stemmers, synonym graphs, Hunspell dictionary stemming, ICU, CJK tokenisation, pattern tokenisers and phonetic filters (Metaphone, Beider-Morse style).
 [Browse analysis docs](analysis/index.md)
 
 </section>
@@ -123,7 +96,7 @@ Multi-threaded indexing with per-thread DWPT pools. Near-real-time readers via `
 
 ### Extensibility
 CodecKit for custom storage formats. Pluggable compression (LZ4, Snappy, Zstandard). Source-generated document schemas. Index codec migrator for format upgrades.
-[Browse contributor docs](https://leancorpus.com/contributors/index.html)
+[Browse contributor docs](contributors/index.md)
 
 </section>
 
@@ -131,14 +104,14 @@ CodecKit for custom storage formats. Pluggable compression (LZ4, Snappy, Zstanda
 
 ## Packages
 
-| Package | NuGet | Description |
-|---|---|---|
-| **LeanCorpus** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus?style=flat)](https://www.nuget.org/packages/LeanCorpus/) | Core library. Zero dependencies. |
-| **Rowles.Text** | [![NuGet](https://img.shields.io/nuget/v/Rowles.Text?style=flat)](https://www.nuget.org/packages/Rowles.Text/) | Standalone tokenisers, filters, stemmers and analysers. |
-| **LeanCorpus.SourceGen** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.SourceGen?style=flat)](https://www.nuget.org/packages/LeanCorpus.SourceGen/) | Roslyn source generator for typed document mapping |
-| **LeanCorpus.Compression.LZ4** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.LZ4?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.LZ4/) | LZ4 stored-field compression |
-| **LeanCorpus.Compression.Snappy** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Snappy?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Snappy/) | Snappy stored-field compression |
-| **LeanCorpus.Compression.Zstandard** | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Zstandard?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Zstandard/) | Zstandard stored-field compression |
+| Package | Repository version | NuGet | Description |
+|---|---|---|---|
+| **LeanCorpus** | 4.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus?style=flat)](https://www.nuget.org/packages/LeanCorpus/) | Core library. Zero dependencies. |
+| **Rowles.Text** | 2.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/Rowles.Text?style=flat)](https://www.nuget.org/packages/Rowles.Text/) | Standalone tokenisers, filters, stemmers and analysers. |
+| **LeanCorpus.SourceGen** | 1.1.0 | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.SourceGen?style=flat)](https://www.nuget.org/packages/LeanCorpus.SourceGen/) | Roslyn source generator for typed document mapping |
+| **LeanCorpus.Compression.LZ4** | 2.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.LZ4?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.LZ4/) | LZ4 stored-field compression |
+| **LeanCorpus.Compression.Snappy** | 2.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Snappy?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Snappy/) | Snappy stored-field compression |
+| **LeanCorpus.Compression.Zstandard** | 2.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Zstandard?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Zstandard/) | Zstandard stored-field compression |
 
 All packages target `net10.0` and `net11.0`.
 
@@ -148,7 +121,7 @@ All packages target `net10.0` and `net11.0`.
 - [Architecture overview](architecture.md)
 - [Why LeanCorpus?](why-leancorpus.md)
 - [Performance](performance.md)
-- [Examples](https://leancorpus.com/examples/index.html)
+- [Examples](examples/index.md)
 - [Feature comparison](articles/features/index.md)
 - [API reference](xref:api)
 - [Benchmarks](benchmarks/overview.md)

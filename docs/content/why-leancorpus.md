@@ -36,7 +36,7 @@ and DocValues, but it does not provide a separate taxonomy reader or writer.
 
 ## LeanCorpus vs Lucene.Net
 
-LeanCorpus benchmarks against Lucene.Net 4.8 as its external baseline. Both are segment-centric engines with similar mental models (IndexWriter, IndexSearcher, analyser pipelines), but they differ in focus:
+The repository includes benchmark cases against Lucene.Net 4.8 as an external baseline, but no release-qualified benchmark results are currently published. Both are segment-centric engines with similar mental models (IndexWriter, IndexSearcher, analyser pipelines), but they differ in focus:
 
 | | LeanCorpus | Lucene.Net 4.8 |
 |---|---|---|

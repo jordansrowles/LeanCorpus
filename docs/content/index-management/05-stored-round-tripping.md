@@ -55,5 +55,5 @@ Geo points round-trip from the stored `latitude,longitude` payload exposed by `G
 
 ## See also
 
-- [Source-generated mapping](https://leancorpus.com/getting-started/04-source-generated-mapping.html)
+- [Source-generated mapping](../getting-started/04-source-generated-mapping.md)
 - <xref:Rowles.LeanCorpus.Mapping.StoredDocument>

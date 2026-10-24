@@ -33,6 +33,7 @@ public sealed class DocumentationCommandServiceIntegrationTests
                 processRunner,
                 new DotNetSdkResolver(processRunner),
                 new GitRepositoryProvenanceReader(processRunner)),
+            configuration,
             Console.WriteLine);
 
         var canonicalIndex = Path.Combine(repositoryRoot, "docs", "content", "index.md");
@@ -92,6 +93,7 @@ public sealed class DocumentationCommandServiceIntegrationTests
         Assert.True(build.CommandResult.Outcome == OutcomeKind.Success,
             $"Managed docs build returned {build.CommandResult.Outcome}: {build.CommandResult.Message} {build.CommandResult.Details}");
         Assert.True(File.Exists(Path.Combine(paths.ArtifactRoot, "docs", "site", "index.html")));
+        Assert.True(File.Exists(Path.Combine(paths.ArtifactRoot, "docs", "content", "benchmarks", "qualification-audit.md")));
         Assert.True(File.Exists(Path.Combine(build.RunDirectory, "content-manifest.json")));
         Assert.Equal(RunState.Succeeded, build.Manifest.State);
 
@@ -108,10 +110,13 @@ public sealed class DocumentationCommandServiceIntegrationTests
             $"Managed docs test returned {test.CommandResult.Outcome}: {test.CommandResult.Message} {test.CommandResult.Details}");
         Assert.Equal(RunState.Succeeded, test.Manifest.State);
         Assert.NotNull(test.StaticValidation);
-        Assert.Equal(217, test.StaticValidation.MarkdownPages);
-        Assert.Equal(1745, test.StaticValidation.HtmlPages);
+        Assert.Equal(218, test.StaticValidation.MarkdownPages);
+        Assert.Equal(1746, test.StaticValidation.HtmlPages);
         var childRunId = Guid.Parse(test.Manifest.Inputs["docsSiteTestRunId"]);
         using var childManifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(paths.ArtifactRoot, "test", "runs", childRunId.ToString("D"), "run.json")));
+        Assert.Equal(1, test.Manifest.SchemaVersion);
+        Assert.Equal(test.Manifest.RunId, Guid.Parse(childManifest.RootElement.GetProperty("parentRunId").GetString()!));
+        Assert.Equal(1, childManifest.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.Equal("true", childManifest.RootElement.GetProperty("inputs").GetProperty("noRestore").GetString());
     }
 

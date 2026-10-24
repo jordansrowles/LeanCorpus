@@ -7,7 +7,7 @@ This section routes repository contributors to the shortest useful guide. Packag
 
 ## Make a first contribution
 
-1. Read the repository [CONTRIBUTING guide](../../../CONTRIBUTING.md).
+1. Read the [contribution guide](contributing.md).
 2. Run `pwsh -NoProfile -File ./setup.ps1` and `./devops build`.
 3. Choose the subsystem that owns the behaviour.
 4. Run one focused test selection.
@@ -19,11 +19,11 @@ This section routes repository contributors to the shortest useful guide. Packag
 
 | I want to... | Guide |
 | --- | --- |
-| Make a normal LeanCorpus change | [General contribution guide](../../../CONTRIBUTING.md) |
-| Change analysers, filters, tokenisers, stemmers or languages | [Rowles.Text contribution guide](../../../src/core/Rowles.Text/CONTRIBUTING.md) |
-| Add tests, benchmarks or repository tooling | [DevOps and tests contribution guide](../../../src/devops/CONTRIBUTING.md) |
+| Make a normal LeanCorpus change | [General contribution guide](contributing.md) |
+| Change analysers, filters, tokenisers, stemmers or languages | [Rowles.Text contribution guide](rowles-text.md) |
+| Add tests, benchmarks or repository tooling | [DevOps and tests contribution guide](devops-and-tests.md) |
+| Find DevOps projects and commands | [DevOps projects and repository tooling](devops-projects.md) |
 | Understand `devops` and `devops.ps1` | [DevOps entry point](devops-entry-point.md) |
-| Review the managed DevOps migration | [Migration ledger](devops/migration-ledger.md), [publish compatibility](devops/publish-compatibility.md) and [lab runner specification](devops/lab-implementation-spec.md) |
 | Use the interactive DevOps workbench | [Interactive DevOps workbench](devops-ui.md) |
 | Change the DocFX site or generated documentation | [Documentation](documentation.md) |
 | Add or assess a benchmark | [Benchmarking](benchmarking.md) |

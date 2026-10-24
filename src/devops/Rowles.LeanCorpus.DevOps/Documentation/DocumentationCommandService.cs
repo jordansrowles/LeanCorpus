@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Build;
+using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Terminal;
@@ -32,6 +33,7 @@ internal sealed class DocumentationCommandService(
     DocumentationSiteMetadataWriter metadataWriter,
     TestRunPlanner testPlanner,
     IManagedTestExecutor testExecutor,
+    DevOpsConfiguration configuration,
     Action<string>? progress = null)
 {
     private readonly DocumentationContentStager _stager = new();
@@ -46,23 +48,23 @@ internal sealed class DocumentationCommandService(
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Checkout);
-        var action = request.Action.Trim().ToLowerInvariant();
-        if (action is not ("prepare" or "metadata" or "build" or "test" or "serve"))
+        if (!DocumentationActionCatalog.TryParse(request.Action, out var action))
         {
-            throw new InvalidOperationException($"Unknown docs action '{request.Action}'. Expected: prepare, metadata, build, test or serve.");
+            throw new InvalidOperationException($"Unknown docs action '{request.Action}'. Expected: {DocumentationActionCatalog.ExpectedNames}.");
         }
-        if (action == "test" && (request.SkipBenchmarks || request.SkipCoverage))
+        var actionName = DocumentationActionCatalog.GetName(action);
+        if (action == DocumentationAction.Test && (request.SkipBenchmarks || request.SkipCoverage))
         {
             throw new InvalidOperationException("Docs test does not accept preparation skip options.");
         }
-        if (action != "test" && (request.NoRestore || !request.Framework.Equals("net10.0", StringComparison.OrdinalIgnoreCase)))
+        if (action != DocumentationAction.Test && (request.NoRestore || !request.Framework.Equals("net10.0", StringComparison.OrdinalIgnoreCase)))
         {
             throw new InvalidOperationException("Docs framework and no-restore options are valid only with docs test.");
         }
 
         var inputs = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["action"] = action,
+            ["action"] = actionName,
             ["skipBenchmarks"] = request.SkipBenchmarks ? "true" : "false",
             ["skipCoverage"] = request.SkipCoverage ? "true" : "false",
             ["framework"] = request.Framework,
@@ -93,16 +95,16 @@ internal sealed class DocumentationCommandService(
             DocumentationVersionResult? versions = null;
             switch (action)
             {
-                case "prepare":
+                case DocumentationAction.Prepare:
                     versions = await PrepareInputsAsync(request, provenance, runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
                     artifacts.AddRange(["content", "generated"]);
                     break;
-                case "metadata":
+                case DocumentationAction.Metadata:
                     versions = await PrepareInputsAsync(request, provenance, runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
                     await RegenerateMetadataAsync(runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
                     artifacts.AddRange(["content", "generated", "api", "diagnostics"]);
                     break;
-                case "build":
+                case DocumentationAction.Build:
                     versions = await PrepareInputsAsync(request, provenance, runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
                     var metadataWarnings = await RegenerateMetadataAsync(runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
                     var buildWarnings = await BuildSiteAsync(runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
@@ -116,7 +118,7 @@ internal sealed class DocumentationCommandService(
                         }).ConfigureAwait(false);
                     artifacts.AddRange(["content", "generated", "api", "site", "coverage", "diagnostics"]);
                     break;
-                case "test":
+                case DocumentationAction.Test:
                     versions = await metadataWriter.EvaluateVersionsAsync(artifactPaths.RepositoryRoot, runDirectory, cancellationToken).ConfigureAwait(false);
                     staticValidation = _staticValidator.Validate(artifactPaths.RepositoryRoot,
                         DocsPath("content"), DocsPath("api"), DocsPath("site"), versions.ProductVersion, versions.DevOpsVersion);
@@ -150,7 +152,7 @@ internal sealed class DocumentationCommandService(
                     }
                     artifacts.AddRange(["content", "api", "site"]);
                     break;
-                case "serve":
+                case DocumentationAction.Serve:
                     versions = await PrepareInputsAsync(request, provenance, runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
                     var serveMetadataWarnings = await RegenerateMetadataAsync(runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
                     var serveBuildWarnings = await BuildSiteAsync(runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
@@ -168,8 +170,8 @@ internal sealed class DocumentationCommandService(
 
             await WriteContentManifestAsync(runDirectory, manifest.RunId, provenance.Commit, cancellationToken).ConfigureAwait(false);
             artifacts.Add("content-manifest.json");
-            commandResult = new CommandResult(OutcomeKind.Success, $"Docs {action} completed. Evidence: {runDirectory}");
-            if (action == "serve")
+            commandResult = new CommandResult(OutcomeKind.Success, $"Docs {actionName} completed. Evidence: {runDirectory}");
+            if (action == DocumentationAction.Serve)
             {
                 WriteProgress("Serving the generated docs site at http://0.0.0.0:8080");
                 var result = await RunProcessAsync("docfx-serve", "dotnet",
@@ -183,7 +185,7 @@ internal sealed class DocumentationCommandService(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            commandResult = new CommandResult(OutcomeKind.Cancelled, $"Docs {action} was cancelled.", Details: runDirectory);
+            commandResult = new CommandResult(OutcomeKind.Cancelled, $"Docs {actionName} was cancelled.", Details: runDirectory);
         }
         catch (DocumentationOperationException exception)
         {
@@ -196,7 +198,7 @@ internal sealed class DocumentationCommandService(
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception or JsonException or TimeoutException)
         {
             commandResult = new CommandResult(OutcomeKind.InfrastructureFailure,
-                $"Could not complete managed docs {action}.", Details: JoinDetails(runDirectory, exception.Message));
+                $"Could not complete managed docs {actionName}.", Details: JoinDetails(runDirectory, exception.Message));
         }
 
         var terminalState = commandResult.Outcome switch
@@ -243,13 +245,15 @@ internal sealed class DocumentationCommandService(
         WriteProgress($"Validated and staged {adrCount} Core and Server ADR records.");
 
         var benchmarkDirectory = Path.Combine(content, "benchmarks");
+        var qualificationAudit = Path.Combine(sourceContent, "benchmarks", "qualification-audit.md");
         var diagramsDirectory = Path.Combine(siteConfig, "diagrams");
         var chartBundle = Path.Combine(diagramsDirectory, "node_modules", "chart.js", "dist", "chart.umd.js");
         var benchmarkScript = Path.Combine(siteConfig, "benchmark-charts.js");
         var benchmarkResult = _benchmarkGenerator.Generate(Path.Combine(repository, "artifacts", "benchmark", "runs"),
-            benchmarkDirectory, chartBundle, benchmarkScript, request.SkipBenchmarks);
+            benchmarkDirectory, chartBundle, benchmarkScript, configuration, request.SkipBenchmarks, qualificationAudit);
         foreach (var warning in benchmarkResult.Warnings) WriteProgress($"Benchmark docs: {warning}");
         _stager.SetContributionMetadata(repository, content, manifestPath, provenance.Commit!);
+        _catalogWriter.GenerateSectionTocs(content);
 
         if (!request.SkipCoverage)
         {
@@ -319,6 +323,7 @@ internal sealed class DocumentationCommandService(
             throw new DocumentationOperationException(OutcomeKind.InfrastructureFailure,
                 "DocFX completed but did not create the documentation site homepage.");
         }
+        DocumentationPublicationPolicy.ValidateOutput(DocsPath("content"), DocsPath("site"));
         return CountDocFxWarnings(log);
     }
 
@@ -371,31 +376,20 @@ internal sealed class DocumentationCommandService(
     private async Task WriteContentManifestAsync(string runDirectory, Guid runId, string commit, CancellationToken cancellationToken)
     {
         var docsRoot = DocsPath(string.Empty);
-        var roots = new[] { "content", "api", "site", "coverage", "generated" };
         var files = new List<object>();
-        foreach (var rootName in roots)
+        foreach (var file in DocumentationOwnedOutputCatalog.EnumerateFiles(docsRoot, cancellationToken))
         {
-            var root = DocsPath(rootName);
-            if (!Directory.Exists(root)) continue;
-            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
-                .OrderBy(static path => path, StringComparer.Ordinal))
+            cancellationToken.ThrowIfCancellationRequested();
+            var info = new FileInfo(file);
+            await using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
+            files.Add(new
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
-                {
-                    throw new InvalidDataException($"Documentation output contains a linked path and cannot be hashed safely: {file}");
-                }
-                var info = new FileInfo(file);
-                await using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024,
-                    FileOptions.Asynchronous | FileOptions.SequentialScan);
-                var hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
-                files.Add(new
-                {
-                    path = Path.GetRelativePath(docsRoot, file).Replace('\\', '/'),
-                    length = info.Length,
-                    sha256 = Convert.ToHexStringLower(hash)
-                });
-            }
+                path = Path.GetRelativePath(docsRoot, file).Replace('\\', '/'),
+                length = info.Length,
+                sha256 = Convert.ToHexStringLower(hash)
+            });
         }
         var document = new
         {

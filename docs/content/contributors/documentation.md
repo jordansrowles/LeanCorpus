@@ -9,6 +9,11 @@ Edit canonical Markdown under `docs/content/` and site implementation under
 including `artifacts/docs/api`, `artifacts/docs/content`, `artifacts/docs/site`,
 generated benchmark and coverage pages, or SDK `bin` and `obj` output.
 
+The docs build keeps authoring and maintainer evidence out of the public site.
+The ADR `_template.md`, the `contributors/devops/` working records and the
+`server/evidence/` reports remain in the repository but are excluded from the
+staged site and checked again after DocFX generates the routes.
+
 API reference pages are generated from XML documentation. If a public member is unclear, improve its XML comment as well as any conceptual guide.
 
 The feature comparison lives in the Markdown pages under

@@ -51,14 +51,6 @@
         "src": "../../artifacts/docs/content"
       },
       {
-        "files": [ "server/evidence/*.json" ],
-        "src": "../../artifacts/docs/content"
-      },
-      {
-        "files": [ "contributors/devops/*.json" ],
-        "src": "../../artifacts/docs/content"
-      },
-      {
         "files": [ "*.json", "benchmark-charts.js", "chart.umd.js" ],
         "src": "../../artifacts/docs/content/benchmarks",
         "dest": "benchmarks"
@@ -67,6 +59,10 @@
         "files": [ "**" ],
         "src": "../../artifacts/docs/coverage",
         "dest": "coverage"
+      },
+      {
+        "files": [ "_redirects" ],
+        "src": "../../artifacts/docs/content"
       }
     ],
     "globalMetadataFiles": [ "../../artifacts/docs/generated/site-metadata.json" ],

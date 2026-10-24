@@ -20,7 +20,8 @@ internal sealed class DocumentationContentStager
         }
 
         ResetDirectory(destination);
-        CopyDirectoryContents(source, destination);
+        CopyDirectoryContents(source, source, destination);
+        DocumentationPublicationPolicy.ValidateOutput(destination, destination);
     }
 
     public void CopyChangelog(string repositoryRoot, string contentDirectory)
@@ -70,7 +71,6 @@ internal sealed class DocumentationContentStager
             static entry => entry.Source.Replace('\\', '/'),
             PathComparer);
         var commitLower = commit.ToLowerInvariant();
-        var repositoryPrefix = "https://github.com/jordansrowles/LeanCorpus/blob/";
 
         foreach (var path in Directory.EnumerateFiles(contentRoot, "*.md", SearchOption.AllDirectories))
         {
@@ -83,7 +83,7 @@ internal sealed class DocumentationContentStager
             }
 
             var encodedPath = string.Join('/', sourceRelative.Split('/').Select(Uri.EscapeDataString));
-            var docUrl = $"{repositoryPrefix}{commitLower}/{encodedPath}";
+            var docUrl = RepositoryWebLinks.BlobUrl(commitLower, encodedPath);
             var content = File.ReadAllText(path);
             var frontMatter = FrontMatterPattern.Match(content);
             string rewritten;
@@ -123,6 +123,10 @@ internal sealed class DocumentationContentStager
         {
             return "changelog/" + relative["changelog/".Length..];
         }
+        if (string.Equals(relative, "benchmarks/qualification-audit.md", StringComparison.OrdinalIgnoreCase))
+        {
+            return "docs/content/benchmarks/qualification-audit.md";
+        }
         if (relative.StartsWith("benchmarks/", StringComparison.OrdinalIgnoreCase))
         {
             return "src/devops/Rowles.LeanCorpus.DevOps/Documentation/BenchmarkDocumentationGenerator.cs";
@@ -161,10 +165,16 @@ internal sealed class DocumentationContentStager
         }
     }
 
-    private static void CopyDirectoryContents(string source, string destination)
+    private static void CopyDirectoryContents(string sourceRoot, string source, string destination)
     {
         foreach (var entry in Directory.EnumerateFileSystemEntries(source))
         {
+            var relativePath = Path.GetRelativePath(sourceRoot, entry);
+            if (DocumentationPublicationPolicy.IsMaintainerOnly(relativePath))
+            {
+                continue;
+            }
+
             var attributes = File.GetAttributes(entry);
             if ((attributes & FileAttributes.ReparsePoint) != 0)
             {
@@ -175,7 +185,7 @@ internal sealed class DocumentationContentStager
             if ((attributes & FileAttributes.Directory) != 0)
             {
                 Directory.CreateDirectory(target);
-                CopyDirectoryContents(entry, target);
+                CopyDirectoryContents(sourceRoot, entry, target);
             }
             else
             {

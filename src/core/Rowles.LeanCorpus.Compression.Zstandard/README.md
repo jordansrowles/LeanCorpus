@@ -4,6 +4,8 @@
 
 Use this package when you want a stronger stored-field compression ratio while retaining good read performance.
 
+> **Documentation preview:** This repository branch targets LeanCorpus 4.0.0 and `LeanCorpus.Compression.Zstandard` 2.0.0. These versions are unreleased; the NuGet badge shows the latest published package.
+
 ## Enable Zstandard compression
 
 Install the core and codec packages:

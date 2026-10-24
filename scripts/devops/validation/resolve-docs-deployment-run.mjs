@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 const buildWorkflowPath = '.github/workflows/build.yml';
 const docsArtifactName = 'leancorpus-docs-site';
 const allowedBuildEvents = new Set(['push', 'workflow_dispatch']);
+const productionSourceBranch = 'main';
 
 export function resolveBuildRun(run, { repository, eventName, eventPayload, requestedRunId }) {
   if (!run || run.name !== 'Build' || run.path !== buildWorkflowPath) {
@@ -30,6 +31,9 @@ export function resolveBuildRun(run, { repository, eventName, eventPayload, requ
       !/^[A-Za-z0-9._/-]+$/.test(run.head_branch) ||
       run.head_branch.split('/').some(part => part === '.' || part === '..')) {
     throw new Error(`Build run ${run.id} has an unsafe source branch.`);
+  }
+  if (run.head_branch !== productionSourceBranch) {
+    throw new Error(`Build run ${run.id} from branch '${run.head_branch}' is not an authorised production source.`);
   }
 
   if (eventName === 'workflow_run') {

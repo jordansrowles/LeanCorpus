@@ -1,6 +1,6 @@
 # About LeanCorpus
 
-LeanCorpus is a fast, embeddable full-text search engine for modern .NET. It combines a segment-centric storage model with lexical, vector and hybrid search, while remaining suitable for Native AOT applications.
+LeanCorpus is an embeddable full-text search engine for modern .NET. It combines a segment-centric storage model with lexical, vector and hybrid search, while remaining suitable for Native AOT applications.
 
 ## Start exploring
 
@@ -8,4 +8,4 @@ LeanCorpus is a fast, embeddable full-text search engine for modern .NET. It com
 - [Concepts](../concepts/index.md) explains documents, analysis, index lifecycles, ranking and vector search.
 - [Architecture](../architecture.md) describes how the engine fits together.
 - [Why LeanCorpus?](../why-leancorpus.md) helps you decide whether it suits your application.
-- [Repository overview](../generated/repository-overview.md) maps the source tree and supporting projects.
+- [Repository overview](repository-overview.md) maps the source tree and supporting projects.

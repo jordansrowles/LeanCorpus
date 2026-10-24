@@ -3,59 +3,59 @@
   "imports": [
     {
       "source": "README.md",
-      "destination": "generated/repository-overview.md"
+      "destination": "about/repository-overview.md"
     },
     {
       "source": "CONTRIBUTING.md",
-      "destination": "generated/contributors/contributing.md"
+      "destination": "contributors/contributing.md"
     },
     {
       "source": "lexicons/README.md",
-      "destination": "generated/analysis/06-lexicons.md"
+      "destination": "analysis/06-lexicons.md"
     },
     {
       "source": "src/core/Rowles.Text/README.md",
-      "destination": "generated/analysis/08-rowles-text.md"
+      "destination": "analysis/08-rowles-text.md"
     },
     {
       "source": "src/core/Rowles.Text/CONTRIBUTING.md",
-      "destination": "generated/contributors/rowles-text.md"
+      "destination": "contributors/rowles-text.md"
     },
     {
       "source": "src/core/Rowles.LeanCorpus.SourceGen/README.md",
-      "destination": "generated/getting-started/04-source-generated-mapping.md"
+      "destination": "getting-started/04-source-generated-mapping.md"
     },
     {
       "source": "src/core/Rowles.LeanCorpus.Compression.LZ4/README.md",
-      "destination": "generated/tips/compression/lz4.md"
+      "destination": "tips/compression/lz4.md"
     },
     {
       "source": "src/core/Rowles.LeanCorpus.Compression.Snappy/README.md",
-      "destination": "generated/tips/compression/snappy.md"
+      "destination": "tips/compression/snappy.md"
     },
     {
       "source": "src/core/Rowles.LeanCorpus.Compression.Zstandard/README.md",
-      "destination": "generated/tips/compression/zstandard.md"
+      "destination": "tips/compression/zstandard.md"
     },
     {
       "source": "src/examples/README.md",
-      "destination": "generated/examples/index.md"
+      "destination": "examples/index.md"
     },
     {
       "source": "src/examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch/README.md",
-      "destination": "generated/examples/linux-kernel-code-search.md"
+      "destination": "examples/linux-kernel-code-search.md"
     },
     {
       "source": "src/devops/README.md",
-      "destination": "generated/contributors/devops-projects.md"
+      "destination": "contributors/devops-projects.md"
     },
     {
       "source": "src/devops/CONTRIBUTING.md",
-      "destination": "generated/contributors/devops-and-tests.md"
+      "destination": "contributors/devops-and-tests.md"
     },
     {
       "source": "src/server/README.md",
-      "destination": "generated/contributors/server-proof-of-concept.md"
+      "destination": "server/community-server.md"
     }
   ]
 }

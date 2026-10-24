@@ -4,6 +4,8 @@
 
 Use this package when you want fast stored-field compression with a speed and size profile similar to LZ4.
 
+> **Documentation preview:** This repository branch targets LeanCorpus 4.0.0 and `LeanCorpus.Compression.Snappy` 2.0.0. These versions are unreleased; the NuGet badge shows the latest published package.
+
 ## Enable Snappy compression
 
 Install the core and codec packages:

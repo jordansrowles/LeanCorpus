@@ -4,6 +4,8 @@
 
 Use this package when stored-field write and retrieval speed matter more than achieving the smallest possible index.
 
+> **Documentation preview:** This repository branch targets LeanCorpus 4.0.0 and `LeanCorpus.Compression.LZ4` 2.0.0. These versions are unreleased; the NuGet badge shows the latest published package.
+
 ## Enable LZ4 compression
 
 Install the core and codec packages:

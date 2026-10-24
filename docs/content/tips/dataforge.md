@@ -63,7 +63,7 @@ Once v1 is accepted, do not overwrite it with a later dump or a changed normalis
 
 ## Benchmark identity and comparability
 
-Synthetic remains the normal benchmark dataset. Wikipedia must be selected with `-Dataset wikipedia`, and the runner verifies the reference before starting. Only suites listed by `pwsh ./devops.ps1 benchmark -List` for Wikipedia mode are accepted. Text-only merge and flush methods are selected explicitly; generated prices, categories, vectors and other structured fields are not added to the imported pages.
+Synthetic remains the normal benchmark dataset. Wikipedia must be selected with `--dataset wikipedia`, and the runner verifies the reference before starting. Only suites listed by `./devops benchmark --list` for Wikipedia mode are accepted. Text-only merge and flush methods are selected explicitly; generated prices, categories, vectors and other structured fields are not added to the imported pages.
 
 The benchmark sidecar records the imported source kind, dataset ID/version, dependency versions, full record count and content hash with no seed. Generated identities also include dependency versions in ordinal name order. Those identities and their data fingerprint keep Wikipedia results in a separate history from synthetic `leancorpus-search` results. Compare timings only when the complete dataset identity, benchmark method, workload parameters and runtime match.
 

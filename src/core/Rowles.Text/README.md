@@ -13,8 +13,10 @@ Rowles.Text is the standalone text-analysis package from LeanCorpus. Use it when
 Install the package:
 
 ```bash
-dotnet add package Rowles.Text
+dotnet add package Rowles.Text --version 2.0.0
 ```
+
+This repository branch targets Rowles.Text 2.0.0. Check the NuGet badge above for the published package version; this documentation preview may describe APIs that are not in that package yet.
 
 Create an analyser and receive its tokens:
 
@@ -86,8 +88,8 @@ The pipeline favours streaming and span-based APIs to avoid per-token allocation
 Performance-sensitive changes should be checked with the registered analysis benchmark suites:
 
 ```bash
-pwsh ./devops.ps1 benchmark -List
-pwsh ./devops.ps1 benchmark -Suite analysis-filters -Strat fast
+./devops benchmark --list
+./devops benchmark --suite analysis-filters --strat fast
 ```
 
 ## Next steps

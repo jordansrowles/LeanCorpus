@@ -3,8 +3,10 @@
 ## Install
 
 ```bash
-dotnet add package LeanCorpus
+dotnet add package LeanCorpus --version 4.0.0
 ```
+
+This documentation preview targets the unreleased 4.0.0 package in this repository. Until 4.0.0 is published, the command cannot resolve from public NuGet; the package badges on the [home page](../index.md) show published versions.
 
 Targets `net10.0` and `net11.0`.
 

@@ -27,6 +27,7 @@ internal sealed class DocumentationStaticValidator
         var apiRoot = Path.GetFullPath(apiDirectory);
         var siteRoot = Path.GetFullPath(siteDirectory);
         var artifactRoot = Path.GetFullPath(Path.Combine(repository, "artifacts", "docs"));
+        DocumentationPublicationPolicy.ValidateOutput(contentRoot, siteRoot);
 
         var generatedRoot = Path.Combine(artifactRoot, "generated");
         var provenancePath = Path.Combine(generatedRoot, "provenance.json");
@@ -76,7 +77,7 @@ internal sealed class DocumentationStaticValidator
 
         var markdownFiles = Directory.EnumerateFiles(contentRoot, "*.md", SearchOption.AllDirectories).ToArray();
         if (markdownFiles.Length == 0) throw new InvalidDataException("No staged Markdown pages were found.");
-        var expectedUrlPrefix = $"https://github.com/jordansrowles/LeanCorpus/blob/{commit}/";
+        var expectedUrlPrefix = RepositoryWebLinks.BlobUrlPrefix(commit);
         foreach (var file in markdownFiles)
         {
             var source = File.ReadAllText(file);
@@ -157,7 +158,7 @@ internal sealed class DocumentationStaticValidator
         "index.md", "toc.yml", "articles/ADRs/index.md", "articles/ADRs/toc.yml",
         "articles/ADRs/ADR040-bounded-field-length-bodies.md", "articles/ADRs/ADR041-physical-index-runtime-lifecycle.md",
         "articles/ADRs/Server/ADR-S005-aot-and-framework-compatibility-boundary.md", "changelog/index.md", "changelog/toc.yml",
-        "changelog/devops/unreleased.md", "benchmarks/overview.md", "benchmarks/toc.yml"
+        "changelog/devops/unreleased.md", "benchmarks/overview.md", "benchmarks/qualification-audit.md", "benchmarks/toc.yml"
     ];
 
     private static IEnumerable<string> ReadTocTargets(string path)

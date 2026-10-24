@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Documentation;
+using Rowles.LeanCorpus.DevOps.Repository;
 
 namespace Rowles.LeanCorpus.DevOps.Tests.Documentation;
 
@@ -228,6 +230,53 @@ public sealed class RepositoryDocumentationImporterTests
     }
 
     [Fact]
+    public void CopyCanonicalContentOmitsMaintainerOnlyDocumentsAndStaleStagedFiles()
+    {
+        using var directory = new TemporaryDirectory();
+        var source = Path.Combine(directory.Path, "docs", "content");
+        var staged = Path.Combine(directory.Path, "artifacts", "docs", "content");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(staged);
+        File.WriteAllText(Path.Combine(staged, "stale.md"), "# Stale");
+        WriteSource("index.md", "# Public home");
+        WriteSource("contributors/documentation.md", "# Public contributor guide");
+        WriteSource("articles/ADRs/_template.md", "# ADR template");
+        WriteSource("contributors/devops/lab-implementation-spec.md", "# Internal specification");
+        WriteSource("contributors/devops/migration-ledger.md", "# Internal migration ledger");
+        WriteSource("contributors/devops/migration-ledger.json", "{}");
+        WriteSource("contributors/devops/publish-compatibility.md", "# Internal publish notes");
+        WriteSource("server/evidence/orchard-core-search-provider.md", "# Historical evidence");
+        WriteSource("server/evidence/orchard-core-search-provider-runs.json", "{}");
+
+        new DocumentationContentStager().CopyCanonicalContent(source, staged);
+
+        Assert.True(File.Exists(Path.Combine(staged, "index.md")));
+        Assert.True(File.Exists(Path.Combine(staged, "contributors", "documentation.md")));
+        Assert.False(File.Exists(Path.Combine(staged, "stale.md")));
+        Assert.False(File.Exists(Path.Combine(staged, "articles", "ADRs", "_template.md")));
+        Assert.False(Directory.Exists(Path.Combine(staged, "contributors", "devops")));
+        Assert.False(Directory.Exists(Path.Combine(staged, "server", "evidence")));
+        Assert.True(File.Exists(Path.Combine(source, "articles", "ADRs", "_template.md")));
+        Assert.True(File.Exists(Path.Combine(source, "contributors", "devops", "migration-ledger.md")));
+
+        var site = Path.Combine(directory.Path, "artifacts", "docs", "site");
+        Directory.CreateDirectory(site);
+        DocumentationPublicationPolicy.ValidateOutput(staged, site);
+        var leakedTemplate = Path.Combine(site, "articles", "ADRs", "_template.html");
+        Directory.CreateDirectory(Path.GetDirectoryName(leakedTemplate)!);
+        File.WriteAllText(leakedTemplate, "<html></html>");
+        var exception = Assert.Throws<InvalidDataException>(() => DocumentationPublicationPolicy.ValidateOutput(staged, site));
+        Assert.Contains("Maintainer-only documentation was included in public output", exception.Message, StringComparison.Ordinal);
+
+        void WriteSource(string relativePath, string content)
+        {
+            var path = Path.Combine(source, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, content);
+        }
+    }
+
+    [Fact]
     public void CopiesOnlyPublishedChangelogMarkdownAndKeepsOtherStagedFiles()
     {
         using var directory = new TemporaryDirectory();
@@ -310,14 +359,45 @@ public sealed class RepositoryDocumentationImporterTests
         File.WriteAllText(chartScript, "window.benchmarkCharts = true;" + Environment.NewLine);
 
         var result = new BenchmarkDocumentationGenerator().Generate(runs, output,
-            Path.Combine(chartDirectory, "chart.umd.js"), chartScript, skipRunScan: true);
+            Path.Combine(chartDirectory, "chart.umd.js"), chartScript, LoadConfiguration(), skipRunScan: true);
 
         Assert.Equal(0, result.PageCount);
-        Assert.Contains("No benchmark reports are available", File.ReadAllText(Path.Combine(output, "overview.md")), StringComparison.Ordinal);
+        var overview = File.ReadAllText(Path.Combine(output, "overview.md"));
+        Assert.Contains("No qualified benchmark results are published for this build", overview, StringComparison.Ordinal);
+        Assert.Contains("[Performance](../performance.md)", overview, StringComparison.Ordinal);
+        Assert.Contains("[Benchmarking guide](../tips/03-benchmarking.md)", overview, StringComparison.Ordinal);
         Assert.DoesNotContain("items:", File.ReadAllText(Path.Combine(output, "toc.yml")), StringComparison.Ordinal);
         Assert.Equal("window.Chart = {}; ", File.ReadAllText(Path.Combine(output, "chart.umd.js")));
         Assert.Equal("window.benchmarkCharts = true;" + Environment.NewLine + Environment.NewLine,
             File.ReadAllText(Path.Combine(output, "benchmark-charts.js")));
+    }
+
+    [Fact]
+    public void PreservesCanonicalQualificationAuditAlongsideGeneratedBenchmarkPages()
+    {
+        using var directory = new TemporaryDirectory();
+        var runs = Path.Combine(directory.Path, "runs");
+        var output = Path.Combine(directory.Path, "content", "benchmarks");
+        var chartDirectory = Path.Combine(directory.Path, "diagrams", "node_modules", "chart.js", "dist");
+        var chartScript = Path.Combine(directory.Path, "benchmark-charts.js");
+        var auditPath = Path.Combine(directory.Path, "source", "qualification-audit.md");
+        Directory.CreateDirectory(runs);
+        Directory.CreateDirectory(chartDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(auditPath)!);
+        File.WriteAllText(Path.Combine(chartDirectory, "chart.umd.js"), "chart-bundle");
+        File.WriteAllText(chartScript, "chart-runtime");
+        File.WriteAllText(auditPath, "# 4.0 benchmark qualification audit\n\nPinned evidence.\n");
+
+        new BenchmarkDocumentationGenerator().Generate(runs, output,
+            Path.Combine(chartDirectory, "chart.umd.js"), chartScript, LoadConfiguration(),
+            skipRunScan: true, canonicalQualificationAuditPath: auditPath);
+
+        Assert.Equal(File.ReadAllText(auditPath), File.ReadAllText(Path.Combine(output, "qualification-audit.md")));
+        Assert.Contains("No qualified benchmark results are published for this build",
+            File.ReadAllText(Path.Combine(output, "overview.md")), StringComparison.Ordinal);
+        Assert.Contains("[4.0 benchmark qualification audit](qualification-audit.md)",
+            File.ReadAllText(Path.Combine(output, "overview.md")), StringComparison.Ordinal);
+        Assert.Contains("qualification-audit.md", File.ReadAllText(Path.Combine(output, "toc.yml")), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -326,11 +406,16 @@ public sealed class RepositoryDocumentationImporterTests
         using var directory = new TemporaryDirectory();
         var runs = Path.Combine(directory.Path, "runs");
         var run = Path.Combine(runs, "run-1");
-        var suiteResults = Path.Combine(run, "core", "query", "results");
         var output = Path.Combine(directory.Path, "content", "benchmarks");
         var chartDirectory = Path.Combine(directory.Path, "diagrams", "node_modules", "chart.js", "dist");
         var chartScript = Path.Combine(directory.Path, "benchmark-charts.js");
-        Directory.CreateDirectory(suiteResults);
+        foreach (var suiteId in new[] { "query", "analysis", "legacy-unmapped" })
+        {
+            var suiteResults = Path.Combine(run, "core", suiteId, "results");
+            Directory.CreateDirectory(suiteResults);
+            File.WriteAllText(Path.Combine(suiteResults, "sample-report-github.md"), "Environment details\n\n| Method | Mean |\n| --- | --- |\n| Search | 1 ms |\n");
+            File.WriteAllText(Path.Combine(suiteResults, "sample-report-full.json"), "{\"Benchmarks\":[]}");
+        }
         Directory.CreateDirectory(chartDirectory);
         File.WriteAllText(Path.Combine(chartDirectory, "chart.umd.js"), "chart-bundle");
         File.WriteAllText(chartScript, "chart-runtime");
@@ -338,32 +423,96 @@ public sealed class RepositoryDocumentationImporterTests
             { "status": "Passed", "completedAtUtc": "2026-01-02T03:04:05Z", "machine": "test-host" }
             """);
         File.WriteAllText(Path.Combine(run, "run-report.json"), """
-            { "projects": [ { "project": "core", "status": "Passed", "path": "core" } ] }
+            {
+              "comparable": true,
+              "qualification": { "identityStatus": "Validated", "state": "Qualified", "eligibleForRatio": true },
+              "projects": [ { "project": "core", "status": "Passed", "path": "core" } ]
+            }
             """);
         File.WriteAllText(Path.Combine(run, "core", "report.json"), """
             {
+              "schemaVersion": 5,
               "totalBenchmarkCount": 1,
-              "generatedAtUtc": "2026-01-02T03:00:00Z",
+              "generatedAtUtc": "2026-08-31T23:00:00Z",
               "commitHash": "0123456789abcdef",
               "dotnetVersion": "10.0.0",
               "provenance": { "machineName": "test-host", "effectiveDocCount": 42 },
-              "suites": [ { "suiteName": "query", "failedBenchmarkCount": 0, "missingBenchmarkCount": 0 } ]
+              "suites": [
+                { "suiteName": "query", "failedBenchmarkCount": 0, "missingBenchmarkCount": 0 },
+                { "suiteName": "analysis", "failedBenchmarkCount": 0, "missingBenchmarkCount": 0 },
+                { "suiteName": "legacy-unmapped", "failedBenchmarkCount": 0, "missingBenchmarkCount": 0 }
+              ]
             }
             """);
-        File.WriteAllText(Path.Combine(suiteResults, "sample-report-github.md"), "Environment details\n\n| Method | Mean |\n| --- | --- |\n| Search | 1 ms |\n");
-        File.WriteAllText(Path.Combine(suiteResults, "sample-report-full.json"), "{\"Benchmarks\":[]}");
 
         var result = new BenchmarkDocumentationGenerator().Generate(runs, output,
-            Path.Combine(chartDirectory, "chart.umd.js"), chartScript);
+            Path.Combine(chartDirectory, "chart.umd.js"), chartScript, LoadConfiguration());
 
-        Assert.Equal(1, result.PageCount);
+        Assert.Equal(3, result.PageCount);
         var page = File.ReadAllText(Path.Combine(output, "query.md"));
         Assert.Contains("# Term queries", page, StringComparison.Ordinal);
         Assert.Contains("Commit** ``0123456``", page, StringComparison.Ordinal);
+        Assert.Contains("Qualification:** Historical / unqualified", page, StringComparison.Ordinal);
+        Assert.Contains("not a 4.0 performance comparison", page, StringComparison.Ordinal);
         Assert.Contains("42 docs", page, StringComparison.Ordinal);
         Assert.Contains("chart-scale-query", page, StringComparison.Ordinal);
         Assert.Equal("{\"Benchmarks\":[]}", File.ReadAllText(Path.Combine(output, "query.json")));
         Assert.Contains("[Term queries](query.md)", File.ReadAllText(Path.Combine(output, "overview.md")), StringComparison.Ordinal);
+        Assert.Contains("do not establish 4.0 performance comparisons", File.ReadAllText(Path.Combine(output, "overview.md")), StringComparison.Ordinal);
+        Assert.Contains("# Analysis", File.ReadAllText(Path.Combine(output, "analysis.md")), StringComparison.Ordinal);
+        Assert.Contains("# legacy-unmapped", File.ReadAllText(Path.Combine(output, "legacy-unmapped.md")), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GeneratedMultiMachineBenchmarkChartReferencesItsPrefixedJsonFile()
+    {
+        using var directory = new TemporaryDirectory();
+        var runs = Path.Combine(directory.Path, "runs");
+        var output = Path.Combine(directory.Path, "content", "benchmarks");
+        var chartDirectory = Path.Combine(directory.Path, "diagrams", "node_modules", "chart.js", "dist");
+        var repositoryRoot = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory).RepositoryRoot;
+        var chartScript = Path.Combine(repositoryRoot, "docs", "site-config", "benchmark-charts.js");
+        Directory.CreateDirectory(chartDirectory);
+        File.WriteAllText(Path.Combine(chartDirectory, "chart.umd.js"), "chart-bundle");
+
+        AddRun("run-debian", "debian", "aggregation", "2026-01-02T03:04:05Z");
+        AddRun("run-windows", "windows", "analysis", "2026-01-03T03:04:05Z");
+
+        var result = new BenchmarkDocumentationGenerator().Generate(runs, output,
+            Path.Combine(chartDirectory, "chart.umd.js"), chartScript, LoadConfiguration());
+
+        Assert.Equal(2, result.PageCount);
+        var page = File.ReadAllText(Path.Combine(output, "debian-aggregation.md"));
+        Assert.Contains("data-json=\"debian-aggregation.json\"", page, StringComparison.Ordinal);
+        Assert.Contains("canvas.dataset.json", File.ReadAllText(Path.Combine(output, "benchmark-charts.js")), StringComparison.Ordinal);
+
+        void AddRun(string runId, string machine, string suite, string completedAtUtc)
+        {
+            var run = Path.Combine(runs, runId);
+            var results = Path.Combine(run, "core", suite, "results");
+            Directory.CreateDirectory(results);
+            File.WriteAllText(Path.Combine(results, "sample-report-github.md"),
+                "Environment details\n\n| Method | Mean |\n| --- | --- |\n| Search | 1 ms |\n");
+            File.WriteAllText(Path.Combine(results, "sample-report-full.json"), "{\"Benchmarks\":[]}");
+            File.WriteAllText(Path.Combine(run, "run.json"), $$"""
+                { "status": "Passed", "completedAtUtc": "{{completedAtUtc}}", "machine": "{{machine}}" }
+                """);
+            File.WriteAllText(Path.Combine(run, "run-report.json"), """
+                { "projects": [ { "project": "core", "status": "Passed", "path": "core" } ] }
+                """);
+            File.WriteAllText(Path.Combine(run, "core", "report.json"), $$"""
+                {
+                  "totalBenchmarkCount": 1,
+                  "generatedAtUtc": "{{completedAtUtc}}",
+                  "commitHash": "0123456789abcdef",
+                  "dotnetVersion": "10.0.0",
+                  "provenance": { "machineName": "{{machine}}", "effectiveDocCount": 42 },
+                  "suites": [
+                    { "suiteName": "{{suite}}", "failedBenchmarkCount": 0, "missingBenchmarkCount": 0 }
+                  ]
+                }
+                """);
+        }
     }
 
     private static string Adr(string id, string title, string date, string status, string version,
@@ -395,6 +544,12 @@ public sealed class RepositoryDocumentationImporterTests
         lines.Add("## Decision");
         lines.Add("Fixture decision.");
         return string.Join(Environment.NewLine, lines) + Environment.NewLine;
+    }
+
+    private static DevOpsConfiguration LoadConfiguration()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        return new ConfigurationLoader(checkout.RepositoryRoot).Load();
     }
 
     private sealed class TemporaryDirectory : IDisposable

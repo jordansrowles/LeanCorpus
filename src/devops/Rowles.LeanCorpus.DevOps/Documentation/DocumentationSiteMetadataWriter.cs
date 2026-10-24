@@ -12,7 +12,6 @@ internal sealed record DocumentationVersionResult(string ProductVersion, string?
 
 internal sealed class DocumentationSiteMetadataWriter(IProcessRunner processRunner)
 {
-    private const string RepositoryUrl = "https://github.com/jordansrowles/LeanCorpus";
     private static readonly Regex SemanticVersionPattern = new("^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     public async Task<DocumentationVersionResult> WriteAsync(
@@ -43,9 +42,9 @@ internal sealed class DocumentationSiteMetadataWriter(IProcessRunner processRunn
             ["schemaVersion"] = 1,
             ["productVersion"] = coreVersion,
             ["devOpsVersion"] = devOpsVersion,
-            ["repository"] = RepositoryUrl,
+            ["repository"] = RepositoryWebLinks.RepositoryUrl,
             ["commit"] = commit,
-            ["commitUrl"] = $"{RepositoryUrl}/commit/{commit}",
+            ["commitUrl"] = RepositoryWebLinks.CommitUrl(commit),
             ["workingTreeDirty"] = provenance.Dirty
         };
         var siteMetadata = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -58,8 +57,8 @@ internal sealed class DocumentationSiteMetadataWriter(IProcessRunner processRunn
             ["productVersion"] = coreVersion,
             ["devOpsVersion"] = devOpsVersion,
             ["repositoryCommit"] = commit,
-            ["repositoryUrl"] = RepositoryUrl,
-            ["sourceRevisionUrl"] = $"{RepositoryUrl}/commit/{commit}"
+            ["repositoryUrl"] = RepositoryWebLinks.RepositoryUrl,
+            ["sourceRevisionUrl"] = RepositoryWebLinks.CommitUrl(commit)
         };
         var options = new JsonSerializerOptions { WriteIndented = true };
         await File.WriteAllTextAsync(Path.Combine(root, "provenance.json"),
@@ -80,8 +79,8 @@ internal sealed class DocumentationSiteMetadataWriter(IProcessRunner processRunn
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
         ArgumentException.ThrowIfNullOrWhiteSpace(runDirectory);
         var root = Path.GetFullPath(repositoryRoot);
-        const string coreProject = "src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj";
-        const string devOpsProject = "src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj";
+        var coreProject = RepositoryProjectCatalog.GetRelativePath(RepositoryProjectRole.Core);
+        var devOpsProject = RepositoryProjectCatalog.GetRelativePath(RepositoryProjectRole.DevOpsHost);
         var coreVersion = await ReadVersionAsync(root, coreProject, "core-version", runDirectory, cancellationToken).ConfigureAwait(false);
         var devOpsProjectPath = Path.Combine(root, devOpsProject.Replace('/', Path.DirectorySeparatorChar));
         var devOpsVersion = File.Exists(devOpsProjectPath)

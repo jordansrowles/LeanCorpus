@@ -29,6 +29,7 @@ The entry point centralises:
 
 - project and framework selection;
 - suite and strategy aliases;
+- benchmark project paths, execution policy and documentation labels;
 - generated-output locations;
 - benchmark provenance;
 - documentation metadata and report generation;
@@ -46,6 +47,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `aot` | Managed apphost: publish and run Native AOT smoke tests; full Phase 5 qualification is open | `./devops aot --framework net10.0` |
 | `coverage` | Managed apphost: run coverage-eligible suites and optionally generate a pinned HTML report | `./devops coverage -Suite sourcegen -GenerateReport` |
 | `benchmark` | Managed apphost: local and affected BenchmarkDotNet suites plus remote SSH/tmux lifecycle | `./devops benchmark --list` |
+| `config validate` | Validate managed metadata without building; `--deep` compares already-built benchmark host manifests | `./devops config validate --deep` |
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
 | `data` | PowerShell: prepare a named benchmark corpus | `pwsh ./devops.ps1 data gutenberg` |
 | `dataforge` | Managed apphost: run qualification; PowerShell: manage datasets and reference data | `./devops dataforge qualify` |

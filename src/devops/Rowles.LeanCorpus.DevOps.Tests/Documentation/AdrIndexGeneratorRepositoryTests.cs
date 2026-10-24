@@ -14,6 +14,7 @@ public sealed class AdrIndexGeneratorRepositoryTests
         new DocumentationContentStager().CopyCanonicalContent(source, staged);
 
         var count = new AdrIndexGenerator().Generate(source, Path.Combine(staged, "index.md"), staged);
+        var toc = File.ReadAllText(Path.Combine(staged, "toc.yml"));
 
         Assert.True(count >= 40, $"Expected the repository ADR graph, found only {count} records.");
         var index = File.ReadAllText(Path.Combine(staged, "index.md"));
@@ -21,6 +22,11 @@ public sealed class AdrIndexGeneratorRepositoryTests
         Assert.Contains("ADR041", index, StringComparison.Ordinal);
         Assert.Contains("use the reserved ADRnnn sequence; Server identifiers use ADR-Snnn.", index, StringComparison.Ordinal);
         Assert.DoesNotContain("`ADRnnn`", index, StringComparison.Ordinal);
+        Assert.DoesNotContain("_template.md", index, StringComparison.Ordinal);
+        Assert.Contains("ADR041-050", toc, StringComparison.Ordinal);
+        Assert.Contains("ADR041: Physical indexes have one composed runtime owner (Accepted)", toc, StringComparison.Ordinal);
+        Assert.DoesNotContain("Shared ADR template", toc, StringComparison.Ordinal);
+        Assert.DoesNotContain("_template.md", toc, StringComparison.Ordinal);
         Assert.EndsWith(Environment.NewLine, index, StringComparison.Ordinal);
         Assert.False(index.EndsWith(Environment.NewLine + Environment.NewLine, StringComparison.Ordinal));
     }
