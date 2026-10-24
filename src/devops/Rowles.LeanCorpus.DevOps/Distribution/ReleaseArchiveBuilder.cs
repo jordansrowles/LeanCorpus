@@ -201,9 +201,8 @@ internal sealed class ReleaseArchiveBuilder
             if (!windowsTarget)
             {
                 const int UnixRegularFile = 0x8000;
-                var fileMode = !OperatingSystem.IsWindows()
-                    ? (int)File.GetUnixFileMode(file)
-                    : (int)(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+                // ZIP permissions describe the target payload, independent of host and checkout modes.
+                var fileMode = relative == "devops" ? 0x1ED : 0x1A4; // 0755 executable, 0644 data
                 entry.ExternalAttributes = unchecked(((UnixRegularFile | fileMode) << 16) | 0x20);
             }
 

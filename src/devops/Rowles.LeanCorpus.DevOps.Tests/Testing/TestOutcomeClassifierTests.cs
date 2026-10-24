@@ -80,6 +80,23 @@ public sealed class TestOutcomeClassifierTests
             TestOutcomeClassifier.Classify("AotNative", Process(OutcomeKind.CommandFailure, 1), resultData: null));
     }
 
+    [Theory]
+    [InlineData(3, (int)TestExecutionOutcome.Cancelled)]
+    [InlineData(4, (int)TestExecutionOutcome.InfrastructureFailure)]
+    [InlineData(5, (int)TestExecutionOutcome.InfrastructureFailure)]
+    [InlineData(6, (int)TestExecutionOutcome.InfrastructureFailure)]
+    [InlineData(9, (int)TestExecutionOutcome.InfrastructureFailure)]
+    [InlineData(10, (int)TestExecutionOutcome.InfrastructureFailure)]
+    [InlineData(12, (int)TestExecutionOutcome.InfrastructureFailure)]
+    [InlineData(14, (int)TestExecutionOutcome.InfrastructureFailure)]
+    [InlineData(7, (int)TestExecutionOutcome.Crashed)]
+    [InlineData(11, (int)TestExecutionOutcome.Incomplete)]
+    public void MtpSessionExitCodesAreNotUnixSignalNumbers(int exitCode, int expected)
+    {
+        Assert.Equal((TestExecutionOutcome)expected, TestOutcomeClassifier.Classify("Mtp",
+            Process(OutcomeKind.CommandFailure, exitCode), MissingResults()));
+    }
+
     private static ProcessResult Process(OutcomeKind outcome, int? exitCode)
         => new(outcome, exitCode, [], [], 0, 0, TimeSpan.Zero, "stdout.log", "stderr.log", null);
 

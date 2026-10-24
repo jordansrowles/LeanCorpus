@@ -135,7 +135,7 @@ internal sealed class CoverageService(
                     "The managed test run completed without producing Cobertura coverage reports.",
                     Details: testResult.RunDirectory);
             }
-            else if (request.GenerateReport && coverageFiles.Length > 0)
+            else if (commandResult.Outcome == OutcomeKind.Success && request.GenerateReport && coverageFiles.Length > 0)
             {
                 var version = ReadPinnedToolVersion(request.Checkout.RepositoryRoot);
                 toolVersions["ReportGenerator"] = version;

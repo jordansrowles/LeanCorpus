@@ -172,6 +172,35 @@ public sealed class CoverageServiceTests
         Assert.DoesNotContain("html", result.Manifest.Artifacts);
     }
 
+    [Theory]
+    [InlineData((int)OutcomeKind.CommandFailure)]
+    [InlineData((int)OutcomeKind.Cancelled)]
+    [InlineData((int)OutcomeKind.Timeout)]
+    public async Task FailedTestsRetainRawCoverageWithoutStartingAnHtmlReport(int outcomeValue)
+    {
+        using var checkout = new TemporaryCheckout();
+        checkout.WriteToolManifest();
+        var outcome = (OutcomeKind)outcomeValue;
+        var executor = new RecordingTestExecutor(checkout.Root) { Outcome = outcome };
+        var process = new RecordingProcessRunner { Outcome = OutcomeKind.InfrastructureFailure, ExitCode = 9 };
+        var service = CreateService(checkout, executor, process);
+
+        var result = await service.RunAsync(Request(checkout, suite: "core", generateReport: true),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(outcome, result.CommandResult.Outcome);
+        Assert.Equal("Test outcome retained.", result.CommandResult.Message);
+        Assert.True(result.CoverageFileCount > 0);
+        Assert.Null(process.Request);
+        Assert.Equal(outcome switch
+        {
+            OutcomeKind.Cancelled => RunState.Cancelled,
+            OutcomeKind.Timeout => RunState.TimedOut,
+            _ => RunState.Failed
+        }, result.Manifest!.State);
+        Assert.Contains(result.Manifest.Inputs.Keys, key => key == "testRunId");
+    }
+
     private static CoverageService CreateService(
         TemporaryCheckout checkout,
         IManagedTestExecutor executor,
@@ -220,6 +249,7 @@ public sealed class CoverageServiceTests
     {
         public TestExecutorRequest? Request { get; private set; }
         public bool WriteCoverage { get; init; } = true;
+        public OutcomeKind Outcome { get; init; } = OutcomeKind.Success;
 
         public Task<TestExecutorResult> RunAsync(TestExecutorRequest request, CancellationToken cancellationToken = default)
         {
@@ -244,7 +274,13 @@ public sealed class CoverageServiceTests
                 RunId = runId,
                 ParentRunId = request.ParentRunId,
                 Command = "test",
-                State = RunState.Succeeded,
+                State = Outcome switch
+                {
+                    OutcomeKind.Success => RunState.Succeeded,
+                    OutcomeKind.Cancelled => RunState.Cancelled,
+                    OutcomeKind.Timeout => RunState.TimedOut,
+                    _ => RunState.Failed
+                },
                 StartedUtc = DateTimeOffset.UtcNow,
                 CompletedUtc = DateTimeOffset.UtcNow,
                 SourceCommit = new string('a', 40),
@@ -256,7 +292,7 @@ public sealed class CoverageServiceTests
                 Artifacts = []
             };
             return Task.FromResult(new TestExecutorResult(
-                new CommandResult(OutcomeKind.Success, "Tests passed."), runDirectory, null, manifest));
+                new CommandResult(Outcome, Outcome == OutcomeKind.Success ? "Tests passed." : "Test outcome retained."), runDirectory, null, manifest));
         }
     }
 

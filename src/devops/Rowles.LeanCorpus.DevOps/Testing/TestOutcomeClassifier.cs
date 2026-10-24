@@ -38,6 +38,22 @@ internal static class TestOutcomeClassifier
         {
             return TestExecutionOutcome.InfrastructureFailure;
         }
+        // MTP owns low exit codes; they are not unshifted Unix signal numbers.
+        // https://learn.microsoft.com/dotnet/core/testing/microsoft-testing-platform-troubleshooting
+        if (runnerKind.Equals("Mtp", StringComparison.OrdinalIgnoreCase))
+        {
+            switch (process.RawExitCode)
+            {
+                case 3:
+                    return TestExecutionOutcome.Cancelled;
+                case 7:
+                    return TestExecutionOutcome.Crashed;
+                case 11:
+                    return TestExecutionOutcome.Incomplete;
+                case 4 or 5 or 6 or 9 or 10 or 12 or 14:
+                    return TestExecutionOutcome.InfrastructureFailure;
+            }
+        }
         if (IsCrashExitCode(process.RawExitCode))
         {
             return TestExecutionOutcome.Crashed;
