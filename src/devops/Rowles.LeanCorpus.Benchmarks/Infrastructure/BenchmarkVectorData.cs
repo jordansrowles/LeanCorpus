@@ -14,6 +14,10 @@ internal sealed record BenchmarkVectorDataset(
 internal static class BenchmarkVectorData
 {
     private static readonly ConcurrentDictionary<(int Count, int Dimension), Lazy<BenchmarkVectorDataset>> Cache = new();
+    private static readonly JsonSerializerOptions QualityJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
 
     public static BenchmarkVectorDataset Get(int count, int dimension)
     {
@@ -26,32 +30,44 @@ internal static class BenchmarkVectorData
         return dataset;
     }
 
-    public static void WriteHnswRecall(
+    public static void WriteVectorQuality(
         BenchmarkVectorDataset dataset,
-        int efSearch,
-        int topK,
-        int recallHits)
+        string benchmark,
+        string parameterKey,
+        object parameters,
+        IReadOnlyList<VectorQualityMeasurement> measurements)
     {
         ArgumentNullException.ThrowIfNull(dataset);
+        ArgumentException.ThrowIfNullOrWhiteSpace(benchmark);
+        ArgumentException.ThrowIfNullOrWhiteSpace(parameterKey);
+        ArgumentNullException.ThrowIfNull(parameters);
+        ArgumentNullException.ThrowIfNull(measurements);
+        BenchmarkVectorQuality.ValidateFixture();
         var root = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
         if (string.IsNullOrWhiteSpace(root))
-            throw new InvalidOperationException("LEANCORPUS_ARTIFACT_DIR must be set before recording HNSW recall.");
+            throw new InvalidOperationException("LEANCORPUS_ARTIFACT_DIR must be set before recording vector quality.");
         var directory = Path.Combine(Path.GetFullPath(root), "vector-recall");
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, $"{dataset.Identity.GetShortKey()}-ef{efSearch}.json");
+        var path = Path.Combine(directory, $"{dataset.Identity.GetShortKey()}-{benchmark}-{parameterKey}.json");
+        double minimumRecall = BenchmarkVectorQuality.MinimumAcceptedRecall;
         var content = JsonSerializer.SerializeToUtf8Bytes(new
         {
+            fixtureId = "bval-09-vector-recall-ground-truth",
+            benchmark,
+            benchmarkParameters = parameters,
+            minimumAcceptedRecall = minimumRecall,
+            qualityPassed = measurements.All(measurement => measurement.RecallAtK + 1e-12 >= minimumRecall),
             profileId = dataset.Identity.ProfileId,
             profileVersion = dataset.Identity.ProfileVersion,
             seed = dataset.Identity.Seed,
             recordCount = dataset.Identity.RecordCount,
-            parameters = dataset.Identity.Parameters,
+            datasetParameters = dataset.Identity.Parameters,
             contentSha256 = dataset.Identity.ContentSha256,
-            efSearch,
-            topK,
-            recallHits,
-            recallAtK = (double)recallHits / topK
-        });
+            queryId = dataset.Query.Id,
+            metric = "cosine",
+            exactGroundTruth = "VectorGroundTruth over original unquantised source records",
+            measurements
+        }, QualityJsonOptions);
         var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {

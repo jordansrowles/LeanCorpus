@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Attributes;
+using System.Text.Json;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Index;
 using Lucene.Net.Search;
@@ -15,7 +16,7 @@ using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
 using LuceneDocument = Lucene.Net.Documents.Document;
 using LuceneStringField = Lucene.Net.Documents.StringField;
 using LuceneTextField = Lucene.Net.Documents.TextField;
-using LuceneDoubleField = Lucene.Net.Documents.DoubleField;
+using LuceneDoubleDocValuesField = Lucene.Net.Documents.DoubleDocValuesField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
 using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
 using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
@@ -80,6 +81,7 @@ public class AggregationBenchmarks
         {
             BuildLeanIndex(docs);
             BuildLuceneIndex(docs);
+            ValidateBval02NumericDocValuesFixture();
         }
         catch
         {
@@ -171,31 +173,179 @@ public class AggregationBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_SearchWithStats()
+    public double LuceneNet_SearchWithStats()
     {
-        var q = new LuceneTermQuery(new LuceneTerm("body", "government"));
-        // Aggregate over all matching docs, not just top-N.
-        var allHits = _luceneSearcher!.Search(q, _luceneReader!.MaxDoc);
-        var reader = _luceneReader!;
-        var leaves = reader.Leaves;
-        NumericDocValues? dv = null;
-        if (leaves.Count > 0)
-            dv = leaves[0].AtomicReader.GetNumericDocValues("price");
-        double sum = 0, sumSq = 0, min = double.MaxValue, max = double.MinValue;
-        int count = 0;
-        if (dv is not null)
+        LuceneNumericStats stats = ComputeLuceneStats(_luceneSearcher!, _luceneReader!);
+        return stats.Count + stats.Sum + stats.SumOfSquares + stats.Minimum
+            + stats.Maximum + stats.Mean + stats.PopulationVariance;
+    }
+
+    private void ValidateBval02NumericDocValuesFixture()
+    {
+        const string fixtureRelativePath = ".config/devops/benchmark-correctness-fixtures/bval-02-numeric-docvalues-multileaf.json";
+        string fixturePath = Path.Combine(BenchmarkHelpers.RepositoryRoot,
+            fixtureRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        using var document = JsonDocument.Parse(File.ReadAllBytes(fixturePath));
+        JsonElement root = document.RootElement;
+        if (root.GetProperty("schemaVersion").GetInt32() != 1
+            || !string.Equals(root.GetProperty("fixtureId").GetString(),
+                "bval-02-numeric-docvalues-multileaf", StringComparison.Ordinal)
+            || !root.GetProperty("deterministic").GetBoolean())
+            throw new InvalidOperationException($"BVAL-02 fixture metadata is invalid: {fixtureRelativePath}.");
+
+        JsonElement input = root.GetProperty("input");
+        if (!string.Equals(input.GetProperty("numericEncoding").GetString(),
+                "IEEE754-binary64-raw-bits", StringComparison.Ordinal))
+            throw new InvalidOperationException($"BVAL-02 fixture numeric encoding is unsupported: {fixtureRelativePath}.");
+
+        var segmentElements = input.GetProperty("segments").EnumerateArray().ToArray();
+        var segments = new List<NumericFixtureSegment>(segmentElements.Length);
+        foreach (JsonElement segmentElement in segmentElements)
         {
-            foreach (var sd in allHits.ScoreDocs)
+            var fixtureDocuments = new List<NumericFixtureDocument>();
+            foreach (JsonElement documentElement in segmentElement.GetProperty("documents").EnumerateArray())
             {
-                var price = dv.Get(sd.Doc);
-                sum += price;
-                sumSq += price * price;
-                if (price < min) min = price;
-                if (price > max) max = price;
-                count++;
+                if (!documentElement.GetProperty("numericDocValuePresent").GetBoolean())
+                    throw new InvalidOperationException("BVAL-02 fixture requires a numeric DocValue for every document.");
+                fixtureDocuments.Add(new NumericFixtureDocument(
+                    documentElement.GetProperty("id").GetString()!,
+                    documentElement.GetProperty("price").GetDouble()));
             }
+            segments.Add(new NumericFixtureSegment(
+                segmentElement.GetProperty("id").GetString()!, [.. fixtureDocuments]));
         }
-        return count;
+
+        if (segments.Count != 2 || segments.Any(static segment => segment.Documents.Length == 0)
+            || segments.SelectMany(static segment => segment.Documents).Select(static item => item.Id)
+                .Distinct(StringComparer.Ordinal).Count() != segments.Sum(static segment => segment.Documents.Length))
+            throw new InvalidOperationException("BVAL-02 fixture must define two non-empty segments with unique document IDs.");
+
+        JsonElement expected = root.GetProperty("expected");
+        var expectedStats = new LuceneNumericStats(
+            expected.GetProperty("count").GetInt32(),
+            expected.GetProperty("sum").GetDouble(),
+            expected.GetProperty("sumOfSquares").GetDouble(),
+            expected.GetProperty("minimum").GetDouble(),
+            expected.GetProperty("maximum").GetDouble(),
+            expected.GetProperty("mean").GetDouble(),
+            expected.GetProperty("populationVariance").GetDouble());
+        if (!expected.GetProperty("allValuesReadFromEverySegment").GetBoolean()
+            || expectedStats.Count != segments.Sum(static segment => segment.Documents.Length))
+            throw new InvalidOperationException("BVAL-02 fixture expected statistics do not cover every segment document.");
+
+        string indexPath = BenchmarkHelpers.CreateTempDirectory("lc-bval-02-numeric-docvalues");
+        try
+        {
+            using var directory = new LuceneMMapDirectory(new System.IO.DirectoryInfo(indexPath));
+            using var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+            var writerConfig = new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser)
+            {
+                MergePolicy = Lucene.Net.Index.NoMergePolicy.NO_COMPOUND_FILES,
+            };
+            using (var writer = new Lucene.Net.Index.IndexWriter(directory, writerConfig))
+            {
+                foreach (NumericFixtureSegment segment in segments)
+                {
+                    foreach (NumericFixtureDocument fixtureDocument in segment.Documents)
+                    {
+                        var luceneDocument = new LuceneDocument();
+                        luceneDocument.Add(new LuceneStringField("id", fixtureDocument.Id,
+                            Lucene.Net.Documents.Field.Store.NO));
+                        luceneDocument.Add(new LuceneTextField("body", "government",
+                            Lucene.Net.Documents.Field.Store.NO));
+                        luceneDocument.Add(new LuceneDoubleDocValuesField("price", fixtureDocument.Price));
+                        writer.AddDocument(luceneDocument);
+                    }
+                    writer.Commit();
+                }
+            }
+
+            using var reader = LuceneDirectoryReader.Open(directory);
+            if (reader.Leaves.Count != segments.Count)
+                throw new InvalidOperationException(
+                    $"BVAL-02 fixture expected {segments.Count} Lucene segments but created {reader.Leaves.Count}.");
+
+            var searcher = new LuceneIndexSearcher(reader);
+            LuceneNumericStats actualStats = ComputeLuceneStats(searcher, reader);
+            AssertFixtureStats(actualStats, expectedStats, fixtureRelativePath);
+        }
+        finally
+        {
+            BenchmarkHelpers.DeleteDirectory(indexPath);
+        }
+    }
+
+    private static void AssertFixtureStats(LuceneNumericStats actual, LuceneNumericStats expected,
+        string fixturePath)
+    {
+        static bool NearlyEqual(double left, double right)
+            => Math.Abs(left - right) <= 1e-9 * Math.Max(1d, Math.Abs(right));
+
+        if (actual.Count != expected.Count
+            || !NearlyEqual(actual.Sum, expected.Sum)
+            || !NearlyEqual(actual.SumOfSquares, expected.SumOfSquares)
+            || !NearlyEqual(actual.Minimum, expected.Minimum)
+            || !NearlyEqual(actual.Maximum, expected.Maximum)
+            || !NearlyEqual(actual.Mean, expected.Mean)
+            || !NearlyEqual(actual.PopulationVariance, expected.PopulationVariance))
+            throw new InvalidOperationException(
+                $"BVAL-02 statistics differ for {fixturePath}: expected {expected}, actual {actual}.");
+    }
+
+    private static LuceneNumericStats ComputeLuceneStats(LuceneIndexSearcher searcher,
+        LuceneDirectoryReader reader)
+    {
+        var query = new LuceneTermQuery(new LuceneTerm("body", "government"));
+        var hits = searcher.Search(query, reader.MaxDoc);
+        if (hits.TotalHits != hits.ScoreDocs.Length)
+            throw new InvalidOperationException(
+                $"BVAL-02 numeric aggregation expected every match, but TopDocs retained {hits.ScoreDocs.Length} of {hits.TotalHits} hits.");
+
+        var leaves = reader.Leaves;
+        if (leaves.Count == 0)
+            throw new InvalidOperationException("BVAL-02 numeric aggregation found no Lucene segments.");
+
+        var valuesByLeaf = new NumericDocValues[leaves.Count];
+        var presenceByLeaf = new Lucene.Net.Util.IBits[leaves.Count];
+        for (int leafIndex = 0; leafIndex < leaves.Count; leafIndex++)
+        {
+            var atomicReader = leaves[leafIndex].AtomicReader;
+            valuesByLeaf[leafIndex] = atomicReader.GetNumericDocValues("price")
+                ?? throw new InvalidOperationException(
+                    $"BVAL-02 numeric DocValues are missing from Lucene segment {leafIndex}.");
+            presenceByLeaf[leafIndex] = atomicReader.GetDocsWithField("price")
+                ?? throw new InvalidOperationException(
+                    $"BVAL-02 price DocValues are absent from Lucene segment {leafIndex}.");
+        }
+
+        double sum = 0d;
+        double sumOfSquares = 0d;
+        double minimum = double.PositiveInfinity;
+        double maximum = double.NegativeInfinity;
+        int count = 0;
+        foreach (var hit in hits.ScoreDocs)
+        {
+            int leafIndex = ReaderUtil.SubIndex(hit.Doc, leaves);
+            var leaf = leaves[leafIndex];
+            int localDocumentId = hit.Doc - leaf.DocBase;
+            if (!presenceByLeaf[leafIndex].Get(localDocumentId))
+                throw new InvalidOperationException(
+                    $"BVAL-02 price DocValue is missing for Lucene document {hit.Doc} in segment {leafIndex}.");
+
+            double price = BitConverter.Int64BitsToDouble(valuesByLeaf[leafIndex].Get(localDocumentId));
+            sum += price;
+            sumOfSquares += price * price;
+            minimum = Math.Min(minimum, price);
+            maximum = Math.Max(maximum, price);
+            count++;
+        }
+
+        if (count == 0)
+            throw new InvalidOperationException("BVAL-02 numeric aggregation returned no matching documents.");
+
+        double mean = sum / count;
+        double populationVariance = sumOfSquares / count - mean * mean;
+        return new LuceneNumericStats(count, sum, sumOfSquares, minimum, maximum, mean, populationVariance);
     }
 
     private void BuildLuceneIndex((string Body, double Price)[] docs)
@@ -215,8 +365,7 @@ public class AggregationBenchmarks
                 Lucene.Net.Documents.Field.Store.NO));
             doc.Add(new LuceneTextField("body", docs[i].Body,
                 Lucene.Net.Documents.Field.Store.NO));
-            doc.Add(new LuceneDoubleField("price", docs[i].Price,
-                Lucene.Net.Documents.Field.Store.NO));
+            doc.Add(new LuceneDoubleDocValuesField("price", docs[i].Price));
             writer.AddDocument(doc);
         }
         writer.Commit();
@@ -244,4 +393,11 @@ public class AggregationBenchmarks
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
     }
+
+    private readonly record struct LuceneNumericStats(int Count, double Sum, double SumOfSquares,
+        double Minimum, double Maximum, double Mean, double PopulationVariance);
+
+    private sealed record NumericFixtureSegment(string Id, NumericFixtureDocument[] Documents);
+
+    private readonly record struct NumericFixtureDocument(string Id, double Price);
 }

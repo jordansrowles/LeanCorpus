@@ -7,6 +7,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// </summary>
 public static class BenchmarkHelpers
 {
+    internal static string RepositoryRoot { get; } = ResolveRepositoryRoot();
+
     /// <summary>
     /// Root directory for all benchmark temp files. Uses <c>artifacts/temp/benchmark</c> under the
     /// repository root (half-TB NVMe) instead of the 12 GB tmpfs RAM disk.
@@ -42,28 +44,29 @@ public static class BenchmarkHelpers
 
     private static string ResolveTempRoot()
     {
+        // Anchor artifacts/temp/benchmark at the repository root so it works
+        // regardless of how BenchmarkDotNet sets the current directory.
+        var path = Path.Combine(RepositoryRoot, "artifacts", "temp", "benchmark");
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private static string ResolveRepositoryRoot()
+    {
         // Walk up from the benchmark assembly location until we find the
-        // repository root (marked by Rowles.LeanCorpus.slnx), then anchor
-        // artifacts/temp/benchmark there. Uses the assembly path rather than the current
-        // directory so it works regardless of how BenchmarkDotNet sets the cwd.
+        // repository root (marked by Rowles.LeanCorpus.slnx).
         var current = new DirectoryInfo(AppContext.BaseDirectory);
 
         while (current is not null)
         {
             if (File.Exists(Path.Combine(current.FullName, "Rowles.LeanCorpus.slnx")))
-            {
-                var root = Path.Combine(current.FullName, "artifacts", "temp", "benchmark");
-                Directory.CreateDirectory(root);
-                return root;
-            }
+                return current.FullName;
 
             current = current.Parent;
         }
 
         // Fallback: use the current directory (shouldn't happen in practice).
-        var fallback = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "temp", "benchmark");
-        Directory.CreateDirectory(fallback);
-        return fallback;
+        return Directory.GetCurrentDirectory();
     }
 
     /// <summary>

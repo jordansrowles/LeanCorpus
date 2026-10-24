@@ -40,7 +40,7 @@ public class SearcherManagerBenchmarks
         _luceneDirectory = SharedStandardIndex.CreateLuceneDirectory();
         _luceneManager = new Lucene.Net.Search.SearcherManager(
             _luceneDirectory,
-            searcherFactory: null);
+            new LuceneBm25SearcherFactory());
     }
 
     [GlobalCleanup]
@@ -125,6 +125,20 @@ public class SearcherManagerBenchmarks
         finally
         {
             _luceneManager.Release(searcher);
+        }
+    }
+
+    private sealed class LuceneBm25SearcherFactory : Lucene.Net.Search.SearcherFactory
+    {
+        public override LuceneIndexSearcher NewSearcher(IndexReader reader)
+        {
+            var searcher = new LuceneIndexSearcher(reader)
+            {
+                Similarity = SharedStandardIndex.CreateBval05Bm25Similarity()
+            };
+            SharedStandardIndex.ValidateBval05Bm25Profile(searcher.Similarity,
+                "SearcherManager query searcher");
+            return searcher;
         }
     }
 

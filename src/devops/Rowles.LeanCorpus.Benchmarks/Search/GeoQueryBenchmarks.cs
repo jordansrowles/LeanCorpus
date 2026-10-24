@@ -1,3 +1,4 @@
+using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using Lucene.Net.Analysis.Standard;
@@ -77,6 +78,7 @@ public class GeoQueryBenchmarks
             BuildLuceneIndex(records);
             ValidateResultEquivalence();
             ValidateSpatialEdgeCases();
+            ValidateBval01GeoRadiusFixture();
         }
         catch
         {
@@ -301,16 +303,8 @@ public class GeoQueryBenchmarks
                     .Select(hit => GetLeanStoredId(leanSearcher, hit.DocId)).ToArray();
                 string[] luceneIds = luceneResults.ScoreDocs
                     .Select(hit => GetLuceneStoredId(luceneSearcher, hit.Doc)).ToArray();
-                if (leanResults.TotalHits != expectedIds.Length
-                    || luceneResults.TotalHits != expectedIds.Length
-                    || !leanIds.SequenceEqual(expectedIds, StringComparer.Ordinal)
-                    || !luceneIds.SequenceEqual(expectedIds, StringComparer.Ordinal))
-                {
-                    throw new InvalidOperationException(
-                        $"Geo {name} equivalence failed: expected [{string.Join(", ", expectedIds)}], " +
-                        $"LeanCorpus returned [{string.Join(", ", leanIds)}] ({leanResults.TotalHits} hits), " +
-                        $"Lucene.NET returned [{string.Join(", ", luceneIds)}] ({luceneResults.TotalHits} hits).");
-                }
+                AssertExpectedEquivalent(name, leanResults.TotalHits, leanIds,
+                    luceneResults.TotalHits, luceneIds, expectedIds);
             }
         }
         finally
@@ -320,12 +314,158 @@ public class GeoQueryBenchmarks
         }
     }
 
-    private static SpatialArgs CreateLuceneDistanceArgs(SpatialContext context, GeoDistanceQuery query)
+    private static void ValidateBval01GeoRadiusFixture()
+    {
+        GeoRadiusFixture fixture = ReadBval01GeoRadiusFixture();
+        string leanPath = BenchmarkHelpers.CreateTempDirectory("lc-bval-01-geo-lean");
+        string lucenePath = BenchmarkHelpers.CreateTempDirectory("lc-bval-01-geo-lucene");
+        try
+        {
+            using var leanDirectory = new LeanMMapDirectory(leanPath);
+            using (var writer = new Rowles.LeanCorpus.Index.Indexer.IndexWriter(
+                leanDirectory, new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig()))
+            {
+                foreach (GeoParityPoint point in fixture.Points)
+                {
+                    var document = new LeanDocument();
+                    document.Add(new LeanStoredField("id", point.Id));
+                    document.Add(new Rowles.LeanCorpus.Document.Fields.GeoPointField(
+                        "location", point.Latitude, point.Longitude));
+                    writer.AddDocument(document);
+                }
+                writer.Commit();
+            }
+            using var leanSearcher = new LeanIndexSearcher(leanDirectory);
+
+            using var luceneDirectory = new MMapDirectory(new System.IO.DirectoryInfo(lucenePath));
+            using var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+            var context = SpatialContext.Geo;
+            var strategy = new RecursivePrefixTreeStrategy(
+                new GeohashPrefixTree(context, maxLevels: 11), "location")
+            {
+                DistErrPct = 0,
+            };
+            using (var writer = new Lucene.Net.Index.IndexWriter(luceneDirectory,
+                new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser)))
+            {
+                foreach (GeoParityPoint point in fixture.Points)
+                {
+                    var document = new LuceneDocument();
+                    document.Add(new LuceneStoredField("id", point.Id));
+                    foreach (var field in strategy.CreateIndexableFields(
+                        context.MakePoint(point.Longitude, point.Latitude)))
+                        document.Add(field);
+                    writer.AddDocument(document);
+                }
+                writer.Commit();
+            }
+            using var luceneReader = LuceneDirectoryReader.Open(luceneDirectory);
+            var luceneSearcher = new LuceneIndexSearcher(luceneReader);
+
+            var query = new GeoDistanceQuery("location", fixture.CentreLatitude,
+                fixture.CentreLongitude, fixture.RadiusMetres);
+            var luceneFilter = strategy.MakeFilter(CreateLuceneDistanceArgs(context, query,
+                fixture.EarthMeanRadiusKilometres));
+            var leanResults = leanSearcher.Search(query, fixture.Points.Length);
+            var luceneResults = luceneSearcher.Search(LuceneMatchAllQuery, luceneFilter, fixture.Points.Length);
+            AssertExpectedEquivalent("BVAL-01 50 km radius boundaries", leanResults.TotalHits,
+                leanResults.ScoreDocs.Select(hit => GetLeanStoredId(leanSearcher, hit.DocId)),
+                luceneResults.TotalHits,
+                luceneResults.ScoreDocs.Select(hit => GetLuceneStoredId(luceneSearcher, hit.Doc)),
+                fixture.IncludedIds);
+        }
+        finally
+        {
+            BenchmarkHelpers.DeleteDirectory(lucenePath);
+            BenchmarkHelpers.DeleteDirectory(leanPath);
+        }
+    }
+
+    private static void AssertExpectedEquivalent(string name, int leanHitCount,
+        IEnumerable<string> leanIds, int luceneHitCount, IEnumerable<string> luceneIds,
+        string[] expectedIds)
+    {
+        string[] leanResults = leanIds.ToArray();
+        string[] luceneResults = luceneIds.ToArray();
+        if (leanResults.Length != leanHitCount || luceneResults.Length != luceneHitCount
+            || leanHitCount != expectedIds.Length || luceneHitCount != expectedIds.Length
+            || !leanResults.SequenceEqual(expectedIds, StringComparer.Ordinal)
+            || !luceneResults.SequenceEqual(expectedIds, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Geo {name} equivalence failed: expected [{string.Join(", ", expectedIds)}], " +
+                $"LeanCorpus returned [{string.Join(", ", leanResults)}] ({leanHitCount} hits), " +
+                $"Lucene.NET returned [{string.Join(", ", luceneResults)}] ({luceneHitCount} hits).");
+        }
+    }
+
+    private static GeoRadiusFixture ReadBval01GeoRadiusFixture()
+    {
+        const string fixtureRelativePath = ".config/devops/benchmark-correctness-fixtures/bval-01-geo-radius-boundaries.json";
+        string fixturePath = Path.Combine(BenchmarkHelpers.RepositoryRoot,
+            fixtureRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        using var document = JsonDocument.Parse(File.ReadAllBytes(fixturePath));
+        JsonElement root = document.RootElement;
+        if (root.GetProperty("schemaVersion").GetInt32() != 1
+            || !string.Equals(root.GetProperty("fixtureId").GetString(),
+                "bval-01-geo-radius-boundaries", StringComparison.Ordinal)
+            || !root.GetProperty("deterministic").GetBoolean())
+            throw new InvalidOperationException($"BVAL-01 fixture metadata is invalid: {fixtureRelativePath}.");
+
+        JsonElement input = root.GetProperty("input");
+        JsonElement centre = input.GetProperty("centre");
+        double centreLatitude = centre.GetProperty("latitudeDegrees").GetDouble();
+        double centreLongitude = centre.GetProperty("longitudeDegrees").GetDouble();
+        double radiusMetres = input.GetProperty("radiusMetres").GetDouble();
+        double earthMeanRadiusKilometres = input.GetProperty("earthMeanRadiusKilometres").GetDouble();
+        GeoRadiusBoundaryPoint[] boundaryPoints = input.GetProperty("points").EnumerateArray()
+            .Select(static point => new GeoRadiusBoundaryPoint(
+                point.GetProperty("id").GetString()!,
+                point.GetProperty("latitudeDegrees").GetDouble(),
+                point.GetProperty("longitudeDegrees").GetDouble(),
+                point.GetProperty("distanceKilometres").GetDouble()))
+            .ToArray();
+
+        JsonElement expected = root.GetProperty("expected");
+        string[] includedIds = ReadFixtureIds(expected.GetProperty("includedIds"));
+        string[] excludedIds = ReadFixtureIds(expected.GetProperty("excludedIds"));
+        double luceneRadiusKilometres = expected.GetProperty("luceneRadiusKilometres").GetDouble();
+        string[] pointIds = boundaryPoints.Select(static point => point.Id).ToArray();
+        string[] classifiedIds = includedIds.Concat(excludedIds).OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        string[] sortedPointIds = pointIds.OrderBy(static id => id, StringComparer.Ordinal).ToArray();
+        GeoRadiusBoundaryPoint[] insidePoints = boundaryPoints.Where(static point =>
+            Math.Abs(point.DistanceKilometres - 49.9d) < 1e-9).ToArray();
+        GeoRadiusBoundaryPoint[] outsidePoints = boundaryPoints.Where(static point =>
+            Math.Abs(point.DistanceKilometres - 50.1d) < 1e-9).ToArray();
+
+        if (radiusMetres != 50_000d || luceneRadiusKilometres != 50d
+            || Math.Abs(radiusMetres / 1_000d - luceneRadiusKilometres) > 1e-9
+            || earthMeanRadiusKilometres <= 0d
+            || !expected.GetProperty("bothEnginesMustReturnSameLogicalIds").GetBoolean()
+            || pointIds.Distinct(StringComparer.Ordinal).Count() != pointIds.Length
+            || includedIds.Intersect(excludedIds, StringComparer.Ordinal).Any()
+            || !classifiedIds.SequenceEqual(sortedPointIds, StringComparer.Ordinal)
+            || insidePoints.Length != 1 || outsidePoints.Length != 1
+            || insidePoints.Length == 1 && !includedIds.Contains(insidePoints[0].Id, StringComparer.Ordinal)
+            || outsidePoints.Length == 1 && !excludedIds.Contains(outsidePoints[0].Id, StringComparer.Ordinal))
+            throw new InvalidOperationException($"BVAL-01 fixture does not define the required 49.9 km/50.1 km sentinels: {fixtureRelativePath}.");
+
+        return new GeoRadiusFixture(centreLatitude, centreLongitude, radiusMetres,
+            earthMeanRadiusKilometres,
+            boundaryPoints.Select(static point => new GeoParityPoint(point.Id, point.Latitude, point.Longitude)).ToArray(),
+            includedIds);
+    }
+
+    private static string[] ReadFixtureIds(JsonElement value)
+        => value.EnumerateArray().Select(static id => id.GetString()!).ToArray();
+
+    private static SpatialArgs CreateLuceneDistanceArgs(SpatialContext context, GeoDistanceQuery query,
+        double earthRadiusKilometres = LeanEarthRadiusKilometres)
     {
         double radiusKilometres = query.RadiusMetres / 1_000d;
         var centre = context.MakePoint(query.CentreLon, query.CentreLat);
         var circle = context.MakeCircle(centre,
-            DistanceUtils.Dist2Degrees(radiusKilometres, LeanEarthRadiusKilometres));
+            DistanceUtils.Dist2Degrees(radiusKilometres, earthRadiusKilometres));
         return new SpatialArgs(SpatialOperation.IsWithin, circle);
     }
 
@@ -368,6 +508,12 @@ public class GeoQueryBenchmarks
     private static string GetLuceneStoredId(LuceneIndexSearcher searcher, int documentId)
         => searcher.Doc(documentId).Get("id")
             ?? throw new InvalidOperationException($"Lucene.NET geo result {documentId} has no stored fixture ID.");
+
+    private sealed record GeoRadiusFixture(double CentreLatitude, double CentreLongitude, double RadiusMetres,
+        double EarthMeanRadiusKilometres, GeoParityPoint[] Points, string[] IncludedIds);
+
+    private readonly record struct GeoRadiusBoundaryPoint(string Id, double Latitude, double Longitude,
+        double DistanceKilometres);
 
     private readonly record struct GeoParityPoint(string Id, double Latitude, double Longitude);
 }

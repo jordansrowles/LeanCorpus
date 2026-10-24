@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using Rowles.DataForge;
@@ -40,6 +41,8 @@ public class PackedBkdBenchmarks
     private PackedBkdReader? _reader;
     private string? _buildPath;
     private string? _buildDirectory;
+    private long _queryOutputBytes;
+    private double _queryBytesPerPoint;
     private QueryVisitor _visitor;
 
     [GlobalSetup]
@@ -71,8 +74,18 @@ public class PackedBkdBenchmarks
         }
 
         _reader = PackedBkdReader.Open(_queryPath);
+        PackedBkdFieldMetadata metadata = _reader.GetFieldMetadata("location");
+        if (metadata.PointCount != PointCount)
+            throw new InvalidOperationException($"Packed BKD query index contains {metadata.PointCount} points; expected {PointCount}.");
+
+        _queryOutputBytes = new FileInfo(_queryPath).Length;
+        _queryBytesPerPoint = _queryOutputBytes / (double)metadata.PointCount;
+        if (_queryOutputBytes <= 0 || !double.IsFinite(_queryBytesPerPoint) || _queryBytesPerPoint <= 0d)
+            throw new InvalidOperationException("Packed BKD post-build size metadata is invalid.");
+
         _visitor = new QueryVisitor(-100, 100);
         RecordObserverEvidence();
+        RecordBval12MetricAndReaderEvidence(metadata);
     }
 
     [GlobalCleanup]
@@ -142,9 +155,9 @@ public class PackedBkdBenchmarks
         return _visitor.Count;
     }
 
-    [Benchmark(Description = "Packed BKD cold open and first selective traversal")]
+    [Benchmark(Description = "Packed BKD new reader with warm OS page cache and selective traversal")]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_PackedBkd_ColdOpenSelectiveIntersect()
+    public int LeanCorpus_PackedBkd_NewReaderWarmPageCacheSelectiveIntersect()
     {
         using var reader = PackedBkdReader.Open(_queryPath);
         _visitor.Reset();
@@ -160,11 +173,6 @@ public class PackedBkdBenchmarks
         return reader.FieldNames.Count;
     }
 
-    [Benchmark(Description = "Packed BKD output bytes per point")]
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    public double LeanCorpus_PackedBkd_OutputBytesPerPoint()
-        => new FileInfo(_queryPath).Length / (double)PointCount;
-
     private int Build(bool forceSpill)
     {
         string path = _buildPath ?? throw new InvalidOperationException("The build path was not prepared.");
@@ -176,7 +184,7 @@ public class PackedBkdBenchmarks
                 MemoryBudgetBytes: forceSpill ? 64L * 1024 * 1024 : 512L * 1024 * 1024,
                 SpillDirectory: Path.GetDirectoryName(path),
                 ForceSpill: forceSpill));
-        return checked((int)new FileInfo(path).Length);
+        return PointCount;
     }
 
     private PackedBkdFieldBuffer CreateBuffer()
@@ -187,6 +195,107 @@ public class PackedBkdBenchmarks
         return buffer;
     }
 
+    private void RecordBval12MetricAndReaderEvidence(PackedBkdFieldMetadata metadata)
+    {
+        const string fixtureRelativePath =
+            ".config/devops/benchmark-correctness-fixtures/bval-12-packed-bkd-metric-and-warm-reader.json";
+        const string fixtureId = "bval-12-packed-bkd-metric-and-warm-reader";
+        string fixturePath = Path.Combine(
+            BenchmarkHelpers.RepositoryRoot,
+            fixtureRelativePath.Replace('/', Path.DirectorySeparatorChar));
+        byte[] fixtureBytes = File.ReadAllBytes(fixturePath);
+        string fixtureSha256 = Convert.ToHexString(SHA256.HashData(fixtureBytes)).ToLowerInvariant();
+        using JsonDocument fixture = JsonDocument.Parse(fixtureBytes);
+        JsonElement root = fixture.RootElement;
+        if (root.GetProperty("schemaVersion").GetInt32() != 1
+            || !string.Equals(root.GetProperty("fixtureId").GetString(), fixtureId, StringComparison.Ordinal)
+            || !root.GetProperty("deterministic").GetBoolean()
+            || !string.Equals(root.GetProperty("domain").GetString(), "packed-bkd-metric-and-reader-warmth", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException($"BVAL-12 fixture metadata is invalid: {fixtureRelativePath}.");
+        }
+
+        JsonElement input = root.GetProperty("input");
+        JsonElement completedIndex = input.GetProperty("completedIndex");
+        JsonElement fixtureReaderProfile = input.GetProperty("readerProfile");
+        JsonElement expected = root.GetProperty("expected");
+        long fixtureOutputBytes = completedIndex.GetProperty("bytes").GetInt64();
+        int fixturePointCount = completedIndex.GetProperty("pointCount").GetInt32();
+        double fixtureBytesPerPoint = fixtureOutputBytes / (double)fixturePointCount;
+        string readerProfileLabel = fixtureReaderProfile.GetProperty("name").GetString() ?? string.Empty;
+        string expectedReaderProfileLabel = expected.GetProperty("readerProfileLabel").GetString() ?? string.Empty;
+        string measurementRegion = expected.GetProperty("bytesPerPointMeasurementRegion").GetString() ?? string.Empty;
+        string[] timedOperations = input.GetProperty("timedOperations").EnumerateArray()
+            .Select(static operation => operation.GetString() ?? string.Empty)
+            .ToArray();
+
+        if (fixtureOutputBytes <= 0
+            || fixturePointCount <= 0
+            || Math.Abs(fixtureBytesPerPoint - expected.GetProperty("bytesPerPoint").GetDouble()) > 1e-12
+            || measurementRegion != "post-build-report-metric"
+            || expected.GetProperty("fileInfoLengthLookupInTimedMethod").GetBoolean()
+            || readerProfileLabel != expectedReaderProfileLabel
+            || !fixtureReaderProfile.GetProperty("readerInstanceNew").GetBoolean()
+            || fixtureReaderProfile.GetProperty("osPageCacheProvenCold").GetBoolean()
+            || expected.GetProperty("diskColdClaimAllowed").GetBoolean()
+            || !timedOperations.SequenceEqual(["reader-open", "point-query"], StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException($"BVAL-12 fixture contract is invalid: {fixtureRelativePath}.");
+        }
+
+        if (metadata.PointCount != PointCount)
+            throw new InvalidOperationException("BVAL-12 post-build metric point count does not match the completed Packed BKD index.");
+
+        string? artifactDirectory = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
+        if (string.IsNullOrWhiteSpace(artifactDirectory))
+            throw new InvalidOperationException("LEANCORPUS_ARTIFACT_DIR is required for BVAL-12 evidence output.");
+
+        string outputDirectory = Path.Combine(artifactDirectory, "packed-bkd");
+        Directory.CreateDirectory(outputDirectory);
+        string outputPath = Path.Combine(outputDirectory, $"{PointCount}-{Distribution}-bval-12.json");
+        string temporaryPath = outputPath + $".{Guid.NewGuid():N}.tmp";
+        var evidence = new
+        {
+            FixtureId = fixtureId,
+            FixtureRelativePath = fixtureRelativePath,
+            FixtureSha256 = fixtureSha256,
+            FixtureNegativeControl = new
+            {
+                OutputBytes = fixtureOutputBytes,
+                PointCount = fixturePointCount,
+                BytesPerPoint = fixtureBytesPerPoint,
+                MeasurementRegion = measurementRegion
+            },
+            CompletedBuildMetric = new
+            {
+                PointCount = metadata.PointCount,
+                OutputBytes = _queryOutputBytes,
+                BytesPerPoint = _queryBytesPerPoint,
+                MeasurementRegion = "post-build-report-metric",
+                FileInfoLengthLookupInTimedMethod = false
+            },
+            ReaderProfile = new
+            {
+                Name = readerProfileLabel,
+                ReaderInstanceNew = true,
+                OsPageCacheProvenCold = false,
+                DiskColdClaimAllowed = false,
+                TimedOperation = "new-reader-warm-page-cache-selective-intersect"
+            }
+        };
+
+        try
+        {
+            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(evidence, JsonOptions));
+            File.Move(temporaryPath, outputPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+    }
+
     private void RecordObserverEvidence()
     {
         var metadata = _reader!.GetFieldMetadata("location");
@@ -195,10 +304,10 @@ public class PackedBkdBenchmarks
         _reader.Intersect("location", ref _visitor, out var warmStats);
         WriteObserverEvidence("warm-selective-intersect", metadata, warmStats, _visitor.Count);
 
-        using var coldReader = PackedBkdReader.Open(_queryPath);
+        using var newReader = PackedBkdReader.Open(_queryPath);
         _visitor.Reset();
-        coldReader.Intersect("location", ref _visitor, out var coldStats);
-        WriteObserverEvidence("cold-open-first-selective-intersect", metadata, coldStats, _visitor.Count);
+        newReader.Intersect("location", ref _visitor, out var newReaderStats);
+        WriteObserverEvidence("new-reader-warm-page-cache-selective-intersect", metadata, newReaderStats, _visitor.Count);
     }
 
     private void WriteObserverEvidence(
@@ -213,15 +322,14 @@ public class PackedBkdBenchmarks
             return;
 
         Directory.CreateDirectory(evidenceDirectory);
-        long outputBytes = new FileInfo(_queryPath).Length;
         var evidence = new ObserverEvidence(
             PointCount,
             Distribution.ToString(),
             operation,
             metadata.LeafCount,
             metadata.PointCount,
-            outputBytes,
-            outputBytes / (double)PointCount,
+            _queryOutputBytes,
+            _queryBytesPerPoint,
             matches,
             stats.CellsVisited,
             stats.CellsPruned,

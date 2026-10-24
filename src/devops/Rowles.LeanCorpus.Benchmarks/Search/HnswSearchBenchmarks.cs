@@ -59,6 +59,7 @@ public class HnswSearchBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        BenchmarkVectorQuality.ValidateFixture();
         var key = (DocCount, Dimension);
         if (!s_built || s_lastKey != key)
         {
@@ -107,15 +108,25 @@ public class HnswSearchBenchmarks
         }
         _scalarChecksum = ResultChecksum(scalarTopDocumentIds);
 
+        var qualityMeasurements = BenchmarkVectorQuality.Measure(
+            _dataset,
+            topK => s_hnswSearcher.Search(
+                new LeanVectorQuery("emb", _query, topK: topK, efSearch: EfSearch), topK).ScoreDocs,
+            quantised: false);
+        BenchmarkVectorData.WriteVectorQuality(
+            _dataset,
+            "hnsw",
+            $"ef{EfSearch}",
+            new { efSearch = EfSearch },
+            qualityMeasurements);
+        BenchmarkVectorQuality.RequireMinimumRecall(
+            qualityMeasurements,
+            $"HNSW docCount={DocCount}, dimension={Dimension}, efSearch={EfSearch}");
+
         var hnsw = s_hnswSearcher.Search(
             new LeanVectorQuery("emb", _query, topK: 10, efSearch: EfSearch), 10);
         if (hnsw.ScoreDocs.Length != 10)
             throw new InvalidOperationException($"Expected ten HNSW results, got {hnsw.ScoreDocs.Length}.");
-        int recallHits = hnsw.ScoreDocs.Count(scoreDoc =>
-            _flatTopDocumentIds.Contains(scoreDoc.DocId));
-        if (recallHits == 0)
-            throw new InvalidOperationException("HNSW recall is zero against the exact top-ten reference.");
-        BenchmarkVectorData.WriteHnswRecall(_dataset, EfSearch, 10, recallHits);
         _hnswChecksum = ResultChecksum(hnsw);
     }
 
