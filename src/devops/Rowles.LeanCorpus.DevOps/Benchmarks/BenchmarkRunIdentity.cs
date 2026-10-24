@@ -385,7 +385,21 @@ internal sealed record BenchmarkRunIdentityAssessment(
 internal sealed record BenchmarkRunIdentityEvidence(
     BenchmarkHostIdentity Host,
     IReadOnlyList<BenchmarkCoreReportIdentity> CoreReports,
-    BenchmarkRunIdentityAssessment Assessment);
+    BenchmarkRunIdentityAssessment Assessment,
+    BenchmarkComparisonAssessment ComparisonAssessment,
+    BenchmarkExecutionSummary Execution);
+
+internal sealed record BenchmarkExecutionSummary(
+    string Classification,
+    int PlannedInvocationCount,
+    int TerminalInvocationCount,
+    int PartialInvocationCount,
+    int PlannedCaseCount,
+    int TerminalCaseCount,
+    int FailedCaseCount,
+    int IntermediateCaseCount,
+    int MissingCaseCount,
+    int RawResultFileCount);
 
 internal static class BenchmarkRunIdentityValidator
 {

@@ -1,6 +1,10 @@
 # 4.0 benchmark qualification audit
 
-This audit records inventory and package evidence for the `issue-97` benchmark work. It does not report measured performance.
+This is a historical inventory and package snapshot for the `issue-97` benchmark
+work at the source revision below. Its counts and exclusions describe that
+snapshot, not the latest source inventory or completed workload coverage.
+No qualified 4.0 comparison results are published. This page does not report
+measured performance.
 
 ## Source and environment
 
@@ -36,4 +40,4 @@ All eight semantic families are classified `Unqualified`: two fuzzy no-hit engin
 
 The August 2026 benchmark figures and fuzzy no-hit ratio are historical diagnostics, not 4.0 results. The old no-hit path could reuse an empty expansion-cache entry, and the prior comparison did not establish matching cache policy, fuzzy parameters and per-case correctness. Retain those raw outputs as historical evidence, but do not publish their ratios as current claims.
 
-The current [performance page](../performance.md) correctly reports that no qualified results are published. This inventory and its execution smokes do not change that status. BDN `--list json` only discovers cases; it does not run a benchmark child, prove effective PGO or full diagnostics identity, validate result quality, or qualify timing evidence. Windows qualification remains a separate gate. All eight semantic families remain `Unqualified`; all cases outside them remain excluded from competitive claims.
+The current [performance page](../performance.md) correctly reports that no qualified results are published. This inventory and its execution smokes do not change that status. BDN `--list json` only discovers cases; it does not run a benchmark child, prove effective PGO or full diagnostics identity, validate result quality, or qualify timing evidence. Windows qualification remains a separate gate. At this snapshot, all eight semantic families were `Unqualified`; all cases outside them were excluded from competitive claims. Later source additions require their own inventory and qualification evidence.

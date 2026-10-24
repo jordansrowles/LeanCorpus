@@ -123,6 +123,114 @@ public sealed class BenchmarkCommandPlannerTests
     }
 
     [Fact]
+    public void IntersectsProfileCaseEngineAreaGroupAndFilterSelectorsWithinTheCaseBudget()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+        var options = Options(suite: "all", area: "Search", arguments: ["--filter", "*CollapseAndFacetBenchmarks*"]) with
+        {
+            Profile = "leancorpus-search-v1",
+            Case = "collapse-complete-leancorpus,collapse-complete-lucenenet",
+            Engine = "leancorpus,lucenenet",
+            WorkloadId = "collapse-top-score-count-v1",
+            Group = "collapse-top-score-25-20k",
+            MaxCases = 2
+        };
+
+        var plan = BenchmarkCommandPlanner.Create(options, configuration, checkout.RepositoryRoot);
+
+        Assert.Equal(["collapse-complete-leancorpus", "collapse-complete-lucenenet"], plan.SelectedCaseIds);
+        Assert.Equal(2, plan.SelectedCaseCount);
+        Assert.Equal(2, plan.CaseBudget);
+        Assert.Equal(2, plan.Invocations.Count);
+        Assert.All(plan.Invocations, invocation => Assert.Contains("--filter", invocation.Arguments));
+        Assert.Contains(plan.Invocations, invocation => invocation.Arguments.Contains("*CollapseAndFacetBenchmarks.LeanCorpus_SearchWithCollapse"));
+        Assert.Contains(plan.Invocations, invocation => invocation.Arguments.Contains("*CollapseAndFacetBenchmarks.LuceneNet_SearchWithCollapse"));
+    }
+
+    [Fact]
+    public void AppliesManifestDocumentCountToTypedCaseInvocations()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+        var options = Options(suite: "core") with
+        {
+            Case = "collapse-complete-leancorpus",
+            MaxCases = 1
+        };
+
+        var plan = BenchmarkCommandPlanner.Create(options, configuration, checkout.RepositoryRoot);
+
+        var invocation = Assert.Single(plan.Invocations);
+        var documentCountArgument = Array.IndexOf(invocation.Arguments.ToArray(), "--doccount");
+        Assert.True(documentCountArgument >= 0);
+        Assert.Equal("20000", invocation.Arguments[documentCountArgument + 1]);
+        Assert.Equal(20_000, plan.DocumentCount);
+        Assert.Equal(["20000"], invocation.ParameterValues!["DocumentCount"]);
+    }
+
+    [Fact]
+    public void BoundedCaseBudgetCountsParameterCombinations()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+        var options = Options(suite: "core") with
+        {
+            Case = "flush-term-cardinality",
+            MaxCases = 8
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            BenchmarkCommandPlanner.Create(options, configuration, checkout.RepositoryRoot));
+
+        Assert.Contains("contains 9 benchmark cases", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("--max-cases budget of 8", exception.Message, StringComparison.Ordinal);
+
+        var exactBudgetPlan = BenchmarkCommandPlanner.Create(options with { MaxCases = 9 }, configuration, checkout.RepositoryRoot);
+
+        Assert.Equal(9, exactBudgetPlan.SelectedCaseCount);
+        Assert.Equal(9, exactBudgetPlan.CaseBudget);
+        var invocation = Assert.Single(exactBudgetPlan.Invocations);
+        Assert.Contains("all-with-explicit", invocation.Arguments);
+        var classSelector = Array.IndexOf(invocation.Arguments.ToArray(), "--benchmark-class");
+        Assert.True(classSelector >= 0);
+        Assert.Equal("FlushTermCardinalityBenchmarks", invocation.Arguments[classSelector + 1]);
+        Assert.Contains("*FlushTermCardinalityBenchmarks.FlushUniqueTerms", invocation.Arguments);
+    }
+
+    [Fact]
+    public void CaseFilterWithNoManifestMatchFailsBeforeRunning()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+        var options = Options(suite: "core", arguments: ["--filter", "*NoSuchCaseMethod*"]) with
+        {
+            Profile = "leancorpus-search-v1",
+            MaxCases = 4
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => BenchmarkCommandPlanner.Create(options, configuration, checkout.RepositoryRoot));
+
+        Assert.Contains("No benchmark cases remain", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BoundedCaseSelectionRejectsBudgetOverflow()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+        var options = Options(suite: "all") with
+        {
+            Case = "collapse-complete-leancorpus,collapse-complete-lucenenet",
+            MaxCases = 1
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() => BenchmarkCommandPlanner.Create(options, configuration, checkout.RepositoryRoot));
+
+        Assert.Contains("above the --max-cases budget", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SelectsAllConfiguredBenchmarkProjectsForTheAllSelector()
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);

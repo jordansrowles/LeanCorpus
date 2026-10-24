@@ -12,7 +12,17 @@ using Rowles.LeanCorpus.DevOps.Terminal;
 
 namespace Rowles.LeanCorpus.DevOps.Benchmarks;
 
-internal sealed record BenchmarkInvocation(string ProjectKey, string ProjectPath, IReadOnlyList<string> Arguments, string? BenchmarkClass = null);
+internal sealed record BenchmarkInvocation(
+    string ProjectKey,
+    string ProjectPath,
+    IReadOnlyList<string> Arguments,
+    string? BenchmarkClass = null,
+    string? BenchmarkFilter = null)
+{
+    public IReadOnlyDictionary<string, ImmutableArray<string>>? ParameterValues { get; init; }
+
+    public int? DocumentCount { get; init; }
+}
 
 internal sealed record BenchmarkExecutionPlan(
     string Suite,
@@ -24,7 +34,14 @@ internal sealed record BenchmarkExecutionPlan(
     string? ReferencePath,
     IReadOnlyList<BenchmarkInvocation> Invocations,
     IReadOnlyList<string> AffectedPaths,
-    IReadOnlyList<string> AffectedGroups);
+    IReadOnlyList<string> AffectedGroups)
+{
+    public IReadOnlyList<string> SelectedCaseIds { get; init; } = [];
+
+    public int SelectedCaseCount { get; init; }
+
+    public int CaseBudget { get; init; }
+}
 
 internal sealed record BenchmarkProjectResult(string Project, string Status, int? ExitCode, string Path, string? Failure);
 
@@ -44,12 +61,15 @@ internal static class BenchmarkCommandPlanner
 
         var requestedSuite = options.Suite.Trim().ToLowerInvariant();
         var suite = ResolveSuiteId(configuration, requestedSuite, out var suiteDescriptor);
+        bool hasCaseSelectors = HasCaseSelectors(options);
         var dataset = string.IsNullOrWhiteSpace(options.Dataset)
             ? configuration.DefaultBenchmarkDataset
             : options.Dataset.Trim().ToLowerInvariant();
         var resolvedOptions = options with { Dataset = dataset };
         if (suite == "affected")
         {
+            if (hasCaseSelectors)
+                throw new InvalidOperationException("Affected benchmark selection cannot be combined with semantic case selectors.");
             if (changedPaths is null)
                 throw new InvalidOperationException("Affected benchmark selection requires a working-tree change inventory.");
             return CreateAffected(resolvedOptions, configuration, repositoryRoot, changedPaths);
@@ -79,9 +99,9 @@ internal static class BenchmarkCommandPlanner
         var selectedProjects = ResolveProjects(configuration, suite, suiteDescriptor);
         var areaNames = SplitNames(options.Area);
         var groupNames = SplitNames(options.Group);
-        if ((areaNames.Length != 0 || groupNames.Length != 0) && suite is not ("core" or "text"))
+        if ((areaNames.Length != 0 || groupNames.Length != 0) && !hasCaseSelectors && suite is not ("core" or "text"))
             throw new InvalidOperationException("Area and group selection require the core or text benchmark suite.");
-        if ((areaNames.Length != 0 || groupNames.Length != 0) && selectedProjects.Any(project =>
+        if ((areaNames.Length != 0 || groupNames.Length != 0) && !hasCaseSelectors && selectedProjects.Any(project =>
                 !configuration.BenchmarkProjects[project].Capabilities.Contains("Groups", StringComparer.Ordinal)))
             throw new InvalidOperationException("Area and group selection require a benchmark project with group support.");
         if ((areaNames.Length != 0 || groupNames.Length != 0) && options.PrepareData)
@@ -106,9 +126,9 @@ internal static class BenchmarkCommandPlanner
         if (options.PrepareData && !needsGutenbergData)
             throw new InvalidOperationException($"PrepareData is not required or supported for benchmark suite '{suite}'.");
 
-        if ((areaNames.Length != 0 || groupNames.Length != 0) && ContainsFilter(options.Arguments))
+        if ((areaNames.Length != 0 || groupNames.Length != 0) && ContainsFilter(options.Arguments) && !hasCaseSelectors)
             throw new InvalidOperationException("A custom BenchmarkDotNet filter cannot be combined with area or group selection.");
-        if (suiteDescriptor is { BenchmarkClasses.IsDefaultOrEmpty: false } && ContainsFilter(options.Arguments))
+        if (suiteDescriptor is { BenchmarkClasses.IsDefaultOrEmpty: false } && ContainsFilter(options.Arguments) && !hasCaseSelectors)
             throw new InvalidOperationException("A custom BenchmarkDotNet filter cannot be combined with a configured benchmark class selection.");
 
         foreach (var projectKey in selectedProjects)
@@ -130,6 +150,47 @@ internal static class BenchmarkCommandPlanner
         var referencePath = dataset == "wikipedia"
             ? ResolvePath(repositoryRoot, options.ReferencePath ?? "artifacts/dataforge/reference/leancorpus-wikipedia-en-v1")
             : null;
+
+        if (hasCaseSelectors)
+        {
+            var selection = SelectCaseMethods(configuration, options, dataset, selectedProjects, suiteDescriptor, areaNames, groupNames);
+            var passThrough = RemoveFilterArguments(options.Arguments);
+            var selectedInvocations = selection.Methods.Select(method =>
+            {
+                int? invocationDocumentCount = ReadSingleDocumentCount(method.ParameterValues);
+                int argumentDocumentCount = method.ParameterValues.ContainsKey("DocumentCount")
+                    ? invocationDocumentCount ?? 0
+                    : documentCount;
+                string filter = $"*{method.Family.BenchmarkClass}.{method.Method}";
+                int? effectiveInvocationDocumentCount = method.ParameterValues.ContainsKey("DocumentCount")
+                    ? invocationDocumentCount
+                    : documentCount;
+                return new BenchmarkInvocation(
+                    method.Family.Project,
+                    GetProjectPath(configuration, method.Family.Project, repositoryRoot),
+                    BuildArguments(method.Family.Project,
+                        method.Family.Project,
+                        strategy.Job, passThrough,
+                        argumentDocumentCount, corpusOnly, options.GcDump, dataset, method.Family.BenchmarkClass, filter,
+                        exactBenchmarkClass: method.Family.Project == "core"),
+                    method.Family.BenchmarkClass,
+                    filter)
+                {
+                    ParameterValues = method.ParameterValues,
+                    DocumentCount = effectiveInvocationDocumentCount
+                };
+            }).ToArray();
+            int plannedDocumentCount = ResolveSelectedDocumentCount(selection.Methods, documentCount);
+            return new BenchmarkExecutionPlan(suite, strategyName, options.Framework, dataset, plannedDocumentCount,
+                corpusOnly, referencePath, selectedInvocations, [], [])
+            {
+                SelectedCaseIds = selection.Methods.Select(static method => method.Family.Id)
+                    .Distinct(StringComparer.Ordinal).OrderBy(static id => id, StringComparer.Ordinal).ToArray(),
+                SelectedCaseCount = selection.CaseCount,
+                CaseBudget = options.MaxCases
+            };
+        }
+
         var invocations = new List<BenchmarkInvocation>();
 
         foreach (var project in selectedProjects)
@@ -165,6 +226,177 @@ internal static class BenchmarkCommandPlanner
         return new BenchmarkExecutionPlan(suite, strategyName, options.Framework, dataset, documentCount, corpusOnly, referencePath,
             invocations.ToImmutableArray(), [], []);
     }
+
+    private static bool HasCaseSelectors(BenchmarkCommandOptions options)
+        => !string.IsNullOrWhiteSpace(options.Profile) || !string.IsNullOrWhiteSpace(options.Case) ||
+           !string.IsNullOrWhiteSpace(options.Engine) || !string.IsNullOrWhiteSpace(options.WorkloadId);
+
+    private static BenchmarkCaseSelection SelectCaseMethods(
+        DevOpsConfiguration configuration,
+        BenchmarkCommandOptions options,
+        string dataset,
+        IReadOnlyList<string> selectedProjects,
+        BenchmarkSuiteConfiguration? suiteDescriptor,
+        IReadOnlyList<string> areas,
+        IReadOnlyList<string> groups)
+    {
+        if (options.MaxCases is < 1 or > 64)
+            throw new InvalidOperationException("MaxCases must be between 1 and 64 for bounded manifest selection.");
+
+        string[] profiles = SplitNames(options.Profile);
+        string[] caseIds = SplitNames(options.Case);
+        string[] engines = SplitNames(options.Engine);
+        string[] workloads = SplitNames(options.WorkloadId);
+        string[] filterPatterns = ExtractFilterPatterns(options.Arguments).ToArray();
+        var allowedClasses = suiteDescriptor is { BenchmarkClasses.IsDefaultOrEmpty: false }
+            ? suiteDescriptor.BenchmarkClasses.ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : null;
+        var candidates = configuration.BenchmarkCases
+            .Where(family => selectedProjects.Contains(family.Project, StringComparer.OrdinalIgnoreCase))
+            .Where(family => allowedClasses is null || allowedClasses.Contains(family.BenchmarkClass))
+            .Where(family => dataset != "wikipedia" || family.DatasetProfile.StartsWith("wikipedia", StringComparison.OrdinalIgnoreCase))
+            .Where(family => profiles.Length == 0 || profiles.Contains(family.DatasetProfile, StringComparer.OrdinalIgnoreCase))
+            .Where(family => caseIds.Length == 0 || caseIds.Contains(family.Id, StringComparer.OrdinalIgnoreCase))
+            .Where(family => engines.Length == 0 || engines.Contains(family.EngineId, StringComparer.OrdinalIgnoreCase))
+            .Where(family => workloads.Length == 0 || workloads.Contains(family.WorkloadId, StringComparer.OrdinalIgnoreCase))
+            .Where(family => areas.Count == 0 || areas.Contains(family.Category, StringComparer.OrdinalIgnoreCase))
+            .Where(family => MatchesGroupSelection(family, groups, configuration))
+            .ToArray();
+
+        var selectedMethods = candidates
+            .SelectMany(family => family.BenchmarkMethods
+                .Where(method => filterPatterns.Length == 0 || filterPatterns.Any(pattern =>
+                    System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(
+                        pattern, $"{family.BenchmarkClass}.{method}", ignoreCase: true)))
+                .Select(method => CreateSelectedCaseMethod(family, method, options.DocumentCount)))
+            .OrderBy(static selected => selected.Family.Project, StringComparer.Ordinal)
+            .ThenBy(static selected => selected.Family.BenchmarkClass, StringComparer.Ordinal)
+            .ThenBy(static selected => selected.Method, StringComparer.Ordinal)
+            .ToArray();
+        if (selectedMethods.Length == 0)
+            throw new InvalidOperationException("No benchmark cases remain after intersecting suite, profile, case, engine, area, group, dataset, and filter selectors.");
+        long selectedCaseCount = selectedMethods.Sum(static selected => selected.CaseCount);
+        if (selectedCaseCount > options.MaxCases)
+            throw new InvalidOperationException($"The selection contains {selectedCaseCount} benchmark cases, above the --max-cases budget of {options.MaxCases}. Narrow the selection or raise the budget (maximum 64).");
+
+        return new BenchmarkCaseSelection(selectedMethods, checked((int)selectedCaseCount));
+    }
+
+    private static SelectedCaseMethod CreateSelectedCaseMethod(
+        BenchmarkCaseConfiguration family,
+        string method,
+        int requestedDocumentCount)
+    {
+        var parameterValues = family.ParameterValues;
+        if (requestedDocumentCount > 0 && parameterValues.TryGetValue("DocumentCount", out var documentCounts))
+        {
+            string requested = requestedDocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (!documentCounts.Contains(requested, StringComparer.Ordinal))
+                throw new InvalidOperationException(
+                    $"Requested document count {requestedDocumentCount} does not match the parameter values registered for benchmark case '{family.Id}'.");
+            parameterValues = parameterValues.SetItem("DocumentCount", [requested]);
+        }
+
+        long caseCount = 1;
+        foreach (var values in parameterValues.Values)
+        {
+            if (values.IsDefaultOrEmpty)
+                throw new InvalidOperationException($"Benchmark case '{family.Id}' has an empty parameter value list.");
+            caseCount = caseCount > long.MaxValue / values.Length
+                ? long.MaxValue
+                : caseCount * values.Length;
+        }
+
+        return new SelectedCaseMethod(family, method, parameterValues, caseCount);
+    }
+
+    private static int? ReadSingleDocumentCount(IReadOnlyDictionary<string, ImmutableArray<string>> parameterValues)
+    {
+        if (!parameterValues.TryGetValue("DocumentCount", out var values) || values.Length != 1)
+            return null;
+        return int.TryParse(values[0], System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture, out int documentCount) && documentCount > 0
+            ? documentCount
+            : throw new InvalidOperationException($"Invalid DocumentCount benchmark parameter '{values[0]}'.");
+    }
+
+    private static int ResolveSelectedDocumentCount(IReadOnlyList<SelectedCaseMethod> methods, int defaultDocumentCount)
+    {
+        var selectedCounts = methods.SelectMany(method =>
+            method.ParameterValues.TryGetValue("DocumentCount", out var values)
+                ? values.Select(value => int.TryParse(value, System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out int parsed) && parsed > 0
+                    ? parsed
+                    : throw new InvalidOperationException($"Invalid DocumentCount benchmark parameter '{value}'."))
+                : [defaultDocumentCount])
+            .Distinct()
+            .Take(2)
+            .ToArray();
+        return selectedCounts.Length == 1 ? selectedCounts[0] : 0;
+    }
+
+    private static bool MatchesGroupSelection(
+        BenchmarkCaseConfiguration family,
+        IReadOnlyList<string> groups,
+        DevOpsConfiguration configuration)
+    {
+        if (groups.Count == 0)
+            return true;
+        foreach (string group in groups)
+        {
+            if (string.Equals(family.ComparisonGroup, group, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (configuration.BenchmarkGroups.TryGetValue(group, out BenchmarkGroupConfiguration? configured) &&
+                configured.Project.Equals(family.Project, StringComparison.OrdinalIgnoreCase) &&
+                configured.Benchmarks.Contains(family.BenchmarkClass, StringComparer.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    private static IEnumerable<string> ExtractFilterPatterns(IReadOnlyList<string> arguments)
+    {
+        for (int index = 0; index < arguments.Count; index++)
+        {
+            string argument = arguments[index];
+            if (argument.StartsWith("--filter=", StringComparison.OrdinalIgnoreCase))
+                yield return argument[9..];
+            else if (argument.StartsWith("-f=", StringComparison.OrdinalIgnoreCase))
+                yield return argument[3..];
+            else if (argument.Equals("--filter", StringComparison.OrdinalIgnoreCase) || argument.Equals("-f", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 < arguments.Count && !arguments[index + 1].StartsWith("-", StringComparison.Ordinal))
+                    yield return arguments[++index];
+            }
+        }
+    }
+
+    private static string[] RemoveFilterArguments(IReadOnlyList<string> arguments)
+    {
+        var result = new List<string>(arguments.Count);
+        for (int index = 0; index < arguments.Count; index++)
+        {
+            string argument = arguments[index];
+            if (argument.StartsWith("--filter=", StringComparison.OrdinalIgnoreCase) || argument.StartsWith("-f=", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (argument.Equals("--filter", StringComparison.OrdinalIgnoreCase) || argument.Equals("-f", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 < arguments.Count && !arguments[index + 1].StartsWith("-", StringComparison.Ordinal))
+                    index++;
+                continue;
+            }
+            result.Add(argument);
+        }
+        return result.ToArray();
+    }
+
+    private sealed record SelectedCaseMethod(
+        BenchmarkCaseConfiguration Family,
+        string Method,
+        ImmutableDictionary<string, ImmutableArray<string>> ParameterValues,
+        long CaseCount);
+
+    private sealed record BenchmarkCaseSelection(IReadOnlyList<SelectedCaseMethod> Methods, int CaseCount);
 
     private static BenchmarkExecutionPlan CreateAffected(
         BenchmarkCommandOptions options,
@@ -209,12 +441,19 @@ internal static class BenchmarkCommandPlanner
         bool corpusOnly,
         bool gcDump,
         string dataset,
-        string? benchmarkClass)
+        string? benchmarkClass,
+        string? benchmarkFilter = null,
+        bool exactBenchmarkClass = false)
     {
         var arguments = new List<string>();
         if (project == "core")
         {
-            arguments.AddRange(["--suite", benchmarkClass is not null || suite is "all" or "core" ? "all" : suite]);
+            string selectedSuite = exactBenchmarkClass
+                ? "all-with-explicit"
+                : suite is "all" or "core" ? "all" : suite;
+            arguments.AddRange(["--suite", selectedSuite]);
+            if (exactBenchmarkClass && benchmarkClass is not null)
+                arguments.AddRange(["--benchmark-class", benchmarkClass]);
             if (documentCount > 0)
                 arguments.AddRange(["--doccount", documentCount.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
             if (corpusOnly)
@@ -230,7 +469,9 @@ internal static class BenchmarkCommandPlanner
         }
         arguments.AddRange(jobArguments);
         arguments.AddRange(passThrough);
-        if (benchmarkClass is not null)
+        if (benchmarkFilter is not null)
+            arguments.AddRange(["--filter", benchmarkFilter]);
+        else if (benchmarkClass is not null)
             arguments.AddRange(["--filter", $"*{benchmarkClass}*"]);
         return arguments.ToArray();
     }
@@ -373,6 +614,14 @@ internal sealed class BenchmarkCommandService(
             progress?.Invoke("Benchmark projects: " + string.Join(", ", configuration.BenchmarkProjects
                 .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
                 .Select(static pair => $"{pair.Key} ({pair.Value.DisplayName})")));
+            progress?.Invoke("Profiles: " + string.Join(", ", configuration.BenchmarkCases.Select(static item => item.DatasetProfile)
+                .Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal)));
+            progress?.Invoke("Engines: " + string.Join(", ", configuration.BenchmarkCases.Select(static item => item.EngineId)
+                .Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal)));
+            progress?.Invoke("Workloads: " + string.Join(", ", configuration.BenchmarkCases.Select(static item => item.WorkloadId)
+                .Distinct(StringComparer.Ordinal).OrderBy(static value => value, StringComparer.Ordinal)));
+            progress?.Invoke("Cases: " + string.Join(", ", configuration.BenchmarkCases.Select(static item => item.Id)
+                .OrderBy(static value => value, StringComparer.Ordinal)));
             return new BenchmarkCommandResult(new CommandResult(OutcomeKind.Success, "Benchmark options listed."), null, null);
         }
 
@@ -403,13 +652,20 @@ internal sealed class BenchmarkCommandService(
 
         if (request.Options.Dry)
         {
+            if (plan.SelectedCaseCount > 0)
+                progress?.Invoke($"Bounded manifest selection: {plan.SelectedCaseCount} cases across {plan.SelectedCaseIds.Count} families; budget {plan.CaseBudget}. Cases: {string.Join(", ", plan.SelectedCaseIds)}.");
             foreach (var invocation in plan.Invocations)
             {
+                if (invocation.ParameterValues is { Count: > 0 } parameterValues)
+                    progress?.Invoke($"Benchmark parameter selection for {invocation.ProjectKey}/{invocation.BenchmarkClass}: {JsonSerializer.Serialize(parameterValues)}; documentCount={invocation.DocumentCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "from parameters"}.");
                 progress?.Invoke("dotnet " + string.Join(" ", QuoteArguments(BuildDotNetBuildArguments(invocation, plan))));
                 progress?.Invoke("dotnet " + string.Join(" ", QuoteArguments(BuildDotNetArguments(invocation, plan))));
             }
             return new BenchmarkCommandResult(new CommandResult(OutcomeKind.Success, "Benchmark dry run completed; no benchmark targets were executed."), null, null);
         }
+
+        if (plan.SelectedCaseCount > 0)
+            progress?.Invoke($"Bounded manifest selection: {plan.SelectedCaseCount} cases across {plan.SelectedCaseIds.Count} families; budget {plan.CaseBudget}. Cases: {string.Join(", ", plan.SelectedCaseIds)}.");
 
         if (request.Options.SourceManifest is { } sourceManifest && !File.Exists(ResolvePath(sourceManifest, artifactPaths.RepositoryRoot)))
             return new BenchmarkCommandResult(new CommandResult(OutcomeKind.ValidationFailure, $"Source manifest '{sourceManifest}' does not exist."), null, null);
@@ -425,6 +681,17 @@ internal sealed class BenchmarkCommandService(
             ["dataset"] = plan.Dataset,
             ["documentCount"] = plan.DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["projectKeys"] = string.Join(",", plan.Invocations.Select(static invocation => invocation.ProjectKey).Distinct(StringComparer.Ordinal)),
+            ["selectedCaseIds"] = JsonSerializer.Serialize(plan.SelectedCaseIds),
+            ["selectedCaseInvocations"] = JsonSerializer.Serialize(plan.Invocations
+                .Where(static invocation => invocation.ParameterValues is not null)
+                .Select(static invocation => new
+                {
+                    invocation.ProjectKey,
+                    invocation.BenchmarkClass,
+                    invocation.BenchmarkFilter,
+                    invocation.ParameterValues,
+                    invocation.DocumentCount
+                })),
             ["arguments"] = JsonSerializer.Serialize(request.Options.Arguments),
             ["referencePath"] = plan.ReferencePath ?? string.Empty,
             ["sourceCommit"] = request.Options.SourceCommit ?? string.Empty,
@@ -503,7 +770,8 @@ internal sealed class BenchmarkCommandService(
                 var stderr = Path.Combine(projectDirectory, "process.stderr.log");
                 var invocationName = invocation.BenchmarkClass is null
                     ? invocation.ProjectKey
-                    : $"{invocation.ProjectKey}/{invocation.BenchmarkClass}";
+                    : $"{invocation.ProjectKey}/{invocation.BenchmarkClass}" +
+                      (invocation.BenchmarkFilter is null ? string.Empty : $" {invocation.BenchmarkFilter}");
                 progress?.Invoke($"Building benchmark target {invocationName} ({index + 1}/{plan.Invocations.Count}).");
                 var build = await processRunner.RunAsync(new ProcessRequest
                 {
@@ -512,7 +780,7 @@ internal sealed class BenchmarkCommandService(
                     WorkingDirectory = artifactPaths.RepositoryRoot,
                     StandardOutputLogPath = buildStdout,
                     StandardErrorLogPath = buildStderr,
-                    EnvironmentVariables = BuildEnvironment(manifest, projectDirectory, request.Options, plan),
+                    EnvironmentVariables = BuildEnvironment(manifest, projectDirectory, request.Options, plan, invocation),
                     Timeout = BenchmarkRunLimit,
                     ProgressInterval = TimeSpan.FromSeconds(60),
                     Progress = value => progress?.Invoke(
@@ -548,7 +816,7 @@ internal sealed class BenchmarkCommandService(
                     WorkingDirectory = artifactPaths.RepositoryRoot,
                     StandardOutputLogPath = stdout,
                     StandardErrorLogPath = stderr,
-                    EnvironmentVariables = BuildEnvironment(manifest, projectDirectory, request.Options, plan),
+                    EnvironmentVariables = BuildEnvironment(manifest, projectDirectory, request.Options, plan, invocation),
                     Timeout = BenchmarkRunLimit,
                     ProgressInterval = TimeSpan.FromSeconds(60),
                     Progress = value => progress?.Invoke(
@@ -587,8 +855,8 @@ internal sealed class BenchmarkCommandService(
                 results.Add(new BenchmarkProjectResult(invocationName, "Passed", process.RawExitCode, Relative(runDirectory, projectDirectory), null));
             }
 
-            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results,
-                referenceIdentity, runToken).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
+                failure ?? OutcomeKind.Success, referenceIdentity, artifacts, runToken).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.Add("run-report.json");
             artifacts.Add("report.md");
@@ -598,7 +866,8 @@ internal sealed class BenchmarkCommandService(
         }
         catch (OperationCanceledException exception) when (runTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
+                OutcomeKind.Timeout, null, artifacts, CancellationToken.None).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.Timeout,
@@ -606,14 +875,16 @@ internal sealed class BenchmarkCommandService(
         }
         catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
         {
-            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
+                OutcomeKind.Cancelled, null, artifacts, CancellationToken.None).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.Cancelled, exception.Message, childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
         }
         catch (TimeoutException exception)
         {
-            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
+                OutcomeKind.Timeout, null, artifacts, CancellationToken.None).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.Timeout,
@@ -621,7 +892,8 @@ internal sealed class BenchmarkCommandService(
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or System.ComponentModel.Win32Exception)
         {
-            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, results, null, CancellationToken.None).ConfigureAwait(false);
+            var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
+                OutcomeKind.InfrastructureFailure, null, artifacts, CancellationToken.None).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.InfrastructureFailure, exception.Message, childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
@@ -680,16 +952,28 @@ internal sealed class BenchmarkCommandService(
         RunManifest manifest,
         string artifactDirectory,
         BenchmarkCommandOptions options,
-        BenchmarkExecutionPlan plan)
+        BenchmarkExecutionPlan plan,
+        BenchmarkInvocation invocation)
     {
         var sourceManifest = options.SourceManifest is null ? string.Empty : ResolvePath(options.SourceManifest, artifactPaths.RepositoryRoot);
+        string documentCount = invocation.ParameterValues is not null &&
+            invocation.ParameterValues.TryGetValue("DocumentCount", out var selectedDocumentCounts)
+                ? selectedDocumentCounts.Length == 1 ? selectedDocumentCounts[0] : string.Empty
+                : invocation.DocumentCount is > 0
+                    ? invocation.DocumentCount.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    : plan.DocumentCount > 0
+                        ? plan.DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : string.Empty;
         return new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["LEANCORPUS_RUN_ID"] = manifest.RunId.ToString("D"),
             ["LEANCORPUS_ARTIFACT_DIR"] = artifactDirectory,
             ["BENCH_DATASET_MODE"] = plan.Dataset,
             ["BENCH_REFERENCE_PATH"] = plan.ReferencePath ?? string.Empty,
-            ["BENCH_DOC_COUNT"] = plan.DocumentCount > 0 ? plan.DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty,
+            ["BENCH_DOC_COUNT"] = documentCount,
+            ["LEANCORPUS_BENCHMARK_PARAMETER_FILTER"] = invocation.ParameterValues is { Count: > 0 } parameterValues
+                ? JsonSerializer.Serialize(parameterValues)
+                : string.Empty,
             ["BENCH_SOURCE_COMMIT"] = manifest.SourceCommit ?? options.SourceCommit ?? string.Empty,
             ["BENCH_SOURCE_REF"] = options.SourceRef ?? manifest.SourceBranch ?? string.Empty,
             ["BENCH_SOURCE_MANIFEST"] = sourceManifest
@@ -781,10 +1065,14 @@ internal sealed class BenchmarkCommandService(
         RunManifest manifest,
         BenchmarkHostIdentity hostIdentity,
         BenchmarkExecutionPlan plan,
+        IReadOnlyList<BenchmarkCaseConfiguration> caseFamilies,
         IReadOnlyList<BenchmarkProjectResult> results,
+        OutcomeKind terminalOutcome,
         IReadOnlyDictionary<string, object?>? datasetIdentity,
+        ICollection<string> artifacts,
         CancellationToken cancellationToken)
     {
+        CollectRawBenchmarkResults(runDirectory, plan, artifacts);
         var coreReports = ReadCoreReportIdentities(runDirectory, plan);
         var expectedCoreReportCount = plan.Invocations.Count(static invocation => invocation.ProjectKey == "core");
         var assessment = BenchmarkRunIdentityValidator.Assess(new BenchmarkRunIdentityInput(
@@ -793,6 +1081,13 @@ internal sealed class BenchmarkCommandService(
             hostIdentity,
             coreReports,
             expectedCoreReportCount));
+        var comparisonAssessment = BenchmarkComparisonAssessor.Assess(new BenchmarkComparisonEvidence(
+            manifest.SourceCommit ?? string.Empty,
+            manifest.SourceDirty,
+            hostIdentity,
+            caseFamilies,
+            coreReports.Select(static report => BenchmarkComparisonSourceReport.Read(report.ReportPath)).ToArray()));
+        var execution = BuildExecutionSummary(runDirectory, plan, results, terminalOutcome);
         var report = new
         {
             schemaVersion = 1,
@@ -829,6 +1124,8 @@ internal sealed class BenchmarkCommandService(
                 comparable = assessment.Comparable,
                 reasonCodes = assessment.ReasonCodes
             },
+            comparisonAssessment,
+            execution,
             comparable = assessment.Comparable,
             affectedSelection = plan.Suite == "affected" ? new { paths = plan.AffectedPaths, groups = plan.AffectedGroups } : null,
             coreReportIdentities = coreReports.Select(coreReport => new
@@ -859,14 +1156,22 @@ internal sealed class BenchmarkCommandService(
             string.Concat("Status: ", report.status),
             string.Concat("Identity: ", assessment.IdentityStatus),
             string.Concat("Qualification: ", assessment.QualificationState),
+            string.Concat("Semantic comparisons: ", comparisonAssessment.QualificationState,
+                " (", comparisonAssessment.Comparisons.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), " pairs; ratio eligible: ",
+                comparisonAssessment.EligibleForRatio.ToString(), ")"),
             string.Concat("Comparable: ", assessment.Comparable.ToString()),
+            string.Concat("Execution: ", execution.Classification, "; cases terminal/failed/intermediate/missing: ",
+                execution.TerminalCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
+                execution.FailedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
+                execution.IntermediateCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
+                execution.MissingCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             string.Empty,
             "| Project | Status | Path |",
             "| --- | --- | --- |"
         };
         markdown.AddRange(results.Select(result => string.Concat("| ", result.Project, " | ", result.Status, " | ", result.Path, " |")));
         await WriteAtomicAsync(Path.Combine(runDirectory, "report.md"), string.Join(Environment.NewLine, markdown) + Environment.NewLine, cancellationToken).ConfigureAwait(false);
-        return new BenchmarkRunIdentityEvidence(hostIdentity, coreReports, assessment);
+        return new BenchmarkRunIdentityEvidence(hostIdentity, coreReports, assessment, comparisonAssessment, execution);
     }
 
     private static IReadOnlyList<BenchmarkCoreReportIdentity> ReadCoreReportIdentities(
@@ -893,6 +1198,113 @@ internal sealed class BenchmarkCommandService(
                 artifacts.Add(Relative(runDirectory, report.ReportPath));
         }
     }
+
+    private void CollectRawBenchmarkResults(
+        string runDirectory,
+        BenchmarkExecutionPlan plan,
+        ICollection<string> artifacts)
+    {
+        for (int index = 0; index < plan.Invocations.Count; index++)
+        {
+            string projectDirectory = Path.Combine(runDirectory, plan.Invocations[index].ProjectKey,
+                index.ToString("D3", System.Globalization.CultureInfo.InvariantCulture));
+            string resultsDirectory = Path.Combine(projectDirectory, "_runner", "results");
+            if (!Directory.Exists(resultsDirectory))
+                continue;
+            foreach (string path in Directory.EnumerateFiles(resultsDirectory, "*", SearchOption.AllDirectories)
+                         .OrderBy(static path => path, StringComparer.Ordinal))
+            {
+                string relative = Relative(runDirectory, path);
+                if (!artifacts.Contains(relative, StringComparer.Ordinal))
+                    artifacts.Add(relative);
+            }
+        }
+    }
+
+    private static BenchmarkExecutionSummary BuildExecutionSummary(
+        string runDirectory,
+        BenchmarkExecutionPlan plan,
+        IReadOnlyList<BenchmarkProjectResult> results,
+        OutcomeKind terminalOutcome)
+    {
+        int discoveredCaseCount = 0;
+        int terminalCaseCount = 0;
+        int failedCaseCount = 0;
+        int intermediateCaseCount = 0;
+        int missingCaseCount = 0;
+        int rawResultFileCount = 0;
+        for (int index = 0; index < plan.Invocations.Count; index++)
+        {
+            string projectDirectory = Path.Combine(runDirectory, plan.Invocations[index].ProjectKey,
+                index.ToString("D3", System.Globalization.CultureInfo.InvariantCulture));
+            string reportPath = Path.Combine(projectDirectory, "report.json");
+            if (File.Exists(reportPath))
+            {
+                try
+                {
+                    using var report = JsonDocument.Parse(File.ReadAllBytes(reportPath));
+                    JsonElement root = report.RootElement;
+                    if (root.TryGetProperty("suites", out JsonElement suites) && suites.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement suite in suites.EnumerateArray())
+                        {
+                            int registered = ReadInt32(suite, "registeredBenchmarkCount") ?? 0;
+                            int terminal = ReadInt32(suite, "measuredBenchmarkCount") ?? 0;
+                            int failed = ReadInt32(suite, "failedBenchmarkCount") ?? 0;
+                            int intermediate = ReadInt32(suite, "intermediateBenchmarkCount") ?? 0;
+                            int missing = ReadInt32(suite, "missingBenchmarkCount") ?? 0;
+                            discoveredCaseCount += registered;
+                            terminalCaseCount += terminal;
+                            failedCaseCount += failed;
+                            intermediateCaseCount += intermediate;
+                            missingCaseCount += missing;
+                        }
+                    }
+                }
+                catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)
+                {
+                }
+            }
+
+            string resultsDirectory = Path.Combine(projectDirectory, "_runner", "results");
+            if (Directory.Exists(resultsDirectory))
+                rawResultFileCount += Directory.EnumerateFiles(resultsDirectory, "*", SearchOption.AllDirectories).Count();
+        }
+
+        int terminalInvocations = results.Count(static result => result.Status == "Passed");
+        int partialInvocations = Math.Max(0, plan.Invocations.Count - terminalInvocations);
+        bool noOutput = results.Any(static result => result.Failure is { } failure &&
+            (failure.Contains("did not create a results directory", StringComparison.OrdinalIgnoreCase) ||
+             failure.Contains("no non-empty result files", StringComparison.OrdinalIgnoreCase)));
+        bool failedPair = failedCaseCount > 0 || results.Any(static result => result.Failure is { } failure &&
+            failure.Contains("contains failed, intermediate or missing benchmark results", StringComparison.OrdinalIgnoreCase));
+        string classification = terminalOutcome switch
+        {
+            OutcomeKind.Timeout => "TimedOut",
+            OutcomeKind.Cancelled => "Cancelled",
+            _ when noOutput => "NoOutput",
+            _ when failedPair => "FailedPair",
+            _ when terminalOutcome != OutcomeKind.Success => "Failed",
+            _ when terminalInvocations == plan.Invocations.Count && results.Count == plan.Invocations.Count => "Completed",
+            _ when results.Any(static result => result.Status == "Incomplete") || results.Count < plan.Invocations.Count => "Partial",
+            _ => "Failed"
+        };
+        int plannedCaseCount = plan.SelectedCaseCount > 0
+            ? plan.SelectedCaseCount
+            : discoveredCaseCount > 0
+                ? discoveredCaseCount
+                : terminalCaseCount + failedCaseCount + intermediateCaseCount + missingCaseCount;
+
+        return new BenchmarkExecutionSummary(classification, plan.Invocations.Count, terminalInvocations,
+            partialInvocations, plannedCaseCount, terminalCaseCount, failedCaseCount, intermediateCaseCount,
+            missingCaseCount, rawResultFileCount);
+    }
+
+    private static int? ReadInt32(JsonElement value, string propertyName)
+        => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(propertyName, out JsonElement property) &&
+           property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out int result)
+            ? result
+            : null;
 
     private async Task<BenchmarkCommandResult> FinishAsync(
         RunManifest manifest,
@@ -931,6 +1343,20 @@ internal sealed class BenchmarkCommandService(
             ["eligibleForRatio"] = evidence.Assessment.EligibleForRatio.ToString().ToLowerInvariant(),
             ["comparable"] = evidence.Assessment.Comparable.ToString().ToLowerInvariant(),
             ["qualificationReasonCodes"] = JsonSerializer.Serialize(evidence.Assessment.ReasonCodes),
+            ["comparisonQualificationState"] = evidence.ComparisonAssessment.QualificationState,
+            ["comparisonEligibleForRatio"] = evidence.ComparisonAssessment.EligibleForRatio.ToString().ToLowerInvariant(),
+            ["comparisonReasonCodes"] = JsonSerializer.Serialize(evidence.ComparisonAssessment.ReasonCodes),
+            ["comparisonPairCount"] = evidence.ComparisonAssessment.Comparisons.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["executionClassification"] = evidence.Execution.Classification,
+            ["plannedInvocationCount"] = evidence.Execution.PlannedInvocationCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["terminalInvocationCount"] = evidence.Execution.TerminalInvocationCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["partialInvocationCount"] = evidence.Execution.PartialInvocationCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["plannedCaseCount"] = evidence.Execution.PlannedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["terminalCaseCount"] = evidence.Execution.TerminalCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["failedCaseCount"] = evidence.Execution.FailedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["intermediateCaseCount"] = evidence.Execution.IntermediateCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["missingCaseCount"] = evidence.Execution.MissingCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["rawResultFileCount"] = evidence.Execution.RawResultFileCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["coreReportIdentities"] = JsonSerializer.Serialize(evidence.CoreReports.Select(report => new
             {
                 project = report.Project,

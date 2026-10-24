@@ -4,6 +4,7 @@ using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
 using System.Text.Json;
 using Rowles.LeanCorpus.Benchmarks;
+using Rowles.LeanCorpus.Benchmarks.Infrastructure;
 
 namespace Rowles.Text.Benchmarks;
 
@@ -28,7 +29,8 @@ internal static class Program
             ?? Path.Combine(FindRepositoryRoot(), "artifacts", "benchmark", "runs", "direct", "text");
         Environment.SetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR", artifactsPath);
         Directory.CreateDirectory(artifactsPath);
-        var config = DefaultConfig.Instance.WithArtifactsPath(Path.Combine(artifactsPath, "_runner"));
+        var config = BenchmarkParameterSelectionFilter.Apply(
+            DefaultConfig.Instance.WithArtifactsPath(Path.Combine(artifactsPath, "_runner")));
         bool includeGutenberg = args.Any(argument =>
             argument.Contains(nameof(GutenbergAnalysisBenchmarks), StringComparison.OrdinalIgnoreCase));
         var benchmarkTypes = GetBenchmarkTypes(includeGutenberg);
@@ -60,7 +62,7 @@ internal static class Program
         }
 
         throw new InvalidOperationException(
-            "LeanCorpus repository root could not be found. Run this benchmark through pwsh ./devops.ps1 benchmark or from inside the repository.");
+            "LeanCorpus repository root could not be found. Run this benchmark through ./devops benchmark or from inside the repository.");
     }
 
     private static bool HasInvalidResults(IEnumerable<Summary> summaries)

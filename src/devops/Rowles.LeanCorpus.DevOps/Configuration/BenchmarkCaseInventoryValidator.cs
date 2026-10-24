@@ -121,6 +121,16 @@ internal static class BenchmarkCaseInventoryValidator
 
         if (!methodCases.Any(discovered => MatchesFamily(benchmarkCase, discovered)))
             throw Error($"Semantic case family '{benchmarkCase.Id}' maps to no BDN case with its declared parameter fingerprint.");
+
+        foreach (var discovered in methodCases.Where(discovered => MatchesFamily(benchmarkCase, discovered)))
+        {
+            if (discovered.ParameterValues.Count != benchmarkCase.ParameterValues.Count ||
+                discovered.ParameterValues.Keys.Any(parameterName => !benchmarkCase.ParameterValues.ContainsKey(parameterName)))
+            {
+                throw Error(
+                    $"Semantic case family '{benchmarkCase.Id}' must declare every discovered BDN parameter for '{discovered.FullName}' so bounded selection can count exact cases.");
+            }
+        }
     }
 
     private static bool MatchesFamily(BenchmarkCaseConfiguration benchmarkCase, DiscoveredBenchmarkCase discovered)

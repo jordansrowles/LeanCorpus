@@ -124,6 +124,7 @@ internal sealed class BenchmarkCaseReport
     public string ToolchainRuntimeVersion { get; set; } = string.Empty;
     public bool ToolchainIsInProcess { get; set; }
     public bool IdentityComplete { get; set; }
+    public bool PreflightPassed { get; set; }
     public Dictionary<string, string> JobSettings { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> EnvironmentVariables { get; set; } = new(StringComparer.Ordinal);
     public int MeasurementCount { get; set; }
@@ -367,6 +368,7 @@ internal static class BenchmarkRunReportBuilder
             ToolchainRuntimeVersion = identity.ToolchainRuntimeVersion,
             ToolchainIsInProcess = identity.ToolchainIsInProcess,
             IdentityComplete = identity.IdentityComplete,
+            PreflightPassed = resultState == "TerminalResult",
             JobSettings = identity.Settings,
             EnvironmentVariables = identity.EnvironmentVariables,
             MeasurementCount = measurements.Count,

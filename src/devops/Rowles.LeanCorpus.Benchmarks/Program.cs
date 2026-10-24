@@ -3,6 +3,7 @@ using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Reports;
 using BenchmarkDotNet.Running;
+using Rowles.LeanCorpus.Benchmarks.Infrastructure;
 using System.Diagnostics;
 using System.Globalization;
 
@@ -28,10 +29,11 @@ internal static class Program
         bool showHelp;
         int? docCount;
         bool gcDump;
+        string? benchmarkClass;
 
         try
         {
-            (suites, runType, benchmarkArgs, showHelp, docCount, gcDump) = ParseArguments(args);
+            (suites, runType, benchmarkArgs, showHelp, docCount, gcDump, benchmarkClass) = ParseArguments(args);
         }
         catch (ArgumentException ex)
         {
@@ -89,23 +91,35 @@ internal static class Program
         // Resolve effective run type for metadata (does not affect output path)
         var effectiveRunType = string.IsNullOrEmpty(runType) ? "full" : runType;
         var listingOnly = IsBenchmarkListRequest(benchmarkArgs);
+        var selectedWorkloads = BenchmarkSuiteRegistry.SelectWorkloads(suites);
+        if (benchmarkClass is not null)
+        {
+            selectedWorkloads = selectedWorkloads
+                .Where(workload => workload.BenchmarkType.Name.Equals(benchmarkClass, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (selectedWorkloads.Count == 0)
+            {
+                Console.Error.WriteLine($"Benchmark class '{benchmarkClass}' is not registered in the selected suite.");
+                return 1;
+            }
+        }
 
         // Clean up stale benchmark state only for a measured run.
         if (!listingOnly)
             BenchmarkHelpers.CleanTempRoot();
 
-        if (!listingOnly && BenchmarkSuiteRegistry.UsesStandardSearchFixture(suites))
+        if (!listingOnly && selectedWorkloads.Any(BenchmarkSuiteRegistry.UsesStandardSearchFixture))
         {
             var effectiveDocCount = docCount ?? BenchmarkData.DefaultDocCount;
             Console.WriteLine($"Preparing shared search fixture ({effectiveDocCount:N0} documents)...");
-            bool includesSimilaritySuite = BenchmarkSuiteRegistry.SelectWorkloads(suites)
+            bool includesSimilaritySuite = selectedWorkloads
                 .Any(static workload => workload.BenchmarkType == typeof(SimilarityBenchmarks));
             SharedStandardIndex.PrepareForRun(effectiveDocCount, includesSimilaritySuite);
         }
 
         var suiteSummaries = new List<(string Suite, Summary Summary)>();
 
-        foreach (var workload in BenchmarkSuiteRegistry.SelectWorkloads(suites))
+        foreach (var workload in selectedWorkloads)
             RunSuite(workload);
 
         ExecuteSuites(runDir, benchmarkArgs, suiteSummaries, gcDump);
@@ -190,7 +204,8 @@ internal static class Program
 
         var artifactsPath = Path.Combine(runDir, "_runner");
         Directory.CreateDirectory(artifactsPath);
-        var baseConfig = DefaultConfig.Instance.WithArtifactsPath(artifactsPath);
+        var baseConfig = BenchmarkParameterSelectionFilter.Apply(
+            DefaultConfig.Instance.WithArtifactsPath(artifactsPath));
         var (job, effectiveBenchmarkArgs) = ExtractJob(benchmarkArgs);
 
         // BDN nightly >= 20260608 goes interactive when args are empty,
@@ -410,6 +425,7 @@ internal static class Program
               --suite <name>   Run one or more benchmark suites, comma-separated (default: all)
                                e.g. --suite fuzzy,boolean,prefix
               --type <name>    Run type label stored in report metadata (default: full)
+              --benchmark-class <name> Select one registered benchmark type before setup (managed runner use)
               --doccount <n>   Override document count for all suites (env: BENCH_DOC_COUNT)
               --gcdump         Collect GC heap dumps after each benchmark run
               --corpus-only    Skip Lucene.NET comparison benchmarks, run LeanCorpus only
@@ -436,13 +452,14 @@ internal static class Program
             """);
     }
 
-    private static (HashSet<string> Suites, string RunType, string[] BenchmarkArgs, bool ShowHelp, int? DocCount, bool GcDump) ParseArguments(string[] args)
+    private static (HashSet<string> Suites, string RunType, string[] BenchmarkArgs, bool ShowHelp, int? DocCount, bool GcDump, string? BenchmarkClass) ParseArguments(string[] args)
     {
         var suites = new HashSet<string>(StringComparer.Ordinal) { "all" };
         var benchmarkArgs = new List<string>(args.Length);
         var showHelp = false;
         int? docCount = null;
         string runType = string.Empty;
+        string? benchmarkClass = null;
         bool gcDump = false;
         bool corpusOnly = false;
 
@@ -485,6 +502,14 @@ internal static class Program
                 continue;
             }
 
+            if (string.Equals(args[i], "--benchmark-class", StringComparison.OrdinalIgnoreCase))
+            {
+                if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+                    throw new ArgumentException("--benchmark-class requires a registered benchmark class name.");
+                benchmarkClass = args[++i];
+                continue;
+            }
+
             if (string.Equals(args[i], "--doccount", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
             {
                 if (int.TryParse(args[++i], NumberStyles.Integer, CultureInfo.InvariantCulture, out var dc))
@@ -500,7 +525,7 @@ internal static class Program
             !HasBenchmarkDotNetOption(benchmarkArgs, "--filter", "-f"))
             benchmarkArgs.AddRange(["--filter", "*LeanCorpus_*"]);
 
-        return (suites, runType, [.. benchmarkArgs], showHelp, docCount, gcDump);
+        return (suites, runType, [.. benchmarkArgs], showHelp, docCount, gcDump, benchmarkClass);
     }
 
     private static bool HasBenchmarkDotNetOption(IEnumerable<string> args, params string[] names)

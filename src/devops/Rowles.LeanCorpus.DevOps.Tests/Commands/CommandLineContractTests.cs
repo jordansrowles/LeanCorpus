@@ -41,6 +41,22 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
+    public void HelpOmitsRetiredPowerShellCommandAliases()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = Program.BuildRootCommand(handler).Parse(["--help"])
+            .Invoke(new InvocationConfiguration { Output = output, Error = error });
+
+        Assert.Equal(0, exitCode);
+        Assert.DoesNotContain("benchmarks", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("setup", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
     public void VersionDoesNotRequireRepositoryOrSdkDiscovery()
     {
         var output = new StringWriter();
@@ -52,6 +68,23 @@ public sealed class CommandLineContractTests
         Assert.Equal(0, exitCode);
         Assert.False(string.IsNullOrWhiteSpace(output.ToString()));
         Assert.Empty(error.ToString());
+        Assert.Empty(handler.Calls);
+    }
+
+    [Theory]
+    [InlineData(new[] { "benchmarks", "docs" }, "docs build")]
+    [InlineData(new[] { "setup" }, "setup.ps1")]
+    public void RetiredPowerShellEntryPointsGiveManagedGuidance(string[] args, string expectedGuidance)
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = CommandLineApplication.Run(args, output, error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains(expectedGuidance, error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("PowerShell path", error.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Empty(handler.Calls);
     }
 
@@ -213,6 +246,50 @@ public sealed class CommandLineContractTests
         Assert.Equal(0, Invoke(["benchmark"], handler));
 
         Assert.Equal(string.Empty, Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls)).Dataset);
+    }
+
+    [Fact]
+    public void BenchmarkParsesTypedBoundedCaseSelectors()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["benchmark", "--suite", "all", "--profile", "leancorpus-search-v1",
+            "--case", "collapse-complete-leancorpus,collapse-complete-lucenenet", "--engine", "leancorpus,lucenenet",
+            "--workload", "collapse-top-score-count-v1", "--max-cases", "2", "--dry"], handler));
+
+        var options = Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal("leancorpus-search-v1", options.Profile);
+        Assert.Equal("collapse-complete-leancorpus,collapse-complete-lucenenet", options.Case);
+        Assert.Equal("leancorpus,lucenenet", options.Engine);
+        Assert.Equal("collapse-top-score-count-v1", options.WorkloadId);
+        Assert.Equal(2, options.MaxCases);
+        Assert.True(options.Dry);
+    }
+
+    [Fact]
+    public void BenchmarkWorkloadKeepsTypedScenarioAndBudgetOptions()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["--repo", "/tmp/LeanCorpus checkout", "benchmark", "workload", "ingest-search-refresh",
+            "--engine", "both", "--framework", "net10.0", "--doc-count", "32",
+            "--search-operations", "24", "--concurrency", "4", "--queue-capacity", "1",
+            "--refresh-every", "8", "--duration-seconds", "30", "--memory-mib", "4096", "--dry"], handler));
+
+        var command = Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal("/tmp/LeanCorpus checkout", command.RepositoryPath);
+        var workload = Assert.IsType<BenchmarkWorkloadOptions>(command.Workload);
+        Assert.Equal("ingest-search-refresh", workload.Scenario);
+        Assert.Equal("both", workload.Engine);
+        Assert.Equal("net10.0", workload.Framework);
+        Assert.Equal(32, workload.DocumentCount);
+        Assert.Equal(24, workload.SearchOperations);
+        Assert.Equal(4, workload.Concurrency);
+        Assert.Equal(1, workload.QueueCapacity);
+        Assert.Equal(8, workload.RefreshEveryDocuments);
+        Assert.Equal(30, workload.DurationSeconds);
+        Assert.Equal(4096, workload.MemoryBudgetMiB);
+        Assert.True(workload.Dry);
     }
 
     [Fact]
@@ -916,32 +993,5 @@ public sealed class CommandLineContractTests
             Calls.Add(options);
             return 0;
         }
-    }
-
-
-    [Fact]
-    public void BenchmarkWorkloadKeepsTypedScenarioAndBudgetOptions()
-    {
-        var handler = new RecordingCommandHandler();
-
-        Assert.Equal(0, Invoke(["--repo", "/tmp/LeanCorpus checkout", "benchmark", "workload", "ingest-search-refresh",
-            "--engine", "both", "--framework", "net10.0", "--doc-count", "32",
-            "--search-operations", "24", "--concurrency", "4", "--queue-capacity", "1",
-            "--refresh-every", "8", "--duration-seconds", "30", "--memory-mib", "4096", "--dry"], handler));
-
-        var command = Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls));
-        Assert.Equal("/tmp/LeanCorpus checkout", command.RepositoryPath);
-        var workload = Assert.IsType<BenchmarkWorkloadOptions>(command.Workload);
-        Assert.Equal("ingest-search-refresh", workload.Scenario);
-        Assert.Equal("both", workload.Engine);
-        Assert.Equal("net10.0", workload.Framework);
-        Assert.Equal(32, workload.DocumentCount);
-        Assert.Equal(24, workload.SearchOperations);
-        Assert.Equal(4, workload.Concurrency);
-        Assert.Equal(1, workload.QueueCapacity);
-        Assert.Equal(8, workload.RefreshEveryDocuments);
-        Assert.Equal(30, workload.DurationSeconds);
-        Assert.Equal(4096, workload.MemoryBudgetMiB);
-        Assert.True(workload.Dry);
     }
 }

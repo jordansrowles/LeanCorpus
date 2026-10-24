@@ -2,7 +2,7 @@
 
 ## Added
 
-- Add managed `test` and `aot` apphost commands backed by the shared test planner and executor; keep the PowerShell dispatcher and CI routes in place pending the complete Phase 5 parity gate.
+- Add managed `test` and `aot` apphost commands backed by the shared test planner and executor; route the PowerShell compatibility dispatcher and CI through the managed executor.
 - Run the Build workflow on `issue-97` pushes so the migration branch receives exact-source CI qualification.
 - Establish DevOps `1.0.0` independently of the LeanCorpus Core package version.
 - Add managed backup/restore matrix qualification with Git source fingerprints, five legacy variants and linked child-run evidence.
@@ -11,19 +11,28 @@
 - Add managed RID-specific single-file DevOps release archives with source manifests, third-party notices, payload checksums and archive SHA-256 sidecars.
 - Add an interactive Spectre.Console workbench for managed tests, benchmark suites and area/group selectors, DataForge qualification and recent run inspection.
 - Exercise managed DevOps bootstrap and `report all` on Linux ARM64 and macOS ARM64 in Build CI.
+- Add a managed, bounded sustained-workload command with versioned input and terminal evidence for ingestion, read-only search and mixed ingest/search refresh scenarios.
+- Verify exact committed document ID sets for concurrent and sequential indexing benchmark cases.
+- Add a directional FST build benchmark for sorted UTF-8 terms with setup-time serialized-index and exact-output verification.
+- Add exact survivor checks to queued and committed deletion benchmarks, and a directional ten-per-cent replacement/commit/refresh case with published-generation verification.
 - Verify plain, HNSW and deletion-heavy merge outputs against exact stored-ID sets and live counts.
 - Verify the exact committed document count and stored-ID set after each high-cardinality flush benchmark iteration.
 - Verify wide stored-fields writes and bounded/concurrent reads against exact decoded values.
 - Verify every numeric, sorted, multi-valued and binary DocValues benchmark output before timing.
 - Verify Packed BKD selective XY range results against the deterministic input point set.
 - Add an unqualified shape-index case family and verify origin containment before timing across the existing shape and vertex-count parameters.
+- Add bounded semantic benchmark selectors for profile, case family, engine and workload; intersect them with suite, area, group and method-filter selection, enforce registered parameter combinations across Core, Text and Compression hosts, count those combinations against the budget, expose metadata through `--list` and `--dry`, and fail on empty or over-budget plans.
+- Add a separate fail-closed comparison assessment for paired v5 rows. It rejects duplicate jobs, historical v4 reports, incomplete or failed rows, unverified preflight, mismatched source/dataset/host/runtime/GC/PGO, and low or noisy samples; ratios appear only for fully qualified pairs.
+- Record terminal benchmark setup-preflight evidence in each Core v5 row so the separate comparator can distinguish a passing preflight from missing or failed evidence.
+- Replace the monolithic benchmark workflow with managed plan, build, smoke, four sequential bounded shards, evidence collection and a qualification summary. Missing, cancelled or failed shards and incomplete report counts now fail closed; no exhaustive or stress strategy is dispatched by this workflow.
 
-- Add a managed, bounded sustained-workload command with versioned input and terminal evidence for ingestion, read-only search and mixed ingest/search refresh scenarios.
-
-- Verify exact committed document ID sets for concurrent and sequential indexing benchmark cases.
-- Add a directional FST build benchmark for sorted UTF-8 terms with setup-time serialized-index and exact-output verification.
-- Add exact survivor checks to queued and committed deletion benchmarks, and a directional ten-per-cent replacement/commit/refresh case with published-generation verification.
 ## Changed
+
+- Route every `devops.ps1` invocation through the fingerprint-validated managed host, retire the legacy `benchmarks docs` and `setup` command aliases, and align contributor examples with managed docs, DataForge, test, AOT and package commands.
+- Validate Compression benchmark round trips before timing, retain exact input/output bytes and DataForge identity, and register directional codec cases with explicit size metrics.
+
+- Run Build, platform, stress and diagnostics tests and AOT through the managed host; bootstrap platform smoke before invocation.
+- Retain raw BenchmarkDotNet result files and record terminal, failed, intermediate, missing and partial case counts with no-output, timeout, cancellation and failed-pair execution classifications.
 
 - Emit Core benchmark report schema v5 with stable BenchmarkDotNet case and result-row identity, preserve duplicate and intermediate rows, validate terminal statistics, and treat schema v4 as historical-only comparison evidence.
 - Pin BenchmarkDotNet and its annotations to the NuGet.org preview, update Lucene.NET benchmark comparators, and lock their package graphs without the BDN MyGet feed.
@@ -61,6 +70,16 @@
 - Run `report all --json` through promoted Linux and Windows hosts in Build CI and retain the full report run evidence.
 
 ## Fixed
+
+- Reconcile bounded/default similarity and existing MoreLikeThis fixture cases with actual benchmark discovery while retaining unqualified comparison status.
+
+- Give Unix release archives deterministic executable and data-file permissions when built on any host.
+
+- Enable TRX evidence for real managed DevOps one-off test probes and distinguish historical benchmark inventory from current coverage.
+
+- Respect MTP session exit codes and preserve failed, cancelled and timed-out test outcomes and raw coverage without launching HTML report generation.
+
+- Preserve pinned benchmark correctness fixture bytes on Windows checkouts and make malformed UTF-16 and process heartbeat regression inputs deterministic.
 
 - Record source, host, and dataset identity in benchmark runs; keep Core schema-v4 and August 2026 results historical and prevent unqualified reports from appearing as 4.0 comparisons.
 - Make the approximation benchmark class and methods pass BenchmarkDotNet preview validation.

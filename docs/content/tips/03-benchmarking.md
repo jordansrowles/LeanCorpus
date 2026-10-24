@@ -60,10 +60,10 @@ Rowles.Text benchmark artefacts also contain canonical DataForge identity sideca
 Wikipedia v1 is a separate release and deep-investigation dataset. Download its pinned source once, build the immutable reference, then inspect or verify it without network access:
 
 ```powershell
-pwsh ./devops.ps1 dataforge reference download
-pwsh ./devops.ps1 dataforge reference build
-pwsh ./devops.ps1 dataforge reference inspect
-pwsh ./devops.ps1 dataforge reference verify
+./devops dataforge reference download
+./devops dataforge reference build
+./devops dataforge reference inspect
+./devops dataforge reference verify
 ```
 
 Benchmark it explicitly. The runner verifies the reference before starting and fails if the selected directory is missing or invalid:

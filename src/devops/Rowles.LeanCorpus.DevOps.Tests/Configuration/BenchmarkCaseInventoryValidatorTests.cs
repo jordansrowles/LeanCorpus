@@ -26,6 +26,28 @@ public sealed class BenchmarkCaseInventoryValidatorTests
     }
 
     [Fact]
+    public void RejectsCaseFamilyThatOmitsADiscoveredParameterDimension()
+    {
+        var complete = CreateCase(["1000"], ["2"]);
+        var incomplete = complete with
+        {
+            ParameterValues = ImmutableDictionary.CreateRange(StringComparer.Ordinal,
+            [
+                KeyValuePair.Create("UniqueTermCount", ImmutableArray.Create("1000"))
+            ])
+        };
+
+        var error = Assert.Throws<InvalidDataException>(() =>
+            BenchmarkCaseInventoryValidator.Validate(
+                ImmutableArray.Create(incomplete),
+                "core",
+                CreateListing("MaxConcurrentFlushes: 2, UniqueTermCount: 1000")));
+
+        Assert.Contains("must declare every discovered BDN parameter", error.Message, StringComparison.Ordinal);
+        Assert.Contains("MaxConcurrentFlushes", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RejectsDuplicateBdnCaseIdentity()
     {
         var cases = ImmutableArray<BenchmarkCaseConfiguration>.Empty;

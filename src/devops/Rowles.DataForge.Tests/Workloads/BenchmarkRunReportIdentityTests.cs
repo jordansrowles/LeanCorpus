@@ -33,12 +33,16 @@ public sealed class BenchmarkRunReportIdentityTests
         Assert.Equal(expected.GetProperty("uniqueCaseIdentities").GetInt32(),
             preserved.Select(static report => report.CaseIdentitySha256).Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(preserved.Count, preserved.Select(static report => report.ResultRowId).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(preserved.Where(static report => report.ResultState == "TerminalResult"),
+            static report => Assert.True(report.PreflightPassed));
         Assert.Equal(new double?[] { 5d, 6d, 7d }, preserved
             .Where(static report => report.ResultState == "TerminalResult")
             .Select(static report => report.Statistics?.MeanNanoseconds)
             .OrderBy(static mean => mean));
         Assert.Single(preserved, static report => report.ResultState == "Intermediate");
         Assert.Single(preserved, static report => report.ResultState == "Intermediate" && report.Statistics is null);
+        Assert.All(preserved.Where(static report => report.ResultState != "TerminalResult"),
+            static report => Assert.False(report.PreflightPassed));
     }
 
     [Fact]

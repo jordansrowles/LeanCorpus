@@ -14,7 +14,6 @@ internal static class Program
     internal static RootCommand BuildRootCommand(ICommandHandler handler)
     {
         var root = new RootCommand("LeanCorpus managed DevOps.");
-        root.Add(new VersionOption());
         var repository = new Option<string?>("--repo")
         {
             Description = "Select a LeanCorpus checkout when caller and executable locations disagree.",
@@ -777,6 +776,15 @@ internal static class Program
         };
         var area = new Option<string?>("--area", ["-Area"]);
         var group = new Option<string?>("--group", ["-Group"]);
+        var profile = new Option<string?>("--profile") { Description = "Comma-separated DataForge dataset profiles from the semantic case manifest." };
+        var selectedCase = new Option<string?>("--case") { Description = "Comma-separated semantic case-family IDs from benchmark-cases.json." };
+        var engine = new Option<string?>("--engine") { Description = "Comma-separated engine IDs from the semantic case manifest." };
+        var workloadId = new Option<string?>("--workload") { Description = "Comma-separated semantic workload IDs from the case manifest." };
+        var maxCases = new Option<int>("--max-cases")
+        {
+            Description = "Maximum number of manifest cases in a bounded selection (default: 16, maximum: 64).",
+            DefaultValueFactory = _ => 16
+        };
         var sourceCommit = new Option<string?>("--source-commit", ["-SourceCommit"]);
         var sourceRef = new Option<string?>("--source-ref", ["-SourceRef"]);
         var sourceManifest = new Option<string?>("--source-manifest", ["-SourceManifest"]);
@@ -807,6 +815,11 @@ internal static class Program
         command.Add(referencePath);
         command.Add(area);
         command.Add(group);
+        command.Add(profile);
+        command.Add(selectedCase);
+        command.Add(engine);
+        command.Add(workloadId);
+        command.Add(maxCases);
         command.Add(sourceCommit);
         command.Add(sourceRef);
         command.Add(sourceManifest);
@@ -838,7 +851,14 @@ internal static class Program
             result.GetValue(dry),
             result.GetValue(list),
             result.GetValue(arguments) ?? [],
-            result.GetValue(repository))));
+            result.GetValue(repository))
+        {
+            Profile = result.GetValue(profile),
+            Case = result.GetValue(selectedCase),
+            Engine = result.GetValue(engine),
+            WorkloadId = result.GetValue(workloadId),
+            MaxCases = result.GetValue(maxCases)
+        }));
         return command;
     }
 
@@ -933,9 +953,15 @@ internal static class CommandLineApplication
             return commandHandler.Diagnostics(diagnosticsOptions);
         }
 
-        if (args.Length > 0 && UnmigratedCommands.Contains(args[0], StringComparer.OrdinalIgnoreCase))
+        if (args.Length > 0 && args[0].Equals("benchmarks", StringComparison.OrdinalIgnoreCase))
         {
-            error.WriteLine($"The '{args[0]}' command remains on the PowerShell path during migration. Run `pwsh ./devops.ps1 {args[0]}` with the same arguments.");
+            error.WriteLine("The 'benchmarks docs' command has been replaced by 'docs build'.");
+            return 2;
+        }
+
+        if (args.Length > 0 && args[0].Equals("setup", StringComparison.OrdinalIgnoreCase))
+        {
+            error.WriteLine("The DevOps setup inspection command has been retired. Run `pwsh -NoProfile -File ./setup.ps1` to bootstrap the managed host when required.");
             return 2;
         }
 
@@ -960,11 +986,6 @@ internal static class CommandLineApplication
 
         return result;
     }
-
-    private static readonly string[] UnmigratedCommands =
-    [
-        "benchmarks", "setup"
-    ];
 
     private const string RemoteBenchmarkHelp = """
         Usage:

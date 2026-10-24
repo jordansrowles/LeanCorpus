@@ -50,26 +50,46 @@ Use a dry run while developing:
 
 Run the repository's normal strategy for evidence intended to support a performance claim.
 
+## Select bounded semantic cases
+
+`--list` includes the configured profiles, case families, engines and workloads. When a profile, case family, engine or workload is selected, the managed planner intersects it with the suite, area, group and any BenchmarkDotNet method filter, then fails when no manifest case remains. The budget counts the selected BenchmarkDotNet parameter combinations, defaults to 16 cases and accepts a `--max-cases` budget up to 64.
+
+```powershell
+./devops benchmark --suite all --profile leancorpus-search-v1 `
+  --case collapse-complete-leancorpus,collapse-complete-lucenenet `
+  --engine leancorpus,lucenenet --workload collapse-top-score-count-v1 `
+  --area Search --group collapse-top-score-25-20k --max-cases 2 --dry
+```
+
+The semantic manifest is an extension to the existing suite catalogue. Existing suite IDs and aliases still work, and unselected BenchmarkDotNet arguments remain pass-through. A typed case selection converts a matching method filter into exact class/method invocations, applies the registered parameter values in each benchmark host, and shows the parameter map in `--dry` output. A requested `--doccount` must be among the selected family's registered values; otherwise planning fails before a benchmark runs. Core selections include explicit registered cases when needed.
+
 ## Manual GitHub Actions runs
 
 Open the **Benchmark** workflow (`.github/workflows/benchmark.yml`) in GitHub Actions
-and select **Run workflow**. Choose the branch, suite, strategy, framework and
-hosted runner OS. Suites accept `all`, `core`, `text`, `compression` or a named
-suite from `./devops benchmark --list`, such as `query` or `index`.
+and select **Run workflow**. Choose the framework and hosted runner OS. The
+workflow validates the managed case catalogue, prints four fixed two-case
+plans, builds the Core benchmark project, runs one fast smoke case, then runs
+the collapse, facet and MoreLikeThis shards sequentially with the
+`quick-compare` budget. **plan_only** stops after selection validation and
+planning. Exhaustive and stress strategies are not offered by this workflow.
 
-The defaults run all three benchmark projects on Ubuntu with .NET 10 and the
-`default` strategy. A document count of `0` keeps the strategy's default.
-Optional area and group selections require `core` or `text`; a BenchmarkDotNet
-filter cannot be combined with either selection. Corpus-only mode skips the
-Lucene.NET comparison for Core benchmarks.
-
-Enable **dry_run** to check the resolved commands without executing benchmarks.
-Normal runs upload `artifacts/benchmark/runs` as a result artefact, including
-available output from failed runs. The workflow is manual-only and uses the SDK
-pinned by `global.json` alongside .NET 10. Hosted runner measurements require
-the same workload and environment checks as local comparisons.
+Each shard has its own run report, case counts and raw BenchmarkDotNet output.
+The collector writes `collected-run-reports.json` and a
+`qualification-summary.json`; the summary withholds comparative values unless
+the comparator qualifies every selected pair. These bounded CI runs do not
+replace controlled-machine performance qualification.
 
 ## Correctness before speed
+
+The `compression` suite uses the first 128, 4,096 or 65,536 UTF-8 bytes from the
+DataForge `rowles-text-multilingual` v1 English corpus (seed 42, 1,024 records).
+Setup verifies an exact encode/decode round trip for the selected codec before
+timing one codec call. `OriginalBytes`, `CompressedBytes` and `CompressionRatio`
+accompany throughput; the ratio is input bytes divided by encoded bytes.
+`correctness/compression-<policy>-<bytes>.json` retains those counts, payload
+and decoded hashes, selection rule and DataForge identity within the child run.
+These directional codec cases do not qualify a competitive timing comparison.
+
 
 Add or identify a focused correctness test for the path before optimising it. Search optimisation requires matching document IDs, ordering, total hits, and scores where the public contract promises score equivalence.
 

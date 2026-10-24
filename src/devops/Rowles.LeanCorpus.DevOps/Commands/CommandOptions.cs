@@ -87,6 +87,16 @@ internal sealed record BenchmarkCommandOptions(
     string? RepositoryPath = null,
     BenchmarkWorkloadOptions? Workload = null)
 {
+    public string? Profile { get; init; }
+
+    public string? Case { get; init; }
+
+    public string? Engine { get; init; }
+
+    public string? WorkloadId { get; init; }
+
+    public int MaxCases { get; init; } = 16;
+
     public static BenchmarkCommandOptions ForWorkload(BenchmarkWorkloadOptions workload, string? repositoryPath)
         => new("all", "default", workload.Framework, workload.DocumentCount, workload.Dataset,
             null, null, null, null, null, null, false, false, false, false, 200,

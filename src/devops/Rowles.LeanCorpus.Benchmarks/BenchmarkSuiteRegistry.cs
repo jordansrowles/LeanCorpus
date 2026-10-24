@@ -20,6 +20,23 @@ internal sealed record BenchmarkWorkloadDescriptor(
 
 internal static class BenchmarkSuiteRegistry
 {
+    private static readonly ImmutableHashSet<Type> SharedSearchFixtureTypes = ImmutableHashSet.Create(
+        typeof(BooleanQueryBenchmarks),
+        typeof(DisjunctionMaxQueryBenchmarks),
+        typeof(FuzzyExpansionCacheBenchmarks),
+        typeof(FuzzyQueryBenchmarks),
+        typeof(MultiPhraseQueryBenchmarks),
+        typeof(PhraseQueryBenchmarks),
+        typeof(PrefixQueryBenchmarks),
+        typeof(QueryCacheBenchmarks),
+        typeof(RegexpQueryBenchmarks),
+        typeof(SearcherManagerBenchmarks),
+        typeof(SimilarityBenchmarks),
+        typeof(SpanQueryBenchmarks),
+        typeof(TermInSetQueryBenchmarks),
+        typeof(TermQueryBenchmarks),
+        typeof(WildcardQueryBenchmarks));
+
     private static readonly ImmutableArray<BenchmarkWorkloadDescriptor> Workloads =
     [
         Workload("query", typeof(TermQueryBenchmarks), true, false, "query"),
@@ -148,12 +165,10 @@ internal static class BenchmarkSuiteRegistry
     }
 
     public static bool UsesStandardSearchFixture(IReadOnlySet<string> selectedSuiteIds)
-        => selectedSuiteIds.Contains("all") || selectedSuiteIds.Contains("all-with-explicit") ||
-            selectedSuiteIds.Overlaps(
-            [
-                "query", "boolean", "phrase", "prefix", "fuzzy", "fuzzy-parity", "fuzzy-cache", "wildcard", "regexp", "dismax",
-                "multiphrase", "span", "searcher-mgr", "terminset", "query-cache", "similarity"
-            ]);
+        => SelectWorkloads(selectedSuiteIds).Any(UsesStandardSearchFixture);
+
+    public static bool UsesStandardSearchFixture(BenchmarkWorkloadDescriptor workload)
+        => SharedSearchFixtureTypes.Contains(workload.BenchmarkType);
 
     public static string CreateManifestJson()
         => JsonSerializer.Serialize(new
