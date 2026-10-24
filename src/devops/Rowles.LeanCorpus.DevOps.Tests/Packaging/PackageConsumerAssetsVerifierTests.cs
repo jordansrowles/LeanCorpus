@@ -12,7 +12,7 @@ public sealed class PackageConsumerAssetsVerifierTests
         using var directory = TemporaryConsumerDirectory.Create();
         var core = directory.AddPackage("LeanCorpus", "4.0.0", "core archive");
         var codec = directory.AddPackage("LeanCorpus.Compression.LZ4", "1.0.1", "codec archive");
-        var scenario = ConsumerScenarioCatalog.Create("compression").First(item => item.PackageId == codec.PackageId);
+        var scenario = CreateCompressionScenario(codec.PackageId);
         var assets = directory.WriteAssets(["LeanCorpus/4.0.0", "LeanCorpus.Compression.LZ4/1.0.1"]);
 
         var verified = PackageConsumerAssetsVerifier.Verify(assets, directory.CacheRoot, scenario,
@@ -35,7 +35,7 @@ public sealed class PackageConsumerAssetsVerifierTests
         var codec = directory.AddPackage("LeanCorpus.Compression.LZ4", "1.0.1", "codec archive");
         directory.AddCachedPackage("LeanCorpus", "3.1.1", "older core archive");
         directory.AddCachedPackage("LeanCorpus.Compression.LZ4", "1.0.1", "codec archive");
-        var scenario = ConsumerScenarioCatalog.Create("compression").First(item => item.PackageId == codec.PackageId);
+        var scenario = CreateCompressionScenario(codec.PackageId);
         var assets = directory.WriteAssets(["LeanCorpus/3.1.1", "LeanCorpus.Compression.LZ4/1.0.1"]);
         var packageIndex = new PackageManifestIndex("abc123", new Dictionary<string, PackageManifestPackage>(StringComparer.OrdinalIgnoreCase)
         {
@@ -47,6 +47,19 @@ public sealed class PackageConsumerAssetsVerifierTests
             PackageConsumerAssetsVerifier.Verify(assets, directory.CacheRoot, scenario, packageIndex));
 
         Assert.Contains("manifest records", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ConsumerScenario CreateCompressionScenario(string packageId)
+    {
+        for (var directory = new DirectoryInfo(Environment.CurrentDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (!File.Exists(Path.Combine(directory.FullName, "scripts/devops/packaging/package-policy.json")))
+                continue;
+            var policy = PackagePolicyReader.Read(Path.Combine(directory.FullName, "scripts/devops/packaging/package-policy.json"), directory.FullName);
+            return ConsumerScenarioCatalog.Create(policy, "compression", directory.FullName).First(item => item.PackageId == packageId);
+        }
+
+        throw new DirectoryNotFoundException("The LeanCorpus package policy was not found from the current test directory.");
     }
 
     private sealed class TemporaryConsumerDirectory : IDisposable

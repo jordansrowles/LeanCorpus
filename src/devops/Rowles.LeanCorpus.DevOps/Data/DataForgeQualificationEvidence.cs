@@ -29,10 +29,72 @@ internal sealed record DataForgeSyntheticIdentityReadResult(
     IReadOnlyList<DataForgeSyntheticIdentity> Identities,
     IReadOnlyList<string> Failures);
 
+internal sealed record DataForgeAvailableProfile(string ProfileId, int ProfileVersion);
+
+internal sealed record DataForgeProfileCatalogReadResult(
+    IReadOnlyList<DataForgeAvailableProfile> Profiles,
+    string? Failure);
+
 internal sealed record DataForgeMtpTestResult(bool Passed, int? TotalTests, string? Failure);
 
 internal static class DataForgeQualificationEvidence
 {
+    public static DataForgeProfileCatalogReadResult ReadProfileCatalog(string runDirectory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(runDirectory);
+        var outputPath = Path.Combine(runDirectory, "process.stdout.log");
+        if (!File.Exists(outputPath))
+            return new DataForgeProfileCatalogReadResult([], $"DataForge profile listing output is missing: '{outputPath}'.");
+
+        try
+        {
+            foreach (var line in File.ReadLines(outputPath).Reverse())
+            {
+                JsonDocument? document = null;
+                try
+                {
+                    document = JsonDocument.Parse(line);
+                }
+                catch (JsonException)
+                {
+                    continue;
+                }
+
+                using (document)
+                {
+                    if (document.RootElement.ValueKind != JsonValueKind.Array)
+                        continue;
+
+                    var profiles = new List<DataForgeAvailableProfile>();
+                    var ids = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var item in document.RootElement.EnumerateArray())
+                    {
+                        if (item.ValueKind != JsonValueKind.Object ||
+                            !item.TryGetProperty("profileId", out var idElement) || idElement.ValueKind != JsonValueKind.String ||
+                            !item.TryGetProperty("profileVersion", out var versionElement) ||
+                            !versionElement.TryGetInt32(out var version) || version < 1)
+                            throw new InvalidDataException("DataForge profile listing contains an invalid profile descriptor.");
+
+                        var profileId = idElement.GetString();
+                        if (string.IsNullOrWhiteSpace(profileId) || !ids.Add(profileId))
+                            throw new InvalidDataException($"DataForge profile listing contains an empty or duplicate profile ID '{profileId}'.");
+                        profiles.Add(new DataForgeAvailableProfile(profileId, version));
+                    }
+
+                    if (profiles.Count == 0)
+                        throw new InvalidDataException("DataForge profile listing contains no profile descriptors.");
+                    return new DataForgeProfileCatalogReadResult(profiles.OrderBy(static item => item.ProfileId, StringComparer.Ordinal).ToArray(), null);
+                }
+            }
+
+            return new DataForgeProfileCatalogReadResult([], "DataForge profile listing did not contain a JSON descriptor array.");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            return new DataForgeProfileCatalogReadResult([], exception.Message);
+        }
+    }
+
     public static DataForgeMtpTestResult ReadMtpTestTrx(string trxPath)
     {
         if (!File.Exists(trxPath))
@@ -153,8 +215,8 @@ internal static class DataForgeQualificationEvidence
             {
                 using var document = JsonDocument.Parse(File.ReadAllBytes(reportPath));
                 var root = document.RootElement;
-                if (root.GetProperty("schemaVersion").GetInt32() != 4)
-                    return $"The benchmark report '{reportPath}' uses schema {root.GetProperty("schemaVersion")}; schema v4 is required.";
+                if (root.GetProperty("schemaVersion").GetInt32() != 5)
+                    return $"The benchmark report '{reportPath}' uses schema {root.GetProperty("schemaVersion")}; schema v5 is required.";
                 var datasets = root.GetProperty("provenance").GetProperty("datasets");
                 if (datasets.ValueKind != JsonValueKind.Array || datasets.GetArrayLength() != 1)
                     return $"The benchmark report '{reportPath}' contains {(datasets.ValueKind == JsonValueKind.Array ? datasets.GetArrayLength() : 0)} dataset identities; exactly one imported Wikipedia identity is required.";

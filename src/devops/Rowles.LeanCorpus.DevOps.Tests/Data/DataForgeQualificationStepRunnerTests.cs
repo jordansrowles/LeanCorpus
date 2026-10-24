@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Build;
 using Rowles.LeanCorpus.DevOps.Data;
@@ -29,7 +31,8 @@ public sealed class DataForgeQualificationStepRunnerTests
             new ArtifactPaths(checkout.Root),
             processRunner,
             new RecordingSdkResolver(sdkDirectory),
-            new RecordingProvenanceReader());
+            new RecordingProvenanceReader(),
+            TestSuites(dataForgeQualification: true));
         var step = new DataForgeQualificationStep("synthetic-tests", "DataForge net11.0", "./devops test",
             DataForgeQualificationStepKind.Test, ["test"], "dataforge", "net11.0");
 
@@ -42,6 +45,33 @@ public sealed class DataForgeQualificationStepRunnerTests
         var architectureVariable = $"DOTNET_ROOT_{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToUpperInvariant()}";
         Assert.Equal(sdkRoot, testRequest.EnvironmentVariables[architectureVariable]);
     }
+
+    [Fact]
+    public async Task RejectsConfiguredTestSuiteThatIsNotDataForgeQualificationEligible()
+    {
+        using var checkout = new TemporaryCheckout();
+        var runner = new DataForgeQualificationStepRunner(
+            new ArtifactPaths(checkout.Root),
+            new RecordingProcessRunner(string.Empty),
+            new RecordingSdkResolver(string.Empty),
+            new RecordingProvenanceReader(),
+            TestSuites(dataForgeQualification: false));
+        var step = new DataForgeQualificationStep("synthetic-tests", "DataForge net11.0", "./devops test",
+            DataForgeQualificationStepKind.Test, ["test"], "dataforge", "net11.0");
+
+        var result = await runner.ExecuteAsync(checkout.Identity, step, Path.Combine(checkout.Root, "qualification"),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("Failed", result.Status);
+        Assert.Equal("Configured test suite 'dataforge' is not eligible for DataForge qualification.", result.Error);
+    }
+
+    private static IReadOnlyDictionary<string, TestSuiteConfiguration> TestSuites(bool dataForgeQualification)
+        => ImmutableDictionary.Create<string, TestSuiteConfiguration>(StringComparer.OrdinalIgnoreCase).Add(
+            "dataforge",
+            new TestSuiteConfiguration("DataForge", "src/devops/Rowles.DataForge.Tests/Rowles.DataForge.Tests.csproj", "Mtp",
+                ["net10.0", "net11.0"], "net11.0", false, ["Trx"], null, null, null,
+                DataForgeQualification: dataForgeQualification));
 
     private sealed class RecordingProcessRunner(string targetPath) : IProcessRunner
     {

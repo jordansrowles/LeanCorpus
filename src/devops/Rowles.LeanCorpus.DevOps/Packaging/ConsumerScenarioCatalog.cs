@@ -10,87 +10,123 @@ internal sealed record ConsumerScenario(
     string Sdk,
     string ExtraProperties,
     IReadOnlyList<string> ExternalReferences,
-    string RuntimeKind);
+    string RuntimeKind,
+    string CorePackageId,
+    string CoreBaselineVersion,
+    string? AnalyzerPackageId);
 
 internal static class ConsumerScenarioCatalog
 {
-    private static readonly string[] Frameworks = ["net10.0", "net11.0"];
-
-    public static IReadOnlyList<ConsumerScenario> Create(string scope)
-    {
-        if (scope is not ("all" or "compression"))
+    private static readonly IReadOnlyDictionary<string, ScenarioImplementation> Implementations
+        = new Dictionary<string, ScenarioImplementation>(StringComparer.Ordinal)
         {
+            ["core"] = new("core", "core", "Microsoft.NET.Sdk", string.Empty, [], "core", false, false),
+            ["compression"] = new("compression", "compression", "Microsoft.NET.Sdk", string.Empty, [], "compression", true, false),
+            ["text"] = new("text", "text", "Microsoft.NET.Sdk", string.Empty, [], "single", false, false),
+            ["sourcegen"] = new("sourcegen", "sourcegen", "Microsoft.NET.Sdk", string.Empty, [], "single", true, true),
+            ["server-abstractions"] = new("server-abstractions", "abstractions", "Microsoft.NET.Sdk", string.Empty,
+                [], "single", false, false),
+            ["server-core"] = new("server-core", "server-core", "Microsoft.NET.Sdk", string.Empty,
+                [], "single", false, false),
+            ["server-aspnetcore"] = new("server-aspnetcore", "server-aspnetcore", "Microsoft.NET.Sdk.Web", string.Empty,
+                [], "single", false, false),
+            ["server-grpc"] = new("server-grpc", "grpc", "Microsoft.NET.Sdk.Web", string.Empty,
+                [], "single", false, false),
+            ["server-local"] = new("server-local", "server-local-launcher", "Microsoft.NET.Sdk", string.Empty, [], "server-local", false, false, false),
+            ["studio"] = new("studio", "studio", "Microsoft.NET.Sdk.Web", "<AddRazorSupportForMvc>true</AddRazorSupportForMvc>",
+                [], "single", false, false),
+            ["orchard-search"] = new("orchard-search", "orchard", "Microsoft.NET.Sdk.Web", string.Empty,
+                ["OrchardCore.Application.Cms.Targets"], "single", false, false)
+        };
+
+    public static bool IsSupportedRole(string? role)
+        => role is not null && Implementations.ContainsKey(role);
+
+    public static IReadOnlyList<ConsumerScenario> Create(PackagePolicy policy, string scope, string repositoryRoot)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
+        if (scope is not ("all" or "compression"))
             throw new ArgumentException("Package consumer scope must be 'all' or 'compression'.", nameof(scope));
-        }
+
+        var byId = policy.Packages.ToDictionary(static entry => entry.PackageId, StringComparer.Ordinal);
+        if (!byId.TryGetValue(policy.CompressionContract.CorePackageId, out var core))
+            throw new InvalidDataException($"Package policy is missing contract Core package '{policy.CompressionContract.CorePackageId}'.");
+        if (string.IsNullOrWhiteSpace(core.BaselineVersion))
+            throw new InvalidDataException($"Package policy Core package '{core.PackageId}' requires a baselineVersion for the compression compatibility consumer.");
 
         var scenarios = new List<ConsumerScenario>();
-        if (scope == "all")
+        foreach (var entry in policy.Packages)
         {
-            foreach (var framework in Frameworks)
-            {
-                scenarios.Add(new ConsumerScenario("core", "LeanCorpus", ["LeanCorpus"], ["LeanCorpus"], "core", framework,
-                    "Microsoft.NET.Sdk", string.Empty, [], "core"));
-            }
-        }
+            if (scope == "compression" && !entry.ConsumerScenario.Equals("compression", StringComparison.Ordinal))
+                continue;
+            if (!Implementations.TryGetValue(entry.ConsumerScenario, out var implementation))
+                throw new InvalidDataException($"Package {entry.PackageId} has unknown consumerScenario role '{entry.ConsumerScenario}'.");
 
-        foreach (var codec in new[] { "LZ4", "Snappy", "Zstandard" })
-        {
-            var id = $"LeanCorpus.Compression.{codec}";
-            foreach (var framework in Frameworks)
-            {
-                scenarios.Add(new ConsumerScenario($"compression-{codec}", id, ["LeanCorpus", id], ["LeanCorpus", id],
-                    $"compression-{codec}", framework, "Microsoft.NET.Sdk", string.Empty, [], "compression"));
-            }
-        }
+            if (entry.ConsumerScenario == "compression" && !policy.CompressionContract.CodecPackageIds.Contains(entry.PackageId, StringComparer.Ordinal))
+                throw new InvalidDataException($"Compression consumer package {entry.PackageId} is not listed in the compression contract.");
 
-        if (scope == "all")
-        {
-            foreach (var framework in Frameworks)
-            {
-                scenarios.Add(new ConsumerScenario("text", "Rowles.Text", ["Rowles.Text"], ["Rowles.Text"], "text", framework,
-                    "Microsoft.NET.Sdk", string.Empty, [], "single"));
-                scenarios.Add(new ConsumerScenario("sourcegen", "LeanCorpus.SourceGen", ["LeanCorpus", "LeanCorpus.SourceGen"],
-                    ["LeanCorpus", "LeanCorpus.SourceGen"], "sourcegen", framework, "Microsoft.NET.Sdk", string.Empty, [], "single"));
-            }
+            var frameworks = entry.ExpectedFrameworks.Count > 0
+                ? entry.ExpectedFrameworks
+                : implementation.UseCoreFrameworks ? core.ExpectedFrameworks : [];
+            if (frameworks.Count == 0)
+                throw new InvalidDataException($"Package {entry.PackageId} has no consumer target frameworks in its package policy.");
 
-            var servers = new[]
-            {
-                new ServerScenario("server-abstractions", "Rowles.LeanCorpus.Server.Abstractions", ["Rowles.LeanCorpus.Server.Abstractions"], "abstractions", "Microsoft.NET.Sdk", "single", [], string.Empty,
-                    ["Rowles.LeanCorpus.Server.Abstractions"]),
-                new ServerScenario("server-core", "Rowles.LeanCorpus.Server.Core", ["Rowles.LeanCorpus.Server.Core"], "server-core", "Microsoft.NET.Sdk", "single", [], string.Empty,
-                    ["Rowles.LeanCorpus.Server.Core", "Rowles.LeanCorpus.Server.Abstractions", "LeanCorpus"]),
-                new ServerScenario("server-aspnetcore", "Rowles.LeanCorpus.Server.AspNetCore", ["Rowles.LeanCorpus.Server.AspNetCore"], "server-aspnetcore", "Microsoft.NET.Sdk.Web", "single", [], string.Empty,
-                    ["Rowles.LeanCorpus.Server.AspNetCore", "Rowles.LeanCorpus.Server.Core", "Rowles.LeanCorpus.Server.Abstractions", "LeanCorpus"]),
-                new ServerScenario("server-grpc", "Rowles.LeanCorpus.Server.Grpc", ["Rowles.LeanCorpus.Server.Grpc"], "grpc", "Microsoft.NET.Sdk.Web", "single", [], string.Empty,
-                    ["Rowles.LeanCorpus.Server.Grpc", "Rowles.LeanCorpus.Server.Abstractions"]),
-                new ServerScenario("studio", "Rowles.LeanCorpus.Studio", ["Rowles.LeanCorpus.Studio"], "studio", "Microsoft.NET.Sdk.Web", "single", [], "<AddRazorSupportForMvc>true</AddRazorSupportForMvc>",
-                    ["Rowles.LeanCorpus.Studio", "Rowles.LeanCorpus.Server.Abstractions"]),
-                new ServerScenario("orchard-search", "Rowles.LeanCorpus.OrchardCore.Search", ["Rowles.LeanCorpus.OrchardCore.Search"], "orchard", "Microsoft.NET.Sdk.Web", "single",
-                    ["OrchardCore.Application.Cms.Targets"], string.Empty, ["Rowles.LeanCorpus.OrchardCore.Search", "LeanCorpus"]),
-                new ServerScenario("server-local", "Rowles.LeanCorpus.Server.Local", ["Rowles.LeanCorpus.Server.Local"], "server-local-launcher", "Microsoft.NET.Sdk", "server-local", [], string.Empty, [])
-            };
+            var packageIds = implementation.IncludeCorePackage && entry.PackageId != core.PackageId
+                ? new[] { core.PackageId, entry.PackageId }
+                : [entry.PackageId];
+            var internalIds = implementation.VerifyInternalClosure
+                ? ResolveInternalPackageClosure(repositoryRoot, byId, packageIds)
+                : [];
+            var name = entry.ConsumerScenario == "compression"
+                ? $"compression-{entry.PackageId.Split('.').Last()}"
+                : implementation.Name;
+            var kind = entry.ConsumerScenario == "compression" ? name : implementation.Kind;
 
-            foreach (var scenario in servers)
+            foreach (var framework in frameworks)
             {
-                foreach (var framework in Frameworks)
-                {
-                    scenarios.Add(new ConsumerScenario(scenario.Name, scenario.PackageId, scenario.PackageIds, scenario.ExactInternalIds,
-                        scenario.Kind, framework, scenario.Sdk, scenario.ExtraProperties, scenario.ExternalReferences, scenario.RuntimeKind));
-                }
+                scenarios.Add(new ConsumerScenario(name, entry.PackageId, packageIds, internalIds, kind, framework,
+                    implementation.Sdk, implementation.ExtraProperties, implementation.ExternalReferences,
+                    implementation.RuntimeKind, core.PackageId, core.BaselineVersion,
+                    entry.Kind == "analyzer" ? entry.PackageId : null));
             }
         }
 
         return scenarios;
     }
 
-    private sealed record ServerScenario(
+    private static IReadOnlyList<string> ResolveInternalPackageClosure(
+        string repositoryRoot,
+        IReadOnlyDictionary<string, PackagePolicyEntry> packages,
+        IReadOnlyList<string> roots)
+    {
+        var resolved = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var packageId in roots)
+            Visit(packageId);
+        return resolved.Order(StringComparer.Ordinal).ToArray();
+
+        void Visit(string packageId)
+        {
+            if (!packages.TryGetValue(packageId, out var package) || !resolved.Add(packageId))
+                return;
+
+            var projectPath = Path.Combine(repositoryRoot, package.ProjectPath.Replace('/', Path.DirectorySeparatorChar));
+            foreach (var dependencyId in PackageProjectInspector.ReadDependencyIds(projectPath, repositoryRoot))
+            {
+                if (packages.ContainsKey(dependencyId))
+                    Visit(dependencyId);
+            }
+        }
+    }
+
+    private sealed record ScenarioImplementation(
         string Name,
-        string PackageId,
-        IReadOnlyList<string> PackageIds,
         string Kind,
         string Sdk,
-        string RuntimeKind,
-        IReadOnlyList<string> ExternalReferences,
         string ExtraProperties,
-        IReadOnlyList<string> ExactInternalIds = default!);
+        IReadOnlyList<string> ExternalReferences,
+        string RuntimeKind,
+        bool IncludeCorePackage,
+        bool UseCoreFrameworks,
+        bool VerifyInternalClosure = true);
 }

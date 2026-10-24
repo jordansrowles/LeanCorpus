@@ -4,16 +4,24 @@ namespace Rowles.LeanCorpus.DevOps.Packaging;
 
 internal static class PackageConsumerNuGetConfig
 {
-    private static readonly string[] InternalPatterns = ["LeanCorpus*", "Rowles.Text", "Rowles.LeanCorpus.*"];
-
-    public static void Write(string path, string packageDirectory, IReadOnlyList<string> externalSources, bool allowExternalLeanCorpus = false)
+    public static void Write(
+        string path,
+        string packageDirectory,
+        IReadOnlyList<string> externalSources,
+        PackagePolicy policy,
+        bool allowExternalCore = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentException.ThrowIfNullOrWhiteSpace(packageDirectory);
         ArgumentNullException.ThrowIfNull(externalSources);
+        ArgumentNullException.ThrowIfNull(policy);
         if (externalSources.Any(string.IsNullOrWhiteSpace))
         {
             throw new InvalidDataException("NuGet consumer feeds must be non-empty.");
+        }
+        if (!policy.Packages.Any(entry => entry.PackageId.Equals(policy.CompressionContract.CorePackageId, StringComparison.Ordinal)))
+        {
+            throw new InvalidDataException($"Package policy is missing contract Core package '{policy.CompressionContract.CorePackageId}'.");
         }
 
         var fullPackageDirectory = Path.GetFullPath(packageDirectory);
@@ -21,13 +29,9 @@ internal static class PackageConsumerNuGetConfig
             new XElement("add", new XAttribute("key", "local"), new XAttribute("value", fullPackageDirectory)));
         var mappings = new XElement("packageSourceMapping");
         var localMapping = new XElement("packageSource", new XAttribute("key", "local"));
-        if (allowExternalLeanCorpus)
+        foreach (var entry in policy.Packages)
         {
-            localMapping.Add(new XElement("package", new XAttribute("pattern", "LeanCorpus.Compression.*")));
-        }
-        foreach (var pattern in InternalPatterns)
-        {
-            localMapping.Add(new XElement("package", new XAttribute("pattern", pattern)));
+            localMapping.Add(new XElement("package", new XAttribute("pattern", entry.PackageId)));
         }
         mappings.Add(localMapping);
 
@@ -37,9 +41,9 @@ internal static class PackageConsumerNuGetConfig
             packageSources.Add(new XElement("add", new XAttribute("key", key), new XAttribute("value", externalSources[index])));
             var mapping = new XElement("packageSource", new XAttribute("key", key),
                 new XElement("package", new XAttribute("pattern", "*")));
-            if (allowExternalLeanCorpus)
+            if (allowExternalCore)
             {
-                mapping.Add(new XElement("package", new XAttribute("pattern", "LeanCorpus")));
+                mapping.Add(new XElement("package", new XAttribute("pattern", policy.CompressionContract.CorePackageId)));
             }
             mappings.Add(mapping);
         }

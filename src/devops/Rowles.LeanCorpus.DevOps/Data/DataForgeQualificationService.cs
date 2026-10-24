@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Build;
+using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Terminal;
@@ -32,20 +33,13 @@ internal sealed class DataForgeQualificationService(
     ArtifactPaths artifactPaths,
     IAtomicFileWriter atomicFileWriter,
     IDataForgeQualificationStepRunner stepRunner,
+    DevOpsConfiguration configuration,
     IRepositoryProvenanceReader provenanceReader,
     IDotNetSdkResolver sdkResolver,
     Action<string>? progress = null,
     Action<string>? errorOutput = null)
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-    private static readonly string[] RequiredSyntheticProfiles =
-    [
-        "leancorpus-search",
-        "leancorpus-vector",
-        "leancorpus-hybrid",
-        "rowles-text-multilingual"
-    ];
-
     public async Task<DataForgeQualificationResult> RunAsync(
         CheckoutIdentity checkout,
         DataForgeQualificationOptions options,
@@ -54,6 +48,13 @@ internal sealed class DataForgeQualificationService(
         ArgumentNullException.ThrowIfNull(checkout);
         ArgumentNullException.ThrowIfNull(options);
         var plan = DataForgeQualificationPlan.Create(options);
+        var planFailures = plan.Validate(configuration, artifactPaths.RepositoryRoot);
+        if (planFailures.Count > 0)
+        {
+            return new DataForgeQualificationResult(
+                new CommandResult(OutcomeKind.ValidationFailure,
+                    "DataForge qualification plan validation failed.", Details: string.Join(Environment.NewLine, planFailures)), null, null);
+        }
         if (options.Dry)
         {
             progress?.Invoke("DataForge release qualification dry run");
@@ -105,6 +106,7 @@ internal sealed class DataForgeQualificationService(
         }
 
         var buildPassed = false;
+        var profileCatalogVerified = false;
         var referenceVerified = false;
         var wikipediaSmokePassed = false;
         var syntheticIdentities = new Dictionary<string, DataForgeSyntheticIdentity>(StringComparer.Ordinal);
@@ -125,6 +127,21 @@ internal sealed class DataForgeQualificationService(
                 summary.Commands.Add(new QualificationCommandDocument(step, "Blocked", null, 0, error: failure));
                 summary.Blockers.Add(failure);
                 await WriteSummaryAsync(summaryPath, summary, cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            if (step.Kind == DataForgeQualificationStepKind.ProfileVerification && !buildPassed)
+            {
+                summary.Commands.Add(Skipped(step, "Skipped because the solution build did not pass."));
+                await WriteSummaryAsync(summaryPath, summary, CancellationToken.None).ConfigureAwait(false);
+                continue;
+            }
+
+            if ((step.Kind is DataForgeQualificationStepKind.ReferenceVerification or DataForgeQualificationStepKind.Test or DataForgeQualificationStepKind.Benchmark) &&
+                !profileCatalogVerified)
+            {
+                summary.Commands.Add(Skipped(step, "Skipped because required DataForge profiles were not verified."));
+                await WriteSummaryAsync(summaryPath, summary, CancellationToken.None).ConfigureAwait(false);
                 continue;
             }
 
@@ -179,6 +196,38 @@ internal sealed class DataForgeQualificationService(
                 buildPassed = result.Status == "Passed";
                 if (!buildPassed)
                     summary.Blockers.Add($"The solution build did not pass (exit code {result.ExitCode}).");
+            }
+
+            if (step.Kind == DataForgeQualificationStepKind.ProfileVerification && result.Status == "Passed")
+            {
+                var catalog = result.RunDirectory is null
+                    ? new DataForgeProfileCatalogReadResult([], "DataForge profile listing did not return a run directory.")
+                    : DataForgeQualificationEvidence.ReadProfileCatalog(result.RunDirectory);
+                if (catalog.Failure is not null)
+                {
+                    result = result with { Status = "Failed", Error = catalog.Failure };
+                }
+                else
+                {
+                    var missing = configuration.RequiredDataForgeSyntheticProfiles
+                        .Where(required => !catalog.Profiles.Any(available =>
+                            string.Equals(available.ProfileId, required.Id, StringComparison.Ordinal) &&
+                            available.ProfileVersion == required.Version))
+                        .ToArray();
+                    if (missing.Length > 0)
+                    {
+                        result = result with
+                        {
+                            Status = "Failed",
+                            Error = "DataForge profiles required for qualification are missing or have a different version: " +
+                                string.Join(", ", missing.Select(static profile => $"{profile.Id}/v{profile.Version}"))
+                        };
+                    }
+                    else
+                    {
+                        profileCatalogVerified = true;
+                    }
+                }
             }
 
             if (step.Kind == DataForgeQualificationStepKind.ReferenceVerification && result.Status == "Passed")
@@ -258,10 +307,11 @@ internal sealed class DataForgeQualificationService(
             if (step.Group == "synthetic-benchmarks" &&
                 !plan.Steps.SkipWhile(candidate => candidate != step).Skip(1).Any(candidate => candidate.Group == "synthetic-benchmarks"))
             {
-                foreach (var requiredProfile in RequiredSyntheticProfiles)
+                foreach (var requiredProfile in configuration.RequiredDataForgeSyntheticProfiles)
                 {
-                    if (!syntheticIdentities.Values.Any(identity => identity.ProfileId == requiredProfile))
-                        summary.Blockers.Add($"No normal benchmark run recorded the '{requiredProfile}' synthetic identity.");
+                    if (!syntheticIdentities.Values.Any(identity =>
+                        identity.ProfileId == requiredProfile.Id && identity.ProfileVersion == requiredProfile.Version))
+                        summary.Blockers.Add($"No normal benchmark run recorded the '{requiredProfile.Id}' synthetic identity at version {requiredProfile.Version}.");
                 }
             }
 
@@ -339,6 +389,7 @@ internal sealed class DataForgeQualificationService(
         var expectedKind = step.Kind switch
         {
             DataForgeQualificationStepKind.Build => "build",
+            DataForgeQualificationStepKind.ProfileVerification => "dataforge",
             DataForgeQualificationStepKind.ReferenceVerification => "dataforge",
             DataForgeQualificationStepKind.Test => "test",
             DataForgeQualificationStepKind.Benchmark => "benchmark",

@@ -17,13 +17,6 @@ internal sealed class PackageBuildService(
     IRepositoryProvenanceReader provenanceReader,
     string dotnetExecutable = "dotnet")
 {
-    private static readonly string[] CompressionPackageIds =
-    [
-        "LeanCorpus.Compression.LZ4",
-        "LeanCorpus.Compression.Snappy",
-        "LeanCorpus.Compression.Zstandard"
-    ];
-
     public async Task<PackageBuildResult> PackAsync(PackageBuildRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -41,7 +34,7 @@ internal sealed class PackageBuildService(
             policyPath = Path.Combine(artifactPaths.RepositoryRoot, "scripts", "devops", "packaging", "package-policy.json");
             policy = PackagePolicyReader.Read(policyPath, artifactPaths.RepositoryRoot);
             var selected = SelectPackages(policy, request);
-            ValidateCompressionSelection(selected);
+            ValidateCompressionSelection(selected, policy.CompressionContract);
             projectMetadata = selected.ToDictionary(
                 static entry => entry.PackageId,
                 entry =>
@@ -213,9 +206,9 @@ internal sealed class PackageBuildService(
                 var dependencyIds = PackageProjectInspector.ReadDependencyIds(projectPath, artifactPaths.RepositoryRoot);
                 PackageArchiveInspector.Validate(packagePath,
                     symbolName is null ? null : Path.Combine(outputDirectory, symbolName), entry, metadata, dependencyIds);
-                if (CompressionPackageIds.Contains(entry.PackageId, StringComparer.Ordinal))
+                if (policy.CompressionContract.CodecPackageIds.Contains(entry.PackageId, StringComparer.Ordinal))
                 {
-                    PackageArchiveInspector.ValidateCompressionDependencyRange(packagePath, entry);
+                    PackageArchiveInspector.ValidateCompressionDependencyRange(packagePath, entry, policy.CompressionContract);
                 }
                 packageRows.Add(new PackageManifestEntry(entry.PackageId, metadata.Version, packageName,
                     new FileInfo(packagePath).Length, Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(packagePath)))));
@@ -270,14 +263,14 @@ internal sealed class PackageBuildService(
 
     private static IReadOnlyList<PackagePolicyEntry> SelectPackages(PackagePolicy policy, PackageBuildRequest request)
         => (request.CompressionOnly
-                ? policy.Packages.Where(static entry => entry.PackageGroups.Contains("compression", StringComparer.Ordinal))
+                ? policy.Packages.Where(entry => entry.PackageGroups.Contains(policy.CompressionContract.PackageGroup, StringComparer.Ordinal))
                 : policy.Packages)
             .ToArray();
 
-    private static void ValidateCompressionSelection(IReadOnlyList<PackagePolicyEntry> selected)
+    private static void ValidateCompressionSelection(IReadOnlyList<PackagePolicyEntry> selected, CompressionPackageContract contract)
     {
         var selectedIds = selected.Select(static entry => entry.PackageId).ToHashSet(StringComparer.Ordinal);
-        var missing = CompressionPackageIds.Where(id => !selectedIds.Contains(id)).ToArray();
+        var missing = contract.RequiredPackageIds.Where(id => !selectedIds.Contains(id)).ToArray();
         if (missing.Length != 0)
         {
             throw new InvalidDataException($"Package policy selection omitted required compression package(s): {string.Join(", ", missing)}.");

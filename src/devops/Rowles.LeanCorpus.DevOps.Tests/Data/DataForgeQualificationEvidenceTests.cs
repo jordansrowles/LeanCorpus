@@ -54,6 +54,11 @@ public sealed class DataForgeQualificationEvidenceTests
         File.WriteAllText(Path.Combine(core001, "report.json"), BuildReport(identity.DatasetId));
 
         Assert.Null(DataForgeQualificationEvidence.ReadWikipediaReportError(directory.Path, identity));
+
+        File.WriteAllText(Path.Combine(core000, "report.json"), BuildReport(identity.DatasetId, schemaVersion: 4));
+        Assert.Contains("schema v5 is required", DataForgeQualificationEvidence.ReadWikipediaReportError(directory.Path, identity), StringComparison.Ordinal);
+        File.WriteAllText(Path.Combine(core000, "report.json"), BuildReport(identity.DatasetId));
+
         File.WriteAllText(Path.Combine(core001, "report.json"), BuildReport("other-dataset"));
         Assert.Contains("does not match", DataForgeQualificationEvidence.ReadWikipediaReportError(directory.Path, identity), StringComparison.Ordinal);
     }
@@ -88,10 +93,10 @@ public sealed class DataForgeQualificationEvidenceTests
             """);
     }
 
-    private static string BuildReport(string datasetId)
+    private static string BuildReport(string datasetId, int schemaVersion = 5)
         => JsonSerializer.Serialize(new
         {
-            schemaVersion = 4,
+            schemaVersion,
             provenance = new
             {
                 datasets = new[]

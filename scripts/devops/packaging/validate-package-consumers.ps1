@@ -65,33 +65,34 @@ function Write-ConsumerNuGetConfig {
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$PackageDirectory,
         [Parameter(Mandatory = $true)][string[]]$ExternalSources,
+        [Parameter(Mandatory = $true)][object]$Policy,
         [switch]$AllowExternalLeanCorpus
     )
 
     $local = [Security.SecurityElement]::Escape([IO.Path]::GetFullPath($PackageDirectory))
     $feedNodes = [Collections.Generic.List[string]]::new()
-    $mappingNodes = [Collections.Generic.List[string]]::new()
     $feedNodes.Add("<add key=`"local`" value=`"$local`" />")
-    $mappingNodes.Add('<packageSource key="local"><package pattern="LeanCorpus*"/><package pattern="Rowles.Text"/><package pattern="Rowles.LeanCorpus.*"/></packageSource>')
+    $localPatterns = [Collections.Generic.List[string]]::new()
+    foreach ($entry in @($Policy.packages)) {
+        $localPatterns.Add('<package pattern="' + [Security.SecurityElement]::Escape([string]$entry.packageId) + '"/>')
+    }
+    $mappingNodes = [Collections.Generic.List[string]]::new()
+    $mappingNodes.Add('<packageSource key="local">' + ($localPatterns -join '') + '</packageSource>')
+    $coreId = [Security.SecurityElement]::Escape([string]$Policy.compressionContract.corePackageId)
     for ($i = 0; $i -lt $ExternalSources.Count; $i++) {
         $key = "feed$i"
         $url = [Security.SecurityElement]::Escape([string]$ExternalSources[$i])
         $feedNodes.Add("<add key=`"$key`" value=`"$url`" />")
-        $mappingNodes.Add("<packageSource key=`"$key`"><package pattern=`"*`"/></packageSource>")
+        $externalPatterns = '<package pattern="*"/>'
         if ($AllowExternalLeanCorpus) {
-            $mappingNodes.Add("<packageSource key=`"$key`"><package pattern=`"LeanCorpus`"/></packageSource>")
+            # The negative compression probe must be able to obtain the older Core
+            # baseline from a legitimate remote source while normal restores use
+            # the generated local package when its exact version is available.
+            $externalPatterns += '<package pattern="' + $coreId + '"/>'
         }
+        $mappingNodes.Add("<packageSource key=`"$key`">$externalPatterns</packageSource>")
     }
-    $mapping = if ($AllowExternalLeanCorpus) {
-        # The negative compression probe must be able to obtain the older Core
-        # baseline from a legitimate remote source while all normal restores
-        # remain pinned to the local generated feed.
-        $localMapping = '<packageSource key="local"><package pattern="LeanCorpus.Compression.*"/><package pattern="LeanCorpus*"/><package pattern="Rowles.Text"/><package pattern="Rowles.LeanCorpus.*"/></packageSource>'
-        $externalMappings = for ($i = 0; $i -lt $ExternalSources.Count; $i++) {
-            "<packageSource key=`"feed$i`"><package pattern=`"*`"/><package pattern=`"LeanCorpus`"/></packageSource>"
-        }
-        $localMapping + ($externalMappings -join '')
-    } else { $mappingNodes -join '' }
+    $mapping = $mappingNodes -join ''
     $xml = "<configuration><packageSources><clear/>$($feedNodes -join '')</packageSources><packageSourceMapping>$mapping</packageSourceMapping></configuration>"
     [IO.File]::WriteAllText($Path, $xml, [Text.UTF8Encoding]::new($false))
 }
@@ -112,51 +113,121 @@ function Get-ConsumerScenarioSource {
     return [IO.File]::ReadAllText($sourcePath)
 }
 
+function Get-ConsumerInternalPackageClosure {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [Parameter(Mandatory = $true)][string[]]$PackageIds
+    )
+
+    $byId = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    $byProject = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in @($Policy.packages)) {
+        $byId.Add([string]$entry.packageId, $entry)
+        $projectPath = [IO.Path]::GetFullPath((Join-Path $RepoRoot ([string]$entry.projectPath)))
+        $byProject.Add($projectPath, $entry)
+    }
+
+    $resolved = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $visit = {
+        param([string]$PackageId)
+        if (-not $byId.ContainsKey($PackageId) -or -not $resolved.Add($PackageId)) { return }
+        $entry = $byId[$PackageId]
+        $projectPath = [IO.Path]::GetFullPath((Join-Path $RepoRoot ([string]$entry.projectPath)))
+        [xml]$project = [IO.File]::ReadAllText($projectPath)
+        foreach ($reference in $project.SelectNodes("//*[local-name()='PackageReference']")) {
+            $privateAssets = [string]$reference.GetAttribute('PrivateAssets')
+            if ([string]::IsNullOrWhiteSpace($privateAssets)) {
+                $privateAssets = [string]$reference.SelectSingleNode("*[local-name()='PrivateAssets']")?.InnerText
+            }
+            $excludeAssets = [string]$reference.GetAttribute('ExcludeAssets')
+            if ([string]::IsNullOrWhiteSpace($excludeAssets)) {
+                $excludeAssets = [string]$reference.SelectSingleNode("*[local-name()='ExcludeAssets']")?.InnerText
+            }
+            if (@(($privateAssets -split '[,;]' | ForEach-Object { $_.Trim() }) -contains 'all') -or
+                @(($excludeAssets -split '[,;]' | ForEach-Object { $_.Trim() }) -contains 'all')) {
+                continue
+            }
+            $dependencyId = [string]$reference.GetAttribute('Include')
+            if ([string]::IsNullOrWhiteSpace($dependencyId)) { $dependencyId = [string]$reference.GetAttribute('Update') }
+            foreach ($id in @($dependencyId -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+                if ($byId.ContainsKey($id)) { & $visit $id }
+            }
+        }
+        foreach ($reference in $project.SelectNodes("//*[local-name()='ProjectReference']")) {
+            $include = [string]$reference.GetAttribute('Include')
+            foreach ($relativePath in @($include -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ })) {
+                $referencedPath = [IO.Path]::GetFullPath((Join-Path ([IO.Path]::GetDirectoryName($projectPath)) $relativePath))
+                $referencedEntry = $null
+                if ($byProject.TryGetValue($referencedPath, [ref]$referencedEntry)) { & $visit ([string]$referencedEntry.packageId) }
+            }
+        }
+    }
+    foreach ($id in $PackageIds) { & $visit $id }
+    return @($resolved | Sort-Object -Culture invariant)
+}
+
 function Get-ConsumerScenarioDefinitions {
-    param([ValidateSet('all', 'compression')][string]$Scope)
+    param(
+        [ValidateSet('all', 'compression')][string]$Scope,
+        [Parameter(Mandatory = $true)][object]$Policy,
+        [Parameter(Mandatory = $true)][string]$RepoRoot
+    )
 
+    $templates = @{
+        core = @{ Name = 'core'; Kind = 'core'; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'core'; IncludeCore = $false; UseCoreFrameworks = $false; VerifyClosure = $true }
+        compression = @{ Name = 'compression'; Kind = 'compression'; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'compression'; IncludeCore = $true; UseCoreFrameworks = $false; VerifyClosure = $true }
+        text = @{ Name = 'text'; Kind = 'text'; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'single'; IncludeCore = $false; UseCoreFrameworks = $false; VerifyClosure = $true }
+        sourcegen = @{ Name = 'sourcegen'; Kind = 'sourcegen'; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'single'; IncludeCore = $true; UseCoreFrameworks = $true; VerifyClosure = $true }
+        'server-abstractions' = @{ Name = 'server-abstractions'; Kind = 'abstractions'; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'single'; IncludeCore = $false; UseCoreFrameworks = $false; VerifyClosure = $true }
+        'server-core' = @{ Name = 'server-core'; Kind = 'server-core'; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'single'; IncludeCore = $false; UseCoreFrameworks = $false; VerifyClosure = $true }
+        'server-aspnetcore' = @{ Name = 'server-aspnetcore'; Kind = 'server-aspnetcore'; Sdk = 'Microsoft.NET.Sdk.Web'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'single'; IncludeCore = $false; UseCoreFrameworks = $false; VerifyClosure = $true }
+        'server-grpc' = @{ Name = 'server-grpc'; Kind = 'grpc'; Sdk = 'Microsoft.NET.Sdk.Web'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'single'; IncludeCore = $false; UseCoreFrameworks = $false; VerifyClosure = $true }
+        'server-local' = @{ Name = 'server-local'; Kind = 'server-local-launcher'; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'server-local'; IncludeCore = $false; UseCoreFrameworks = $false; VerifyClosure = $false }
+        studio = @{ Name = 'studio'; Kind = 'studio'; Sdk = 'Microsoft.NET.Sdk.Web'; ExtraProperties = '<AddRazorSupportForMvc>true</AddRazorSupportForMvc>'; ExternalReferences = @(); RuntimeKind = 'single'; IncludeCore = $false; UseCoreFrameworks = $false; VerifyClosure = $true }
+        'orchard-search' = @{ Name = 'orchard-search'; Kind = 'orchard'; Sdk = 'Microsoft.NET.Sdk.Web'; ExtraProperties = ''; ExternalReferences = @('OrchardCore.Application.Cms.Targets'); RuntimeKind = 'single'; IncludeCore = $false; UseCoreFrameworks = $false; VerifyClosure = $true }
+    }
+
+    $coreId = [string]$Policy.compressionContract.corePackageId
+    $coreEntry = @($Policy.packages | Where-Object { [string]$_.packageId -ceq $coreId }) | Select-Object -First 1
+    if ($null -eq $coreEntry -or [string]::IsNullOrWhiteSpace([string]$coreEntry.baselineVersion)) {
+        throw "Package policy Core package '$coreId' requires a baselineVersion for the compression compatibility consumer."
+    }
+    $allPackageIds = @($Policy.packages | ForEach-Object { [string]$_.packageId })
+    $compressionPackageIds = @($Policy.compressionContract.requiredPackageIds |
+        ForEach-Object { [string]$_ } | Where-Object { $_ -cne $coreId })
+    $compressionFrameworks = @($Policy.packages |
+        Where-Object { [string]$_.packageId -cin $compressionPackageIds } |
+        ForEach-Object { @($_.expectedFrameworks | ForEach-Object { [string]$_ }) } | Sort-Object -Unique)
     $scenarios = [Collections.Generic.List[object]]::new()
-    $frameworks = if ($Scope -eq 'compression') { @('net10.0', 'net11.0') } else { @('net10.0', 'net11.0') }
-    if ($Scope -eq 'all') {
-        foreach ($framework in $frameworks) {
-            $scenarios.Add([pscustomobject]@{ Name = 'core'; PackageId = 'LeanCorpus'; PackageIds = @('LeanCorpus'); ExactInternalIds = @('LeanCorpus'); Kind = 'core'; Framework = $framework; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'core' })
+    foreach ($entry in @($Policy.packages)) {
+        $role = [string]$entry.consumerScenario
+        if (-not $templates.ContainsKey($role)) { throw "Package $($entry.packageId) has unknown consumerScenario role '$role'." }
+        if ($Scope -eq 'compression' -and $role -cne 'compression') { continue }
+        $template = $templates[$role]
+        if ($role -ceq 'compression' -and [string]$entry.packageId -cnotin @($Policy.compressionContract.requiredPackageIds | Where-Object { [string]$_ -cne $coreId })) {
+            throw "Compression consumer package $($entry.packageId) is not listed in the compression contract."
         }
-        foreach ($codec in @('LZ4', 'Snappy', 'Zstandard')) {
-            $id = "LeanCorpus.Compression.$codec"
-            foreach ($framework in $frameworks) {
-                $scenarios.Add([pscustomobject]@{ Name = "compression-$codec"; PackageId = $id; PackageIds = @('LeanCorpus', $id); ExactInternalIds = @('LeanCorpus', $id); Kind = "compression-$codec"; Framework = $framework; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'compression' })
-            }
+        $frameworks = @($entry.expectedFrameworks | ForEach-Object { [string]$_ })
+        if ($frameworks.Count -eq 0 -and $template.UseCoreFrameworks) {
+            $frameworks = @($coreEntry.expectedFrameworks | ForEach-Object { [string]$_ })
         }
-        foreach ($framework in $frameworks) {
-            $scenarios.Add([pscustomobject]@{ Name = 'text'; PackageId = 'Rowles.Text'; PackageIds = @('Rowles.Text'); ExactInternalIds = @('Rowles.Text'); Kind = 'text'; Framework = $framework; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'single' })
-            $scenarios.Add([pscustomobject]@{ Name = 'sourcegen'; PackageId = 'LeanCorpus.SourceGen'; PackageIds = @('LeanCorpus', 'LeanCorpus.SourceGen'); ExactInternalIds = @('LeanCorpus', 'LeanCorpus.SourceGen'); Kind = 'sourcegen'; Framework = $framework; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'single' })
-        }
+        if ($frameworks.Count -eq 0) { throw "Package $($entry.packageId) has no consumer target frameworks in its package policy." }
 
-        $server = @(
-            @{ Name = 'server-abstractions'; PackageId = 'Rowles.LeanCorpus.Server.Abstractions'; PackageIds = @('Rowles.LeanCorpus.Server.Abstractions'); ExactInternalIds = @('Rowles.LeanCorpus.Server.Abstractions'); Kind = 'abstractions'; Sdk = 'Microsoft.NET.Sdk'; RuntimeKind = 'single'; ExternalReferences = @(); ExtraProperties = '' },
-            @{ Name = 'server-core'; PackageId = 'Rowles.LeanCorpus.Server.Core'; PackageIds = @('Rowles.LeanCorpus.Server.Core'); ExactInternalIds = @('Rowles.LeanCorpus.Server.Core', 'Rowles.LeanCorpus.Server.Abstractions', 'LeanCorpus'); Kind = 'server-core'; Sdk = 'Microsoft.NET.Sdk'; RuntimeKind = 'single'; ExternalReferences = @(); ExtraProperties = '' },
-            @{ Name = 'server-aspnetcore'; PackageId = 'Rowles.LeanCorpus.Server.AspNetCore'; PackageIds = @('Rowles.LeanCorpus.Server.AspNetCore'); ExactInternalIds = @('Rowles.LeanCorpus.Server.AspNetCore', 'Rowles.LeanCorpus.Server.Core', 'Rowles.LeanCorpus.Server.Abstractions', 'LeanCorpus'); Kind = 'server-aspnetcore'; Sdk = 'Microsoft.NET.Sdk.Web'; RuntimeKind = 'single'; ExternalReferences = @(); ExtraProperties = '' },
-            @{ Name = 'server-grpc'; PackageId = 'Rowles.LeanCorpus.Server.Grpc'; PackageIds = @('Rowles.LeanCorpus.Server.Grpc'); ExactInternalIds = @('Rowles.LeanCorpus.Server.Grpc', 'Rowles.LeanCorpus.Server.Abstractions'); Kind = 'grpc'; Sdk = 'Microsoft.NET.Sdk.Web'; RuntimeKind = 'single'; ExternalReferences = @(); ExtraProperties = '' },
-            @{ Name = 'studio'; PackageId = 'Rowles.LeanCorpus.Studio'; PackageIds = @('Rowles.LeanCorpus.Studio'); ExactInternalIds = @('Rowles.LeanCorpus.Studio', 'Rowles.LeanCorpus.Server.Abstractions'); Kind = 'studio'; Sdk = 'Microsoft.NET.Sdk.Web'; RuntimeKind = 'single'; ExternalReferences = @(); ExtraProperties = '<AddRazorSupportForMvc>true</AddRazorSupportForMvc>' },
-            @{ Name = 'orchard-search'; PackageId = 'Rowles.LeanCorpus.OrchardCore.Search'; PackageIds = @('Rowles.LeanCorpus.OrchardCore.Search'); ExactInternalIds = @('Rowles.LeanCorpus.OrchardCore.Search', 'LeanCorpus'); Kind = 'orchard'; Sdk = 'Microsoft.NET.Sdk.Web'; RuntimeKind = 'single'; ExternalReferences = @('OrchardCore.Application.Cms.Targets'); ExtraProperties = '' },
-            @{ Name = 'server-local'; PackageId = 'Rowles.LeanCorpus.Server.Local'; PackageIds = @('Rowles.LeanCorpus.Server.Local'); ExactInternalIds = @(); Kind = 'server-local-launcher'; Sdk = 'Microsoft.NET.Sdk'; RuntimeKind = 'server-local'; ExternalReferences = @(); ExtraProperties = '' }
-        )
-        foreach ($scenario in $server) {
-            foreach ($framework in $frameworks) {
-                $scenarios.Add([pscustomobject]@{
-                    Name = $scenario.Name; PackageId = $scenario.PackageId; PackageIds = $scenario.PackageIds
-                    ExactInternalIds = $scenario.ExactInternalIds; Kind = $scenario.Kind; Framework = $framework
-                    Sdk = $scenario.Sdk; RuntimeKind = $scenario.RuntimeKind; ExternalReferences = $scenario.ExternalReferences
-                    ExtraProperties = $scenario.ExtraProperties
-                })
-            }
-        }
-    } else {
-        foreach ($codec in @('LZ4', 'Snappy', 'Zstandard')) {
-            $id = "LeanCorpus.Compression.$codec"
-            foreach ($framework in $frameworks) {
-                $scenarios.Add([pscustomobject]@{ Name = "compression-$codec"; PackageId = $id; PackageIds = @('LeanCorpus', $id); ExactInternalIds = @('LeanCorpus', $id); Kind = "compression-$codec"; Framework = $framework; Sdk = 'Microsoft.NET.Sdk'; ExtraProperties = ''; ExternalReferences = @(); RuntimeKind = 'compression' })
-            }
+        $packageIds = if ($template.IncludeCore -and [string]$entry.packageId -cne $coreId) { @($coreId, [string]$entry.packageId) } else { @([string]$entry.packageId) }
+        $exactInternalIds = if ($template.VerifyClosure) { @(Get-ConsumerInternalPackageClosure -RepoRoot $RepoRoot -Policy $Policy -PackageIds $packageIds) } else { @() }
+        $name = if ($role -ceq 'compression') { "compression-$(([string]$entry.packageId).Split('.')[-1])" } else { [string]$template.Name }
+        $kind = if ($role -ceq 'compression') { $name } else { [string]$template.Kind }
+        foreach ($framework in $frameworks) {
+            $scenarios.Add([pscustomobject]@{
+                Name = $name; PackageId = [string]$entry.packageId; PackageIds = $packageIds; ExactInternalIds = $exactInternalIds
+                Kind = $kind; Framework = $framework; Sdk = [string]$template.Sdk; ExtraProperties = [string]$template.ExtraProperties
+                ExternalReferences = @($template.ExternalReferences); RuntimeKind = [string]$template.RuntimeKind
+                CorePackageId = $coreId; CoreBaselineVersion = [string]$coreEntry.baselineVersion
+                AnalyzerPackageId = if ([string]$entry.kind -ceq 'analyzer') { [string]$entry.packageId } else { $null }
+                CompressionContract = $Policy.compressionContract; CompressionExpectedFrameworks = $compressionFrameworks
+                PolicyPackageIds = $allPackageIds
+            })
         }
     }
     return $scenarios
@@ -180,7 +251,7 @@ function Get-ConsumerPackageReferenceXml {
     $nodes = [Collections.Generic.List[string]]::new()
     foreach ($id in @($Scenario.PackageIds)) {
         $entry = Get-ConsumerPackageEntry -PackageIndex $PackageIndex -PackageId $id
-        if ($id -eq 'LeanCorpus.SourceGen') {
+        if ($id -ceq [string]$Scenario.AnalyzerPackageId) {
             $nodes.Add("    <PackageReference Include=`"$id`" Version=`"[$($entry.version)]`" OutputItemType=`"Analyzer`" ReferenceOutputAssembly=`"false`" PrivateAssets=`"all`" />")
         } else {
             $nodes.Add("    <PackageReference Include=`"$id`" Version=`"[$($entry.version)]`" />")
@@ -194,9 +265,9 @@ function Get-ConsumerPackageReferenceXml {
 }
 
 function Get-ConsumerInternalPackageId {
-    param([string]$LibraryKey)
+    param([string]$LibraryKey, [object]$PackageIndex)
     $id = $LibraryKey.Split('/')[0]
-    if ($id -ceq 'LeanCorpus' -or $id -like 'LeanCorpus.*' -or $id -ceq 'Rowles.Text' -or $id -like 'Rowles.LeanCorpus.*') {
+    if ($PackageIndex.Entries.ContainsKey($id)) {
         return $id
     }
     return $null
@@ -275,10 +346,9 @@ function Invoke-PackageConsumerScenario {
     }
     try {
         if ($Scenario.Name -like 'compression-*') {
-            $expectedCompressionFrameworks = @(Get-ConsumerScenarioDefinitions -Scope compression |
-                ForEach-Object { [string]$_.Framework } | Sort-Object -Unique)
             Assert-CompressionPackageDependencyRange -PackageId $Scenario.PackageId `
-                -PackagePath $primary.path -ExpectedFrameworks $expectedCompressionFrameworks
+                -PackagePath $primary.path -ExpectedFrameworks @($Scenario.CompressionExpectedFrameworks) `
+                -Contract $Scenario.CompressionContract
         }
         $project = Join-Path $scenarioDirectory 'Consumer.csproj'
         $template = Get-ConsumerProjectTemplate
@@ -290,10 +360,14 @@ function Invoke-PackageConsumerScenario {
         [IO.File]::WriteAllText($project, $projectXml, [Text.UTF8Encoding]::new($false))
         if ($projectXml -match '<ProjectReference\b') { throw 'Generated consumer must not use ProjectReference.' }
         $source = if ($Scenario.RuntimeKind -eq 'compression') {
-            $codec = [string]$Scenario.PackageId.Substring('LeanCorpus.Compression.'.Length)
+            $compressionPrefix = [string]$Scenario.CorePackageId + '.Compression.'
+            if (-not ([string]$Scenario.PackageId).StartsWith($compressionPrefix, [StringComparison]::Ordinal)) {
+                throw "Compression package $($Scenario.PackageId) does not use the Core package compression naming convention '$compressionPrefix'."
+            }
+            $codec = [string]$Scenario.PackageId.Substring($compressionPrefix.Length)
             $registration = if ($codec -eq 'LZ4') { 'Lz4Compression' } else { "$codec`Compression" }
             $policy = if ($codec -eq 'LZ4') { 'Lz4' } else { $codec }
-            $core = Get-ConsumerPackageEntry -PackageIndex $PackageIndex -PackageId 'LeanCorpus'
+            $core = Get-ConsumerPackageEntry -PackageIndex $PackageIndex -PackageId ([string]$Scenario.CorePackageId)
             $programTemplate = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'Program.cs.template'))
             $coreAssembly = ([version]$core.version).ToString() + '.0'
             $codecAssembly = ([version]$primary.version).ToString() + '.0'
@@ -315,7 +389,7 @@ function Invoke-PackageConsumerScenario {
         }
 
         $config = Join-Path $scenarioDirectory 'NuGet.Config'
-        Write-ConsumerNuGetConfig -Path $config -PackageDirectory $PackageDirectory -ExternalSources $ExternalSources
+        Write-ConsumerNuGetConfig -Path $config -PackageDirectory $PackageDirectory -ExternalSources $ExternalSources -Policy $PackageIndex.Policy
         $restore = Invoke-ConsumerCommand -Name 'restore' -Arguments @(
             'restore', $project, '--packages', $cache, '--configfile', $config,
             '--disable-build-servers', '-p:NuGetAudit=false'
@@ -333,7 +407,7 @@ function Invoke-PackageConsumerScenario {
         $verified = [Collections.Generic.List[object]]::new()
         $internalResolved = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::OrdinalIgnoreCase)
         foreach ($key in $libraryKeys) {
-            $id = Get-ConsumerInternalPackageId -LibraryKey ([string]$key)
+            $id = Get-ConsumerInternalPackageId -LibraryKey ([string]$key) -PackageIndex $PackageIndex
             if ($null -eq $id) { continue }
             $version = [string]$key.Split('/')[1]
             if ($internalResolved.ContainsKey($id) -and $internalResolved[$id] -cne $version) {
@@ -360,10 +434,6 @@ function Invoke-PackageConsumerScenario {
             if (Compare-Object -ReferenceObject $expectedIds -DifferenceObject $actualIds -CaseSensitive) {
                 throw "Unexpected internal package graph for $($Scenario.Name): expected [$($expectedIds -join ', ')], found [$($actualIds -join ', ')]."
             }
-        }
-        if ($Scenario.Name -like 'compression-*' -and ($internalResolved.ContainsKey('Rowles.Text') -or
-            @($internalResolved.Keys | Where-Object { $_ -like 'Rowles.LeanCorpus.*' }).Count -gt 0)) {
-            throw 'Compression consumer resolved an unexpected Rowles.Text or renamed Core dependency.'
         }
         $row.verifiedPackages = @($verified)
 
@@ -396,11 +466,17 @@ function Invoke-PackageConsumerScenario {
                 [IO.Directory]::Delete($index, $true)
                 if (Test-Path -LiteralPath $index) { throw "Compression index cleanup failed for $index." }
 
-                $coreEntry = Get-ConsumerPackageEntry -PackageIndex $PackageIndex -PackageId 'LeanCorpus'
+                $coreEntry = Get-ConsumerPackageEntry -PackageIndex $PackageIndex -PackageId ([string]$Scenario.CorePackageId)
                 $negativeConfig = Join-Path $scenarioDirectory 'Negative.NuGet.Config'
-                Write-ConsumerNuGetConfig -Path $negativeConfig -PackageDirectory $PackageDirectory -ExternalSources $ExternalSources -AllowExternalLeanCorpus
+                Write-ConsumerNuGetConfig -Path $negativeConfig -PackageDirectory $PackageDirectory -ExternalSources $ExternalSources -Policy $PackageIndex.Policy -AllowExternalLeanCorpus
                 $projectXml = Get-Content -LiteralPath $project -Raw
-                $negativeXml = $projectXml.Replace("Include=`"LeanCorpus`" Version=`"[$($coreEntry.version)]`"", 'Include="LeanCorpus" Version="[3.1.1]"')
+                $baselineVersion = [string]$Scenario.CoreBaselineVersion
+                if ([string]::IsNullOrWhiteSpace($baselineVersion) -or $baselineVersion -ceq [string]$coreEntry.version) {
+                    throw "Compression package policy requires a distinct published baseline for Core package $($Scenario.CorePackageId)."
+                }
+                $negativeReference = 'Include="' + [string]$Scenario.CorePackageId + '" Version="[' + [string]$coreEntry.version + ']"'
+                $negativeReplacement = 'Include="' + [string]$Scenario.CorePackageId + '" Version="[' + $baselineVersion + ']"'
+                $negativeXml = $projectXml.Replace($negativeReference, $negativeReplacement)
                 [IO.File]::WriteAllText($project, $negativeXml, [Text.UTF8Encoding]::new($false))
                 $negative = Invoke-ConsumerCommand -Name 'negative-restore' -Arguments @(
                     'restore', $project, '--packages', $cache, '--configfile', $negativeConfig,
@@ -411,15 +487,16 @@ function Invoke-PackageConsumerScenario {
                     if (Test-Path -LiteralPath $log) { $negativeText += [IO.File]::ReadAllText($log) + "`n" }
                 }
                 if ($negative.ExitCode -eq 0 -or $negativeText -notmatch 'NU1605|NU1107') {
-                    throw "Expected the incompatible Core 3.1.1 restore to fail with NU1605/NU1107; see $($negative.StdOutPath) and $($negative.StdErrPath)."
+                    throw "Expected the incompatible Core $baselineVersion restore to fail with NU1605/NU1107; see $($negative.StdOutPath) and $($negative.StdErrPath)."
                 }
-                $row.runtime = 'passed-round-trip-marker-and-rejects-core-3.1.1'
+                $row.runtime = "passed-round-trip-marker-and-rejects-core-$baselineVersion"
             }
             'server-local' {
-                $local = Get-ConsumerPackageEntry -PackageIndex $PackageIndex -PackageId 'Rowles.LeanCorpus.Server.Local'
+                $localId = [string]$Scenario.PackageId
+                $local = Get-ConsumerPackageEntry -PackageIndex $PackageIndex -PackageId $localId
                 $localDirectory = Join-Path $cache (Join-Path $local.packageId.ToLowerInvariant() $local.version.ToLowerInvariant())
                 $applicationAssets = Join-Path $localDirectory "lib/$($Scenario.Framework)"
-                $localDll = Join-Path $applicationAssets 'Rowles.LeanCorpus.Server.Local.dll'
+                $localDll = Join-Path $applicationAssets "$localId.dll"
                 if (-not (Test-Path -LiteralPath $localDll -PathType Leaf)) { throw "Server.Local package assembly is missing from the isolated cache: $localDll" }
                 $deps = Join-Path $scenarioDirectory "bin/Release/$($Scenario.Framework)/Consumer.deps.json"
                 $runtimeConfig = Join-Path $scenarioDirectory "bin/Release/$($Scenario.Framework)/Consumer.runtimeconfig.json"
@@ -506,8 +583,25 @@ function Test-PackageConsumerSet {
         [void][IO.Directory]::CreateDirectory($consumerRoot)
         [void][IO.Directory]::CreateDirectory($cacheRoot)
         $manifestInfo = Get-ConsumerPackageManifest -PackageDirectory $PackageDirectory
+        $policyPath = Join-Path $RepoRoot 'scripts/devops/packaging/package-policy.json'
+        if (-not (Test-Path -LiteralPath $policyPath -PathType Leaf)) { throw "Package policy is missing: $policyPath" }
+        $policy = Get-Content -LiteralPath $policyPath -Raw | ConvertFrom-Json -AsHashtable
+        if ($policy.schemaVersion -ne 2 -or $null -eq $policy.releaseContract -or $null -eq $policy.compressionContract) {
+            throw 'Package consumer validation requires package policy schemaVersion 2 with release and compression contracts.'
+        }
+        $manifestInfo | Add-Member -NotePropertyName Policy -NotePropertyValue $policy
+        $expectedIds = if ($Scope -eq 'compression') {
+            @($policy.compressionContract.requiredPackageIds | ForEach-Object { [string]$_ })
+        } else {
+            @($policy.releaseContract.requiredPackageIds | ForEach-Object { [string]$_ })
+        }
+        $actualIds = @($manifestInfo.Entries.Keys | Sort-Object -Culture invariant)
+        $expectedIds = @($expectedIds | Sort-Object -Culture invariant)
+        if (Compare-Object -ReferenceObject $expectedIds -DifferenceObject $actualIds -CaseSensitive) {
+            throw "Package manifest IDs do not match the $Scope contract: expected [$($expectedIds -join ', ')], found [$($actualIds -join ', ')]."
+        }
         $externalSources = Get-ConsumerPackageSources
-        foreach ($scenario in @(Get-ConsumerScenarioDefinitions -Scope $Scope)) {
+        foreach ($scenario in @(Get-ConsumerScenarioDefinitions -Scope $Scope -Policy $policy -RepoRoot $RepoRoot)) {
             $directory = Invoke-PackageConsumerScenario -Scenario $scenario -PackageIndex $manifestInfo -PackageDirectory $PackageDirectory -RepoRoot $RepoRoot -ExternalSources $externalSources -ConsumerRoot $consumerRoot -CacheRoot $cacheRoot -Results $results
             $successDirectories.Add($directory)
             $successCaches.Add((Join-Path $cacheRoot "$($scenario.Name)-$($scenario.Framework)"))

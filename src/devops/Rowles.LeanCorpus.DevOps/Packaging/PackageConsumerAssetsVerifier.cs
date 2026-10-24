@@ -56,7 +56,7 @@ internal static class PackageConsumerAssetsVerifier
                     continue;
                 }
                 var id = library.Name[..separator];
-                if (!IsInternalPackage(id))
+                if (!packageIndex.Packages.ContainsKey(id))
                 {
                     continue;
                 }
@@ -103,12 +103,6 @@ internal static class PackageConsumerAssetsVerifier
                 }
             }
 
-            if (scenario.RuntimeKind == "compression" && resolved.Keys.Any(static id =>
-                id.Equals("Rowles.Text", StringComparison.Ordinal) || id.StartsWith("Rowles.LeanCorpus.", StringComparison.Ordinal)))
-            {
-                throw new InvalidDataException("Compression consumer resolved an unexpected Rowles.Text or renamed Core dependency.");
-            }
-
             return resolved.OrderBy(static pair => pair.Key, StringComparer.Ordinal)
                 .Select(pair => new VerifiedConsumerPackage(pair.Key, pair.Value, packageIndex.Packages[pair.Key].Sha256))
                 .ToArray();
@@ -128,7 +122,4 @@ internal static class PackageConsumerAssetsVerifier
         return archive ?? throw new InvalidDataException($"Isolated cache archive is missing for {packageId} {version}: {packageRoot}");
     }
 
-    private static bool IsInternalPackage(string id)
-        => id.Equals("LeanCorpus", StringComparison.Ordinal) || id.StartsWith("LeanCorpus.", StringComparison.Ordinal) ||
-            id.Equals("Rowles.Text", StringComparison.Ordinal) || id.StartsWith("Rowles.LeanCorpus.", StringComparison.Ordinal);
 }

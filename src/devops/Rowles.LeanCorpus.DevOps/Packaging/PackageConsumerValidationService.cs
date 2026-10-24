@@ -119,7 +119,11 @@ internal sealed class PackageConsumerValidationService(
             var packagePolicy = PackagePolicyReader.Read(
                 Path.Combine(request.Checkout.RepositoryRoot, "scripts", "devops", "packaging", "package-policy.json"),
                 request.Checkout.RepositoryRoot);
-            var scenarios = ConsumerScenarioCatalog.Create(request.Scope);
+            var policyEntries = request.Scope == "compression"
+                ? packagePolicy.Packages.Where(entry => entry.PackageGroups.Contains(packagePolicy.CompressionContract.PackageGroup, StringComparer.Ordinal)).ToArray()
+                : packagePolicy.Packages;
+            ValidatePackageInputs(request, packagePolicy, policyEntries, packageIndex);
+            var scenarios = ConsumerScenarioCatalog.Create(packagePolicy, request.Scope, request.Checkout.RepositoryRoot);
             foreach (var scenario in scenarios)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -127,7 +131,7 @@ internal sealed class PackageConsumerValidationService(
                 var scenarioDirectory = Path.Combine(consumerRoot, $"{scenario.Name}-{scenario.Framework}");
                 var cacheDirectory = Path.Combine(cacheRoot, $"{scenario.Name}-{scenario.Framework}");
                 var scenarioPolicy = packagePolicy.Packages.SingleOrDefault(entry => entry.PackageId == scenario.PackageId);
-                var row = await RunScenarioAsync(request, scenario, scenarioPolicy, packageIndex, externalSources,
+                var row = await RunScenarioAsync(request, scenario, scenarioPolicy, packagePolicy, packageIndex, externalSources,
                     scenarioDirectory, cacheDirectory, runDirectory, childExitCodes, artifacts, results, cancellationToken).ConfigureAwait(false);
                 results.Add(row);
                 completedDirectories.Add(scenarioDirectory);
@@ -219,10 +223,46 @@ internal sealed class PackageConsumerValidationService(
         return new PackageConsumerValidationResult(new CommandResult(outcome, message, Details: failure), manifest.RunId, runDirectory, acceptancePath, manifest);
     }
 
+    private static void ValidatePackageInputs(
+        PackageConsumerValidationRequest request,
+        PackagePolicy policy,
+        IReadOnlyList<PackagePolicyEntry> selectedEntries,
+        PackageManifestIndex packageIndex)
+    {
+        var expectedIds = selectedEntries.Select(static entry => entry.PackageId).Order(StringComparer.Ordinal).ToArray();
+        var actualIds = packageIndex.Packages.Keys.Order(StringComparer.Ordinal).ToArray();
+        if (!actualIds.SequenceEqual(expectedIds, StringComparer.Ordinal))
+        {
+            var missing = expectedIds.Except(actualIds, StringComparer.Ordinal).ToArray();
+            var unexpected = actualIds.Except(expectedIds, StringComparer.Ordinal).ToArray();
+            throw new InvalidDataException($"Package manifest package set does not match policy. Missing [{string.Join(", ", missing)}], unexpected [{string.Join(", ", unexpected)}].");
+        }
+
+        foreach (var entry in selectedEntries)
+        {
+            var package = packageIndex.Packages[entry.PackageId];
+            var projectPath = Path.Combine(request.Checkout.RepositoryRoot, entry.ProjectPath.Replace('/', Path.DirectorySeparatorChar));
+            var project = PackageProjectInspector.ReadMetadata(projectPath);
+            if (!string.Equals(project.PackageId, entry.PackageId, StringComparison.Ordinal) ||
+                !string.Equals(project.Version, package.Version, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException($"Package manifest identity/version for {entry.PackageId} does not match its policy project.");
+            }
+
+            var dependencyIds = PackageProjectInspector.ReadDependencyIds(projectPath, request.Checkout.RepositoryRoot);
+            var symbolPath = Path.Combine(request.PackageDirectory, $"{entry.PackageId}.{package.Version}.snupkg");
+            PackageArchiveInspector.Validate(package.Path, File.Exists(symbolPath) ? symbolPath : null,
+                entry, project, dependencyIds);
+            if (policy.CompressionContract.CodecPackageIds.Contains(entry.PackageId, StringComparer.Ordinal))
+                PackageArchiveInspector.ValidateCompressionDependencyRange(package.Path, entry, policy.CompressionContract);
+        }
+    }
+
     private async Task<ScenarioAcceptance> RunScenarioAsync(
         PackageConsumerValidationRequest request,
         ConsumerScenario scenario,
         PackagePolicyEntry? packagePolicy,
+        PackagePolicy policy,
         PackageManifestIndex packageIndex,
         IReadOnlyList<string> externalSources,
         string scenarioDirectory,
@@ -249,12 +289,12 @@ internal sealed class PackageConsumerValidationService(
                 {
                     throw new InvalidDataException($"Package policy is missing {scenario.PackageId}.");
                 }
-                PackageArchiveInspector.ValidateCompressionDependencyRange(primary.Path, packagePolicy);
+                PackageArchiveInspector.ValidateCompressionDependencyRange(primary.Path, packagePolicy, policy.CompressionContract);
             }
 
             var consumer = PackageConsumerProjectWriter.Write(request.Checkout.RepositoryRoot, scenarioDirectory, scenario, packageIndex);
             var config = Path.Combine(scenarioDirectory, "NuGet.Config");
-            PackageConsumerNuGetConfig.Write(config, request.PackageDirectory, externalSources);
+            PackageConsumerNuGetConfig.Write(config, request.PackageDirectory, externalSources, policy);
             var restore = await RunChildAsync("restore", ["restore", consumer.ProjectPath, "--packages", cacheDirectory, "--configfile", config,
                 "--disable-build-servers", "-p:NuGetAudit=false"], scenarioDirectory, scenarioDirectory, runDirectory, childExitCodes, artifacts,
                 TimeSpan.FromMinutes(5), cancellationToken).ConfigureAwait(false);
@@ -278,9 +318,9 @@ internal sealed class PackageConsumerValidationService(
                     row = row with { Runtime = "passed-write-read-cleanup" };
                     break;
                 case "compression":
-                    await RunCompressionScenarioAsync(consumer, consumerDll, scenario, primary, packageIndex, request.PackageDirectory, externalSources,
+                    await RunCompressionScenarioAsync(consumer, consumerDll, scenario, primary, packageIndex, policy, request.PackageDirectory, externalSources,
                         scenarioDirectory, cacheDirectory, runDirectory, childExitCodes, artifacts, cancellationToken).ConfigureAwait(false);
-                    row = row with { Runtime = "passed-round-trip-marker-and-rejects-core-3.1.1" };
+                    row = row with { Runtime = $"passed-round-trip-marker-and-rejects-core-{scenario.CoreBaselineVersion}" };
                     break;
                 case "server-local":
                     await RunServerLocalScenarioAsync(consumerDll, scenario, packageIndex, cacheDirectory, scenarioDirectory, runDirectory,
@@ -344,6 +384,7 @@ internal sealed class PackageConsumerValidationService(
         ConsumerScenario scenario,
         PackageManifestPackage primary,
         PackageManifestIndex packageIndex,
+        PackagePolicy policy,
         string packageDirectory,
         IReadOnlyList<string> externalSources,
         string workingDirectory,
@@ -362,17 +403,18 @@ internal sealed class PackageConsumerValidationService(
         }
         DeleteOwnedDirectory(indexPath, workingDirectory);
 
-        var core = packageIndex.Packages["LeanCorpus"];
+        var core = packageIndex.Packages[scenario.CorePackageId];
         var projectXml = await File.ReadAllTextAsync(consumer.ProjectPath, cancellationToken).ConfigureAwait(false);
-        var pinnedCoreReference = $"Include=\"LeanCorpus\" Version=\"[{core.Version}]\"";
+        var pinnedCoreReference = $"Include=\"{scenario.CorePackageId}\" Version=\"[{core.Version}]\"";
         if (!projectXml.Contains(pinnedCoreReference, StringComparison.Ordinal))
         {
             throw new InvalidDataException("Compression consumer project does not contain the expected pinned Core package reference.");
         }
-        await File.WriteAllTextAsync(consumer.ProjectPath, projectXml.Replace(pinnedCoreReference, "Include=\"LeanCorpus\" Version=\"[3.1.1]\"", StringComparison.Ordinal),
+        await File.WriteAllTextAsync(consumer.ProjectPath,
+            projectXml.Replace(pinnedCoreReference, $"Include=\"{scenario.CorePackageId}\" Version=\"[{scenario.CoreBaselineVersion}]\"", StringComparison.Ordinal),
             new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken).ConfigureAwait(false);
         var negativeConfig = Path.Combine(workingDirectory, "Negative.NuGet.Config");
-        PackageConsumerNuGetConfig.Write(negativeConfig, packageDirectory, externalSources, allowExternalLeanCorpus: true);
+        PackageConsumerNuGetConfig.Write(negativeConfig, packageDirectory, externalSources, policy, allowExternalCore: true);
         var negative = await RunChildAsync("negative-restore", ["restore", consumer.ProjectPath, "--packages", cacheDirectory, "--configfile", negativeConfig,
             "--disable-build-servers", "-p:NuGetAudit=false"], workingDirectory, workingDirectory, runDirectory, childExitCodes, artifacts,
             TimeSpan.FromMinutes(5), cancellationToken).ConfigureAwait(false);
@@ -381,7 +423,7 @@ internal sealed class PackageConsumerValidationService(
         var negativeText = negativeStdout + Environment.NewLine + negativeStderr;
         if (negative.Outcome == OutcomeKind.Success || !negativeText.Contains("NU1605", StringComparison.Ordinal) && !negativeText.Contains("NU1107", StringComparison.Ordinal))
         {
-            throw new InvalidDataException("Expected the incompatible Core 3.1.1 restore to fail with NU1605/NU1107; see the negative restore logs.");
+            throw new InvalidDataException($"Expected the incompatible Core {scenario.CoreBaselineVersion} restore to fail with NU1605/NU1107; see the negative restore logs.");
         }
         _ = scenario;
         _ = primary;

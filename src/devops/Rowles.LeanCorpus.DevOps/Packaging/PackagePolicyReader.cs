@@ -2,7 +2,24 @@ using System.Text.Json;
 
 namespace Rowles.LeanCorpus.DevOps.Packaging;
 
-internal sealed record PackagePolicy(int SchemaVersion, IReadOnlyList<PackagePolicyEntry> Packages);
+internal sealed record PackagePolicy(
+    int SchemaVersion,
+    IReadOnlyList<PackagePolicyEntry> Packages,
+    PackageReleaseContract ReleaseContract,
+    CompressionPackageContract CompressionContract);
+
+internal sealed record PackageReleaseContract(int Version, IReadOnlyList<string> RequiredPackageIds);
+
+internal sealed record CompressionPackageContract(
+    int Version,
+    string PackageGroup,
+    string CorePackageId,
+    IReadOnlyList<string> RequiredPackageIds,
+    string CoreDependencyVersionRange)
+{
+    public IReadOnlyList<string> CodecPackageIds
+        => RequiredPackageIds.Where(packageId => !packageId.Equals(CorePackageId, StringComparison.Ordinal)).ToArray();
+}
 
 internal sealed record PackagePolicyEntry(
     string PackageId,
@@ -16,7 +33,8 @@ internal sealed record PackagePolicyEntry(
     bool RequireXmlDocs,
     bool RequireSymbols,
     IReadOnlyList<string> PackageGroups,
-    IReadOnlyList<string> AllowedAssetCategories);
+    IReadOnlyList<string> AllowedAssetCategories,
+    string ConsumerScenario = "");
 
 internal static class PackagePolicyReader
 {
@@ -49,9 +67,10 @@ internal static class PackagePolicyReader
             throw new InvalidDataException("Package policy is not valid JSON.", exception);
         }
 
-        if (document is null || document.SchemaVersion != 1 || document.Packages is not { Count: > 0 })
+        if (document is null || document.SchemaVersion != 2 || document.Packages is not { Count: > 0 } ||
+            document.ReleaseContract is null || document.CompressionContract is null)
         {
-            throw new InvalidDataException("Package policy must use schemaVersion 1 and contain packages.");
+            throw new InvalidDataException("Package policy must use schemaVersion 2 and contain packages and both release contracts.");
         }
 
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(repositoryRoot));
@@ -73,6 +92,15 @@ internal static class PackagePolicyReader
             if (item.Kind is null || !ValidKinds.Contains(item.Kind))
             {
                 throw new InvalidDataException($"Unsupported package kind '{item.Kind}' for {item.PackageId}.");
+            }
+
+            if (string.IsNullOrWhiteSpace(item.ConsumerScenario))
+            {
+                throw new InvalidDataException($"Package {item.PackageId} requires a consumerScenario role.");
+            }
+            if (!ConsumerScenarioCatalog.IsSupportedRole(item.ConsumerScenario))
+            {
+                throw new InvalidDataException($"Package {item.PackageId} has unknown consumerScenario role '{item.ConsumerScenario}'.");
             }
 
             if (item.ExpectedFrameworks is null)
@@ -123,6 +151,13 @@ internal static class PackagePolicyReader
                 throw new InvalidDataException($"Package policy project does not exist: '{item.ProjectPath}'.");
             }
 
+            var packageGroups = item.PackageGroups ?? [];
+            if (packageGroups.Any(static group => string.IsNullOrWhiteSpace(group)) ||
+                packageGroups.Distinct(StringComparer.Ordinal).Count() != packageGroups.Count)
+            {
+                throw new InvalidDataException($"Package {item.PackageId} has an empty or duplicate package group.");
+            }
+
             entries.Add(new PackagePolicyEntry(
                 item.PackageId,
                 item.ProjectPath,
@@ -134,11 +169,105 @@ internal static class PackagePolicyReader
                 item.StrictBaseline ?? false,
                 item.RequireXmlDocs.Value,
                 item.RequireSymbols.Value,
-                item.PackageGroups ?? [],
-                item.AllowedAssetCategories ?? []));
+                packageGroups,
+                item.AllowedAssetCategories ?? [],
+                item.ConsumerScenario));
         }
 
-        return new PackagePolicy(document.SchemaVersion, entries);
+        var releaseContract = ReadReleaseContract(document.ReleaseContract);
+        var compressionContract = ReadCompressionContract(document.CompressionContract, entries, root, pathComparison);
+        ValidateReleasePackageSet(releaseContract, ids);
+        ValidateCompressionGroup(compressionContract, entries);
+        return new PackagePolicy(document.SchemaVersion, entries, releaseContract, compressionContract);
+    }
+
+    private static PackageReleaseContract ReadReleaseContract(ReleaseContractDocument contract)
+    {
+        if (contract.Version != 1 || contract.RequiredPackageIds is not { Count: > 0 })
+            throw new InvalidDataException("The release contract must use version 1 and contain requiredPackageIds.");
+        var required = contract.RequiredPackageIds;
+        if (required.Any(string.IsNullOrWhiteSpace) || required.Distinct(StringComparer.Ordinal).Count() != required.Count)
+            throw new InvalidDataException("The release contract contains an empty or duplicate required package ID.");
+        return new PackageReleaseContract(contract.Version, required.ToArray());
+    }
+
+    private static CompressionPackageContract ReadCompressionContract(
+        CompressionContractDocument contract,
+        IReadOnlyList<PackagePolicyEntry> entries,
+        string repositoryRoot,
+        StringComparison pathComparison)
+    {
+        if (contract.Version != 1 || string.IsNullOrWhiteSpace(contract.PackageGroup) ||
+            string.IsNullOrWhiteSpace(contract.CorePackageId) || contract.RequiredPackageIds is not { Count: > 1 } ||
+            string.IsNullOrWhiteSpace(contract.CoreDependencyVersionRange))
+        {
+            throw new InvalidDataException("The compression contract must use version 1 and define its group, Core package, package IDs and Core dependency range.");
+        }
+        if (contract.RequiredPackageIds.Any(string.IsNullOrWhiteSpace) ||
+            contract.RequiredPackageIds.Distinct(StringComparer.Ordinal).Count() != contract.RequiredPackageIds.Count)
+        {
+            throw new InvalidDataException("The compression contract contains an empty or duplicate required package ID.");
+        }
+        if (!contract.RequiredPackageIds.Contains(contract.CorePackageId, StringComparer.Ordinal))
+            throw new InvalidDataException("The compression contract must include its Core package in requiredPackageIds.");
+
+        var (minimum, maximum) = ParseCoreVersionRange(contract.CoreDependencyVersionRange);
+        var core = entries.SingleOrDefault(entry => entry.PackageId.Equals(contract.CorePackageId, StringComparison.Ordinal));
+        if (core is null)
+            throw new InvalidDataException($"The compression contract refers to unknown Core package '{contract.CorePackageId}'.");
+
+        if (Directory.Exists(repositoryRoot))
+        {
+            var corePath = Path.GetFullPath(Path.Combine(repositoryRoot, core.ProjectPath.Replace('/', Path.DirectorySeparatorChar)));
+            if (!corePath.StartsWith(repositoryRoot + Path.DirectorySeparatorChar, pathComparison))
+                throw new InvalidDataException($"The compression contract Core project resolves outside the selected checkout: '{core.ProjectPath}'.");
+            var coreVersionText = PackageProjectInspector.ReadMetadata(corePath).Version;
+            if (!Version.TryParse(coreVersionText, out var coreVersion) || coreVersion.Major != minimum.Major ||
+                coreVersion < minimum || coreVersion >= maximum)
+            {
+                throw new InvalidDataException($"Compression contract range '{contract.CoreDependencyVersionRange}' does not cover the current Core package version '{coreVersionText}'. Update the versioned compression contract when Core changes major version.");
+            }
+        }
+
+        return new CompressionPackageContract(contract.Version, contract.PackageGroup, contract.CorePackageId,
+            contract.RequiredPackageIds.ToArray(), contract.CoreDependencyVersionRange);
+    }
+
+    private static (Version Minimum, Version Maximum) ParseCoreVersionRange(string range)
+    {
+        const string prefix = "[";
+        const string separator = ",";
+        const string suffix = ")";
+        var parts = range.StartsWith(prefix, StringComparison.Ordinal) && range.EndsWith(suffix, StringComparison.Ordinal)
+            ? range[1..^1].Split(separator, StringSplitOptions.None)
+            : [];
+        if (parts.Length != 2 || !Version.TryParse(parts[0], out var minimum) || !Version.TryParse(parts[1], out var maximum) ||
+            minimum.Major < 1 || minimum.Minor != 0 || minimum.Build != 0 || minimum.Revision != -1 ||
+            maximum.Minor != 0 || maximum.Build != 0 || maximum.Revision != -1 || maximum.Major != minimum.Major + 1)
+        {
+            throw new InvalidDataException($"Compression Core dependency range '{range}' must be a closed lower bound and open next-major upper bound such as [4.0.0,5.0.0).");
+        }
+
+        return (minimum, maximum);
+    }
+
+    private static void ValidateReleasePackageSet(PackageReleaseContract contract, IReadOnlySet<string> packageIds)
+    {
+        var missing = contract.RequiredPackageIds.Where(id => !packageIds.Contains(id)).Order(StringComparer.Ordinal).ToArray();
+        if (missing.Length > 0)
+            throw new InvalidDataException($"Package policy is missing required release package '{missing[0]}'.");
+        var unexpected = packageIds.Where(id => !contract.RequiredPackageIds.Contains(id, StringComparer.Ordinal)).Order(StringComparer.Ordinal).ToArray();
+        if (unexpected.Length > 0)
+            throw new InvalidDataException($"Package policy contains package '{unexpected[0]}' outside the required release contract.");
+    }
+
+    private static void ValidateCompressionGroup(CompressionPackageContract contract, IReadOnlyList<PackagePolicyEntry> entries)
+    {
+        var actual = entries.Where(entry => entry.PackageGroups.Contains(contract.PackageGroup, StringComparer.Ordinal))
+            .Select(static entry => entry.PackageId).Order(StringComparer.Ordinal).ToArray();
+        var expected = contract.RequiredPackageIds.Order(StringComparer.Ordinal).ToArray();
+        if (!actual.SequenceEqual(expected, StringComparer.Ordinal))
+            throw new InvalidDataException("Package compression group membership does not match its contract.");
     }
 
     private sealed class PolicyDocument
@@ -146,6 +275,30 @@ internal static class PackagePolicyReader
         public int SchemaVersion { get; init; }
 
         public List<PolicyEntry>? Packages { get; init; }
+
+        public ReleaseContractDocument? ReleaseContract { get; init; }
+
+        public CompressionContractDocument? CompressionContract { get; init; }
+    }
+
+    private sealed class ReleaseContractDocument
+    {
+        public int Version { get; init; }
+
+        public List<string>? RequiredPackageIds { get; init; }
+    }
+
+    private sealed class CompressionContractDocument
+    {
+        public int Version { get; init; }
+
+        public string? PackageGroup { get; init; }
+
+        public string? CorePackageId { get; init; }
+
+        public List<string>? RequiredPackageIds { get; init; }
+
+        public string? CoreDependencyVersionRange { get; init; }
     }
 
     private sealed class PolicyEntry
@@ -173,5 +326,7 @@ internal static class PackagePolicyReader
         public List<string>? PackageGroups { get; init; }
 
         public List<string>? AllowedAssetCategories { get; init; }
+
+        public string? ConsumerScenario { get; init; }
     }
 }

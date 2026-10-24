@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Benchmarks;
 using Rowles.LeanCorpus.DevOps.Build;
 using Rowles.LeanCorpus.DevOps.Commands;
+using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Terminal;
@@ -15,17 +16,11 @@ internal sealed class DataForgeQualificationStepRunner(
     IProcessRunner processRunner,
     IDotNetSdkResolver sdkResolver,
     IRepositoryProvenanceReader provenanceReader,
+    IReadOnlyDictionary<string, TestSuiteConfiguration> testSuites,
     Action<string>? progress = null,
     Action<string>? errorOutput = null,
     string dotnetExecutable = "dotnet") : IDataForgeQualificationStepRunner
 {
-    private static readonly IReadOnlyDictionary<string, string> TestProjects = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["dataforge"] = "src/devops/Rowles.DataForge.Tests/Rowles.DataForge.Tests.csproj",
-        ["architecture"] = "src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj",
-        ["server-integration"] = "src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj"
-    };
-
     public Task<DataForgeQualificationStepResult> ExecuteAsync(
         CheckoutIdentity checkout,
         DataForgeQualificationStep step,
@@ -38,6 +33,7 @@ internal sealed class DataForgeQualificationStepRunner(
         return step.Kind switch
         {
             DataForgeQualificationStepKind.Build => RunBuildAsync(checkout, cancellationToken),
+            DataForgeQualificationStepKind.ProfileVerification => RunDataForgeAsync(checkout, step, cancellationToken),
             DataForgeQualificationStepKind.ReferenceVerification => RunDataForgeAsync(checkout, step, cancellationToken),
             DataForgeQualificationStepKind.Test => RunTestAsync(checkout, step, qualificationDirectory, cancellationToken),
             DataForgeQualificationStepKind.Benchmark => RunBenchmarkAsync(checkout, step, cancellationToken),
@@ -101,11 +97,19 @@ internal sealed class DataForgeQualificationStepRunner(
         string qualificationDirectory,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(step.Suite) || !TestProjects.TryGetValue(step.Suite, out var relativeProjectPath))
-            return new DataForgeQualificationStepResult("Failed", null, 0, Error: $"Unsupported qualification test suite '{step.Suite}'.");
-        if (step.Framework is not ("net10.0" or "net11.0"))
-            return new DataForgeQualificationStepResult("Failed", null, 0, Error: $"Unsupported test framework '{step.Framework}'.");
+        if (string.IsNullOrWhiteSpace(step.Suite) || !testSuites.TryGetValue(step.Suite, out var suite))
+            return new DataForgeQualificationStepResult("Failed", null, 0, Error: $"Unknown qualification test suite '{step.Suite}'.");
+        if (!suite.DataForgeQualification)
+            return new DataForgeQualificationStepResult("Failed", null, 0,
+                Error: $"Configured test suite '{step.Suite}' is not eligible for DataForge qualification.");
+        if (!suite.Runner.Equals("Mtp", StringComparison.Ordinal))
+            return new DataForgeQualificationStepResult("Failed", null, 0,
+                Error: $"Qualification test suite '{step.Suite}' must use the Mtp runner.");
+        if (string.IsNullOrWhiteSpace(step.Framework) || !suite.Frameworks.Contains(step.Framework, StringComparer.OrdinalIgnoreCase))
+            return new DataForgeQualificationStepResult("Failed", null, 0,
+                Error: $"Test suite '{step.Suite}' does not support qualification framework '{step.Framework}'.");
 
+        var relativeProjectPath = suite.Project;
         var projectPath = Path.GetFullPath(Path.Combine(checkout.RepositoryRoot, relativeProjectPath));
         if (!IsWithin(checkout.RepositoryRoot, projectPath) || !File.Exists(projectPath))
             return new DataForgeQualificationStepResult("Failed", null, 0, Error: $"Qualification test project was not found inside the selected checkout: '{projectPath}'.");

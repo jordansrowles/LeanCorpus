@@ -13,11 +13,6 @@ internal sealed record PackageProjectMetadata(
 
 internal static class PackageArchiveInspector
 {
-    private const string CompressionCoreVersionRange = "[4.0.0,5.0.0)";
-    private static readonly HashSet<string> CompressionPackageIds = new(StringComparer.Ordinal)
-    {
-        "LeanCorpus.Compression.LZ4", "LeanCorpus.Compression.Snappy", "LeanCorpus.Compression.Zstandard"
-    };
     private static readonly HashSet<string> StandardEntries = new(StringComparer.Ordinal)
     {
         "[Content_Types].xml", "README.md", "LICENCE", "LICENSE"
@@ -51,9 +46,13 @@ internal static class PackageArchiveInspector
         ValidateSymbols(symbolPath, policy, project, archive, packagePath);
     }
 
-    public static void ValidateCompressionDependencyRange(string packagePath, PackagePolicyEntry policy)
+    public static void ValidateCompressionDependencyRange(
+        string packagePath,
+        PackagePolicyEntry policy,
+        CompressionPackageContract contract)
     {
-        if (!CompressionPackageIds.Contains(policy.PackageId))
+        ArgumentNullException.ThrowIfNull(contract);
+        if (!contract.CodecPackageIds.Contains(policy.PackageId, StringComparer.Ordinal))
         {
             throw new InvalidDataException($"Package {policy.PackageId} is not covered by the compression dependency contract.");
         }
@@ -89,10 +88,12 @@ internal static class PackageArchiveInspector
                 throw new InvalidDataException($"Compression package {policy.PackageId} must declare exactly one '{framework}' dependency group in {packagePath}.");
             }
 
-            var coreDependencies = groups[0].Dependencies.Where(static dependency => dependency.Id == "LeanCorpus").ToArray();
-            if (coreDependencies.Length != 1 || !string.Equals(StripWhitespace(coreDependencies[0].Version), CompressionCoreVersionRange, StringComparison.Ordinal))
+            var coreDependencies = groups[0].Dependencies
+                .Where(dependency => dependency.Id.Equals(contract.CorePackageId, StringComparison.Ordinal)).ToArray();
+            if (coreDependencies.Length != 1 ||
+                !string.Equals(StripWhitespace(coreDependencies[0].Version), contract.CoreDependencyVersionRange, StringComparison.Ordinal))
             {
-                throw new InvalidDataException($"Compression package {policy.PackageId} must declare LeanCorpus {CompressionCoreVersionRange} in its '{framework}' dependency group.");
+                throw new InvalidDataException($"Compression package {policy.PackageId} must declare {contract.CorePackageId} {contract.CoreDependencyVersionRange} in its '{framework}' dependency group.");
             }
         }
     }

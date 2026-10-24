@@ -1,5 +1,6 @@
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Build;
+using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Data;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Repository;
@@ -19,13 +20,13 @@ public sealed class DataForgeQualificationServiceTests
         var provenance = new RecordingProvenanceReader();
         var sdk = new RecordingSdkResolver();
         var paths = new ArtifactPaths(checkout.Identity.RepositoryRoot);
-        var service = new DataForgeQualificationService(paths, new AtomicFileWriter(), runner, provenance, sdk, output.Add);
+        var service = new DataForgeQualificationService(paths, new AtomicFileWriter(), runner, LoadConfiguration(), provenance, sdk, output.Add);
 
         var result = await service.RunAsync(checkout.Identity, new DataForgeQualificationOptions("/tmp/wikipedia", Dry: true), TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
         Assert.Null(result.QualificationDirectory);
-        Assert.Equal(25, output.Count);
+        Assert.Equal(26, output.Count);
         Assert.Contains(output, line => line.Contains("[wikipedia-reference]", StringComparison.Ordinal));
         Assert.Empty(runner.Steps);
         Assert.Equal(0, provenance.Calls);
@@ -39,7 +40,7 @@ public sealed class DataForgeQualificationServiceTests
         using var checkout = new TemporaryCheckout();
         var paths = new ArtifactPaths(checkout.Identity.RepositoryRoot);
         var runner = new SuccessfulStepRunner();
-        var service = new DataForgeQualificationService(paths, new AtomicFileWriter(), runner,
+        var service = new DataForgeQualificationService(paths, new AtomicFileWriter(), runner, LoadConfiguration(),
             new RecordingProvenanceReader(), new RecordingSdkResolver());
 
         var result = await service.RunAsync(checkout.Identity,
@@ -75,7 +76,7 @@ public sealed class DataForgeQualificationServiceTests
             """);
         var paths = new ArtifactPaths(checkout.Identity.RepositoryRoot);
         var runner = new SuccessfulStepRunner();
-        var service = new DataForgeQualificationService(paths, new AtomicFileWriter(), runner,
+        var service = new DataForgeQualificationService(paths, new AtomicFileWriter(), runner, LoadConfiguration(),
             new RecordingProvenanceReader(), new RecordingSdkResolver());
 
         var result = await service.RunAsync(checkout.Identity, new DataForgeQualificationOptions(referencePath, Dry: false),
@@ -87,6 +88,39 @@ public sealed class DataForgeQualificationServiceTests
         Assert.Contains(summary.RootElement.GetProperty("commands").EnumerateArray(),
             command => command.GetProperty("group").GetString() == "wikipedia-reference" &&
                        command.GetProperty("status").GetString() == "Passed");
+    }
+
+    [Fact]
+    public async Task MissingRequiredProfileFailsPreflightAndSkipsQualificationWorkloads()
+    {
+        using var checkout = new TemporaryCheckout();
+        var paths = new ArtifactPaths(checkout.Identity.RepositoryRoot);
+        var profiles = new[]
+        {
+            new DataForgeAvailableProfile("leancorpus-search", 1),
+            new DataForgeAvailableProfile("leancorpus-vector", 1),
+            new DataForgeAvailableProfile("rowles-text-multilingual", 1)
+        };
+        var runner = new SuccessfulStepRunner(profiles);
+        var service = new DataForgeQualificationService(paths, new AtomicFileWriter(), runner, LoadConfiguration(),
+            new RecordingProvenanceReader(), new RecordingSdkResolver());
+
+        var result = await service.RunAsync(checkout.Identity,
+            new DataForgeQualificationOptions(Path.Combine(checkout.Identity.RepositoryRoot, "missing-reference"), Dry: false),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.CommandFailure, result.CommandResult.Outcome);
+        Assert.DoesNotContain(runner.Executed, step => step.Kind is DataForgeQualificationStepKind.ReferenceVerification or
+            DataForgeQualificationStepKind.Test or DataForgeQualificationStepKind.Benchmark);
+        using var summary = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(result.QualificationDirectory!, "qualification.json")));
+        Assert.Contains(summary.RootElement.GetProperty("blockers").EnumerateArray(),
+            blocker => blocker.GetString()!.Contains("leancorpus-hybrid", StringComparison.Ordinal));
+    }
+
+    private static DevOpsConfiguration LoadConfiguration()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        return new ConfigurationLoader(checkout.RepositoryRoot).Load();
     }
 
     private sealed class RecordingStepRunner : IDataForgeQualificationStepRunner
@@ -101,7 +135,7 @@ public sealed class DataForgeQualificationServiceTests
         }
     }
 
-    private sealed class SuccessfulStepRunner : IDataForgeQualificationStepRunner
+    private sealed class SuccessfulStepRunner(IReadOnlyList<DataForgeAvailableProfile>? profiles = null) : IDataForgeQualificationStepRunner
     {
         public List<DataForgeQualificationStep> Executed { get; } = [];
 
@@ -109,9 +143,23 @@ public sealed class DataForgeQualificationServiceTests
             string qualificationDirectory, CancellationToken cancellationToken)
         {
             Executed.Add(step);
+            if (step.Kind == DataForgeQualificationStepKind.ProfileVerification)
+            {
+                Directory.CreateDirectory(qualificationDirectory);
+                var catalog = profiles ??
+                [
+                    new DataForgeAvailableProfile("leancorpus-hybrid", 1),
+                    new DataForgeAvailableProfile("leancorpus-search", 1),
+                    new DataForgeAvailableProfile("leancorpus-vector", 1),
+                    new DataForgeAvailableProfile("rowles-text-multilingual", 1)
+                ];
+                File.WriteAllText(Path.Combine(qualificationDirectory, "process.stdout.log"),
+                    JsonSerializer.Serialize(catalog.Select(profile => new { profileId = profile.ProfileId, profileVersion = profile.ProfileVersion })));
+            }
             var kind = step.Kind switch
             {
                 DataForgeQualificationStepKind.Build => "build",
+                DataForgeQualificationStepKind.ProfileVerification => "dataforge",
                 DataForgeQualificationStepKind.ReferenceVerification => "dataforge",
                 DataForgeQualificationStepKind.Test => "test",
                 DataForgeQualificationStepKind.Benchmark => "benchmark",
@@ -152,6 +200,9 @@ public sealed class DataForgeQualificationServiceTests
             Directory.CreateDirectory(root);
             var gitPath = Path.Combine(root, ".git");
             Directory.CreateDirectory(gitPath);
+            var dataForgeProject = RepositoryProjectCatalog.GetProjectPath(root, RepositoryProjectRole.DataForgeTool);
+            Directory.CreateDirectory(Path.GetDirectoryName(dataForgeProject)!);
+            File.WriteAllText(dataForgeProject, "<Project />");
             Identity = new CheckoutIdentity(root, gitPath, CheckoutGitMarkerKind.Directory);
         }
 

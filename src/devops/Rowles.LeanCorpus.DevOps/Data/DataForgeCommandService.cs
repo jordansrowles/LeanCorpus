@@ -25,7 +25,7 @@ internal sealed class DataForgeCommandService(
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(request.Arguments);
-        var projectPath = Path.Combine(artifactPaths.RepositoryRoot, "src", "devops", "Rowles.DataForge.Tool", "Rowles.DataForge.Tool.csproj");
+        var projectPath = RepositoryProjectCatalog.GetProjectPath(artifactPaths.RepositoryRoot, RepositoryProjectRole.DataForgeTool);
         if (!File.Exists(projectPath))
         {
             return new DataForgeCommandResult(new CommandResult(OutcomeKind.ValidationFailure,
@@ -137,7 +137,7 @@ internal sealed class DataForgeCommandService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
         ArgumentNullException.ThrowIfNull(toolArguments);
-        var projectPath = Path.Combine(Path.GetFullPath(repositoryRoot), "src", "devops", "Rowles.DataForge.Tool", "Rowles.DataForge.Tool.csproj");
+        var projectPath = RepositoryProjectCatalog.GetProjectPath(repositoryRoot, RepositoryProjectRole.DataForgeTool);
         return ["run", "--project", projectPath, "--framework", "net10.0", "--configuration", "Release", "--", .. toolArguments];
     }
 

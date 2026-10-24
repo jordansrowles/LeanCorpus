@@ -70,7 +70,7 @@ internal static class PackageConsumerProjectWriter
             }
             var escapedId = System.Security.SecurityElement.Escape(id);
             var escapedVersion = System.Security.SecurityElement.Escape(package.Version);
-            if (id == "LeanCorpus.SourceGen")
+            if (id.Equals(scenario.AnalyzerPackageId, StringComparison.Ordinal))
             {
                 nodes.Add($"    <PackageReference Include=\"{escapedId}\" Version=\"[{escapedVersion}]\" OutputItemType=\"Analyzer\" ReferenceOutputAssembly=\"false\" PrivateAssets=\"all\" />");
             }
@@ -128,8 +128,8 @@ internal static class PackageConsumerProjectWriter
         {
             throw new FileNotFoundException("Compression consumer program template is missing.", templatePath);
         }
-        var codec = scenario.PackageId["LeanCorpus.Compression.".Length..];
-        if (!packageIndex.Packages.TryGetValue("LeanCorpus", out var core) || !packageIndex.Packages.TryGetValue(scenario.PackageId, out var optional))
+        var codec = scenario.PackageId.Split('.').Last();
+        if (!packageIndex.Packages.TryGetValue(scenario.CorePackageId, out var core) || !packageIndex.Packages.TryGetValue(scenario.PackageId, out var optional))
         {
             throw new InvalidDataException($"Compression consumer is missing package manifest metadata for Core or {scenario.PackageId}.");
         }

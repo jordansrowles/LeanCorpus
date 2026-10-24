@@ -1,5 +1,35 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "releaseContract": {
+    "version": 1,
+    "requiredPackageIds": [
+      "LeanCorpus",
+      "Rowles.Text",
+      "LeanCorpus.SourceGen",
+      "LeanCorpus.Compression.LZ4",
+      "LeanCorpus.Compression.Snappy",
+      "LeanCorpus.Compression.Zstandard",
+      "Rowles.LeanCorpus.Server.Abstractions",
+      "Rowles.LeanCorpus.Server.Core",
+      "Rowles.LeanCorpus.Server.AspNetCore",
+      "Rowles.LeanCorpus.Server.Grpc",
+      "Rowles.LeanCorpus.Server.Local",
+      "Rowles.LeanCorpus.Studio",
+      "Rowles.LeanCorpus.OrchardCore.Search"
+    ]
+  },
+  "compressionContract": {
+    "version": 1,
+    "packageGroup": "compression",
+    "corePackageId": "LeanCorpus",
+    "requiredPackageIds": [
+      "LeanCorpus",
+      "LeanCorpus.Compression.LZ4",
+      "LeanCorpus.Compression.Snappy",
+      "LeanCorpus.Compression.Zstandard"
+    ],
+    "coreDependencyVersionRange": "[4.0.0,5.0.0)"
+  },
   "packages": [
     {
       "packageId": "LeanCorpus",
@@ -11,7 +41,8 @@
       "strictBaseline": false,
       "requireXmlDocs": true,
       "requireSymbols": true,
-      "packageGroups": ["compression"]
+      "packageGroups": ["compression"],
+      "consumerScenario": "core"
     },
     {
       "packageId": "Rowles.Text",
@@ -23,7 +54,8 @@
       "strictBaseline": false,
       "requireXmlDocs": true,
       "requireSymbols": true,
-      "packageGroups": []
+      "packageGroups": [],
+      "consumerScenario": "text"
     },
     {
       "packageId": "LeanCorpus.SourceGen",
@@ -35,7 +67,8 @@
       "enableApiCompatibility": false,
       "requireXmlDocs": false,
       "requireSymbols": false,
-      "packageGroups": []
+      "packageGroups": [],
+      "consumerScenario": "sourcegen"
     },
     {
       "packageId": "LeanCorpus.Compression.LZ4",
@@ -47,7 +80,8 @@
       "strictBaseline": false,
       "requireXmlDocs": true,
       "requireSymbols": true,
-      "packageGroups": ["compression"]
+      "packageGroups": ["compression"],
+      "consumerScenario": "compression"
     },
     {
       "packageId": "LeanCorpus.Compression.Snappy",
@@ -59,7 +93,8 @@
       "strictBaseline": false,
       "requireXmlDocs": true,
       "requireSymbols": true,
-      "packageGroups": ["compression"]
+      "packageGroups": ["compression"],
+      "consumerScenario": "compression"
     },
     {
       "packageId": "LeanCorpus.Compression.Zstandard",
@@ -71,7 +106,8 @@
       "strictBaseline": false,
       "requireXmlDocs": true,
       "requireSymbols": true,
-      "packageGroups": ["compression"]
+      "packageGroups": ["compression"],
+      "consumerScenario": "compression"
     },
     {
       "packageId": "Rowles.LeanCorpus.Server.Abstractions",
@@ -83,7 +119,8 @@
       "requireXmlDocs": true,
       "requireSymbols": true,
       "packageGroups": [],
-      "allowedAssetCategories": ["contracts"]
+      "allowedAssetCategories": ["contracts"],
+      "consumerScenario": "server-abstractions"
     },
     {
       "packageId": "Rowles.LeanCorpus.Server.Core",
@@ -94,7 +131,8 @@
       "enableApiCompatibility": true,
       "requireXmlDocs": true,
       "requireSymbols": true,
-      "packageGroups": []
+      "packageGroups": [],
+      "consumerScenario": "server-core"
     },
     {
       "packageId": "Rowles.LeanCorpus.Server.AspNetCore",
@@ -105,7 +143,8 @@
       "enableApiCompatibility": true,
       "requireXmlDocs": true,
       "requireSymbols": true,
-      "packageGroups": []
+      "packageGroups": [],
+      "consumerScenario": "server-aspnetcore"
     },
     {
       "packageId": "Rowles.LeanCorpus.Server.Grpc",
@@ -116,7 +155,8 @@
       "enableApiCompatibility": true,
       "requireXmlDocs": true,
       "requireSymbols": true,
-      "packageGroups": []
+      "packageGroups": [],
+      "consumerScenario": "server-grpc"
     },
     {
       "packageId": "Rowles.LeanCorpus.Server.Local",
@@ -128,7 +168,8 @@
       "requireXmlDocs": false,
       "requireSymbols": false,
       "packageGroups": [],
-      "allowedAssetCategories": ["content", "contentFiles"]
+      "allowedAssetCategories": ["content", "contentFiles"],
+      "consumerScenario": "server-local"
     },
     {
       "packageId": "Rowles.LeanCorpus.Studio",
@@ -140,7 +181,8 @@
       "requireXmlDocs": true,
       "requireSymbols": true,
       "packageGroups": [],
-      "allowedAssetCategories": ["build", "buildMultiTargeting", "buildTransitive", "staticwebassets"]
+      "allowedAssetCategories": ["build", "buildMultiTargeting", "buildTransitive", "staticwebassets"],
+      "consumerScenario": "studio"
     },
     {
       "packageId": "Rowles.LeanCorpus.OrchardCore.Search",
@@ -152,7 +194,8 @@
       "requireXmlDocs": true,
       "requireSymbols": true,
       "packageGroups": [],
-      "allowedAssetCategories": ["build"]
+      "allowedAssetCategories": ["build"],
+      "consumerScenario": "orchard-search"
     }
   ]
 }

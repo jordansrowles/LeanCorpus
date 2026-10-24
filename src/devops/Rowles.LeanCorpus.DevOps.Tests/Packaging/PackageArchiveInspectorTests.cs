@@ -30,7 +30,7 @@ public sealed class PackageArchiveInspectorTests
         using var package = CreateCompressionPackage("[3.0.0,4.0.0)");
 
         var exception = Assert.Throws<InvalidDataException>(() =>
-            PackageArchiveInspector.ValidateCompressionDependencyRange(package.Path, package.Policy));
+            PackageArchiveInspector.ValidateCompressionDependencyRange(package.Path, package.Policy, CompressionContract));
 
         Assert.Contains("LeanCorpus [4.0.0,5.0.0)", exception.Message, StringComparison.Ordinal);
     }
@@ -40,8 +40,12 @@ public sealed class PackageArchiveInspectorTests
     {
         using var package = CreateCompressionPackage("[4.0.0,5.0.0)");
 
-        PackageArchiveInspector.ValidateCompressionDependencyRange(package.Path, package.Policy);
+        PackageArchiveInspector.ValidateCompressionDependencyRange(package.Path, package.Policy, CompressionContract);
     }
+
+    private static CompressionPackageContract CompressionContract => new(1, "compression", "LeanCorpus",
+        ["LeanCorpus", "LeanCorpus.Compression.LZ4", "LeanCorpus.Compression.Snappy", "LeanCorpus.Compression.Zstandard"],
+        "[4.0.0,5.0.0)");
 
     private static TemporaryPackage CreatePackage(bool addUnexpectedAsset)
     {

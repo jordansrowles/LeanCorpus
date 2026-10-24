@@ -8,7 +8,9 @@ public sealed class PackageConsumerProjectWriterTests
     public void SourceGeneratorConsumerUsesTheExactPrivateAnalyzerPackageReference()
     {
         using var repository = TemporaryRepository.Create();
-        var scenario = ConsumerScenarioCatalog.Create("all").First(item => item.Kind == "sourcegen");
+        var repositoryRoot = FindRepositoryRoot();
+        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, "scripts/devops/packaging/package-policy.json"), repositoryRoot);
+        var scenario = ConsumerScenarioCatalog.Create(policy, "all", repositoryRoot).First(item => item.Kind == "sourcegen");
         var packages = new Dictionary<string, PackageManifestPackage>(StringComparer.OrdinalIgnoreCase)
         {
             ["LeanCorpus"] = new("LeanCorpus", "4.0.0", "/packages/LeanCorpus.4.0.0.nupkg", "LeanCorpus.4.0.0.nupkg", new string('a', 64)),
@@ -25,6 +27,17 @@ public sealed class PackageConsumerProjectWriterTests
         Assert.Contains("Version=\"[1.2.0]\"", project, StringComparison.Ordinal);
         Assert.DoesNotContain("<ProjectReference", project, StringComparison.Ordinal);
         Assert.Contains("SOURCEGEN", File.ReadAllText(consumer.ProgramPath), StringComparison.Ordinal);
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(Environment.CurrentDirectory); directory is not null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "scripts/devops/packaging/package-policy.json")))
+                return directory.FullName;
+        }
+
+        throw new DirectoryNotFoundException("The LeanCorpus package policy was not found from the current test directory.");
     }
 
     private sealed class TemporaryRepository : IDisposable
