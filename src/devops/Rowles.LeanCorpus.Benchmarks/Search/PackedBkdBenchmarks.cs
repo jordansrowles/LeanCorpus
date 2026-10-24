@@ -24,6 +24,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [InvocationCount(1)]
 public class PackedBkdBenchmarks
 {
+    private const float SelectiveRangeMinimum = -100;
+    private const float SelectiveRangeMaximum = 100;
+
     [Params(10_000, 100_000, 1_000_000)]
     public int PointCount { get; set; }
 
@@ -83,7 +86,8 @@ public class PackedBkdBenchmarks
         if (_queryOutputBytes <= 0 || !double.IsFinite(_queryBytesPerPoint) || _queryBytesPerPoint <= 0d)
             throw new InvalidOperationException("Packed BKD post-build size metadata is invalid.");
 
-        _visitor = new QueryVisitor(-100, 100);
+        _visitor = new QueryVisitor(SelectiveRangeMinimum, SelectiveRangeMaximum);
+        ValidateSelectiveRangeResults();
         RecordObserverEvidence();
         RecordBval12MetricAndReaderEvidence(metadata);
     }
@@ -193,6 +197,42 @@ public class PackedBkdBenchmarks
         for (int point = 0; point < PointCount; point++)
             buffer.Append(_packedValues.AsSpan(point * 8, 8), _documentIds[point]);
         return buffer;
+    }
+
+    private void ValidateSelectiveRangeResults()
+    {
+        var expectedDocumentIds = new HashSet<int>();
+        for (int point = 0; point < PointCount; point++)
+        {
+            ReadOnlySpan<byte> packedValue = _packedValues.AsSpan(point * 8, 8);
+            float x = XYEncodingUtils.Decode(packedValue[..4]);
+            float y = XYEncodingUtils.Decode(packedValue[4..8]);
+            if (x >= SelectiveRangeMinimum && x <= SelectiveRangeMaximum
+                && y >= SelectiveRangeMinimum && y <= SelectiveRangeMaximum)
+            {
+                expectedDocumentIds.Add(_documentIds[point]);
+            }
+        }
+
+        var actualDocumentIds = new HashSet<int>();
+        var verificationVisitor = new QueryVisitor(
+            SelectiveRangeMinimum,
+            SelectiveRangeMaximum,
+            actualDocumentIds);
+        if (!_reader!.Intersect("location", ref verificationVisitor))
+            throw new InvalidOperationException("Packed BKD selective XY range field is missing.");
+
+        if (!actualDocumentIds.SetEquals(expectedDocumentIds))
+        {
+            string[] missing = [.. expectedDocumentIds.Except(actualDocumentIds).Order().Take(8)
+                .Select(static id => id.ToString(System.Globalization.CultureInfo.InvariantCulture))];
+            string[] unexpected = [.. actualDocumentIds.Except(expectedDocumentIds).Order().Take(8)
+                .Select(static id => id.ToString(System.Globalization.CultureInfo.InvariantCulture))];
+            throw new InvalidOperationException(
+                $"Packed BKD selective XY range returned {actualDocumentIds.Count} document IDs; " +
+                $"expected {expectedDocumentIds.Count}. Missing [{string.Join(", ", missing)}], " +
+                $"unexpected [{string.Join(", ", unexpected)}].");
+        }
     }
 
     private void RecordBval12MetricAndReaderEvidence(PackedBkdFieldMetadata metadata)
@@ -370,10 +410,12 @@ public class PackedBkdBenchmarks
         LineLike,
     }
 
-    private struct QueryVisitor(float minimum, float maximum) : IPackedBkdIntersectVisitor
+    private struct QueryVisitor(float minimum, float maximum, HashSet<int>? matchingDocumentIds = null)
+        : IPackedBkdIntersectVisitor
     {
         private readonly byte[] _minimum = Pack(minimum, minimum);
         private readonly byte[] _maximum = Pack(maximum, maximum);
+        private readonly HashSet<int>? _matchingDocumentIds = matchingDocumentIds;
 
         internal int Count { get; private set; }
 
@@ -388,12 +430,19 @@ public class PackedBkdBenchmarks
                 : PackedBkdCellRelation.Crosses;
         }
 
-        public void Visit(int docId) => Count++;
+        public void Visit(int docId)
+        {
+            Count++;
+            _matchingDocumentIds?.Add(docId);
+        }
 
         public void Visit(int docId, ReadOnlySpan<byte> packedValue)
         {
             if (IsValueInRange(packedValue))
+            {
                 Count++;
+                _matchingDocumentIds?.Add(docId);
+            }
         }
 
         private bool IsOutside(ReadOnlySpan<byte> minimum, ReadOnlySpan<byte> maximum)
