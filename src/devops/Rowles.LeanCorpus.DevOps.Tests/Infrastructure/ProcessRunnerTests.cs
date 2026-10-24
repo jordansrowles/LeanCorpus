@@ -169,8 +169,16 @@ public sealed class ProcessRunnerTests
         var result = await new ProcessRunner().RunAsync(request, TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.Success, result.Outcome);
-        Assert.InRange(events.Count, 1, 8);
-        Assert.All(events, item =>
+        var progressEvents = events.ToArray();
+        Assert.NotEmpty(progressEvents);
+        for (var index = 0; index < progressEvents.Length; index++)
+        {
+            var earliestExpected = TimeSpan.FromTicks(request.ProgressInterval.Ticks * (index + 1));
+            Assert.True(progressEvents[index].Elapsed >= earliestExpected,
+                $"Heartbeat {index + 1} arrived at {progressEvents[index].Elapsed:c}; expected no earlier than {earliestExpected:c}.");
+        }
+
+        Assert.All(progressEvents, item =>
         {
             Assert.True(item.Elapsed > TimeSpan.Zero);
             Assert.Equal(0, item.StandardOutputLineCount);
