@@ -171,11 +171,16 @@ public sealed class ProcessRunnerTests
         Assert.Equal(OutcomeKind.Success, result.Outcome);
         var progressEvents = events.ToArray();
         Assert.NotEmpty(progressEvents);
+        // Hosted timer resolution can round a nominal interval slightly early.
+        var timerResolutionTolerance = TimeSpan.FromMilliseconds(5);
         for (var index = 0; index < progressEvents.Length; index++)
         {
             var earliestExpected = TimeSpan.FromTicks(request.ProgressInterval.Ticks * (index + 1));
-            Assert.True(progressEvents[index].Elapsed >= earliestExpected,
-                $"Heartbeat {index + 1} arrived at {progressEvents[index].Elapsed:c}; expected no earlier than {earliestExpected:c}.");
+            var minimumElapsed = earliestExpected - timerResolutionTolerance;
+            Assert.True(progressEvents[index].Elapsed >= minimumElapsed,
+                $"Heartbeat {index + 1} arrived at {progressEvents[index].Elapsed:c}; expected no earlier than {minimumElapsed:c} after timer-resolution tolerance.");
+            Assert.True(progressEvents[index].Elapsed <= result.Duration,
+                $"Heartbeat {index + 1} arrived at {progressEvents[index].Elapsed:c}, after the child duration {result.Duration:c}.");
         }
 
         Assert.All(progressEvents, item =>
