@@ -72,6 +72,9 @@ internal sealed record BenchmarkComparisonSourceReport(
 
     private static IReadOnlyList<string> ReadDatasetProfiles(JsonElement provenance)
     {
+        if (provenance.ValueKind != JsonValueKind.Object)
+            return [];
+
         if (!provenance.TryGetProperty("datasets", out JsonElement datasets) || datasets.ValueKind != JsonValueKind.Array)
             return [];
 

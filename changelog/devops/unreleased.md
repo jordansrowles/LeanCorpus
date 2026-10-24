@@ -28,6 +28,8 @@
 
 ## Changed
 
+- Share Build concurrency groups across same-branch pushes and pull requests to avoid duplicate runs.
+
 - Route every `devops.ps1` invocation through the fingerprint-validated managed host, retire the legacy `benchmarks docs` and `setup` command aliases, and align contributor examples with managed docs, DataForge, test, AOT and package commands.
 - Validate Compression benchmark round trips before timing, retain exact input/output bytes and DataForge identity, and register directional codec cases with explicit size metrics.
 
@@ -70,6 +72,8 @@
 - Run `report all --json` through promoted Linux and Windows hosts in Build CI and retain the full report run evidence.
 
 ## Fixed
+
+- Read v5 benchmark rows when provenance is absent while leaving comparison qualification fail-closed.
 
 - Reconcile bounded/default similarity and existing MoreLikeThis fixture cases with actual benchmark discovery while retaining unqualified comparison status.
 

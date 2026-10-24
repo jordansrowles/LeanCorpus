@@ -235,7 +235,7 @@ public sealed class BenchmarkComparisonAssessorTests
         {
             ["typeName"] = "PairBenchmarks",
             ["methodName"] = "LeanCorpus_Search",
-            ["parameters"] = new Dictionary<string, string>(StringComparer.Ordinal),
+            ["parameters"] = new Dictionary<string, string>(StringComparer.Ordinal) { ["Count"] = "100" },
             ["resultState"] = "TerminalResult",
             ["identityComplete"] = true,
             ["qualityFlags"] = Array.Empty<string>()
@@ -255,6 +255,15 @@ public sealed class BenchmarkComparisonAssessorTests
 
             Assert.Null(report.ReadFailure);
             Assert.Equal(expected, Assert.Single(report.Rows).PreflightPassed);
+
+            BenchmarkComparisonAssessment assessment = Assess(CreateEvidence() with
+            {
+                Reports = [report, CreateReport(rows: [CreateRow("LuceneNet_Search", 125)])]
+            });
+            Assert.Equal("Unqualified", assessment.QualificationState);
+            Assert.False(assessment.EligibleForRatio);
+            Assert.Contains("SourceCommitMismatch", assessment.ReasonCodes);
+            Assert.Contains("DatasetIdentityMissing", assessment.ReasonCodes);
         }
         finally
         {
