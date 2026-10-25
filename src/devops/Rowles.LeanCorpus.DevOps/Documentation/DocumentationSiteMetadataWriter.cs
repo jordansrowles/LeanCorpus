@@ -111,6 +111,10 @@ internal sealed class DocumentationSiteMetadataWriter(IProcessRunner processRunn
             WorkingDirectory = repositoryRoot,
             StandardOutputLogPath = Path.Combine(runDirectory, $"{logName}.stdout.log"),
             StandardErrorLogPath = Path.Combine(runDirectory, $"{logName}.stderr.log"),
+            EnvironmentVariables = new Dictionary<string, string?>(StringComparer.Ordinal)
+            {
+                ["DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER"] = "1"
+            },
             Timeout = TimeSpan.FromMinutes(2)
         }, cancellationToken).ConfigureAwait(false);
         if (result.Outcome == OutcomeKind.Cancelled && cancellationToken.IsCancellationRequested)

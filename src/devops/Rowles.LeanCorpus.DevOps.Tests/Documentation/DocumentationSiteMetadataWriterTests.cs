@@ -9,6 +9,24 @@ namespace Rowles.LeanCorpus.DevOps.Tests.Documentation;
 public sealed class DocumentationSiteMetadataWriterTests
 {
     [Fact]
+    public async Task DoesNotReuseTheMsBuildServerForVersionProbes()
+    {
+        using var directory = new TemporaryDirectory();
+        var repositoryRoot = directory.Path;
+        CreateProject(repositoryRoot, "src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj");
+        var processRunner = new VersionProcessRunner();
+
+        await new DocumentationSiteMetadataWriter(processRunner)
+            .EvaluateVersionsAsync(repositoryRoot,
+                Path.Combine(repositoryRoot, "artifacts", "docs", "runs", "test-run"),
+                TestContext.Current.CancellationToken);
+
+        var request = Assert.Single(processRunner.Requests);
+        Assert.NotNull(request.EnvironmentVariables);
+        Assert.Equal("1", request.EnvironmentVariables["DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER"]);
+    }
+
+    [Fact]
     public async Task WritesGeneratedJsonWithTheLegacyFinalNewline()
     {
         using var directory = new TemporaryDirectory();
@@ -59,10 +77,15 @@ public sealed class DocumentationSiteMetadataWriterTests
 
     private sealed class VersionProcessRunner(OutcomeKind outcome = OutcomeKind.Success) : IProcessRunner
     {
+        public List<ProcessRequest> Requests { get; } = [];
+
         public Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken = default)
-            => Task.FromResult(new ProcessResult(outcome, outcome == OutcomeKind.Success ? 0 : null,
+        {
+            Requests.Add(request);
+            return Task.FromResult(new ProcessResult(outcome, outcome == OutcomeKind.Success ? 0 : null,
                 outcome == OutcomeKind.Success ? ["4.0.0"] : [], [], 1, 0, TimeSpan.Zero,
                 request.StandardOutputLogPath, request.StandardErrorLogPath, null));
+        }
     }
 
     private sealed class TemporaryDirectory : IDisposable
