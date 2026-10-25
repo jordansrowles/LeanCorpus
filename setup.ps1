@@ -19,19 +19,21 @@ function Assert-LeanCorpusCheckout {
         $firstLine = Get-Content -LiteralPath $gitMarker -TotalCount 1
         $isGitFile = $firstLine -match '^gitdir:\s*.+$'
     }
-    if (-not ($isGitDirectory -or $isGitFile) -or
-        -not (Test-Path -LiteralPath (Join-Path $root 'Rowles.LeanCorpus.slnx') -PathType Leaf) -or
+    if (-not (Test-Path -LiteralPath (Join-Path $root 'src/Rowles.LeanCorpus.slnx') -PathType Leaf) -or
+        -not (Test-Path -LiteralPath (Join-Path $root 'Directory.Build.props') -PathType Leaf) -or
         -not (Test-Path -LiteralPath (Join-Path $root 'global.json') -PathType Leaf)) {
-        Stop-Setup "'$root' is not a LeanCorpus checkout. Expected .git, Rowles.LeanCorpus.slnx and global.json at the repository root."
+        Stop-Setup "'$root' is not a LeanCorpus checkout. Expected global.json, Directory.Build.props and src/Rowles.LeanCorpus.slnx markers."
     }
 
-    $gitRootLines = @(& $script:GitCommand.Source -C $root rev-parse --show-toplevel 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $gitRootLines.Count -eq 0) {
-        Stop-Setup 'Git could not identify the setup script checkout root.'
-    }
-    $gitRoot = [System.IO.Path]::GetFullPath([string]$gitRootLines[-1])
-    if (-not [string]::Equals([System.IO.Path]::TrimEndingDirectorySeparator($gitRoot), [System.IO.Path]::TrimEndingDirectorySeparator($root), (Get-ManagedHostComparison))) {
-        Stop-Setup "The setup script directory '$root' does not match the Git checkout root '$gitRoot'."
+    if ($isGitDirectory -or $isGitFile) {
+        $gitRootLines = @(& $script:GitCommand.Source -C $root rev-parse --show-toplevel 2>&1)
+        if ($LASTEXITCODE -ne 0 -or $gitRootLines.Count -eq 0) {
+            Stop-Setup 'Git could not identify the setup script checkout root.'
+        }
+        $gitRoot = [System.IO.Path]::GetFullPath([string]$gitRootLines[-1])
+        if (-not [string]::Equals([System.IO.Path]::TrimEndingDirectorySeparator($gitRoot), [System.IO.Path]::TrimEndingDirectorySeparator($root), (Get-ManagedHostComparison))) {
+            Stop-Setup "The setup script directory '$root' does not match the Git checkout root '$gitRoot'."
+        }
     }
 }
 
@@ -259,15 +261,15 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     Stop-Setup "The repository tool manifest was not found: $manifestPath"
 }
 
-$testProject = Join-Path $repositoryRoot 'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj'
-$hostProject = Join-Path $repositoryRoot 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
+$testProject = Join-Path $repositoryRoot 'src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj'
+$hostProject = Join-Path $repositoryRoot 'src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
 $requiredBootstrapInputs = @(
     'Directory.Build.props',
     'Directory.Packages.props',
     'src/devops/Directory.Build.props',
     'src/devops/Directory.Packages.props',
-    'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj',
-    'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj',
+    'src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj',
+    'src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj',
     '.config/devops/benchmark-datasets.json',
     '.config/devops/benchmark-groups.json',
     '.config/devops/benchmark-strategies.json',
@@ -345,7 +347,7 @@ try {
 
     Invoke-ManagedHostProbe $stagedExecutable @('--help') 'Staged managed host --help probe' 'LeanCorpus managed DevOps'
     Invoke-ManagedHostProbe $stagedExecutable @('--version') 'Staged managed host --version probe'
-    Invoke-ManagedHostProbe $stagedExecutable @('--repo', $repositoryRoot, 'build', '--project', 'src/devops/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj', '--framework', 'net10.0') 'Staged managed build smoke'
+    Invoke-ManagedHostProbe $stagedExecutable @('--repo', $repositoryRoot, 'build', '--project', 'src/devops/tooling/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj', '--framework', 'net10.0') 'Staged managed build smoke'
 
     $currentStageStatus = Test-ManagedHost -RepositoryRoot $repositoryRoot -ExecutablePath $stagedExecutable
     if (-not $currentStageStatus.IsCurrent) {

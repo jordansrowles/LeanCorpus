@@ -4,8 +4,11 @@ Run `pwsh -NoProfile -File ./setup.ps1` after cloning or when the managed host
 needs rebuilding. It restores the pinned repository tools, restores and builds
 the managed DevOps test-project graph, independently verifies the host's
 multi-RID lock, runs the compiled test apphost, then publishes and validates a
-current-RID single-file executable at the repository root. No dedicated DevOps
-solution is required.
+current-RID single-file executable at the repository root. Setup builds the
+DevOps test project graph directly, so the host bootstraps without first
+building the full product solution. The complete project inventory is
+`src/Rowles.LeanCorpus.slnx`; focused build entry points are under
+`src/solutions/`.
 
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. Every supported command runs through the managed host.
@@ -42,7 +45,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `aot` | Managed: publish and run Native AOT smoke tests; release qualification remains open | `./devops aot --framework net10.0` |
 | `coverage` | Managed apphost: run coverage-eligible suites and optionally generate a pinned HTML report | `./devops coverage -Suite sourcegen -GenerateReport` |
 | `benchmark` | Managed apphost: local and affected BenchmarkDotNet suites plus remote SSH/tmux lifecycle | `./devops benchmark --list` |
-| `config validate` | Validate managed metadata without building; `--deep` compares already-built benchmark host manifests | `./devops config validate --deep` |
+| `config validate` | Validate managed metadata without building; `--deep` compares already-built benchmark host manifests; `--solution-inventory` checks tracked projects and solution filters | `./devops config validate --solution-inventory` |
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
 | `data` | Managed: prepare benchmark datasets and migration fixtures | `./devops data gutenberg --book-count 200` |
 | `dataforge` | Managed apphost: run DataForge generation, reference and qualification commands | `./devops dataforge qualify` |
@@ -67,7 +70,7 @@ installations that need the `devops` command outside the repository apphost.
 Build the package locally with:
 
 ```bash
-dotnet pack src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj \
+dotnet pack src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj \
   --configuration Release \
   --output artifacts/devops/distribution/tool \
   -p:DevOpsDistributionProfile=Tool \
@@ -114,7 +117,7 @@ renames that the legacy text parser dropped; equal-ranked rows now use stable
 ordinal ordering.
 
 The code dependency graph evaluates every tracked `*.csproj`, including projects
-outside `Rowles.LeanCorpus.slnx`, together with any solution-only entries.
+outside `src/Rowles.LeanCorpus.slnx`, together with any solution-only entries.
 `ProjectCount` reports that union; `SolutionProjectCount` and
 `TrackedProjectCount` show the two inventories separately. Package totals come
 from SDK-evaluated metadata, including implicit package references, so they can

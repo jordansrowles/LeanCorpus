@@ -1,0 +1,12 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "examples/Rowles.LeanCorpus.Example.JsonApi/Rowles.LeanCorpus.Example.JsonApi.csproj",
+      "examples/Rowles.LeanCorpus.Example.NewsgroupsIndexer/Rowles.LeanCorpus.Example.NewsgroupsIndexer.csproj",
+      "examples/Rowles.LeanCorpus.Example.Telemetry/Rowles.LeanCorpus.Example.Telemetry.csproj",
+      "examples/Rowles.Text.Example.Tokenise/Rowles.Text.Example.Tokenise.csproj",
+      "examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch.csproj"
+    ]
+  }
+}

@@ -21,7 +21,7 @@ Techniques such as property-based, state-machine and metamorphic testing describ
 ### 3. Put the test under the owning area
 
 ```text
-src/devops/Rowles.LeanCorpus.Tests.Core/
+src/devops/tests/Rowles.LeanCorpus.Tests.Core/
     Search/
         Unit/
         Integration/
@@ -167,10 +167,10 @@ Choose the destination by responsibility:
 
 | Change | Location |
 | --- | --- |
-| Managed command options and routing | `src/devops/Rowles.LeanCorpus.DevOps/Program.cs` |
-| Command handlers and services | `src/devops/Rowles.LeanCorpus.DevOps/Commands/` and their owning service directories |
+| Managed command options and routing | `src/devops/tooling/Rowles.LeanCorpus.DevOps/Program.cs` |
+| Command handlers and services | `src/devops/tooling/Rowles.LeanCorpus.DevOps/Commands/` and their owning service directories |
 | Test, benchmark and area configuration | `.config/devops/*.json` |
-| Run artefacts and cleanup | `src/devops/Rowles.LeanCorpus.DevOps/Artifacts/` |
+| Run artefacts and cleanup | `src/devops/tooling/Rowles.LeanCorpus.DevOps/Artifacts/` |
 | Independent package and CI validation scripts | `scripts/devops/packaging/` and `scripts/devops/validation/` |
 
 For a new top-level command:

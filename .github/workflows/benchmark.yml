@@ -82,7 +82,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
-          & $managedHost build --project src/devops/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj --framework $env:BENCHMARK_FRAMEWORK
+          & $managedHost build --project src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj --framework $env:BENCHMARK_FRAMEWORK
           exit $LASTEXITCODE
 
       - name: Smoke one BDN case

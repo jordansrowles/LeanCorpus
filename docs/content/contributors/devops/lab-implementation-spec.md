@@ -65,7 +65,7 @@ All paths in playlist/definition files are resolved relative to **the file conta
   "schemaVersion": 1,
   "name": "gc-step0-aa",
   "workload": {
-    "project": "src/devops/Rowles.LeanCorpus.Lab.Workload/Rowles.LeanCorpus.Lab.Workload.csproj",
+    "project": "src/devops/benchmarks/Rowles.LeanCorpus.Lab.Workload/Rowles.LeanCorpus.Lab.Workload.csproj",
     "framework": "net10.0",
     "entrypoint": "Rowles.LeanCorpus.Lab.Workload.dll"
   },
@@ -170,7 +170,7 @@ D1–D3 diagnostics; resume/retry; process parallelism; remote execution; multi-
 
 ## Source notes
 
-- Current managed foundations: `src/devops/Rowles.LeanCorpus.DevOps/{Program.cs,Infrastructure/ProcessRunner.cs,Artifacts/ArtifactRunStore.cs,Workflows/WorkflowRunner.cs}` on `issue-97`.
+- Current managed foundations: `src/devops/tooling/Rowles.LeanCorpus.DevOps/{Program.cs,Infrastructure/ProcessRunner.cs,Artifacts/ArtifactRunStore.cs,Workflows/WorkflowRunner.cs}` on `issue-97`.
 - [Microsoft: runtime configuration and precedence](https://learn.microsoft.com/en-us/dotnet/core/runtime-config/) (including .NET 11 development overrides).
 - [Microsoft: dotnet exec --runtimeconfig and --depsfile](https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet).
 - [Microsoft: ProcessStartInfo.Environment](https://learn.microsoft.com/en-us/dotnet/api/system.diagnostics.processstartinfo.environment).

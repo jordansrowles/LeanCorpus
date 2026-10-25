@@ -5,13 +5,13 @@
 ## Build
 
 ```powershell
-dotnet build .\src\devops\Rowles.LeanCorpus.Cli\Rowles.LeanCorpus.Cli.csproj -c Release
+dotnet build .\src\devops\tooling\Rowles.LeanCorpus.Cli\Rowles.LeanCorpus.Cli.csproj -c Release
 ```
 
 The binary lands under the target framework output directory:
 
 ```powershell
-.\src\devops\Rowles.LeanCorpus.Cli\bin\Release\net10.0\leancorpus-cli.exe
+.\src\devops\tooling\Rowles.LeanCorpus.Cli\bin\Release\net10.0\leancorpus-cli.exe
 ```
 
 ## Commands
@@ -47,7 +47,7 @@ The browser displays **LeanCorpus CLI Workbench** with the index path, live docu
 From a repository checkout, build and start it with:
 
 ```bash
-./devops build -Project src/devops/Rowles.LeanCorpus.Cli/Rowles.LeanCorpus.Cli.csproj -Framework net10.0
+./devops build -Project src/devops/tooling/Rowles.LeanCorpus.Cli/Rowles.LeanCorpus.Cli.csproj -Framework net10.0
 ./artifacts/bin/Rowles.LeanCorpus.Cli/release_net10.0/leancorpus-cli browse /path/to/index
 ```
 

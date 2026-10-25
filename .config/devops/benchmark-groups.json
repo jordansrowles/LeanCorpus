@@ -3,7 +3,7 @@
   "data": {
     "Parser": {
       "Globs": [
-        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/QueryParserBenchmarks.cs"
+        "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Search/QueryParserBenchmarks.cs"
       ],
       "Area": "Search",
       "Project": "core",
@@ -14,7 +14,7 @@
     "Tokenisers": {
       "Globs": [
         "src/core/Rowles.Text/Analysis/Tokenisers/**",
-        "src/devops/Rowles.Text.Benchmarks/LexiconPrefixBenchmarks.cs"
+        "src/devops/benchmarks/Rowles.Text.Benchmarks/LexiconPrefixBenchmarks.cs"
       ],
       "Area": "Tokenisers",
       "Project": "text",
@@ -38,8 +38,8 @@
     "BoundedLruCacheFailures": {
       "Globs": [
         "src/core/Rowles.LeanCorpus/Index/Segment/BoundedLruCache.cs",
-        "src/devops/Rowles.LeanCorpus.Tests.Core/Index/Unit/BoundedLruCacheTests.cs",
-        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/BoundedLruCacheFailureBenchmarks.cs"
+        "src/devops/tests/Rowles.LeanCorpus.Tests.Core/Index/Unit/BoundedLruCacheTests.cs",
+        "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Search/BoundedLruCacheFailureBenchmarks.cs"
       ],
       "Area": "Index",
       "Project": "core",
@@ -61,7 +61,7 @@
     "Indexing": {
       "Globs": [
         "src/core/Rowles.LeanCorpus/Index/**",
-        "src/devops/Rowles.LeanCorpus.Benchmarks/Index/LanguageAnalysisIndexingBenchmarks.cs"
+        "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Index/LanguageAnalysisIndexingBenchmarks.cs"
       ],
       "Area": "Index",
       "Project": "core",
@@ -100,7 +100,7 @@
     "Search": {
       "Globs": [
         "src/core/Rowles.LeanCorpus/Search/**",
-        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/PhraseQueryBenchmarks.cs"
+        "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Search/PhraseQueryBenchmarks.cs"
       ],
       "Area": "Search",
       "Project": "core",
@@ -114,7 +114,7 @@
     "CachingGraphEdges": {
       "Globs": [
         "src/core/Rowles.Text/Analysis/Filters/CachingTokenFilter.cs",
-        "src/devops/Rowles.Text.Benchmarks/CachingGraphEdgeBenchmarks.cs"
+        "src/devops/benchmarks/Rowles.Text.Benchmarks/CachingGraphEdgeBenchmarks.cs"
       ],
       "Area": "Filters",
       "Project": "text",
@@ -207,7 +207,7 @@
         "src/core/Rowles.LeanCorpus/Index/Segment/SegmentReader.Facade.cs",
         "src/core/Rowles.LeanCorpus/Search/Searcher/IndexSearcher.cs",
         "src/core/Rowles.LeanCorpus/Search/Searcher/BoundedGenerationCache.cs",
-        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/QualifiedTermCacheBenchmarks.cs"
+        "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Search/QualifiedTermCacheBenchmarks.cs"
       ],
       "Area": "Index",
       "Project": "core",
@@ -239,7 +239,7 @@
     },
     "Approximation": {
       "Globs": [
-        "src/devops/Rowles.LeanCorpus.Benchmarks/Search/ApproximationBenchmarks.cs"
+        "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Search/ApproximationBenchmarks.cs"
       ],
       "Area": "Search",
       "Project": "core",
@@ -249,7 +249,7 @@
     },
     "FlushTermCardinality": {
       "Globs": [
-        "src/devops/Rowles.LeanCorpus.Benchmarks/Index/FlushTermCardinalityBenchmarks.cs"
+        "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Index/FlushTermCardinalityBenchmarks.cs"
       ],
       "Area": "Index",
       "Project": "core",

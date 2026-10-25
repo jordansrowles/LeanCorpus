@@ -33,7 +33,7 @@
         "status": { "enum": ["Failing", "Quarantined"] },
         "claimClass": { "enum": ["Directional", "Unqualified"] },
         "competitiveClaimAllowed": { "const": false },
-        "sourceFile": { "type": "string", "pattern": "^src/devops/Rowles\\.LeanCorpus\\.Benchmarks/[^\\s]+\\.cs$" },
+        "sourceFile": { "type": "string", "pattern": "^src/devops/benchmarks/Rowles\\.LeanCorpus\\.Benchmarks/[^\\s]+\\.cs$" },
         "symbol": { "type": "string", "minLength": 1 },
         "defect": { "type": "string", "minLength": 1 },
         "requiredProof": { "type": "string", "minLength": 1 },

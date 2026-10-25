@@ -1,0 +1,8 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "devops/tests/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj"
+    ]
+  }
+}

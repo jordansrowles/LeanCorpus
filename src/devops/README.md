@@ -21,6 +21,11 @@ Use this directory when you need to run or extend LeanCorpus tests, benchmarks, 
 
 Run `./devops --help` for the complete current command surface.
 
+The canonical project inventory is `src/Rowles.LeanCorpus.slnx`, with focused
+build filters documented in [`src/solutions/README.md`](../solutions/README.md).
+Run `./devops config validate --solution-inventory` to detect drift between
+tracked projects, the master solution and those filters.
+
 > [!TIP]
 > Start narrow while developing. Run affected selection before hand-off, then add broader validation only for the compatibility, platform or performance boundary you changed.
 

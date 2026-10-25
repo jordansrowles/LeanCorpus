@@ -13,10 +13,10 @@ Implementation
     src/core/Rowles.Text/Analysis/Filters/
 
 Standalone correctness tests
-    src/devops/Rowles.Text.Tests/Filters/
+    src/devops/tests/Rowles.Text.Tests/Filters/
 
 LeanCorpus integration tests
-    src/devops/Rowles.LeanCorpus.Tests.Core/TextIntegration/
+    src/devops/tests/Rowles.LeanCorpus.Tests.Core/TextIntegration/
 ```
 
 ### 2. Run the focused standalone tests

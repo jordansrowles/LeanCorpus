@@ -1,0 +1,12 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "server/Rowles.LeanCorpus.OrchardCore.Search/Rowles.LeanCorpus.OrchardCore.Search.csproj",
+      "server/devops/Rowles.LeanCorpus.OrchardCore.Search.Tests/Rowles.LeanCorpus.OrchardCore.Search.Tests.csproj",
+      "server/devops/Rowles.LeanCorpus.OrchardCore.Search.TestHost/Rowles.LeanCorpus.OrchardCore.Search.TestHost.csproj",
+      "server/devops/Rowles.LeanCorpus.OrchardCore.Search.TestModule/Rowles.LeanCorpus.OrchardCore.Search.TestModule.csproj",
+      "server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj"
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj",
+      "core/Rowles.LeanCorpus.Compression.LZ4/Rowles.LeanCorpus.Compression.LZ4.csproj",
+      "core/Rowles.LeanCorpus.Compression.Snappy/Rowles.LeanCorpus.Compression.Snappy.csproj",
+      "core/Rowles.LeanCorpus.Compression.Zstandard/Rowles.LeanCorpus.Compression.Zstandard.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.Shared/Rowles.LeanCorpus.Tests.Shared.csproj"
+    ]
+  }
+}

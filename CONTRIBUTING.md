@@ -42,12 +42,12 @@ Production code and its normal test area are paired:
 
 | Production work | Implementation | Tests |
 | --- | --- | --- |
-| Search | `src/core/Rowles.LeanCorpus/Search/` | `src/devops/Rowles.LeanCorpus.Tests.Core/Search/` |
-| Indexing and lifecycle | `src/core/Rowles.LeanCorpus/Index/` | `src/devops/Rowles.LeanCorpus.Tests.Core/Index/` |
-| Storage and files | `src/core/Rowles.LeanCorpus/Store/` | `src/devops/Rowles.LeanCorpus.Tests.Core/Store/` |
-| Binary codecs | `src/core/Rowles.LeanCorpus/Codecs/` | `src/devops/Rowles.LeanCorpus.Tests.Core/CodecKit/` |
-| Document mapping | `src/core/Rowles.LeanCorpus/Mapping/` | `src/devops/Rowles.LeanCorpus.Tests.Core/Mapping/` |
-| Text analysis | `src/core/Rowles.Text/Analysis/` | `src/devops/Rowles.Text.Tests/` |
+| Search | `src/core/Rowles.LeanCorpus/Search/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/Search/` |
+| Indexing and lifecycle | `src/core/Rowles.LeanCorpus/Index/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/Index/` |
+| Storage and files | `src/core/Rowles.LeanCorpus/Store/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/Store/` |
+| Binary codecs | `src/core/Rowles.LeanCorpus/Codecs/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/CodecKit/` |
+| Document mapping | `src/core/Rowles.LeanCorpus/Mapping/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/Mapping/` |
+| Text analysis | `src/core/Rowles.Text/Analysis/` | `src/devops/tests/Rowles.Text.Tests/` |
 
 When a change crosses boundaries, put the implementation with the subsystem that owns the behaviour and give the test every accurate `Area` trait.
 

@@ -28,6 +28,8 @@
 
 ## Changed
 
+- Move the complete solution inventory and 11 focused build filters under `src/`, group DevOps projects by purpose, validate tracked solution/filter membership in managed DevOps, and resolve solution entries relative to the relocated master.
+
 - Share Build concurrency groups across same-branch pushes and pull requests to avoid duplicate runs.
 
 - Route every `devops.ps1` invocation through the fingerprint-validated managed host, retire the legacy `benchmarks docs` and `setup` command aliases, and align contributor examples with managed docs, DataForge, test, AOT and package commands.

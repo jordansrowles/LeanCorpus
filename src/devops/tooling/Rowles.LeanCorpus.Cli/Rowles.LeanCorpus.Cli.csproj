@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>leancorpus-cli</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+    <ProjectReference Include="..\..\dataforge\Rowles.DataForge\Rowles.DataForge.csproj" />
+    <ProjectReference Include="..\..\dataforge\Rowles.DataForge.Workloads\Rowles.DataForge.Workloads.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Spectre.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Fixtures\Migration\3.1.1-release-loose.fixture.b64"
+                      LogicalName="Rowles.LeanCorpus.Cli.Fixtures.Migration.3.1.1-release-loose.fixture.b64" />
+    <EmbeddedResource Include="Fixtures\Migration\3.1.1-release-loose.manifest.json"
+                      LogicalName="Rowles.LeanCorpus.Cli.Fixtures.Migration.3.1.1-release-loose.manifest.json" />
+  </ItemGroup>
+
+</Project>

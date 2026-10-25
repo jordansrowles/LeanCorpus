@@ -5,10 +5,10 @@
 * text=auto
 
 # Frozen release fixtures retain their exact committed bytes on every platform.
-/src/devops/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/*.manifest.json -text
-/src/devops/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/*.fixture.b64 -text
-/src/devops/Rowles.LeanCorpus.Cli/Fixtures/Migration/*.manifest.json -text
-/src/devops/Rowles.LeanCorpus.Cli/Fixtures/Migration/*.fixture.b64 -text
+/src/devops/tests/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/*.manifest.json -text
+/src/devops/tests/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/*.fixture.b64 -text
+/src/devops/tooling/Rowles.LeanCorpus.Cli/Fixtures/Migration/*.manifest.json -text
+/src/devops/tooling/Rowles.LeanCorpus.Cli/Fixtures/Migration/*.fixture.b64 -text
 
 # Benchmark correctness audit hashes require LF bytes on every checkout.
 /.config/devops/benchmark-correctness-fixtures/*.json text eol=lf

@@ -27,7 +27,7 @@
   "data": {
     "architecture": {
       "Coverage": false,
-      "Project": "src/devops/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj",
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj",
       "Runner": "Mtp",
       "Capabilities": [
         "Trx"
@@ -42,7 +42,7 @@
     },
     "dataforge": {
       "Coverage": false,
-      "Project": "src/devops/Rowles.DataForge.Tests/Rowles.DataForge.Tests.csproj",
+      "Project": "src/devops/dataforge/Rowles.DataForge.Tests/Rowles.DataForge.Tests.csproj",
       "Runner": "Mtp",
       "Capabilities": [
         "Trx",
@@ -92,7 +92,7 @@
     },
     "text": {
       "Coverage": false,
-      "Project": "src/devops/Rowles.Text.Tests/Rowles.Text.Tests.csproj",
+      "Project": "src/devops/tests/Rowles.Text.Tests/Rowles.Text.Tests.csproj",
       "Runner": "Mtp",
       "Capabilities": [
         "Trx",
@@ -108,7 +108,7 @@
     },
     "aot": {
       "Coverage": false,
-      "Project": "src/devops/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj",
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj",
       "Runner": "AotNative",
       "Capabilities": [],
       "Frameworks": [
@@ -121,7 +121,7 @@
     },
     "core": {
       "Coverage": true,
-      "Project": "src/devops/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj",
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj",
       "Runner": "Mtp",
       "Capabilities": [
         "Trx",
@@ -137,7 +137,7 @@
     },
     "docs-site": {
       "Coverage": false,
-      "Project": "src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj",
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj",
       "Runner": "Mtp",
       "Capabilities": [
         "Trx"
@@ -151,7 +151,7 @@
     },
     "sourcegen": {
       "Coverage": true,
-      "Project": "src/devops/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj",
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj",
       "Runner": "Mtp",
       "Capabilities": [
         "Trx",

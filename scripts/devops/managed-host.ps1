@@ -32,7 +32,7 @@ function Get-ManagedHostSourceEntries {
     }
 
     $extensions = @('.cs', '.csproj', '.json', '.props', '.targets', '.slnx')
-    foreach ($relativeDirectory in @('src/devops/Rowles.LeanCorpus.DevOps', '.config/devops')) {
+    foreach ($relativeDirectory in @('src/devops/tooling/Rowles.LeanCorpus.DevOps', '.config/devops')) {
         $directory = Join-Path $root ($relativeDirectory.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) { continue }
         $pending = [System.Collections.Generic.Stack[string]]::new()
@@ -64,7 +64,7 @@ function Get-ManagedHostSourceEntries {
         [void]$canonical.Append($relative).Append([char]0).Append($hash).Append([char]10)
     }
 
-    if (-not ($paths -contains 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj')) {
+    if (-not ($paths -contains 'src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj')) {
         throw 'The managed DevOps host project is missing from the selected checkout.'
     }
 

@@ -113,7 +113,7 @@ function New-BootstrapFixture {
     [void][System.IO.Directory]::CreateDirectory($fakeBin)
     [void][System.IO.Directory]::CreateDirectory($fakeHome)
     foreach ($relative in @(
-        '.config', 'src/devops', 'src/devops/Rowles.LeanCorpus.DevOps', 'src/devops/Rowles.LeanCorpus.DevOps.Tests', '.config/devops',
+        '.config', 'src/devops', 'src/devops/tooling/Rowles.LeanCorpus.DevOps', 'src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests', '.config/devops',
         'scripts/devops')) {
         [void][System.IO.Directory]::CreateDirectory((Join-Path $root $relative))
     }
@@ -121,16 +121,16 @@ function New-BootstrapFixture {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts/devops/managed-host.ps1') -Destination (Join-Path $root 'scripts/devops')
 
     $files = @{
-        'Rowles.LeanCorpus.slnx' = '<Solution />'
+        'src/Rowles.LeanCorpus.slnx' = '<Solution />'
         'global.json' = '{"sdk":{"version":"11.0.100-preview.7.26381.103","allowPrerelease":true}}'
         '.config/dotnet-tools.json' = '{"version":1,"isRoot":true,"tools":{}}'
         'Directory.Build.props' = '<Project />'
         'Directory.Packages.props' = '<Project />'
         'src/devops/Directory.Build.props' = '<Project />'
         'src/devops/Directory.Packages.props' = '<Project />'
-        'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj' = '<Project />'
-        'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj' = '<Project />'
-        'src/devops/Rowles.LeanCorpus.DevOps/Program.cs' = 'fixture source'
+        'src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj' = '<Project />'
+        'src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj' = '<Project />'
+        'src/devops/tooling/Rowles.LeanCorpus.DevOps/Program.cs' = 'fixture source'
         '.config/devops/benchmark-datasets.json' = '{}'
         '.config/devops/benchmark-groups.json' = '{}'
         '.config/devops/benchmark-strategies.json' = '{}'
@@ -251,8 +251,8 @@ function Test-BootstrapFailurePreservesHost {
 
 try {
     Test-BootstrapFailurePreservesHost -Name 'wrong checkout' -WithoutGit -ExpectedText 'not a LeanCorpus checkout'
-    Test-BootstrapFailurePreservesHost -Name 'missing managed test project' -MissingInput 'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj' -ExpectedText 'required bootstrap input'
-    Test-BootstrapFailurePreservesHost -Name 'missing managed host project' -MissingInput 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj' -ExpectedText 'required bootstrap input'
+    Test-BootstrapFailurePreservesHost -Name 'missing managed test project' -MissingInput 'src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj' -ExpectedText 'required bootstrap input'
+    Test-BootstrapFailurePreservesHost -Name 'missing managed host project' -MissingInput 'src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj' -ExpectedText 'required bootstrap input'
     foreach ($configuration in @('benchmark-datasets.json', 'benchmark-groups.json', 'benchmark-strategies.json', 'benchmark-suites.json', 'code-areas.json', 'test-suites.json')) {
         Test-BootstrapFailurePreservesHost -Name "missing $configuration" -MissingInput ".config/devops/$configuration" -ExpectedText 'required bootstrap input'
     }
@@ -276,11 +276,11 @@ try {
         $restoreCalls = [System.IO.File]::ReadAllLines($restoreCapturePath)
         Assert-BootstrapContract ($restoreCalls.Count -eq 2) 'setup should perform both locked restores'
         Assert-BootstrapContract (@($restoreCalls | Where-Object { $_ -notmatch '(^| )--locked-mode( |$)' -or $_ -notmatch '(^| )--disable-build-servers( |$)' -or $_ -notmatch '(^| )-m:1( |$)' }).Count -eq 0) 'both locked restore calls should disable build servers and use a single MSBuild node'
-        $testProject = 'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj'
-        $hostProject = 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
+        $testProject = 'src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj'
+        $hostProject = 'src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
         Assert-BootstrapContract (@($restoreCalls | Where-Object { $_ -like "*$testProject*" }).Count -eq 1 -and @($restoreCalls | Where-Object { $_ -like "*$hostProject*" }).Count -eq 1) 'setup should restore the test graph and host project independently'
         $buildCalls = [System.IO.File]::ReadAllLines($buildCapturePath)
-        Assert-BootstrapContract ('build src/devops/Rowles.LeanCorpus.DevOps.slnx --configuration Release' -match '\.slnx(?:\s|$)') 'solution target detector should recognise a .slnx command'
+        Assert-BootstrapContract ('build src/Rowles.LeanCorpus.slnx --configuration Release' -match '\.slnx(?:\s|$)') 'solution target detector should recognise a .slnx command'
         Assert-BootstrapContract ($buildCalls.Count -eq 1 -and $buildCalls[0] -like "*$testProject*" -and $buildCalls[0] -notmatch '\.slnx(?:\s|$)') 'setup should build the test project graph without a solution file'
         Assert-BootstrapContract ($buildCalls[0] -notmatch '\\n') 'build command capture should write a real line terminator, not a literal backslash-n'
         $publishCalls = [System.IO.File]::ReadAllLines($publishCapturePath)

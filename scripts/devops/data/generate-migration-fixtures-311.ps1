@@ -30,7 +30,7 @@ try {
 
 # The archive contains exactly the manifest's physical files. Stable gzip/tar
 # metadata avoids introducing host timestamps into the archive wrapper.
-$fixtureRoot = Join-Path $repoRoot 'src/devops/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes'
+$fixtureRoot = Join-Path $repoRoot 'src/devops/tests/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes'
 $encoder = @'
 import base64, gzip, hashlib, io, json, pathlib, tarfile, sys
 source, destination = map(pathlib.Path, sys.argv[1:])

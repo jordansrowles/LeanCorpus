@@ -1,0 +1,11 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "devops/dataforge/Rowles.DataForge/Rowles.DataForge.csproj",
+      "devops/dataforge/Rowles.DataForge.Workloads/Rowles.DataForge.Workloads.csproj",
+      "devops/dataforge/Rowles.DataForge.Tool/Rowles.DataForge.Tool.csproj",
+      "devops/dataforge/Rowles.DataForge.Tests/Rowles.DataForge.Tests.csproj"
+    ]
+  }
+}

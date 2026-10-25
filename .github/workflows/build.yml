@@ -45,6 +45,12 @@ jobs:
       - name: Bootstrap and qualify managed DevOps host
         shell: pwsh
         run: pwsh -NoProfile -File ./setup.ps1
+      - name: Validate solution project inventory
+        shell: pwsh
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost config validate --solution-inventory
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Verify promoted host, direct build and PowerShell forwarding
         shell: pwsh
         run: |
@@ -53,7 +59,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $managedHost --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $project = 'src/devops/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj'
+          $project = 'src/devops/tooling/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj'
           & $managedHost build --project $project --framework net10.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $managedHost build --project $project --framework net10.0
@@ -369,7 +375,7 @@ jobs:
           path: artifacts/coverage/runs
       - name: Build docs test target
         shell: pwsh
-        run: ./devops build --project src/devops/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj --framework net10.0
+        run: ./devops build --project src/devops/tests/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj --framework net10.0
       - name: Install Playwright Chromium
         shell: pwsh
         run: |
