@@ -250,7 +250,7 @@ function Test-BootstrapFailurePreservesHost {
 }
 
 try {
-    Test-BootstrapFailurePreservesHost -Name 'wrong checkout' -WithoutGit -ExpectedText 'not a LeanCorpus checkout'
+    Test-BootstrapFailurePreservesHost -Name 'wrong checkout' -MissingInput 'src/Rowles.LeanCorpus.slnx' -ExpectedText 'not a LeanCorpus checkout'
     Test-BootstrapFailurePreservesHost -Name 'missing managed test project' -MissingInput 'src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj' -ExpectedText 'required bootstrap input'
     Test-BootstrapFailurePreservesHost -Name 'missing managed host project' -MissingInput 'src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj' -ExpectedText 'required bootstrap input'
     foreach ($configuration in @('benchmark-datasets.json', 'benchmark-groups.json', 'benchmark-strategies.json', 'benchmark-suites.json', 'code-areas.json', 'test-suites.json')) {
