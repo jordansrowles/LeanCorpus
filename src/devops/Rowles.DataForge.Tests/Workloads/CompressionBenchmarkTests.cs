@@ -6,6 +6,14 @@ namespace Rowles.DataForge.Tests.Workloads;
 public sealed class CompressionBenchmarkTests
 {
     [Fact]
+    public void Extension_codecs_are_registered_before_test_execution()
+    {
+        Assert.True(CompressionCodecRegistry.TryGet((byte)FieldCompressionPolicy.Lz4, out _));
+        Assert.True(CompressionCodecRegistry.TryGet((byte)FieldCompressionPolicy.Snappy, out _));
+        Assert.True(CompressionCodecRegistry.TryGet((byte)FieldCompressionPolicy.Zstandard, out _));
+    }
+
+    [Fact]
     public void Unknown_payload_size_is_rejected_before_timing()
     {
         var benchmark = new CompressionBenchmarks { Policy = FieldCompressionPolicy.None, Size = "typo" };
