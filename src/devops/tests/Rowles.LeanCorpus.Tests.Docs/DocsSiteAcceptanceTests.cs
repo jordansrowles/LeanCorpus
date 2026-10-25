@@ -794,7 +794,7 @@ public sealed class DocsSiteAcceptanceTests
 
     private static string GetVisualBaselinePath(string repositoryRoot, string name)
     {
-        var baselineDirectory = Path.Combine(repositoryRoot, "src", "devops", "Rowles.LeanCorpus.Tests.Docs", "VisualBaselines");
+        var baselineDirectory = Path.Combine(repositoryRoot, "src", "devops", "tests", "Rowles.LeanCorpus.Tests.Docs", "VisualBaselines");
         var defaultPath = Path.Combine(baselineDirectory, $"{name}.png");
         var updateBaselines = string.Equals(Environment.GetEnvironmentVariable("LEAN_CORPUS_UPDATE_DOCS_VISUAL_BASELINES"), "1", StringComparison.Ordinal);
         var variant = GetVisualBaselineVariant();
