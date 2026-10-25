@@ -73,7 +73,7 @@
 
 ## Fixed
 
-- Disable the MSBuild server for documentation version probes so Windows can remove temporary checkout directories after the child process exits.
+- Disable MSBuild node reuse for documentation version probes so Windows can remove temporary checkout directories after each child process exits.
 - Use registered managed test and AOT option spellings in CI and report unrecognised managed arguments with test-runner separator guidance.
 - Remove the retired PowerShell DevOps command application and shadow `.psd1` configuration; keep managed run, package, CI and bootstrap workflows on their current owners.
 - Run locked bootstrap restores on one MSBuild node to prevent project-graph restore hangs.

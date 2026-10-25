@@ -9,7 +9,7 @@ namespace Rowles.LeanCorpus.DevOps.Tests.Documentation;
 public sealed class DocumentationSiteMetadataWriterTests
 {
     [Fact]
-    public async Task DoesNotReuseTheMsBuildServerForVersionProbes()
+    public async Task DisablesMsBuildNodeReuseForVersionProbes()
     {
         using var directory = new TemporaryDirectory();
         var repositoryRoot = directory.Path;
@@ -22,8 +22,7 @@ public sealed class DocumentationSiteMetadataWriterTests
                 TestContext.Current.CancellationToken);
 
         var request = Assert.Single(processRunner.Requests);
-        Assert.NotNull(request.EnvironmentVariables);
-        Assert.Equal("1", request.EnvironmentVariables["DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER"]);
+        Assert.Contains("-nr:false", request.Arguments);
     }
 
     [Fact]
