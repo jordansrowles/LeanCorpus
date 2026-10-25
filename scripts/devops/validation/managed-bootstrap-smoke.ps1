@@ -6,6 +6,31 @@ if ($IsWindows) {
 }
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../../../'))
+$scriptsRoot = Join-Path $repoRoot 'scripts/devops'
+$retiredApplicationNames = @(
+    'DevOps.psm1',
+    'artifacts',
+    'commands',
+    'common',
+    'config',
+    'diagnostics',
+    'support',
+    'ui'
+)
+$retiredApplicationPaths = @($retiredApplicationNames |
+    ForEach-Object { Join-Path $scriptsRoot $_ } |
+    Where-Object { Test-Path -LiteralPath $_ })
+if ($retiredApplicationPaths.Count -gt 0) {
+    throw "The retired PowerShell DevOps application is still present: $($retiredApplicationPaths -join ', ')"
+}
+$legacyConfiguration = @(Get-ChildItem -LiteralPath $scriptsRoot -Filter '*.psd1' -File -Recurse -ErrorAction SilentlyContinue)
+if ($legacyConfiguration.Count -gt 0) {
+    throw "Legacy PowerShell DevOps configuration remains under scripts/devops: $($legacyConfiguration.FullName -join ', ')"
+}
+$legacyTestScripts = @(Get-ChildItem -LiteralPath (Join-Path $scriptsRoot 'testing') -Filter '*.ps1' -File -ErrorAction SilentlyContinue)
+if ($legacyTestScripts.Count -gt 0) {
+    throw "Legacy PowerShell test runner scripts remain: $($legacyTestScripts.FullName -join ', ')"
+}
 $managedHostScript = Join-Path $PSScriptRoot '../managed-host.ps1'
 . $managedHostScript
 $gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1
@@ -250,7 +275,7 @@ try {
         Assert-BootstrapContract ($result.ExitCode -eq 0) 'successful bootstrap should complete'
         $restoreCalls = [System.IO.File]::ReadAllLines($restoreCapturePath)
         Assert-BootstrapContract ($restoreCalls.Count -eq 2) 'setup should perform both locked restores'
-        Assert-BootstrapContract (@($restoreCalls | Where-Object { $_ -notmatch '(^| )--locked-mode( |$)' -or $_ -notmatch '(^| )--disable-build-servers( |$)' }).Count -eq 0) 'both locked restore calls should disable build servers'
+        Assert-BootstrapContract (@($restoreCalls | Where-Object { $_ -notmatch '(^| )--locked-mode( |$)' -or $_ -notmatch '(^| )--disable-build-servers( |$)' -or $_ -notmatch '(^| )-m:1( |$)' }).Count -eq 0) 'both locked restore calls should disable build servers and use a single MSBuild node'
         $testProject = 'src/devops/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj'
         $hostProject = 'src/devops/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj'
         Assert-BootstrapContract (@($restoreCalls | Where-Object { $_ -like "*$testProject*" }).Count -eq 1 -and @($restoreCalls | Where-Object { $_ -like "*$hostProject*" }).Count -eq 1) 'setup should restore the test graph and host project independently'
@@ -300,10 +325,10 @@ try {
             $forwarded = [System.IO.File]::ReadAllLines($capturePath)
             Assert-BootstrapContract (($forwarded -join '|') -ceq 'test|core|--ci|--filter|FullyQualifiedName~Writer|--timeout|2m') 'PowerShell test invocation should preserve selection, CI and timeout tokens'
 
-            & $powerShell.Source -NoProfile -File $dispatcher aot --framework net10.0 --RuntimeIdentifier linux-x64
+            & $powerShell.Source -NoProfile -File $dispatcher aot --framework net10.0 --rid linux-x64
             Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell AOT invocation should reach the promoted managed host'
             $forwarded = [System.IO.File]::ReadAllLines($capturePath)
-            Assert-BootstrapContract (($forwarded -join '|') -ceq 'aot|--framework|net10.0|--RuntimeIdentifier|linux-x64') 'PowerShell AOT invocation should preserve framework and RID tokens'
+            Assert-BootstrapContract (($forwarded -join '|') -ceq 'aot|--framework|net10.0|--rid|linux-x64') 'PowerShell AOT invocation should preserve framework and RID tokens'
 
             & $powerShell.Source -NoProfile -File $dispatcher ui
             Assert-BootstrapContract ($LASTEXITCODE -eq 0) 'PowerShell workbench invocation should reach the promoted managed host'

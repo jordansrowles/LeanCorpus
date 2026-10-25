@@ -229,17 +229,29 @@ internal sealed class TestTargetResolver(IReadOnlyDictionary<string, TestSuiteCo
 
     internal static string GetCurrentRuntimeIdentifier()
     {
-        var platform = OperatingSystem.IsWindows() ? "win"
-            : OperatingSystem.IsLinux() ? "linux"
-            : OperatingSystem.IsMacOS() ? "osx"
-            : throw new InvalidOperationException("Unsupported operating system. Native AOT tests support Linux, macOS and Windows.");
-        var architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
+        var operatingSystem = OperatingSystem.IsWindows() ? "Windows"
+            : OperatingSystem.IsLinux() ? "Linux"
+            : OperatingSystem.IsMacOS() ? "macOS"
+            : null;
+        return GetRuntimeIdentifier(operatingSystem, System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture);
+    }
+
+    internal static string GetRuntimeIdentifier(string? operatingSystem, System.Runtime.InteropServices.Architecture architecture)
+    {
+        var platform = operatingSystem switch
+        {
+            "Windows" => "win",
+            "Linux" => "linux",
+            "macOS" => "osx",
+            _ => throw new InvalidOperationException("Unsupported operating system. Native AOT tests support Linux, macOS and Windows.")
+        };
+        var architectureName = architecture switch
         {
             System.Runtime.InteropServices.Architecture.X64 => "x64",
             System.Runtime.InteropServices.Architecture.Arm64 => "arm64",
             _ => throw new InvalidOperationException("Unsupported architecture. Native AOT tests support X64 and Arm64.")
         };
-        return $"{platform}-{architecture}";
+        return $"{platform}-{architectureName}";
     }
 }
 

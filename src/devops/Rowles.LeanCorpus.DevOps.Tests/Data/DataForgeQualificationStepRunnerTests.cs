@@ -41,6 +41,9 @@ public sealed class DataForgeQualificationStepRunnerTests
 
         Assert.Equal("Passed", result.Status);
         var testRequest = Assert.Single(processRunner.Requests, request => request.Arguments.Contains("--report-xunit-trx"));
+        var configIndex = Array.IndexOf(testRequest.Arguments.ToArray(), "--xunit-config-filename");
+        Assert.True(configIndex >= 0);
+        Assert.Equal(Path.Combine(checkout.Root, ".config", "devops", "testconfig.json"), testRequest.Arguments[configIndex + 1]);
         Assert.Equal(sdkRoot, testRequest.EnvironmentVariables!["DOTNET_ROOT"]);
         var architectureVariable = $"DOTNET_ROOT_{System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString().ToUpperInvariant()}";
         Assert.Equal(sdkRoot, testRequest.EnvironmentVariables[architectureVariable]);

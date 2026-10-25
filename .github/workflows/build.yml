@@ -144,7 +144,7 @@ jobs:
       - name: Test deterministic suites
         shell: pwsh
         env: { CHAOS_ITERATIONS: 25 }
-        run: ./devops test all --ci --framework '${{ matrix.framework }}' --HangTimeout 100s
+        run: ./devops test all --ci --framework '${{ matrix.framework }}' --hang-timeout 100s
       - name: Upload test run artefacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -226,7 +226,7 @@ jobs:
         env:
           CHAOS_ITERATIONS: 25
         run: |
-          ./devops.exe test all --ci --HangTimeout 100s
+          ./devops.exe test all --ci --hang-timeout 100s
       - name: Upload test run artefacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -329,9 +329,9 @@ jobs:
           $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
           & $managedHost test architecture --framework net10.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $managedHost test core --framework net10.0 --Filter 'Scope=PlatformSmoke' --HangTimeout 100s
+          & $managedHost test core --framework net10.0 --filter 'Scope=PlatformSmoke' --hang-timeout 100s
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $managedHost aot --ci --framework net10.0 --RuntimeIdentifier '${{ matrix.rid }}'
+          & $managedHost aot --ci --framework net10.0 --rid '${{ matrix.rid }}'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload test run artefacts
         if: always()

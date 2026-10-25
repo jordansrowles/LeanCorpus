@@ -57,8 +57,8 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 Use `pwsh -NoProfile -File ./setup.ps1` to restore tools and publish the
 managed host. There is no `devops setup` command.
 
-The optional workbench is included in the managed apphost and does not require
-a PowerShell UI module.
+The optional workbench is included in the managed apphost and uses the managed
+command services.
 
 ## Optional .NET tool package
 
@@ -140,7 +140,7 @@ repository-local ReportGenerator tool.
 
 ## Argument handling
 
-The script combines two styles:
+The managed CLI combines two styles:
 
 - command or subcommand tokens such as `docs serve`, `server start` and `dataforge reference download`;
 - PowerShell-style named options such as `-Suite query`, `-Framework net10.0`, and `-SkipBenchmarks`.
@@ -346,6 +346,6 @@ supplied revision, resolved commit and first parent where applicable, current
 HEAD, selected paths and targets in `run.json` under `affectedSelection`.
 
 The managed DevOps test suite covers argument selection and rejects invalid or
-empty affected-test selections. The standalone PowerShell compatibility smoke
-is retained for historical comparison and is not part of the managed command
-route or required CI workflow.
+empty affected-test selections. The managed bootstrap smoke checks that no
+PowerShell command application or `.psd1` configuration has returned, and the
+managed CLI contract tests cover command-line argument forwarding.

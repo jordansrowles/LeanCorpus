@@ -103,9 +103,9 @@ commit); `-Range` uses only the explicit range. Both ignore unrelated dirty stat
 The options are mutually exclusive. Invalid revisions, unmapped paths and zero
 targets remain hard failures.
 
-Affected selection maps changed production paths through `scripts/devops/config/code-areas.psd1` and runs tests carrying the matching `Area` traits.
+Affected selection maps changed production paths through `.config/devops/code-areas.json` and runs tests carrying the matching `Area` traits.
 
-If a new source path or subsystem is not mapped, update `code-areas.psd1` as part of the same change.
+If a new source path or subsystem is not mapped, update `code-areas.json` as part of the same change.
 
 ### 6. Add the extra validation your claim needs
 

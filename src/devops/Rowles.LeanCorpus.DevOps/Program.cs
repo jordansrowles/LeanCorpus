@@ -155,11 +155,8 @@ internal static class Program
         {
             var suite = result.GetValue(suiteOption) ?? result.GetValue(suiteArgument) ?? "all";
             var additionalArguments = result.GetValue(testArguments) ?? [];
-            if (additionalArguments.Length > 0 && !result.Tokens.Any(token => token.Type == TokenType.DoubleDash))
-            {
-                result.InvocationConfiguration.Error.WriteLine("Test-runner arguments must follow the -- delimiter.");
+            if (!HasValidTestRunnerArguments(result, "test", additionalArguments))
                 return 2;
-            }
             var selectedFramework = result.GetValue(framework);
             var options = new TestRunOptions
             {
@@ -308,11 +305,8 @@ internal static class Program
         command.SetAction(result =>
         {
             var additionalArguments = result.GetValue(testArguments) ?? [];
-            if (additionalArguments.Length > 0 && !result.Tokens.Any(token => token.Type == TokenType.DoubleDash))
-            {
-                result.InvocationConfiguration.Error.WriteLine("Native-test-runner arguments must follow the -- delimiter.");
+            if (!HasValidTestRunnerArguments(result, "aot", additionalArguments))
                 return 2;
-            }
             var selectedFramework = result.GetValue(framework);
             var options = new TestRunOptions
             {
@@ -345,6 +339,18 @@ internal static class Program
 
     private static string FormatCommandLine(string command, IEnumerable<string> tokens)
         => string.Join(' ', new[] { command }.Concat(tokens.Select(QuoteCommandLineToken)));
+
+    private static bool HasValidTestRunnerArguments(ParseResult result, string commandName, string[] additionalArguments)
+    {
+        if (additionalArguments.Length == 0 || result.Tokens.Any(token => token.Type == TokenType.DoubleDash))
+            return true;
+
+        string misplacedArguments = string.Join(' ', additionalArguments.Select(QuoteCommandLineToken));
+        result.InvocationConfiguration.Error.WriteLine(
+            $"Unrecognised argument(s) for managed '{commandName}' command: {misplacedArguments}. " +
+            "If they are intended for the test runner, place them after '--'.");
+        return false;
+    }
 
     private static string QuoteCommandLineToken(string token)
         => token.Length > 0 && token.All(static character => !char.IsWhiteSpace(character) && character is not '"' and not '\'')

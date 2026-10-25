@@ -122,7 +122,7 @@ Contributor workflow is covered in [Benchmarking changes](../contributors/benchm
 2. keep corpus preparation outside the measured method;
 3. consume results so work cannot be removed;
 4. add correctness coverage for the path;
-5. register a suite alias in `scripts/devops/config/benchmark-suites.psd1` only when it needs a `devops` entry;
+5. register a suite alias in `.config/devops/benchmark-suites.json` only when it needs a `devops` entry;
 6. run `fast`, then a comparison strategy appropriate to the claim.
 
 ## What constitutes a regression

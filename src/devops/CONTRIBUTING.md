@@ -63,7 +63,7 @@ Affected testing follows this flow:
 
 ```mermaid
 flowchart LR
-    Change["Changed production path"] --> Mapping["code-areas.psd1"]
+    Change["Changed production path"] --> Mapping[".config/devops/code-areas.json"]
     Mapping --> Targets["suite:area targets"]
     Targets --> Traits["Tests with matching Area traits"]
     Traits --> Run["Focused test projects"]
@@ -167,11 +167,11 @@ Choose the destination by responsibility:
 
 | Change | Location |
 | --- | --- |
-| Top-level command orchestration | `scripts/devops/commands/` |
-| Small reusable helper | `scripts/devops/common/` |
-| Declarative suites, mappings or strategies | `scripts/devops/config/` |
-| Larger reusable subsystem | `scripts/devops/support/` |
-| Artefact paths, runs and cleaning | `scripts/devops/artifacts/` |
+| Managed command options and routing | `src/devops/Rowles.LeanCorpus.DevOps/Program.cs` |
+| Command handlers and services | `src/devops/Rowles.LeanCorpus.DevOps/Commands/` and their owning service directories |
+| Test, benchmark and area configuration | `.config/devops/*.json` |
+| Run artefacts and cleanup | `src/devops/Rowles.LeanCorpus.DevOps/Artifacts/` |
+| Independent package and CI validation scripts | `scripts/devops/packaging/` and `scripts/devops/validation/` |
 
 For a new top-level command:
 
@@ -184,7 +184,9 @@ For a new top-level command:
 
 Keep the root apphost as the normal entry point. `devops.ps1` remains a small
 fingerprint-checking compatibility shim and must not import a second command
-implementation.
+implementation. Retained PowerShell files are limited to the bootstrap,
+managed-host forwarding, CI checks, independent data generation and package
+validation; command behaviour belongs to the managed apphost.
 
 ### Test execution infrastructure
 

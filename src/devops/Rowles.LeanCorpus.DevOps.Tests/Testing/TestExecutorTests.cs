@@ -26,6 +26,10 @@ public sealed class TestExecutorTests
         Assert.True(result.Aggregate!.Succeeded);
         Assert.Equal(2, result.Aggregate.Attempts.Count);
         Assert.Equal(RunState.Succeeded, result.Manifest!.State);
+        var diagnosticPaths = result.Aggregate.Attempts[0].DiagnosticPaths;
+        Assert.Contains(diagnosticPaths, path => path.EndsWith(Path.Combine("telemetry", "summary.json"), StringComparison.Ordinal));
+        Assert.Contains(diagnosticPaths, path => path.EndsWith(Path.Combine("telemetry", "tests.ndjson"), StringComparison.Ordinal));
+        Assert.DoesNotContain(diagnosticPaths, path => Path.GetFileName(path) == "results.ctrf.json");
         Assert.Equal(2, processRunner.TestInvocations.Count);
         Assert.All(processRunner.TestInvocations, invocation => Assert.Equal(checkout.AppHost("core"), invocation.ExecutablePath));
         Assert.All(processRunner.TestInvocations, invocation => Assert.Contains("--report-xunit-trx", invocation.Arguments));
@@ -365,6 +369,7 @@ public sealed class TestExecutorTests
                     <ResultSummary outcome="Completed"><Counters total="1" executed="1" passed="{passed}" failed="{failed}" error="0" timeout="0" aborted="0" inconclusive="0" notRunnable="0" notExecuted="0" disconnected="0" passedButRunAborted="0" inProgress="0" pending="0" /></ResultSummary></TestRun>
                     """;
                 await File.WriteAllTextAsync(Path.Combine(resultDirectory, "results.trx"), trx, cancellationToken);
+                await File.WriteAllTextAsync(Path.Combine(resultDirectory, "results.ctrf.json"), "{}", cancellationToken);
                 if (request.EnvironmentVariables is { } variables &&
                     variables.TryGetValue("LEANCORPUS_ARTIFACT_DIR", out var artifactDirectory) &&
                     !string.IsNullOrWhiteSpace(artifactDirectory))

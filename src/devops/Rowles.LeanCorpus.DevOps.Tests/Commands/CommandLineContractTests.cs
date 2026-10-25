@@ -513,6 +513,103 @@ public sealed class CommandLineContractTests
         Assert.Equal("4m", actual.RunOptions.ProcessTimeout);
     }
 
+    [Theory]
+    [InlineData("test", "--filter", "FullyQualifiedName~Writer", "filter")]
+    [InlineData("test", "-Filter", "FullyQualifiedName~Writer", "filter")]
+    [InlineData("test", "--hang-timeout", "off", "hangTimeout")]
+    [InlineData("test", "-HangTimeout", "off", "hangTimeout")]
+    [InlineData("test", "--rid", "linux-x64", "runtimeIdentifier")]
+    [InlineData("test", "--runtime-identifier", "linux-x64", "runtimeIdentifier")]
+    [InlineData("test", "-RuntimeIdentifier", "linux-x64", "runtimeIdentifier")]
+    [InlineData("aot", "--filter", "FullyQualifiedName~Smoke", "filter")]
+    [InlineData("aot", "-Filter", "FullyQualifiedName~Smoke", "filter")]
+    [InlineData("aot", "--rid", "linux-x64", "runtimeIdentifier")]
+    [InlineData("aot", "--runtime-identifier", "linux-x64", "runtimeIdentifier")]
+    [InlineData("aot", "-RuntimeIdentifier", "linux-x64", "runtimeIdentifier")]
+    public void TestAndAotCommandsAcceptCanonicalOptionsAndRegisteredAliases(
+        string command,
+        string option,
+        string value,
+        string selectedValue)
+    {
+        var handler = new RecordingCommandHandler();
+        string[] arguments = command == "test"
+            ? ["test", "core", option, value]
+            : ["aot", option, value];
+
+        var exitCode = Invoke(arguments, handler);
+
+        Assert.Equal(0, exitCode);
+        var actual = Assert.IsType<TestCommandOptions>(Assert.Single(handler.Calls));
+        string selected = selectedValue switch
+        {
+            "filter" => actual.RunOptions.Selection.Filter,
+            "hangTimeout" => actual.RunOptions.HangTimeout,
+            "runtimeIdentifier" => actual.RunOptions.Selection.RuntimeIdentifier,
+            _ => throw new InvalidOperationException($"Unexpected selected value '{selectedValue}'.")
+        };
+        Assert.Equal(value, selected);
+    }
+
+    [Theory]
+    [InlineData("test", "--Filter", "FullyQualifiedName~Writer")]
+    [InlineData("test", "--HangTimeout", "100s")]
+    [InlineData("test", "--RuntimeIdentifier", "linux-x64")]
+    [InlineData("test", "--not-a-test-option", "value")]
+    [InlineData("aot", "--Filter", "FullyQualifiedName~Smoke")]
+    [InlineData("aot", "--RuntimeIdentifier", "linux-x64")]
+    [InlineData("aot", "--not-an-aot-option", "value")]
+    public void MistypedOrUnknownManagedOptionsAreNotReportedOnlyAsMissingPassthroughBoundary(
+        string command,
+        string option,
+        string value)
+    {
+        var handler = new RecordingCommandHandler();
+        var output = new StringWriter();
+        var error = new StringWriter();
+        string[] commandArguments = command == "test"
+            ? ["test", "core", option, value]
+            : ["aot", option, value];
+
+        var exitCode = CommandLineApplication.Run(commandArguments, output, error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Empty(handler.Calls);
+        Assert.Contains("Unrecognised", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(option, error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("after '--'", error.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("must follow the -- delimiter", error.ToString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("test")]
+    [InlineData("aot")]
+    public void TestRunnerArgumentsRequireAndAcceptTheExplicitSeparator(string command)
+    {
+        var rejectedHandler = new RecordingCommandHandler();
+        var output = new StringWriter();
+        var error = new StringWriter();
+        string[] missingSeparator = command == "test"
+            ? ["test", "core", "--seed", "17"]
+            : ["aot", "--seed", "17"];
+
+        var rejectedExitCode = CommandLineApplication.Run(missingSeparator, output, error, rejectedHandler);
+
+        Assert.Equal(2, rejectedExitCode);
+        Assert.Empty(rejectedHandler.Calls);
+        Assert.Contains("--seed", error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("after '--'", error.ToString(), StringComparison.Ordinal);
+
+        var acceptedHandler = new RecordingCommandHandler();
+        string[] separated = command == "test"
+            ? ["test", "core", "--", "--seed", "17"]
+            : ["aot", "--", "--seed", "17"];
+
+        Assert.Equal(0, Invoke(separated, acceptedHandler));
+        var actual = Assert.IsType<TestCommandOptions>(Assert.Single(acceptedHandler.Calls));
+        Assert.Equal(["--seed", "17"], actual.RunOptions.Selection.AdditionalArguments);
+    }
+
     [Fact]
     public void TestListAndExplainAffectedAreSelectionOnlyModes()
     {
@@ -716,25 +813,6 @@ public sealed class CommandLineContractTests
         {
             Directory.Delete(directory, recursive: true);
         }
-    }
-
-    [Fact]
-    public void LegacyCommandFixtureIsValidAndCoversMigratedSlices()
-    {
-        var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "Contracts", "legacy-command-contracts.json");
-        using var document = JsonDocument.Parse(File.ReadAllText(path));
-        var cases = document.RootElement.GetProperty("cases").EnumerateArray().ToArray();
-
-        Assert.Equal(14, cases.Length);
-        Assert.Equal(cases.Length, cases.Select(item => item.GetProperty("id").GetString()).Distinct().Count());
-        var managedCommands = new[] { "build", "clean", "coverage", "report", "server" };
-        Assert.All(cases, item => Assert.Contains(item.GetProperty("command").GetString(), managedCommands));
-        Assert.Equal(new[] { "report-code-strict-json", "report-files-path-glob", "report-git-json" },
-            cases.Where(item => item.GetProperty("command").GetString() == "report")
-                .Select(item => item.GetProperty("id").GetString()).Order(StringComparer.Ordinal));
-        Assert.Equal(new[] { "coverage-core-default" },
-            cases.Where(item => item.GetProperty("command").GetString() == "coverage")
-                .Select(item => item.GetProperty("id").GetString()).Order(StringComparer.Ordinal));
     }
 
     [Fact]

@@ -32,7 +32,10 @@ public sealed class MtpTestArgumentBuilderTests
         AssertContainsPair(arguments, "--results-directory", Path.Combine(directory.Path, "attempt"));
         Assert.Contains("--report-xunit-trx", arguments);
         AssertContainsPair(arguments, "--report-xunit-trx-filename", "results.trx");
-        AssertContainsPair(arguments, "--xunit-config-filename", Path.Combine(directory.Path, "scripts", "devops", "testing", "testconfig.json"));
+        Assert.DoesNotContain("--report-xunit-ctrf", arguments);
+        Assert.DoesNotContain("--report-xunit-ctrf-filename", arguments);
+        Assert.DoesNotContain("results.ctrf.json", arguments);
+        AssertContainsPair(arguments, "--xunit-config-filename", Path.Combine(directory.Path, ".config", "devops", "testconfig.json"));
         AssertContainsPair(arguments, "--parallel", "all");
         AssertContainsPair(arguments, "--explicit", "only");
         AssertContainsPair(arguments, "--fail-warns", "on");
@@ -118,7 +121,7 @@ public sealed class MtpTestArgumentBuilderTests
         public static TemporaryDirectory Create()
         {
             var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LeanCorpus MTP arguments " + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(System.IO.Path.Combine(path, "scripts", "devops", "testing"));
+            Directory.CreateDirectory(System.IO.Path.Combine(path, ".config", "devops"));
             return new TemporaryDirectory(path);
         }
         public void Dispose() => Directory.Delete(Path, recursive: true);

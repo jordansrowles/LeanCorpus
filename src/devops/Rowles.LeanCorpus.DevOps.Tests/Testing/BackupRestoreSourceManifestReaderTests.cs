@@ -60,6 +60,64 @@ public sealed class BackupRestoreSourceManifestReaderTests
     }
 
     [Fact]
+    public async Task RejectsEmptyProvidedInventory()
+    {
+        using var checkout = new TemporaryCheckout();
+        var manifestPath = Path.Combine(checkout.Root, "manifest.json");
+        await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(new
+        {
+            commit = new string('a', 40),
+            files = Array.Empty<object>()
+        }), TestContext.Current.CancellationToken);
+
+        var reader = new BackupRestoreSourceManifestReader(new ProcessRunner());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => reader.ReadAsync(checkout.Root,
+            new string('a', 40), manifestPath, checkout.Root, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task RejectsDuplicateProvidedPathsIgnoringCase()
+    {
+        using var checkout = new TemporaryCheckout();
+        await File.WriteAllTextAsync(Path.Combine(checkout.Root, "source.txt"), "alpha",
+            TestContext.Current.CancellationToken);
+        var hash = Hash("alpha");
+        var manifestPath = Path.Combine(checkout.Root, "manifest.json");
+        await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(new
+        {
+            commit = new string('a', 40),
+            files = new[]
+            {
+                new { path = "source.txt", sha256 = hash },
+                new { path = "SOURCE.txt", sha256 = hash }
+            }
+        }), TestContext.Current.CancellationToken);
+
+        var reader = new BackupRestoreSourceManifestReader(new ProcessRunner());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => reader.ReadAsync(checkout.Root,
+            new string('a', 40), manifestPath, checkout.Root, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task RejectsProvidedFingerprintThatDoesNotMatchInventory()
+    {
+        using var checkout = new TemporaryCheckout();
+        await File.WriteAllTextAsync(Path.Combine(checkout.Root, "source.txt"), "alpha",
+            TestContext.Current.CancellationToken);
+        var manifestPath = Path.Combine(checkout.Root, "manifest.json");
+        await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(new
+        {
+            commit = new string('a', 40),
+            fingerprint = new string('0', 64),
+            files = new[] { new { path = "source.txt", sha256 = Hash("alpha") } }
+        }), TestContext.Current.CancellationToken);
+
+        var reader = new BackupRestoreSourceManifestReader(new ProcessRunner());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => reader.ReadAsync(checkout.Root,
+            new string('a', 40), manifestPath, checkout.Root, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task RejectsManifestSymlinksThatLeaveTheCheckout()
     {
         if (OperatingSystem.IsWindows())

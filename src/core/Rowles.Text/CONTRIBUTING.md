@@ -77,7 +77,7 @@ pwsh ./devops.ps1 test -Suite core -Area TextIntegration
 pwsh ./devops.ps1 test -Suite affected
 ```
 
-The mapping in `scripts/devops/config/code-areas.psd1` normally selects both the standalone area and `core:TextIntegration`. Update that mapping if a new source location or analysis area is introduced.
+The mapping in `.config/devops/code-areas.json` normally selects both the standalone area and `core:TextIntegration`. Update that mapping if a new source location or analysis area is introduced.
 
 ## Add a component
 

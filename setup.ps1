@@ -309,8 +309,8 @@ try {
         Stop-Setup 'Repository tool restore failed. Check NuGet connectivity and the local tool manifest, then retry setup.'
     }
 
-    Invoke-SetupCommand $dotnetCommand.Source @('restore', $testProject, '--locked-mode', '--disable-build-servers') 'Restoring the managed DevOps test project graph in locked mode'
-    Invoke-SetupCommand $dotnetCommand.Source @('restore', $hostProject, '--locked-mode', '--disable-build-servers') 'Verifying the managed host multi-RID lock in locked mode'
+    Invoke-SetupCommand $dotnetCommand.Source @('restore', $testProject, '--locked-mode', '--disable-build-servers', '-m:1') 'Restoring the managed DevOps test project graph in locked mode'
+    Invoke-SetupCommand $dotnetCommand.Source @('restore', $hostProject, '--locked-mode', '--disable-build-servers', '-m:1') 'Verifying the managed host multi-RID lock in locked mode'
     Invoke-SetupCommand $dotnetCommand.Source @('build', $testProject, '--configuration', 'Release', '--no-restore', '--disable-build-servers', '-m:1', '-p:UseSharedCompilation=false', '--tl:off') 'Building the managed DevOps test project graph'
 
     if (-not (Test-Path -LiteralPath $testApphost -PathType Leaf)) {

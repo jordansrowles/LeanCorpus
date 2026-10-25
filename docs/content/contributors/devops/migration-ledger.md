@@ -1,6 +1,8 @@
 # Managed DevOps migration ledger
 
-> Historical #11 baseline `4ccdf1ba7ae447ed982a34dc64478df47879baf3` on `issue-97`; the latest exact-source Linux build, managed suite and all-groups report, plus Windows report comparison, use clean commit `62de80daaf986144020e2cc3597e1de0cfef36b7`. Earlier Phase 7 workbench and docs evidence retains its original dirty-tree provenance. The active scope is the full issue #8 migration across Phases 0 through 9. First-milestone evidence remains valid; later phase gates are tracked as they are implemented and qualified.
+> Historical migration record. Its source inventories and phase notes describe the recorded revisions, not the current tree. The Issue-97 follow-up retires the PowerShell command application and `.psd1` snapshots; current commands run through the managed root apphost, with `setup.ps1`, `devops.ps1` and `scripts/devops/managed-host.ps1` retained as PowerShell entry points. Historical test and bootstrap results below remain scoped to their recorded revisions.
+
+> The older #11 baseline was `4ccdf1ba7ae447ed982a34dc64478df47879baf3` on `issue-97`; later exact-source Linux build, managed suite and all-groups report, plus Windows report comparison, used clean commit `62de80daaf986144020e2cc3597e1de0cfef36b7`. Earlier Phase 7 workbench and docs evidence retains its original dirty-tree provenance. The source inventory below records that migration snapshot.
 
 ## Source and generated-document counts
 
@@ -192,10 +194,10 @@ The PowerShell transition dispatcher currently forwards `build`, `clean`, `repor
 | Workflow | Current state and migration note |
 |---|---|
 | `.github/workflows/benchmark.yml` | The manual Core dry-run passed after setup through the checked-out root apphost at SHA `6c610fd57` (Build `39879445230`); actual benchmark execution, live remote and non-Linux parity remain open. |
-| `.github/workflows/build.yml` | Adds a Linux/Windows managed-host qualification matrix and triggers on `issue-97` pushes for exact-source CI. Product builds, coverage, package archive validation and package consumer checks call the checked-out host after bootstrap. Test commands remain on PowerShell pending Phase 5 parity. |
+| `.github/workflows/build.yml` | Historical migration snapshot: the managed-host matrix and product/package commands had moved, while test commands still used PowerShell. The Issue-97 follow-up now routes active test and AOT workflow invocations through the managed host; exact-SHA hosted proof is tracked separately. |
 | `.github/workflows/deploy.yml` | Documentation artefact deployment remains unchanged and does not invoke the root launcher. |
-| `.github/workflows/test-diagnostics.yml` | Linux and Windows jobs bootstrap the managed host and invoke it directly for product builds; test execution remains on PowerShell pending Phase 5 parity. Hosted exact-SHA verification is pending. |
-| `.github/workflows/test-stress.yml` | Linux and Windows jobs bootstrap the managed host and invoke it directly for product builds; test execution remains on PowerShell pending Phase 5 parity. Hosted exact-SHA verification is pending. |
+| `.github/workflows/test-diagnostics.yml` | Historical migration snapshot: Linux and Windows jobs bootstrapped the managed host for product builds while test execution remained on PowerShell. The current workflows invoke managed test commands; exact-SHA hosted proof is tracked separately. |
+| `.github/workflows/test-stress.yml` | Historical migration snapshot: Linux and Windows jobs bootstrapped the managed host for product builds while test execution remained on PowerShell. The current workflows invoke managed test commands; exact-SHA hosted proof is tracked separately. |
 
 ## Managed CLI foundation
 
@@ -211,7 +213,7 @@ The Phase 2 report service is implemented and routed. On exact clean commit `62d
 
 ## Build, clean and server contracts
 
-The exact captured help is retained in `src/devops/Rowles.LeanCorpus.DevOps.Tests/Fixtures/Legacy/legacy-help.txt` with exit code `0`. Machine-readable command cases are in `src/devops/Rowles.LeanCorpus.DevOps.Tests/Fixtures/Contracts/legacy-command-contracts.json`.
+The exact captured legacy help remains archived in `src/devops/Rowles.LeanCorpus.DevOps.Tests/Fixtures/Legacy/legacy-help.txt` with exit code `0`; it is historical evidence, not the current CLI contract. Current command options and routing are tested directly by the managed CLI contract tests. The source-coupled JSON fixture that referred to removed PowerShell files has been retired.
 
 | Command | Defaults and effective behavior to preserve |
 |---|---|
@@ -231,7 +233,7 @@ Linux live attach run `bf654452-2a53-422b-8fd6-9341a5574b34` completed a one-sec
 
 ## Configuration and retained data
 
-The six PowerShell configuration files are `benchmark-datasets.psd1`, `benchmark-groups.psd1`, `benchmark-strategies.psd1`, `benchmark-suites.psd1`, `code-areas.psd1`, and `test-suites.psd1`. Convert by owning phase, retain `.psd1` as the authoritative source while legacy readers remain, and validate semantic equivalence before switching a managed reader. Package policy, test config, frozen migration fixtures and DataForge boundaries are separately inventoried in the JSON record.
+Managed test-suite, code-area and benchmark configuration now has one authoritative source under `.config/devops/*.json`. The six former PowerShell `.psd1` snapshots and the `devops-config-equivalence.ps1` parity oracle were removed after their managed readers and configuration tests became authoritative. The MTP runner settings live at `.config/devops/testconfig.json`. Package policy and independent migration-fixture data remain with their owning tooling under `scripts/devops/`.
 
 ## ADR and evidence policy
 
@@ -578,7 +580,7 @@ passed, 8 intentional explicit skips, 0 failures), and zero build warnings or
 errors. The staged and promoted host probes passed; project-build smoke
 `419738b6-2b58-4d59-b7b8-eeacfeeb980b` succeeded. The bootstrap failure and
 rollback smoke passed 81 checks, and all six PowerShell/JSON configuration
-pairs passed `devops-config-equivalence.ps1`.
+pairs passed `devops-config-equivalence.ps1` at that historical revision.
 
 The same clean source passed `pwsh ./setup.ps1` on Windows Server 2025 Standard
 Evaluation build 26100 x64, using PowerShell 7.6.5, SDK

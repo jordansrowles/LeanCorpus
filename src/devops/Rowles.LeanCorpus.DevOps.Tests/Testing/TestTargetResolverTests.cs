@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Testing;
 
@@ -6,6 +7,27 @@ namespace Rowles.LeanCorpus.DevOps.Tests.Testing;
 
 public sealed class TestTargetResolverTests
 {
+    [Theory]
+    [InlineData("Linux", Architecture.X64, "linux-x64")]
+    [InlineData("Linux", Architecture.Arm64, "linux-arm64")]
+    [InlineData("macOS", Architecture.X64, "osx-x64")]
+    [InlineData("macOS", Architecture.Arm64, "osx-arm64")]
+    [InlineData("Windows", Architecture.X64, "win-x64")]
+    [InlineData("Windows", Architecture.Arm64, "win-arm64")]
+    public void MapsSupportedHostOperatingSystemsAndArchitectures(string operatingSystem, Architecture architecture, string expected)
+    {
+        Assert.Equal(expected, TestTargetResolver.GetRuntimeIdentifier(operatingSystem, architecture));
+    }
+
+    [Theory]
+    [InlineData("FreeBSD", Architecture.X64, "Unsupported operating system")]
+    [InlineData("Linux", Architecture.Arm, "Unsupported architecture")]
+    public void RejectsUnsupportedHostOperatingSystemsAndArchitectures(string operatingSystem, Architecture architecture, string expectedMessage)
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => TestTargetResolver.GetRuntimeIdentifier(operatingSystem, architecture));
+        Assert.Contains(expectedMessage, error.Message, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ResolvesAllInLegacyOrderAndUsesSuiteFrameworkDefaults()
     {

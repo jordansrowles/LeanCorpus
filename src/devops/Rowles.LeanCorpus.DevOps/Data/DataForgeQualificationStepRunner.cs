@@ -168,7 +168,7 @@ internal sealed class DataForgeQualificationStepRunner(
                 "--results-directory", targetDirectory,
                 "--report-xunit-trx",
                 "--report-xunit-trx-filename", "results.trx",
-                "--xunit-config-filename", Path.Combine(checkout.RepositoryRoot, "scripts", "devops", "testing", "testconfig.json"),
+                "--xunit-config-filename", Path.Combine(checkout.RepositoryRoot, ".config", "devops", "testconfig.json"),
                 "--parallel", "collections",
                 "--report-gh"
             };

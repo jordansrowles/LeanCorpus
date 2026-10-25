@@ -56,7 +56,7 @@ internal static class MtpTestArgumentBuilder
                 "--report-xunit-trx", "--report-xunit-trx-filename", "results.trx"]);
         }
 
-        var configurationPath = Path.Combine(options.RepositoryRoot, "scripts", "devops", "testing", "testconfig.json");
+        var configurationPath = Path.Combine(options.RepositoryRoot, ".config", "devops", "testconfig.json");
         arguments.AddRange(["--xunit-config-filename", configurationPath]);
         arguments.AddRange(["--parallel", options.ParallelProfile.ToLowerInvariant() switch
         {

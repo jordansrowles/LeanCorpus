@@ -1,6 +1,6 @@
 # DevOps projects and repository tooling
 
-Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The managed apphost is `./devops` on Linux and macOS and `./devops.exe` on Windows. CI invokes the managed host directly. The `devops.ps1` compatibility shim forwards every invocation to the fingerprint-validated managed host and never imports the retired PowerShell command application.
+Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The managed apphost is `./devops` on Linux and macOS and `./devops.exe` on Windows. CI invokes the managed host directly. The retained PowerShell entry points are repository-root `setup.ps1`, repository-root `devops.ps1`, and `scripts/devops/managed-host.ps1`; the dispatcher forwards invocations to the fingerprint-validated managed host and does not load a PowerShell command application.
 
 ## Choose a task
 
@@ -203,8 +203,7 @@ Select benchmark classes that match current dirty paths with
 and records changed paths and matched groups in the benchmark run evidence.
 Area and group filters can narrow the selected classes.
 
-Remote runs use SSH and tmux without invoking the legacy PowerShell benchmark
-script:
+Remote runs use SSH and tmux through the managed benchmark command:
 
 ```bash
 ./devops benchmark remote start --host jordan@debian --path /home/jordan/code/leancorpus --branch main -- --suite query --strat intense

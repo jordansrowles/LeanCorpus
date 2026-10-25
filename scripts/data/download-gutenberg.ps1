@@ -47,8 +47,7 @@ if ($BookCount -lt 1) {
 }
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-. (Join-Path $repoRoot 'scripts/devops/artifacts/paths.ps1')
-$dataRoot = Get-BenchmarkDataRoot -RepoRoot $repoRoot
+$dataRoot = Join-Path $repoRoot 'artifacts/benchmark/cache/data'
 
 if ([string]::IsNullOrEmpty($OutputDir)) {
     $OutputDir = Join-Path $dataRoot 'gutenberg-ebooks'

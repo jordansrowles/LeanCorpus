@@ -138,7 +138,7 @@ jobs:
               $env:TEST_COUNT,
               '--profile',
               'stress',
-              '--HangTimeout',
+              '--hang-timeout',
               $env:TEST_HANG_TIMEOUT
           )
 
@@ -225,7 +225,7 @@ jobs:
               $env:TEST_COUNT,
               '--profile',
               'stress',
-              '--HangTimeout',
+              '--hang-timeout',
               $env:TEST_HANG_TIMEOUT
           )
 

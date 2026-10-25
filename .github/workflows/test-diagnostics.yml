@@ -139,7 +139,7 @@ jobs:
               'integration',
               '--count',
               $env:TEST_COUNT,
-              '--HangTimeout',
+              '--hang-timeout',
               $env:TEST_HANG_TIMEOUT
           )
 
@@ -227,7 +227,7 @@ jobs:
               'integration',
               '--count',
               $env:TEST_COUNT,
-              '--HangTimeout',
+              '--hang-timeout',
               $env:TEST_HANG_TIMEOUT
           )
 

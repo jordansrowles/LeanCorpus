@@ -212,7 +212,7 @@
       "Globs": [
         "Directory.Packages.props",
         "Rowles.LeanCorpus.slnx",
-        "scripts/devops/config/test-suites.psd1"
+        ".config/devops/test-suites.json"
       ],
       "Targets": [
         "server-orchard:Orchard",
@@ -274,9 +274,7 @@
         ".config/devops/benchmark-suites.json",
         ".config/devops/benchmark-strategies.json",
         ".config/devops/benchmark-datasets.json",
-        "scripts/devops/config/benchmark-groups.psd1",
-        "scripts/devops/config/benchmark-suites.psd1",
-        "scripts/devops/config/code-areas.psd1"
+        ".config/devops/code-areas.json"
       ],
       "Targets": [
         "core:CodecKit"
@@ -507,11 +505,10 @@
     "lifecycle-workflow": {
       "Globs": [
         ".github/workflows/build.yml",
-        "scripts/devops/commands/build.ps1",
-        "scripts/devops/commands/server.ps1",
-        "scripts/devops/testing/targets.ps1",
-        "scripts/devops/validation/artifacts-smoke.ps1",
-        "scripts/devops/validation/test-selection-smoke.ps1"
+        "scripts/devops/managed-host.ps1",
+        "scripts/devops/validation/managed-bootstrap-smoke.ps1",
+        "src/devops/Rowles.LeanCorpus.DevOps/Program.cs",
+        "src/devops/Rowles.LeanCorpus.DevOps.Tests/Commands/ManagedCliWorkflowContractTests.cs"
       ],
       "Targets": []
     },

@@ -139,15 +139,6 @@ public sealed class ConfigurationLoaderTests
         var benchmarkGroup = configuration.BenchmarkGroups["Serialisation"];
         Assert.Equal("Serialisation", benchmarkGroup.Area);
         Assert.Contains("src/core/Rowles.LeanCorpus/Serialisation/**", benchmarkGroup.Globs);
-
-        var legacyCodeAreas = File.ReadAllText(Path.Combine(checkout.RepositoryRoot, "scripts/devops/config/code-areas.psd1"));
-        Assert.Contains("'serialisation'", legacyCodeAreas, StringComparison.Ordinal);
-        Assert.Contains("'core:Serialisation'", legacyCodeAreas, StringComparison.Ordinal);
-        Assert.DoesNotContain("'serialization'", legacyCodeAreas, StringComparison.Ordinal);
-
-        var legacyBenchmarkGroups = File.ReadAllText(Path.Combine(checkout.RepositoryRoot, "scripts/devops/config/benchmark-groups.psd1"));
-        Assert.Contains("'Serialisation' = @{ Area = 'Serialisation'", legacyBenchmarkGroups, StringComparison.Ordinal);
-        Assert.DoesNotContain("'Serialization' = @{ Area = 'Serialization'", legacyBenchmarkGroups, StringComparison.Ordinal);
     }
 
     [Fact]

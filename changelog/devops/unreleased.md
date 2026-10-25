@@ -73,6 +73,10 @@
 
 ## Fixed
 
+- Use registered managed test and AOT option spellings in CI and report unrecognised managed arguments with test-runner separator guidance.
+- Remove the retired PowerShell DevOps command application and shadow `.psd1` configuration; keep managed run, package, CI and bootstrap workflows on their current owners.
+- Run locked bootstrap restores on one MSBuild node to prevent project-graph restore hangs.
+
 - Read v5 benchmark rows when provenance is absent while leaving comparison qualification fail-closed.
 
 - Reconcile bounded/default similarity and existing MoreLikeThis fixture cases with actual benchmark discovery while retaining unqualified comparison status.
