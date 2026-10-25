@@ -239,10 +239,16 @@ public sealed class ProcessRunnerTests
     public async Task ReportsProgressCallbackFailureAsInfrastructureFailureAndRetainsChildExit()
     {
         using var directory = TemporaryDirectory.Create("DevOps progress callback failure ");
-        var request = CreateRequest(directory.Path, "silent", "300") with
+        var releasePath = Path.Combine(directory.Path, "progress-callback-observed");
+        var request = CreateRequest(directory.Path, "output-handshake", releasePath) with
         {
+            Timeout = TimeSpan.FromSeconds(5),
             ProgressInterval = TimeSpan.FromMilliseconds(50),
-            Progress = _ => throw new InvalidOperationException("progress sink failed")
+            Progress = _ =>
+            {
+                File.WriteAllText(releasePath, "observed");
+                throw new InvalidOperationException("progress sink failed");
+            }
         };
 
         var result = await new ProcessRunner().RunAsync(request, TestContext.Current.CancellationToken);
