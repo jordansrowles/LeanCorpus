@@ -14,6 +14,48 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
     public ManagedBootstrapIntegrationTests(ManagedBootstrapTestFixture fixture) => _fixture = fixture;
 
     [Fact]
+    public void ScriptRunStringContainsFailureContextWithoutExposingSecretsOrUnboundedOutput()
+    {
+        var fakeBin = Path.Combine(Path.GetTempPath(), "bootstrap diagnostic fake bin " + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(fakeBin);
+        File.WriteAllText(Path.Combine(fakeBin, "dotnet"), "fake executable");
+        try
+        {
+            var run = new ManagedBootstrapTestFixture.ScriptRun(
+                1,
+                new string('o', 32 * 1024),
+                "Exception: simulated PowerShell failure\nAuthorization: Bearer diagnostic-secret-value\n")
+            {
+                Command = "pwsh -File /tmp/devops.ps1 bootstrap",
+                WorkingDirectory = "/tmp/checkout with spaces",
+                FakeBinPath = fakeBin,
+                CommandResolution = "git => <not found>\ndotnet => fake apphost",
+                EnvironmentSummary = "PATH=/fixture fake bin"
+            };
+
+            var diagnostic = run.ToString();
+
+            Assert.Contains("Command: pwsh -File /tmp/devops.ps1 bootstrap", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("Exit code: 1", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("OS/RID:", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("Working directory: /tmp/checkout with spaces", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("Fake-bin inventory:", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("dotnet; attributes=", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("Get-Command git/dotnet resolution:", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("git => <not found>", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("PATH=/fixture fake bin", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("simulated PowerShell failure", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("<redacted>", diagnostic, StringComparison.Ordinal);
+            Assert.Contains("output truncated", diagnostic, StringComparison.Ordinal);
+            Assert.DoesNotContain("diagnostic-secret-value", diagnostic, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(fakeBin, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task BootstrapStagesProbesAndPromotesAValidSingleFileHost()
     {
         using var checkout = await TemporaryCheckout.CreateAsync(_fixture);
@@ -37,13 +79,13 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
             ["BOOTSTRAP_PUBLISH_CAPTURE_PATH"] = publishCapture
         });
 
-        Assert.Equal(0, run.ExitCode);
-        Assert.Contains("Restoring the managed DevOps test project graph in locked mode", run.StandardOutput, StringComparison.Ordinal);
-        Assert.Contains("Staged managed host --help probe", run.StandardOutput, StringComparison.Ordinal);
-        Assert.Contains("Staged managed host --version probe", run.StandardOutput, StringComparison.Ordinal);
-        Assert.Contains("Staged managed build smoke", run.StandardOutput, StringComparison.Ordinal);
-        Assert.Contains("Promoted managed host --help probe", run.StandardOutput, StringComparison.Ordinal);
-        Assert.Contains("managed DevOps bootstrap completed", run.StandardOutput, StringComparison.Ordinal);
+        AssertProcessExitCode(0, run);
+        AssertProcessStandardOutputContains(run, "Restoring the managed DevOps test project graph in locked mode", StringComparison.Ordinal);
+        AssertProcessStandardOutputContains(run, "Staged managed host --help probe", StringComparison.Ordinal);
+        AssertProcessStandardOutputContains(run, "Staged managed host --version probe", StringComparison.Ordinal);
+        AssertProcessStandardOutputContains(run, "Staged managed build smoke", StringComparison.Ordinal);
+        AssertProcessStandardOutputContains(run, "Promoted managed host --help probe", StringComparison.Ordinal);
+        AssertProcessStandardOutputContains(run, "managed DevOps bootstrap completed", StringComparison.Ordinal);
 
         var cancellationToken = TestContext.Current.CancellationToken;
         var restoreCalls = await File.ReadAllLinesAsync(restoreCapture, cancellationToken);
@@ -85,7 +127,7 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
             ["BOOTSTRAP_FAKE_FAIL_STAGE"] = failureStage
         });
 
-        Assert.NotEqual(0, run.ExitCode);
+        AssertProcessFailed(run);
         var cancellationToken = TestContext.Current.CancellationToken;
         Assert.Equal("previous apphost sentinel", await File.ReadAllTextAsync(previous.HostPath, cancellationToken));
         Assert.Equal("previous manifest sentinel", await File.ReadAllTextAsync(previous.ManifestPath, cancellationToken));
@@ -102,8 +144,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
                 ["BOOTSTRAP_FAKE_SIDECAR"] = "1"
             });
 
-            Assert.NotEqual(0, sidecarRun.ExitCode);
-            Assert.Contains("unexpected sidecars", sidecarRun.CombinedOutput, StringComparison.OrdinalIgnoreCase);
+            AssertProcessFailed(sidecarRun);
+            AssertProcessCombinedOutputContains(sidecarRun, "unexpected sidecars", StringComparison.OrdinalIgnoreCase);
             var cancellationToken = TestContext.Current.CancellationToken;
             Assert.Equal("previous apphost sentinel", await File.ReadAllTextAsync(previous.HostPath, cancellationToken));
             Assert.Equal("previous manifest sentinel", await File.ReadAllTextAsync(previous.ManifestPath, cancellationToken));
@@ -116,8 +158,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
             await File.WriteAllTextAsync(checkout.ManifestPath, "previous manifest sentinel", TestContext.Current.CancellationToken);
             var run = await _fixture.RunScriptAsync(checkout, ["bootstrap"]);
 
-            Assert.NotEqual(0, run.ExitCode);
-            Assert.Contains("devops", run.CombinedOutput, StringComparison.OrdinalIgnoreCase);
+            AssertProcessFailed(run);
+            AssertProcessCombinedOutputContains(run, "devops", StringComparison.OrdinalIgnoreCase);
             Assert.True(Directory.Exists(checkout.ExecutablePath));
             Assert.Equal("previous manifest sentinel", await File.ReadAllTextAsync(checkout.ManifestPath, TestContext.Current.CancellationToken));
         }
@@ -131,8 +173,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
 
         var run = await _fixture.RunScriptAsync(checkout, ["bootstrap"]);
 
-        Assert.Equal(0, run.ExitCode);
-        Assert.Contains("managed DevOps bootstrap completed", run.StandardOutput, StringComparison.Ordinal);
+        AssertProcessExitCode(0, run);
+        AssertProcessStandardOutputContains(run, "managed DevOps bootstrap completed", StringComparison.Ordinal);
         Assert.Null(ManagedHostFingerprint.Validate(checkout.Root, checkout.ExecutablePath));
     }
 
@@ -152,14 +194,23 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
 
         await using var running = _fixture.StartScript(checkout, ["bootstrap"]);
         var promotionPath = Path.Combine(leaseDirectory, "promotion.lock");
-        await WaitForFileAsync(promotionPath, TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        try
+        {
+            await WaitForFileAsync(promotionPath, TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        }
+        catch (TimeoutException exception)
+        {
+            var failedRun = await running.StopAndCollectAsync();
+            Assert.True(false, $"{exception.Message}{Environment.NewLine}{failedRun}");
+        }
+
         await Task.Delay(250, TestContext.Current.CancellationToken);
         Assert.False(running.HasExited);
 
         File.Delete(readerPath);
         var result = await running.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
 
-        Assert.Equal(0, result.ExitCode);
+        AssertProcessExitCode(0, result);
         Assert.False(File.Exists(promotionPath));
         Assert.Null(ManagedHostFingerprint.Validate(checkout.Root, checkout.ExecutablePath));
     }
@@ -173,8 +224,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         Assert.Null(ManagedHostFingerprint.Validate(checkout.Root, checkout.ExecutablePath));
 
         var help = await _fixture.RunScriptAsync(checkout, []);
-        Assert.Equal(0, help.ExitCode);
-        Assert.Contains("LeanCorpus managed DevOps fixture", help.StandardOutput, StringComparison.Ordinal);
+        AssertProcessExitCode(0, help);
+        AssertProcessStandardOutputContains(help, "LeanCorpus managed DevOps fixture", StringComparison.Ordinal);
 
         var capturePath = Path.Combine(checkout.Root, "forwarded-arguments.txt");
         var arguments = new[]
@@ -186,14 +237,14 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         {
             ["DEVOPS_CAPTURE_PATH"] = capturePath
         });
-        Assert.Equal(0, dispatched.ExitCode);
+        AssertProcessExitCode(0, dispatched);
         Assert.Equal(arguments, await File.ReadAllLinesAsync(capturePath, TestContext.Current.CancellationToken));
 
         var nonZero = await _fixture.RunScriptAsync(checkout, ["docs", "build"], new Dictionary<string, string?>
         {
             ["DEVOPS_FAKE_DISPATCH_EXIT_CODE"] = "37"
         });
-        Assert.Equal(37, nonZero.ExitCode);
+        AssertProcessExitCode(37, nonZero);
     }
 
     [Theory]
@@ -234,8 +285,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
             ["DEVOPS_CAPTURE_PATH"] = capturePath
         });
 
-        Assert.Equal(3, run.ExitCode);
-        Assert.Contains("bootstrap", run.CombinedOutput, StringComparison.OrdinalIgnoreCase);
+        AssertProcessExitCode(3, run);
+        AssertProcessCombinedOutputContains(run, "bootstrap", StringComparison.OrdinalIgnoreCase);
         Assert.False(File.Exists(capturePath));
     }
 
@@ -246,16 +297,16 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         {
             var path = checkout.FakeBin;
             var run = await _fixture.RunScriptAsync(checkout, ["bootstrap"], pathOverride: path);
-            Assert.NotEqual(0, run.ExitCode);
-            Assert.Contains("Git was not found", run.CombinedOutput, StringComparison.Ordinal);
+            AssertProcessFailed(run);
+            AssertProcessCombinedOutputContains(run, "Git was not found", StringComparison.Ordinal);
         }
 
         using (var checkout = await TemporaryCheckout.CreateAsync(_fixture, includeDotNet: false))
         {
             checkout.InstallGitWrapper();
             var run = await _fixture.RunScriptAsync(checkout, ["bootstrap"], pathOverride: checkout.FakeBin);
-            Assert.NotEqual(0, run.ExitCode);
-            Assert.Contains(".NET was not found", run.CombinedOutput, StringComparison.Ordinal);
+            AssertProcessFailed(run);
+            AssertProcessCombinedOutputContains(run, ".NET was not found", StringComparison.Ordinal);
         }
 
         using (var checkout = await TemporaryCheckout.CreateAsync(_fixture))
@@ -266,8 +317,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
                 ["BOOTSTRAP_FAKE_FAIL_STAGE"] = "missing-sdk",
                 ["BOOTSTRAP_RESTORE_CAPTURE_PATH"] = restoreCapture
             });
-            Assert.NotEqual(0, run.ExitCode);
-            Assert.Contains("SDK required by global.json was not found", run.CombinedOutput, StringComparison.Ordinal);
+            AssertProcessFailed(run);
+            AssertProcessCombinedOutputContains(run, "SDK required by global.json was not found", StringComparison.Ordinal);
             Assert.False(File.Exists(restoreCapture));
         }
 
@@ -275,8 +326,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         {
             File.Delete(Path.Combine(checkout.Root, "src", "Rowles.LeanCorpus.slnx"));
             var run = await _fixture.RunScriptAsync(checkout, ["bootstrap"]);
-            Assert.NotEqual(0, run.ExitCode);
-            Assert.Contains("not a LeanCorpus checkout", run.CombinedOutput, StringComparison.Ordinal);
+            AssertProcessFailed(run);
+            AssertProcessCombinedOutputContains(run, "not a LeanCorpus checkout", StringComparison.Ordinal);
         }
     }
 
@@ -291,8 +342,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
             ["BOOTSTRAP_RESTORE_CAPTURE_PATH"] = restoreCapture
         });
 
-        Assert.NotEqual(0, run.ExitCode);
-        Assert.Contains("does not accept additional arguments", run.CombinedOutput, StringComparison.Ordinal);
+        AssertProcessFailed(run);
+        AssertProcessCombinedOutputContains(run, "does not accept additional arguments", StringComparison.Ordinal);
         Assert.False(File.Exists(restoreCapture));
     }
 
@@ -311,6 +362,52 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         }
 
         throw new TimeoutException($"Timed out waiting for '{path}'.");
+    }
+
+    private static void AssertProcessExitCode(int expectedExitCode, ManagedBootstrapTestFixture.ScriptRun run)
+    {
+        if (run.ExitCode == expectedExitCode)
+        {
+            return;
+        }
+
+        Assert.True(false, $"Expected PowerShell child exit code {expectedExitCode}, actual {run.ExitCode}.{Environment.NewLine}{run}");
+    }
+
+    private static void AssertProcessFailed(ManagedBootstrapTestFixture.ScriptRun run)
+    {
+        if (run.ExitCode != 0)
+        {
+            return;
+        }
+
+        Assert.True(false, $"Expected the PowerShell child to fail, but it exited successfully.{Environment.NewLine}{run}");
+    }
+
+    private static void AssertProcessStandardOutputContains(
+        ManagedBootstrapTestFixture.ScriptRun run,
+        string expected,
+        StringComparison comparison)
+    {
+        if (run.StandardOutput.Contains(expected, comparison))
+        {
+            return;
+        }
+
+        Assert.True(false, $"Expected child stdout to contain '{expected}'.{Environment.NewLine}{run}");
+    }
+
+    private static void AssertProcessCombinedOutputContains(
+        ManagedBootstrapTestFixture.ScriptRun run,
+        string expected,
+        StringComparison comparison)
+    {
+        if (run.CombinedOutput.Contains(expected, comparison))
+        {
+            return;
+        }
+
+        Assert.True(false, $"Expected child stdout/stderr to contain '{expected}'.{Environment.NewLine}{run}");
     }
 
     private static void WriteManifest(string repositoryRoot, string executablePath, string manifestPath)
@@ -650,6 +747,11 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
         IReadOnlyDictionary<string, string?>? environment = null,
         string? pathOverride = null)
     {
+        Directory.CreateDirectory(checkout.FakeHome);
+        var diagnosticsPath = Path.Combine(checkout.FakeHome, "bootstrap-process-diagnostics-" + Guid.NewGuid().ToString("N") + ".txt");
+        var wrapperPath = Path.Combine(checkout.FakeHome, "bootstrap-process-wrapper-" + Guid.NewGuid().ToString("N") + ".ps1");
+        File.WriteAllText(wrapperPath, CreateDiagnosticWrapper(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
         var startInfo = new ProcessStartInfo(PowerShellPath)
         {
             WorkingDirectory = checkout.Root,
@@ -657,7 +759,7 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
-        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-File", checkout.ScriptPath }.Concat(arguments))
+        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-File", wrapperPath, checkout.ScriptPath }.Concat(arguments))
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -670,6 +772,7 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
         startInfo.Environment["DOTNET_ROOT_X64"] = DotNetRoot;
         startInfo.Environment["LEANCORPUS_BOOTSTRAP_TEST_STUB"] = "1";
         startInfo.Environment["LEANCORPUS_BOOTSTRAP_STUB_TEMPLATE_PATH"] = StubPath;
+        startInfo.Environment["LEANCORPUS_BOOTSTRAP_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath;
         startInfo.Environment["BOOTSTRAP_FAKE_FAIL_STAGE"] = string.Empty;
         startInfo.Environment["BOOTSTRAP_FAKE_SIDECAR"] = "0";
         startInfo.Environment["DEVOPS_CAPTURE_PATH"] = string.Empty;
@@ -693,8 +796,39 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
         }
 
         var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start the PowerShell entry point.");
-        return new RunningScript(process);
+        var command = string.Join(" ", new[] { PowerShellPath, "-NoProfile", "-NonInteractive", "-File", wrapperPath, checkout.ScriptPath }
+            .Concat(arguments)
+            .Select(QuoteForDisplay));
+        var environmentSummary = ManagedBootstrapProcessDiagnostics.CreateEnvironmentSummary(startInfo.Environment);
+        return new RunningScript(process, command, checkout.Root, checkout.FakeBin, diagnosticsPath, environmentSummary);
     }
+
+    private static string CreateDiagnosticWrapper() => """
+        $ErrorActionPreference = 'Stop'
+        $scriptPath = $args[0]
+        [string[]]$scriptArguments = if ($args.Count -gt 1) { $args[1..($args.Count - 1)] } else { @() }
+        $resolution = foreach ($name in @('git', 'dotnet')) {
+            $command = Get-Command -Name $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($null -eq $command) {
+                "$name => <not found>"
+            }
+            else {
+                "$name => name=$($command.Name); type=$($command.CommandType); source=$($command.Source); path=$($command.Path); definition=$($command.Definition)"
+            }
+        }
+        [System.IO.File]::WriteAllText(
+            $env:LEANCORPUS_BOOTSTRAP_TEST_DIAGNOSTICS_PATH,
+            [string]::Join([System.Environment]::NewLine, [string[]]$resolution))
+        if ($scriptArguments.Count -eq 0) {
+            & $scriptPath
+        }
+        else {
+            & $scriptPath @scriptArguments
+        }
+        exit $LASTEXITCODE
+        """;
+
+    private static string QuoteForDisplay(string value) => "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
 
     internal async Task<ScriptRun> RunScriptAsync(
         ManagedBootstrapIntegrationTests.TemporaryCheckout checkout,
@@ -762,7 +896,27 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
 
     public sealed record ScriptRun(int ExitCode, string StandardOutput, string StandardError)
     {
+        internal string Command { get; init; } = "<unknown PowerShell command>";
+
+        internal string WorkingDirectory { get; init; } = "<unknown working directory>";
+
+        internal string FakeBinPath { get; init; } = "<unknown fake-bin path>";
+
+        internal string CommandResolution { get; init; } = "<Get-Command resolution unavailable>";
+
+        internal string EnvironmentSummary { get; init; } = "<environment summary unavailable>";
+
         public string CombinedOutput => StandardOutput + Environment.NewLine + StandardError;
+
+        public override string ToString() => ManagedBootstrapProcessDiagnostics.Format(
+            ExitCode,
+            Command,
+            WorkingDirectory,
+            FakeBinPath,
+            CommandResolution,
+            EnvironmentSummary,
+            StandardOutput,
+            StandardError);
     }
 
     public sealed class RunningScript : IAsyncDisposable
@@ -770,12 +924,28 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
         private readonly Process _process;
         private readonly Task<string> _stdout;
         private readonly Task<string> _stderr;
+        private readonly string _command;
+        private readonly string _workingDirectory;
+        private readonly string _fakeBinPath;
+        private readonly string _diagnosticsPath;
+        private readonly string _environmentSummary;
 
-        internal RunningScript(Process process)
+        internal RunningScript(
+            Process process,
+            string command,
+            string workingDirectory,
+            string fakeBinPath,
+            string diagnosticsPath,
+            string environmentSummary)
         {
             _process = process;
             _stdout = process.StandardOutput.ReadToEndAsync();
             _stderr = process.StandardError.ReadToEndAsync();
+            _command = command;
+            _workingDirectory = workingDirectory;
+            _fakeBinPath = fakeBinPath;
+            _diagnosticsPath = diagnosticsPath;
+            _environmentSummary = environmentSummary;
         }
 
         public bool HasExited => _process.HasExited;
@@ -790,15 +960,56 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
             }
             catch (OperationCanceledException)
             {
-                if (!_process.HasExited)
+                var result = await StopAndCollectAsync();
+                throw new TimeoutException($"PowerShell entry point did not finish within {timeout}.{Environment.NewLine}{result}");
+            }
+
+            return await CollectResultAsync();
+        }
+
+        public async Task<ScriptRun> StopAndCollectAsync()
+        {
+            if (!_process.HasExited)
+            {
+                try
                 {
                     _process.Kill(entireProcessTree: true);
                 }
-
-                throw new TimeoutException($"PowerShell entry point did not finish within {timeout}.");
+                catch (InvalidOperationException) when (_process.HasExited)
+                {
+                }
             }
 
-            return new ScriptRun(_process.ExitCode, await _stdout, await _stderr);
+            await _process.WaitForExitAsync(CancellationToken.None);
+            return await CollectResultAsync();
+        }
+
+        private async Task<ScriptRun> CollectResultAsync()
+        {
+            string commandResolution;
+            try
+            {
+                commandResolution = File.Exists(_diagnosticsPath)
+                    ? await File.ReadAllTextAsync(_diagnosticsPath, CancellationToken.None)
+                    : "<diagnostic wrapper did not write Get-Command resolution>";
+            }
+            catch (IOException exception)
+            {
+                commandResolution = $"<could not read Get-Command resolution: {exception.GetType().Name}>";
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                commandResolution = $"<could not read Get-Command resolution: {exception.GetType().Name}>";
+            }
+
+            return new ScriptRun(_process.ExitCode, await _stdout, await _stderr)
+            {
+                Command = _command,
+                WorkingDirectory = _workingDirectory,
+                FakeBinPath = _fakeBinPath,
+                CommandResolution = commandResolution,
+                EnvironmentSummary = _environmentSummary
+            };
         }
 
         public ValueTask DisposeAsync()
