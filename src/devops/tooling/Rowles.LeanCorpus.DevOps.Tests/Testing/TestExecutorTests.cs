@@ -14,11 +14,12 @@ public sealed class TestExecutorTests
     public async Task RunsPreparedMtpApphostSeriallyAndWritesAttemptReports()
     {
         using var checkout = TemporaryCheckout.Create();
-        var target = checkout.CreateTarget("core");
+        var target = checkout.CreateTarget("core") with { RequiresBrowser = true };
         var processRunner = checkout.CreateRunner();
+        var progressEvents = new List<TestProgressEvent>();
         var paths = new ArtifactPaths(checkout.Root);
         var service = new TestExecutor(paths, new ArtifactRunStore(paths, runCategory: "test"), processRunner,
-            new DotNetSdkResolver(processRunner), new FixedProvenanceReader());
+            new DotNetSdkResolver(processRunner), new FixedProvenanceReader(), progressEvents.Add);
 
         var result = await service.RunAsync(Request(checkout, [target], count: 2), TestContext.Current.CancellationToken);
 
@@ -33,6 +34,8 @@ public sealed class TestExecutorTests
         Assert.Equal(2, processRunner.TestInvocations.Count);
         Assert.All(processRunner.TestInvocations, invocation => Assert.Equal(checkout.AppHost("core"), invocation.ExecutablePath));
         Assert.All(processRunner.TestInvocations, invocation => Assert.Contains("--report-xunit-trx", invocation.Arguments));
+        var runStarted = Assert.Single(progressEvents, static item => item.Kind == TestEventKind.RunStarted);
+        Assert.Contains("core/net10.0 (runner=Mtp, browserRequired=true)", runStarted.Message, StringComparison.Ordinal);
         var manifest = Assert.IsType<RunManifest>(result.Manifest);
         Assert.Equal("10.0.100", manifest.ToolVersions["dotnet-sdk-requested"]);
         Assert.Equal("10.0.103", manifest.ToolVersions["dotnet-sdk-selected"]);
@@ -51,6 +54,8 @@ public sealed class TestExecutorTests
         Assert.Contains("\"Test\",\"1\",\"core\",\"net10.0\",\"core/net10.0\",\"Example|Test, \"\"Quoted\"\"\",\"Passed\"", timings, StringComparison.Ordinal);
         using var report = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "report.json"), TestContext.Current.CancellationToken));
         var telemetry = report.RootElement.GetProperty("telemetry");
+        var selectedTarget = Assert.Single(report.RootElement.GetProperty("selectedTargets").EnumerateArray().ToArray());
+        Assert.True(selectedTarget.GetProperty("requiresBrowser").GetBoolean());
         Assert.Equal(2, telemetry.GetProperty("executions").GetInt32());
         Assert.Equal(2, telemetry.GetProperty("testsStarted").GetInt64());
         Assert.Equal(4, telemetry.GetProperty("activities").GetInt64());

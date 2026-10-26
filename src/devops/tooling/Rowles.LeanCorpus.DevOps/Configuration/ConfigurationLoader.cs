@@ -344,7 +344,7 @@ internal sealed class ConfigurationLoader
         const string file = "test-suites.json";
         var path = Path.Combine(_configurationRoot, file);
         RequireObjectProperties(value, path, propertyPath,
-            ["Name", "Project", "Runner", "Frameworks", "DefaultFramework", "Coverage", "Capabilities", "IncludeInAll", "ExpandFrameworksByDefault", "DefaultFilter", "Order", "DataForgeQualification"],
+            ["Name", "Project", "Runner", "Frameworks", "DefaultFramework", "Coverage", "Capabilities", "IncludeInAll", "ExpandFrameworksByDefault", "DefaultFilter", "Order", "DataForgeQualification", "RequiresBrowser"],
             ["Name", "Project", "Runner", "Frameworks", "Coverage", "Capabilities"]);
 
         var name = ReadString(value.GetProperty("Name"), path, propertyPath + ".Name");
@@ -395,7 +395,10 @@ internal sealed class ConfigurationLoader
             value.TryGetProperty("Order", out var orderElement) ? ReadInt(orderElement, path, propertyPath + ".Order") : null,
             value.TryGetProperty("DataForgeQualification", out var qualificationElement)
                 ? ReadBoolean(qualificationElement, path, propertyPath + ".DataForgeQualification")
-                : false);
+                : false)
+        {
+            RequiresBrowser = OptionalBoolean(value, "RequiresBrowser", path, propertyPath) ?? false
+        };
     }
 
     private CodeAreaConfiguration ReadCodeArea(JsonElement value, string propertyPath)

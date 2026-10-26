@@ -135,14 +135,6 @@ jobs:
           name: linux-${{ matrix.framework }}-build-diagnostics
           path: artifacts/build/runs
           if-no-files-found: warn
-      - name: Install Playwright Chromium
-        shell: pwsh
-        run: |
-          $projectOutputRoot = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests'
-          $playwrightScript = Join-Path $projectOutputRoot 'release_${{ matrix.framework }}/playwright.ps1'
-          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
-          pwsh $playwrightScript install --with-deps chromium
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test deterministic suites
         shell: pwsh
         env: { CHAOS_ITERATIONS: 25 }
@@ -155,8 +147,66 @@ jobs:
           path: artifacts/test/runs
           if-no-files-found: warn
 
+  orchard-browser-linux:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright/dotnet:v1.63.0-noble
+      # Browser tests exercise only the local, same-commit test site.
+      options: --ipc=host --init
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [net10.0, net11.0]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Verify Playwright container toolchain
+        shell: bash
+        run: |
+          command -v git
+          command -v pwsh
+          command -v dotnet
+          test -w "$GITHUB_WORKSPACE"
+          mkdir -p artifacts
+          test -w artifacts
+          dotnet --list-sdks
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Build Orchard browser test target
+        shell: pwsh
+        run: ./devops build --project src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj --framework '${{ matrix.framework }}'
+      - name: Validate Playwright Chromium runtime
+        shell: pwsh
+        run: pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/release_${{ matrix.framework }}' -ExpectedImageVersion '1.63.0'
+      - name: Run Orchard browser tests
+        shell: pwsh
+        env: { CHAOS_ITERATIONS: 25 }
+        run: ./devops test server-orchard-functional --ci --framework '${{ matrix.framework }}' --hang-timeout 100s
+      - name: Upload Orchard build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-orchard-${{ matrix.framework }}-build-diagnostics
+          path: artifacts/build/runs
+          if-no-files-found: warn
+      - name: Upload Orchard browser test artefacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-orchard-${{ matrix.framework }}-test-results
+          path: artifacts/test/runs
+          if-no-files-found: warn
+
   coverage:
-    needs: linux-tests
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -215,14 +265,6 @@ jobs:
           name: windows-build-diagnostics
           path: artifacts/build/runs
           if-no-files-found: warn
-      - name: Install Playwright Chromium
-        shell: pwsh
-        run: |
-          $projectOutputRoot = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests'
-          $playwrightScript = Join-Path $projectOutputRoot 'release_net11.0/playwright.ps1'
-          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
-          pwsh $playwrightScript install chromium
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run complete Windows test suite
         shell: pwsh
         env:
@@ -234,6 +276,56 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: windows-test-results
+          path: artifacts/test/runs
+          if-no-files-found: warn
+
+  orchard-browser-windows:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [net10.0, net11.0]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Build Orchard browser test target
+        shell: pwsh
+        run: ./devops.exe build --project src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj --framework '${{ matrix.framework }}'
+      - name: Install Playwright Chromium
+        shell: pwsh
+        run: |
+          $projectOutputRoot = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests'
+          $projectOutputDirectory = Join-Path $projectOutputRoot 'release_${{ matrix.framework }}'
+          $playwrightScript = Join-Path $projectOutputDirectory 'playwright.ps1'
+          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
+          pwsh $playwrightScript install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory $projectOutputDirectory
+      - name: Run Orchard browser tests
+        shell: pwsh
+        env: { CHAOS_ITERATIONS: 25 }
+        run: ./devops.exe test server-orchard-functional --ci --framework '${{ matrix.framework }}' --hang-timeout 100s
+      - name: Upload Orchard build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-orchard-${{ matrix.framework }}-build-diagnostics
+          path: artifacts/build/runs
+          if-no-files-found: warn
+      - name: Upload Orchard browser test artefacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-orchard-${{ matrix.framework }}-test-results
           path: artifacts/test/runs
           if-no-files-found: warn
 
@@ -344,8 +436,12 @@ jobs:
           if-no-files-found: warn
 
   docs-site:
-    needs: [linux-tests, coverage]
+    needs: coverage
     runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright/dotnet:v1.63.0-noble
+      # Browser tests exercise only the local, same-commit documentation site.
+      options: --ipc=host --init
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -360,6 +456,18 @@ jobs:
           node-version: '22.23.3'
           cache: npm
           cache-dependency-path: docs/site-config/diagrams/package-lock.json
+      - name: Verify Playwright container toolchain
+        shell: bash
+        run: |
+          command -v git
+          command -v pwsh
+          command -v node
+          command -v dotnet
+          test -w "$GITHUB_WORKSPACE"
+          mkdir -p artifacts
+          test -w artifacts
+          test "$(node --version)" = 'v22.23.3'
+          dotnet --list-sdks
       - name: Validate docs deployment admission rules
         run: node --test .github/scripts/docs/resolve-docs-deployment-run.test.mjs
       - name: Restore repository tools
@@ -372,13 +480,9 @@ jobs:
       - name: Build docs test target
         shell: pwsh
         run: ./devops build --project src/devops/tests/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj --framework net10.0
-      - name: Install Playwright Chromium
+      - name: Validate Playwright Chromium runtime
         shell: pwsh
-        run: |
-          $playwrightScript = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0/playwright.ps1'
-          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
-          pwsh $playwrightScript install --with-deps chromium
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        run: pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory 'artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0' -ExpectedImageVersion '1.63.0'
       - name: Build documentation site
         shell: pwsh
         run: ./devops docs build

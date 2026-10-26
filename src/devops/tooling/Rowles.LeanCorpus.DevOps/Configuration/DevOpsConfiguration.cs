@@ -14,7 +14,10 @@ internal sealed record TestSuiteConfiguration(
     bool? ExpandFrameworksByDefault,
     string? DefaultFilter,
     int? Order = null,
-    bool DataForgeQualification = false);
+    bool DataForgeQualification = false)
+{
+    public bool RequiresBrowser { get; init; }
+}
 
 internal sealed record CodeAreaConfiguration(
     ImmutableArray<string> Globs,

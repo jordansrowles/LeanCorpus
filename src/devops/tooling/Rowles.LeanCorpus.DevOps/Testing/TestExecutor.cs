@@ -142,7 +142,10 @@ internal sealed class TestExecutor(
             await _artifacts.WriteStateAsync(runDirectory, manifest.RunId, "running", request.Targets, request.Count,
                 attempts, activeTarget, activeIteration, cancellationToken).ConfigureAwait(false);
             await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.RunStarted,
-                DateTimeOffset.UtcNow, RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
+                DateTimeOffset.UtcNow,
+                Message: "Targets: " + string.Join("; ", request.Targets.Select(static target =>
+                    $"{target.Key} (runner={target.RunnerKind}, browserRequired={target.RequiresBrowser.ToString().ToLowerInvariant()})")),
+                RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
             await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.Checkpoint,
                 DateTimeOffset.UtcNow, Message: "Run state checkpointed before preparation.",
                 RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
@@ -197,7 +200,7 @@ internal sealed class TestExecutor(
                 {
                     await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.TargetDiscovered,
                         DateTimeOffset.UtcNow, preparedTarget.Target.Key,
-                        Message: preparedTarget.Target.Name,
+                        Message: $"{preparedTarget.Target.Name}: framework={preparedTarget.Target.Framework}, runner={preparedTarget.Target.RunnerKind}, browserRequired={preparedTarget.Target.RequiresBrowser.ToString().ToLowerInvariant()}",
                         RequestedExecutions: requestedExecutionCount,
                         Framework: preparedTarget.Target.Framework,
                         Areas: preparedTarget.Target.Areas), cancellationToken).ConfigureAwait(false);

@@ -160,6 +160,20 @@ public sealed class ConfigurationLoaderTests
     }
 
     [Fact]
+    public void RejectsBrowserRequiredSuiteInGenericAllSelection()
+    {
+        using var root = TemporaryConfiguration.Create();
+        var testSuitesPath = root.ConfigPath("test-suites.json");
+        var testSuites = JsonNode.Parse(File.ReadAllText(testSuitesPath))!;
+        testSuites["data"]!["server-orchard-functional"]!["IncludeInAll"] = true;
+        File.WriteAllText(testSuitesPath, testSuites.ToJsonString());
+
+        var error = Assert.Throws<InvalidDataException>(() => root.Load());
+
+        Assert.Contains("browser-required suites must be excluded from the generic all selector", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RejectsIncompleteBenchmarkCorrectnessAudit()
     {
         using var root = TemporaryConfiguration.Create();
@@ -576,7 +590,7 @@ public sealed class ConfigurationLoaderTests
 
         var ordered = resolver.GetOrderedSuiteKeys(includeExplicitOnly: false);
         Assert.Equal(new[] { "text", "architecture", "sourcegen", "core" }, ordered.Take(4));
-        Assert.Equal(new[] { "dataforge", "server-orchard", "server-orchard-functional" }, ordered.TakeLast(3));
+        Assert.Equal(new[] { "aot", "dataforge", "server-orchard" }, ordered.TakeLast(3));
         Assert.DoesNotContain("docs-site", ordered);
     }
 

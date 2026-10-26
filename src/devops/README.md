@@ -117,6 +117,27 @@ are selected:
 ./devops test all --ci --framework net10.0
 ```
 
+Browser-required suites are explicit-only: `server-orchard-functional` and
+`docs-site` do not run as part of `./devops test all`. `server-orchard` remains
+in the generic selection. The Playwright package is pinned in
+`Directory.Packages.props` (currently 1.63.0); build the selected test project,
+then install and check its matching Chromium before running it:
+
+```bash
+./devops build --project src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj --framework net10.0
+pwsh artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/release_net10.0/playwright.ps1 install --with-deps chromium
+pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/release_net10.0
+./devops test server-orchard-functional --ci --framework net10.0
+```
+
+On Windows, omit `--with-deps`. Use the corresponding docs test output path for
+`docs-site`, then run `./devops docs test --framework net10.0 --no-restore`.
+The preflight fails if the built Playwright package version is inconsistent,
+the expected Chromium executable is missing, or Chromium cannot launch. The
+`test affected` selection keeps browser suites when their source areas match
+and records `requiresBrowser` on the selected target so callers can route that
+work to a browser-capable worker.
+
 ## Standalone diagnostics
 
 Use `--diagnostics` to enable MTP diagnostic logging for a test process. For
@@ -151,6 +172,10 @@ Affected selection:
 2. maps production paths through `.config/devops/code-areas.json`;
 3. builds the required `suite:area` targets;
 4. runs tests carrying matching `Area` traits.
+
+If the selected target plan includes `requiresBrowser: true`, provision its
+Playwright Chromium before running the affected tests. The command does not
+download browsers implicitly.
 
 > [!IMPORTANT]
 > A new production path must have an affected-test mapping. The runner should not silently treat an unmapped source area as requiring no tests.

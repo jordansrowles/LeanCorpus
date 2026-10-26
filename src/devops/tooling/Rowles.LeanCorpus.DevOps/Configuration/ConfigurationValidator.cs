@@ -89,6 +89,8 @@ internal static class ConfigurationValidator
                 throw Error("test-suites.json", "$.data." + id + ".Order", $"suite order '{order}' is already assigned");
             if (suite.DataForgeQualification && !suite.Runner.Equals("Mtp", StringComparison.Ordinal))
                 throw Error("test-suites.json", "$.data." + id + ".DataForgeQualification", "qualification test suites must use the Mtp runner");
+            if (suite.RequiresBrowser && suite.IncludeInAll != false)
+                throw Error("test-suites.json", "$.data." + id + ".IncludeInAll", "browser-required suites must be excluded from the generic all selector");
         }
     }
 

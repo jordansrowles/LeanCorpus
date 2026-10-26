@@ -31,7 +31,10 @@ internal sealed record TestTarget(
     IReadOnlyList<string> Areas,
     bool CoverageEligible,
     IReadOnlyList<string> Capabilities,
-    IReadOnlyList<string> AdditionalArguments);
+    IReadOnlyList<string> AdditionalArguments)
+{
+    public bool RequiresBrowser { get; init; }
+}
 
 internal sealed class TestTargetResolver(IReadOnlyDictionary<string, TestSuiteConfiguration> suites)
 {
@@ -127,7 +130,10 @@ internal sealed class TestTargetResolver(IReadOnlyDictionary<string, TestSuiteCo
                     suiteAreas.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
                     suite.Coverage,
                     suite.Capabilities,
-                    request.AdditionalArguments));
+                    request.AdditionalArguments)
+                {
+                    RequiresBrowser = suite.RequiresBrowser
+                });
             }
         }
 
