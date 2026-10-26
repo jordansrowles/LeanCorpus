@@ -173,6 +173,8 @@ jobs:
           command -v git
           command -v pwsh
           command -v dotnet
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" rev-parse --show-toplevel
           test -w "$GITHUB_WORKSPACE"
           mkdir -p artifacts
           test -w artifacts
@@ -463,6 +465,8 @@ jobs:
           command -v pwsh
           command -v node
           command -v dotnet
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git -C "$GITHUB_WORKSPACE" rev-parse --show-toplevel
           test -w "$GITHUB_WORKSPACE"
           mkdir -p artifacts
           test -w artifacts
