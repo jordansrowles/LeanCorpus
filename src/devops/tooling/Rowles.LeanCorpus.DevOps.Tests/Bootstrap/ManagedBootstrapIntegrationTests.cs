@@ -57,6 +57,17 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
     }
 
     [Fact]
+    public void CombinedOutputAssertionAcceptsPowerShellContinuationLines()
+    {
+        var run = new ManagedBootstrapTestFixture.ScriptRun(
+            1,
+            string.Empty,
+            "\u001b[31mException: '/tmp/invalid checkout' is not a LeanCorpus\n\u001b[0m    | \u001b[31mcheckout. Expected repository markers.\u001b[0m");
+
+        AssertProcessCombinedOutputContains(run, "not a LeanCorpus checkout", StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task BootstrapStagesProbesAndPromotesAValidSingleFileHost()
     {
         using var checkout = await TemporaryCheckout.CreateAsync(_fixture);
@@ -547,14 +558,21 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         string expected,
         StringComparison comparison)
     {
-        var normalisedOutput = Regex.Replace(run.CombinedOutput, "\\s+", " ", RegexOptions.CultureInvariant);
-        var normalisedExpected = Regex.Replace(expected, "\\s+", " ", RegexOptions.CultureInvariant);
+        var normalisedOutput = NormaliseProcessOutput(run.CombinedOutput);
+        var normalisedExpected = NormaliseProcessOutput(expected);
         if (normalisedOutput.Contains(normalisedExpected, comparison))
         {
             return;
         }
 
         Assert.True(false, $"Expected child stdout/stderr to contain '{expected}'.{Environment.NewLine}{run}");
+    }
+
+    private static string NormaliseProcessOutput(string output)
+    {
+        var withoutAnsi = Regex.Replace(output, @"\x1B\[[0-?]*[ -/]*[@-~]", string.Empty, RegexOptions.CultureInvariant);
+        var withoutPowerShellContinuationBars = Regex.Replace(withoutAnsi, @"(?m)^[ \t]*\|[ \t]?", string.Empty, RegexOptions.CultureInvariant);
+        return Regex.Replace(withoutPowerShellContinuationBars, @"\s+", " ", RegexOptions.CultureInvariant);
     }
 
     private static void WriteManifest(string repositoryRoot, string executablePath, string manifestPath)
