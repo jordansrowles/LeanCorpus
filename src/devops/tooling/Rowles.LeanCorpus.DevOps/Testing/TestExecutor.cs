@@ -72,9 +72,12 @@ internal sealed class TestExecutor(
     IProcessRunner processRunner,
     IDotNetSdkResolver sdkResolver,
     IRepositoryProvenanceReader provenanceReader,
-    Action<TestProgressEvent>? progress = null) : IManagedTestExecutor
+    Action<TestProgressEvent>? progress = null,
+    IPlaywrightRuntimePreflight? playwrightRuntimePreflight = null) : IManagedTestExecutor
 {
     private readonly TestArtifactService _artifacts = new();
+    private readonly IPlaywrightRuntimePreflight _playwrightRuntimePreflight = playwrightRuntimePreflight
+        ?? new PlaywrightRuntimePreflight(new PlaywrightRuntimeSessionFactory());
 
     public async Task<TestExecutorResult> RunAsync(TestExecutorRequest request, CancellationToken cancellationToken = default)
     {
@@ -196,6 +199,21 @@ internal sealed class TestExecutor(
                 await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.TargetsPrepared,
                     DateTimeOffset.UtcNow, Message: string.Join(',', preparation.Targets.Select(static target => target.Target.Key)),
                     RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
+                var browserTargets = preparation.Targets
+                    .Where(static target => target.Target.RequiresBrowser)
+                    .ToArray();
+                if (browserTargets.Length > 0)
+                {
+                    var browserRuntimes = await _playwrightRuntimePreflight.ValidateAsync(
+                        request.Checkout, browserTargets, cancellationToken).ConfigureAwait(false);
+                    foreach (var runtime in browserRuntimes)
+                    {
+                        await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.Checkpoint,
+                            DateTimeOffset.UtcNow, runtime.TargetKey,
+                            Message: $"Playwright {runtime.PackageVersion} launched headless Chromium {runtime.ChromiumVersion} at '{runtime.ChromiumExecutablePath}'.",
+                            RequestedExecutions: requestedExecutionCount), cancellationToken).ConfigureAwait(false);
+                    }
+                }
                 foreach (var preparedTarget in preparation.Targets)
                 {
                     await EmitAsync(runDirectory, new TestProgressEvent(manifest.RunId, TestEventKind.TargetDiscovered,

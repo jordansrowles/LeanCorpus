@@ -120,23 +120,25 @@ are selected:
 Browser-required suites are explicit-only: `server-orchard-functional` and
 `docs-site` do not run as part of `./devops test all`. `server-orchard` remains
 in the generic selection. The Playwright package is pinned in
-`Directory.Packages.props` (currently 1.63.0); build the selected test project,
-then install and check its matching Chromium before running it:
+`Directory.Packages.props` (currently 1.63.0). Build the selected test project
+and install Chromium with its generated script. The managed test executor then
+checks the central package pin against the selected output's `.deps.json`,
+checks the Chromium executable and launches it headlessly before running the
+browser-required suite:
 
 ```bash
 ./devops build --project src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj --framework net10.0
 pwsh artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/release_net10.0/playwright.ps1 install --with-deps chromium
-pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/release_net10.0
 ./devops test server-orchard-functional --ci --framework net10.0
 ```
 
 On Windows, omit `--with-deps`. Use the corresponding docs test output path for
-`docs-site`, then run `./devops docs test --framework net10.0 --no-restore`.
-The preflight fails if the built Playwright package version is inconsistent,
-the expected Chromium executable is missing, or Chromium cannot launch. The
-`test affected` selection keeps browser suites when their source areas match
-and records `requiresBrowser` on the selected target so callers can route that
-work to a browser-capable worker.
+`docs-site`, install Chromium with its generated script, then run
+`./devops docs test --framework net10.0 --no-restore`. The `test affected`
+selection keeps browser suites when their source areas match and records
+`requiresBrowser` on the selected target. If it selects a browser-required
+target, the managed executor performs the same preflight; neither `test all`
+nor `test affected` downloads a browser implicitly.
 
 ## Standalone diagnostics
 

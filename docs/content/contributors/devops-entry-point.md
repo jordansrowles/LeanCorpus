@@ -162,16 +162,15 @@ Keep repository arguments before `--`. Everything after it is passed to the benc
 
 `.config/devops/test-suites.json` is the canonical alias map. It maps short names to project paths or, for Native AOT, to the dedicated command route. Browser-required suites `server-orchard-functional` and `docs-site` are explicit-only and do not run under `test all`; `server-orchard` remains in the generic selection. Server suites default to `net11.0`; their project and registry metadata currently also declare `net10.0`.
 
-The Playwright package version is centrally pinned in `Directory.Packages.props` (currently 1.63.0). Build the browser test project, install Chromium using its generated script, and run the preflight before tests. For Linux Orchard tests:
+The Playwright package version is centrally pinned in `Directory.Packages.props` (currently 1.63.0). Build the browser test project and install Chromium using its generated script. The managed test executor automatically checks the central pin against the selected output's `.deps.json`, verifies the Chromium executable and launches it headlessly before running a browser-required target. For Linux Orchard tests:
 
 ```bash
 ./devops build --project src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj --framework net10.0
 pwsh artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/release_net10.0/playwright.ps1 install --with-deps chromium
-pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/release_net10.0
 ./devops test server-orchard-functional --ci --framework net10.0
 ```
 
-On Windows, omit `--with-deps`. `docs-site` uses its own generated script under `artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0`; after provisioning, run `./devops docs test --framework net10.0 --no-restore`. Affected selection retains browser-required suites and marks them with `requiresBrowser` in `selection.json`; route those targets to a browser-capable worker. No browser is downloaded implicitly by `test all` or `test affected`.
+On Windows, omit `--with-deps`. `docs-site` uses its own generated script under `artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0`; after installing Chromium, run `./devops docs test --framework net10.0 --no-restore`. Affected selection retains matching browser-required suites and marks them with `requiresBrowser` in `selection.json`; route those targets to a browser-capable worker. Neither `test all` nor `test affected` downloads a browser implicitly. `test all` excludes browser-required suites, while `test affected` performs the preflight if it selects one.
 
 When adding a test project:
 

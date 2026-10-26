@@ -185,9 +185,6 @@ jobs:
       - name: Build Orchard browser test target
         shell: pwsh
         run: ./devops build --project src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj --framework '${{ matrix.framework }}'
-      - name: Validate Playwright Chromium runtime
-        shell: pwsh
-        run: pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/release_${{ matrix.framework }}' -ExpectedImageVersion '1.63.0'
       - name: Run Orchard browser tests
         shell: pwsh
         env: { CHAOS_ITERATIONS: 25 }
@@ -311,7 +308,6 @@ jobs:
           if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
           pwsh $playwrightScript install chromium
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory $projectOutputDirectory
       - name: Run Orchard browser tests
         shell: pwsh
         env: { CHAOS_ITERATIONS: 25 }
@@ -488,7 +484,6 @@ jobs:
           }
           pwsh $playwrightScript install --with-deps chromium
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory $projectOutputDirectory
       - name: Build documentation site
         shell: pwsh
         run: ./devops docs build

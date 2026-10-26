@@ -156,8 +156,8 @@ public sealed class BrowserTestWorkflowContractTests
         Assert.Contains("artifacts/test/runs", orchardWindows, StringComparison.Ordinal);
         Assert.DoesNotContain("Install Playwright Chromium", orchardLinux, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Install Playwright Chromium", orchardWindows, StringComparison.Ordinal);
-        Assert.Contains("check-playwright-runtime.ps1", orchardLinux, StringComparison.Ordinal);
-        Assert.Contains("check-playwright-runtime.ps1", orchardWindows, StringComparison.Ordinal);
+        Assert.DoesNotContain("check-playwright-runtime.ps1", orchardLinux, StringComparison.Ordinal);
+        Assert.DoesNotContain("check-playwright-runtime.ps1", orchardWindows, StringComparison.Ordinal);
         Assert.Contains("git config --global --add safe.directory \"$GITHUB_WORKSPACE\"", orchardLinux, StringComparison.Ordinal);
         Assert.Contains("git -c \"safe.directory=$GITHUB_WORKSPACE\" -C \"$GITHUB_WORKSPACE\" rev-parse --show-toplevel", orchardLinux, StringComparison.Ordinal);
 
@@ -195,9 +195,9 @@ public sealed class BrowserTestWorkflowContractTests
         Assert.Contains("artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0", docs, StringComparison.Ordinal);
         Assert.Contains("Test-Path -LiteralPath $playwrightScript -PathType Leaf", docs, StringComparison.Ordinal);
         Assert.Contains("pwsh $playwrightScript install --with-deps chromium", docs, StringComparison.Ordinal);
-        Assert.Contains("check-playwright-runtime.ps1 -ProjectOutputDirectory $projectOutputDirectory", docs, StringComparison.Ordinal);
-        Assert.Contains("-ExpectedImageVersion '" + packageVersion + "'", orchardLinux, StringComparison.Ordinal);
-        Assert.DoesNotContain("-ExpectedImageVersion", docs, StringComparison.Ordinal);
+        Assert.DoesNotContain("check-playwright-runtime.ps1", workflow, StringComparison.Ordinal);
+        Assert.DoesNotContain("name: Validate Playwright Chromium runtime", workflow, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(checkout.RepositoryRoot, "scripts", "devops", "check-playwright-runtime.ps1")));
 
         Assert.Contains("needs: coverage", docs, StringComparison.Ordinal);
         Assert.DoesNotContain("needs: linux-tests", coverage, StringComparison.Ordinal);
@@ -207,17 +207,6 @@ public sealed class BrowserTestWorkflowContractTests
         Assert.Contains("./devops docs test --framework net10.0 --no-restore", docs, StringComparison.Ordinal);
         Assert.Contains("docs-site-diagnostics", docs, StringComparison.Ordinal);
         Assert.Contains("docs-site-validation", docs, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void PlaywrightRuntimeGuardUsesResolvedNuGetPackageIdentity()
-    {
-        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
-        var preflight = File.ReadAllText(Path.Combine(checkout.RepositoryRoot, "scripts", "devops", "check-playwright-runtime.ps1"));
-
-        Assert.Contains(".deps.json", preflight, StringComparison.Ordinal);
-        Assert.Contains("Microsoft.Playwright/$expectedPackageVersion", preflight, StringComparison.Ordinal);
-        Assert.DoesNotContain("AssemblyInformationalVersionAttribute", preflight, StringComparison.Ordinal);
     }
 
     [Theory]

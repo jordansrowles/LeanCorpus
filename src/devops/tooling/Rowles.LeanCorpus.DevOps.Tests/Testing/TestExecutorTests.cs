@@ -14,12 +14,13 @@ public sealed class TestExecutorTests
     public async Task RunsPreparedMtpApphostSeriallyAndWritesAttemptReports()
     {
         using var checkout = TemporaryCheckout.Create();
-        var target = checkout.CreateTarget("core") with { RequiresBrowser = true };
+        var target = checkout.CreateTarget("core");
         var processRunner = checkout.CreateRunner();
         var progressEvents = new List<TestProgressEvent>();
+        var browserPreflight = new RecordingBrowserPreflight(processRunner);
         var paths = new ArtifactPaths(checkout.Root);
         var service = new TestExecutor(paths, new ArtifactRunStore(paths, runCategory: "test"), processRunner,
-            new DotNetSdkResolver(processRunner), new FixedProvenanceReader(), progressEvents.Add);
+            new DotNetSdkResolver(processRunner), new FixedProvenanceReader(), progressEvents.Add, browserPreflight);
 
         var result = await service.RunAsync(Request(checkout, [target], count: 2), TestContext.Current.CancellationToken);
 
@@ -32,10 +33,11 @@ public sealed class TestExecutorTests
         Assert.Contains(diagnosticPaths, path => path.EndsWith(Path.Combine("telemetry", "tests.ndjson"), StringComparison.Ordinal));
         Assert.DoesNotContain(diagnosticPaths, path => Path.GetFileName(path) == "results.ctrf.json");
         Assert.Equal(2, processRunner.TestInvocations.Count);
+        Assert.Equal(0, browserPreflight.CallCount);
         Assert.All(processRunner.TestInvocations, invocation => Assert.Equal(checkout.AppHost("core"), invocation.ExecutablePath));
         Assert.All(processRunner.TestInvocations, invocation => Assert.Contains("--report-xunit-trx", invocation.Arguments));
         var runStarted = Assert.Single(progressEvents, static item => item.Kind == TestEventKind.RunStarted);
-        Assert.Contains("core/net10.0 (runner=Mtp, browserRequired=true)", runStarted.Message, StringComparison.Ordinal);
+        Assert.Contains("core/net10.0 (runner=Mtp, browserRequired=false)", runStarted.Message, StringComparison.Ordinal);
         var manifest = Assert.IsType<RunManifest>(result.Manifest);
         Assert.Equal("10.0.100", manifest.ToolVersions["dotnet-sdk-requested"]);
         Assert.Equal("10.0.103", manifest.ToolVersions["dotnet-sdk-selected"]);
@@ -55,7 +57,7 @@ public sealed class TestExecutorTests
         using var report = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "report.json"), TestContext.Current.CancellationToken));
         var telemetry = report.RootElement.GetProperty("telemetry");
         var selectedTarget = Assert.Single(report.RootElement.GetProperty("selectedTargets").EnumerateArray().ToArray());
-        Assert.True(selectedTarget.GetProperty("requiresBrowser").GetBoolean());
+        Assert.False(selectedTarget.GetProperty("requiresBrowser").GetBoolean());
         Assert.Equal(2, telemetry.GetProperty("executions").GetInt32());
         Assert.Equal(2, telemetry.GetProperty("testsStarted").GetInt64());
         Assert.Equal(4, telemetry.GetProperty("activities").GetInt64());
@@ -66,6 +68,26 @@ public sealed class TestExecutorTests
         Assert.Contains(events, line => line.Contains("checkpoint", StringComparison.OrdinalIgnoreCase));
         Assert.Equal(2, events.Count(line => line.Contains("targetStarted", StringComparison.OrdinalIgnoreCase)));
         Assert.Equal(2, events.Count(line => line.Contains("targetCompleted", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public async Task BrowserRequiredTargetsArePreflightedOnceBeforeTheirTestExecutions()
+    {
+        using var checkout = TemporaryCheckout.Create();
+        var target = checkout.CreateTarget("docs") with { RequiresBrowser = true };
+        var processRunner = checkout.CreateRunner();
+        var browserPreflight = new RecordingBrowserPreflight(processRunner);
+        var paths = new ArtifactPaths(checkout.Root);
+        var service = new TestExecutor(paths, new ArtifactRunStore(paths, runCategory: "test"), processRunner,
+            new DotNetSdkResolver(processRunner), new FixedProvenanceReader(), playwrightRuntimePreflight: browserPreflight);
+
+        var result = await service.RunAsync(Request(checkout, [target], count: 2), TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
+        Assert.Equal(1, browserPreflight.CallCount);
+        Assert.Equal([0], browserPreflight.TestInvocationCountsAtValidation);
+        Assert.Equal([target.Key], browserPreflight.TargetKeys);
+        Assert.Equal(2, processRunner.TestInvocations.Count);
     }
 
     [Fact]
@@ -250,6 +272,24 @@ public sealed class TestExecutorTests
     {
         public Task<GitProvenance> ReadAsync(CheckoutIdentity checkout, string runDirectory, CancellationToken cancellationToken)
             => Task.FromResult(new GitProvenance(OutcomeKind.Success, "a".PadRight(40, 'a'), "issue-97", true, null));
+    }
+
+    private sealed class RecordingBrowserPreflight(RecordingProcessRunner processRunner) : IPlaywrightRuntimePreflight
+    {
+        public int CallCount { get; private set; }
+        public List<int> TestInvocationCountsAtValidation { get; } = [];
+        public List<string> TargetKeys { get; private set; } = [];
+
+        public Task<IReadOnlyList<PlaywrightRuntimeInfo>> ValidateAsync(CheckoutIdentity checkout,
+            IReadOnlyList<PreparedTestTarget> targets, CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            TestInvocationCountsAtValidation.Add(processRunner.TestInvocations.Count);
+            TargetKeys = targets.Select(static target => target.Target.Key).ToList();
+            IReadOnlyList<PlaywrightRuntimeInfo> result = targets.Select(static target =>
+                new PlaywrightRuntimeInfo(target.Target.Key, "1.63.0", "Chromium test", "/chromium")).ToArray();
+            return Task.FromResult(result);
+        }
     }
 
     private sealed class TemporaryCheckout : IDisposable

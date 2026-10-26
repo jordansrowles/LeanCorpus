@@ -32,6 +32,7 @@
 - Move the complete solution inventory and 11 focused build filters under `src/`, group DevOps projects by purpose, validate tracked solution/filter membership in managed DevOps, and resolve solution entries relative to the relocated master.
 
 - Exclude browser-required test suites from generic `test all` selection while retaining their explicit and affected-source routes.
+- Run the centrally pinned Playwright package, resolved dependency identity and headless Chromium preflight automatically for browser-required managed test suites; retire the standalone PowerShell check.
 
 - Share Build concurrency groups across same-branch pushes and pull requests to avoid duplicate runs.
 
