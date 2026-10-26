@@ -50,9 +50,12 @@ function Assert-LeanCorpusCheckout {
     }
 
     if ($isGitDirectory -or $isGitFile) {
-        $gitRootLines = @(& $script:GitCommand.Source -C $GitWorkingDirectory rev-parse --show-toplevel 2>&1)
-        if ($LASTEXITCODE -ne 0 -or $gitRootLines.Count -eq 0) {
-            Stop-Setup 'Git could not identify the managed DevOps checkout root.'
+        $gitRootLines = @(& $script:GitCommand.Source -C $GitWorkingDirectory -c "safe.directory=$GitWorkingDirectory" rev-parse --show-toplevel 2>&1)
+        $gitExitCode = $LASTEXITCODE
+        if ($gitExitCode -ne 0 -or $gitRootLines.Count -eq 0) {
+            $gitOutput = [string]::Join([System.Environment]::NewLine, [string[]]@($gitRootLines | ForEach-Object { [string]$_ }))
+            $gitDiagnostic = if ([string]::IsNullOrWhiteSpace($gitOutput)) { 'Git returned no output.' } else { "Git output: $gitOutput" }
+            Stop-Setup "Git could not identify the managed DevOps checkout root from '$GitWorkingDirectory' (exit code $gitExitCode). $gitDiagnostic"
         }
         $gitRoot = Get-PhysicalDirectoryPath -Path ([string]$gitRootLines[-1])
         if (-not [string]::Equals([System.IO.Path]::TrimEndingDirectorySeparator($gitRoot), [System.IO.Path]::TrimEndingDirectorySeparator($root), (Get-ManagedHostComparison))) {

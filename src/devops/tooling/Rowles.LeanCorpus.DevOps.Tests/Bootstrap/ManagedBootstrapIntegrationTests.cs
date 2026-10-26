@@ -885,7 +885,7 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
                 "  echo 'fatal: detected dubious ownership; only the logical checkout path is marked safe' >&2\n" +
                 "  exit 128\n" +
                 "fi\n" +
-                $"exec '{gitPath.Replace("'", "'\\''", StringComparison.Ordinal)}' \"$@\"{Environment.NewLine}";
+                $"GIT_TEST_ASSUME_DIFFERENT_OWNER=1 exec '{gitPath.Replace("'", "'\\''", StringComparison.Ordinal)}' \"$@\"{Environment.NewLine}";
             File.WriteAllText(wrapperPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             File.SetUnixFileMode(wrapperPath,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |

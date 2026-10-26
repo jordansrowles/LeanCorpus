@@ -160,8 +160,7 @@ public sealed class BrowserTestWorkflowContractTests
         Assert.Contains("check-playwright-runtime.ps1", orchardWindows, StringComparison.Ordinal);
         foreach (string containerJob in new[] { orchardLinux, GetJobBlock(workflow, "docs-site") })
         {
-            Assert.Contains("git config --global --add safe.directory \"$GITHUB_WORKSPACE\"", containerJob, StringComparison.Ordinal);
-            Assert.Contains("git -C \"$GITHUB_WORKSPACE\" rev-parse --show-toplevel", containerJob, StringComparison.Ordinal);
+            Assert.Contains("git -c \"safe.directory=$GITHUB_WORKSPACE\" -C \"$GITHUB_WORKSPACE\" rev-parse --show-toplevel", containerJob, StringComparison.Ordinal);
         }
 
         var assignments = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
