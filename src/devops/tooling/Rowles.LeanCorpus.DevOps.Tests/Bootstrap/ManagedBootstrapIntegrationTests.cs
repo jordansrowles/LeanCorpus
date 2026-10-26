@@ -1082,6 +1082,7 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
         startInfo.Environment["PATH"] = pathOverride ?? string.Join(Path.PathSeparator, new[] { checkout.FakeBin, originalPath });
         startInfo.Environment["HOME"] = checkout.FakeHome;
         startInfo.Environment["USERPROFILE"] = checkout.FakeHome;
+        startInfo.Environment["GITHUB_WORKSPACE"] = checkout.Root;
         startInfo.Environment["DOTNET_ROOT"] = DotNetRoot;
         startInfo.Environment["DOTNET_ROOT_X64"] = DotNetRoot;
         startInfo.Environment["LEANCORPUS_BOOTSTRAP_TEST_STUB"] = "1";
