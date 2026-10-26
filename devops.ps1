@@ -456,7 +456,8 @@ if ($LASTEXITCODE -ne 0 -or $gitVersion.Count -eq 0) {
 }
 
 $repositoryRoot = $scriptDirectory
-Assert-LeanCorpusCheckout -RepositoryRoot $repositoryRoot -GitWorkingDirectory $PSScriptRoot
+$gitWorkingDirectory = if ([string]::IsNullOrWhiteSpace($env:GITHUB_WORKSPACE)) { $PSScriptRoot } else { $env:GITHUB_WORKSPACE }
+Assert-LeanCorpusCheckout -RepositoryRoot $repositoryRoot -GitWorkingDirectory $gitWorkingDirectory
 
 $dotnetCommand = Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $dotnetCommand) {

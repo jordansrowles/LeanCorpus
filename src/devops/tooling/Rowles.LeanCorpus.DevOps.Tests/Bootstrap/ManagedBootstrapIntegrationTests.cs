@@ -165,7 +165,7 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
     }
 
     [Fact]
-    public async Task BootstrapUsesTheGitSafeLogicalPathWhenTheScriptDirectoryIsLinked()
+    public async Task BootstrapUsesGitHubWorkspaceForGitSafetyWhenTheScriptPathIsPhysical()
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -178,11 +178,11 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         checkout.InstallGitWrapperForSafeDirectory();
         try
         {
-            var linkedScript = Path.Combine(linkedRoot, "devops.ps1");
             var run = await _fixture.RunScriptAsync(checkout, ["bootstrap"], new Dictionary<string, string?>
             {
-                ["BOOTSTRAP_GIT_SAFE_DIRECTORY"] = linkedRoot
-            }, pathOverride: checkout.FakeBin, scriptPathOverride: linkedScript);
+                ["BOOTSTRAP_GIT_SAFE_DIRECTORY"] = linkedRoot,
+                ["GITHUB_WORKSPACE"] = linkedRoot
+            }, pathOverride: checkout.FakeBin, scriptPathOverride: checkout.ScriptPath);
 
             AssertProcessExitCode(0, run);
             Assert.True(File.Exists(checkout.ExecutablePath));
