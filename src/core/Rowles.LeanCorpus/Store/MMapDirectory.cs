@@ -1,4 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Store;
+﻿using System.Runtime.ExceptionServices;
+
+namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
 /// Primary directory implementation using memory-mapped files for reads
@@ -10,8 +12,9 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     private readonly Lock _trackLock = new();
     private readonly FileLifetimeRegistry.DirectoryState _fileLifetimes;
     private readonly OperationDrain _operations = new();
-    private int _disposeStarted;
+    private int _directoryRegistrationReleaseAttempted;
     private int _directoryRegistrationReleased;
+    private ExceptionDispatchInfo? _directoryRegistrationReleaseFailure;
     private volatile bool _disposed;
 
     /// <inheritdoc/>
@@ -35,6 +38,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     /// <inheritdoc/>
     public override IndexOutput CreateOutput(string fileName)
     {
+        using var operation = _operations.Enter(this);
         ObjectDisposedException.ThrowIf(_disposed, this);
         fileName = ValidateFileName(fileName);
         _fileLifetimes.PrepareForWrite(fileName);
@@ -79,6 +83,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     /// <inheritdoc/>
     public override void DeleteFile(string fileName)
     {
+        using var operation = _operations.Enter(this);
         ObjectDisposedException.ThrowIf(_disposed, this);
         _fileLifetimes.Delete(ValidateFileName(fileName));
     }
@@ -130,22 +135,49 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _disposeStarted, 1) == 0)
-            _disposed = true;
-        _operations.BeginDisposeAndWait();
-        lock (_trackLock)
+        _disposed = true;
+        if (!_operations.BeginDisposeAndWaitForCompletion())
+            return;
+
+        try
         {
-            foreach (var weakRef in _trackedInputs)
+            List<Exception>? failures = null;
+            lock (_trackLock)
             {
-                if (weakRef.TryGetTarget(out var input))
-                    input.Dispose();
+                foreach (var weakRef in _trackedInputs)
+                {
+                    if (!weakRef.TryGetTarget(out var input))
+                        continue;
+
+                    try
+                    {
+                        input.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        (failures ??= []).Add(exception);
+                    }
+                }
+
+                _trackedInputs.RemoveAll(reference => !reference.TryGetTarget(out var input) || input.ResourcesReleased);
+                if (_trackedInputs.Count > 0 && failures is null)
+                    (failures ??= []).Add(new InvalidOperationException("Tracked mapped inputs remain after disposal completed."));
+                System.Diagnostics.Debug.Assert(_trackedInputs.Count == 0, "Successful input disposal must release every tracked mapping.");
             }
-            _trackedInputs.RemoveAll(reference => !reference.TryGetTarget(out var input) || input.ResourcesReleased);
-            if (_trackedInputs.Count > 0)
-                throw new IOException("Mapped input cleanup has not completed.");
+
+            if (failures is { Count: 1 })
+                ExceptionDispatchInfo.Capture(failures[0]).Throw();
+            if (failures is { Count: > 1 })
+                ExceptionDispatchInfo.Capture(new AggregateException("One or more mapped inputs failed to close.", failures)).Throw();
+
+            ReleaseDirectoryRegistration();
+            _operations.CompleteDisposalSuccessfully();
         }
-        if (Interlocked.Exchange(ref _directoryRegistrationReleased, 1) == 0)
-            FileLifetimeRegistry.ReleaseDirectory(_fileLifetimes);
+        catch (Exception exception)
+        {
+            _operations.CompleteDisposalWithFailure(exception);
+            ExceptionDispatchInfo.Capture(exception).Throw();
+        }
     }
 
     internal (int Inputs, int MappedViews) GetOwnedResourceSnapshot()
@@ -186,6 +218,7 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
 
     internal FileSnapshotLease AcquireSnapshot(IReadOnlyCollection<string> fileNames)
     {
+        using var operation = _operations.Enter(this);
         ObjectDisposedException.ThrowIf(_disposed, this);
         return _fileLifetimes.AcquireSnapshot(fileNames);
     }
@@ -194,8 +227,33 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
         Func<string, bool> includeFile,
         out string[] inventory)
     {
+        using var operation = _operations.Enter(this);
         ObjectDisposedException.ThrowIf(_disposed, this);
         return _fileLifetimes.AcquireSnapshot(includeFile, out inventory);
+    }
+
+    private void ReleaseDirectoryRegistration()
+    {
+        if (Volatile.Read(ref _directoryRegistrationReleased) != 0)
+            return;
+
+        if (Interlocked.CompareExchange(ref _directoryRegistrationReleaseAttempted, 1, 0) == 0)
+        {
+            try
+            {
+                FileLifetimeRegistry.ReleaseDirectory(_fileLifetimes);
+                Volatile.Write(ref _directoryRegistrationReleased, 1);
+                return;
+            }
+            catch (Exception exception)
+            {
+                _directoryRegistrationReleaseFailure = ExceptionDispatchInfo.Capture(exception);
+                _directoryRegistrationReleaseFailure.Throw();
+                return;
+            }
+        }
+
+        _directoryRegistrationReleaseFailure!.Throw();
     }
 
     private static string ValidateFileName(string fileName)

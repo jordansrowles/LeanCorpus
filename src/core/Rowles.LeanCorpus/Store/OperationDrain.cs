@@ -1,3 +1,5 @@
+using System.Runtime.ExceptionServices;
+
 namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
@@ -12,6 +14,8 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
 
     private readonly object _waitLock = new();
     private int _state;
+    private DisposalCompletionState _disposalCompletion;
+    private ExceptionDispatchInfo? _disposalFailure;
     internal int ActiveCount => Volatile.Read(ref _state) & int.MaxValue;
 
     internal Scope Enter(object owner)
@@ -57,6 +61,74 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
     internal bool BeginDisposeAndWait(TimeSpan timeout)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(timeout, Timeout.InfiniteTimeSpan);
+        RequestDispose();
+
+        return WaitForActiveOperations(timeout);
+    }
+
+    /// <summary>
+    /// Closes admission, drains active operations and grants exactly one caller the
+    /// cleanup work. Calls that overlap a failed cleanup receive its same failure;
+    /// a later call may retry the unfinished cleanup.
+    /// </summary>
+    internal bool BeginDisposeAndWaitForCompletion()
+    {
+        RequestDispose();
+        bool waited = false;
+
+        lock (_waitLock)
+        {
+            while (Volatile.Read(ref _state) != DisposeRequested)
+            {
+                waited = true;
+                Monitor.Wait(_waitLock);
+            }
+
+            while (_disposalCompletion == DisposalCompletionState.Running)
+            {
+                waited = true;
+                Monitor.Wait(_waitLock);
+            }
+
+            if (_disposalCompletion == DisposalCompletionState.Succeeded)
+                return false;
+
+            if (_disposalCompletion == DisposalCompletionState.Faulted && waited)
+            {
+                _disposalFailure!.Throw();
+                return false;
+            }
+
+            _disposalFailure = null;
+            _disposalCompletion = DisposalCompletionState.Running;
+            return true;
+        }
+    }
+
+    internal void CompleteDisposalSuccessfully()
+    {
+        lock (_waitLock)
+        {
+            _disposalFailure = null;
+            _disposalCompletion = DisposalCompletionState.Succeeded;
+            Monitor.PulseAll(_waitLock);
+        }
+    }
+
+    internal void CompleteDisposalWithFailure(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        ExceptionDispatchInfo failure = ExceptionDispatchInfo.Capture(exception);
+        lock (_waitLock)
+        {
+            _disposalFailure = failure;
+            _disposalCompletion = DisposalCompletionState.Faulted;
+            Monitor.PulseAll(_waitLock);
+        }
+    }
+
+    private void RequestDispose()
+    {
         while (true)
         {
             int state = Volatile.Read(ref _state);
@@ -65,7 +137,10 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
             if (Interlocked.CompareExchange(ref _state, state | DisposeRequested, state) == state)
                 break;
         }
+    }
 
+    private bool WaitForActiveOperations(TimeSpan timeout)
+    {
         if (Volatile.Read(ref _state) == DisposeRequested)
             return true;
 
@@ -115,6 +190,14 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
         internal Scope(OperationDrain owner) => _owner = owner;
 
         public void Dispose() => Interlocked.Exchange(ref _owner, null)?.Exit();
+    }
+
+    private enum DisposalCompletionState : byte
+    {
+        NotStarted,
+        Running,
+        Succeeded,
+        Faulted
     }
 }
 
