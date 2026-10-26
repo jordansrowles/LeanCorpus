@@ -538,14 +538,24 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         if (Volatile.Read(ref _draining) != 0)
             return Success(start.Context, new HealthResponse(false, "draining", observedUtc, [], "server is draining."));
 
-        (IReadOnlyList<IndexHealthSummary> indices, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
-        string status = hasUnusable ? "unhealthy" : hasDegraded ? "degraded" : "healthy";
-        string? reason = hasUnusable
-            ? "One or more indexes are unusable."
-            : hasDegraded
-                ? "One or more indexes are degraded; previously committed reads remain available."
-                : null;
-        return Success(start.Context, new HealthResponse(status == "healthy", status, observedUtc, indices, reason));
+        if (!TryEnterOperation())
+            return Success(start.Context, new HealthResponse(false, "draining", observedUtc, [], "server is draining."));
+
+        try
+        {
+            (IReadOnlyList<IndexHealthSummary> indices, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
+            string status = hasUnusable ? "unhealthy" : hasDegraded ? "degraded" : "healthy";
+            string? reason = hasUnusable
+                ? "One or more indexes are unusable."
+                : hasDegraded
+                    ? "One or more indexes are degraded; previously committed reads remain available."
+                    : null;
+            return Success(start.Context, new HealthResponse(status == "healthy", status, observedUtc, indices, reason));
+        }
+        finally
+        {
+            ExitOperation();
+        }
     }
 
     /// <inheritdoc />
@@ -559,14 +569,24 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         if (Volatile.Read(ref _draining) != 0)
             return Success(start.Context, new ReadinessResponse(false, "draining", DateTimeOffset.UtcNow, "server is draining."));
 
-        (IReadOnlyList<IndexHealthSummary> _, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
-        if (hasUnusable)
-            return Success(start.Context, new ReadinessResponse(false, "unhealthy", DateTimeOffset.UtcNow, "One or more indexes are unusable."));
+        if (!TryEnterOperation())
+            return Success(start.Context, new ReadinessResponse(false, "draining", DateTimeOffset.UtcNow, "server is draining."));
 
-        // Degraded indexes remain ready because previously committed reads are
-        // still available. An unusable index is the readiness boundary.
-        return Success(start.Context, new ReadinessResponse(true, "ready", DateTimeOffset.UtcNow,
-            hasDegraded ? "One or more indexes are degraded; writes may be unavailable." : null));
+        try
+        {
+            (IReadOnlyList<IndexHealthSummary> _, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
+            if (hasUnusable)
+                return Success(start.Context, new ReadinessResponse(false, "unhealthy", DateTimeOffset.UtcNow, "One or more indexes are unusable."));
+
+            // Degraded indexes remain ready because previously committed reads are
+            // still available. An unusable index is the readiness boundary.
+            return Success(start.Context, new ReadinessResponse(true, "ready", DateTimeOffset.UtcNow,
+                hasDegraded ? "One or more indexes are degraded; writes may be unavailable." : null));
+        }
+        finally
+        {
+            ExitOperation();
+        }
     }
 
     /// <summary>Disposes all local index resources.</summary>
@@ -579,6 +599,8 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
             lock (_operationLock)
                 Volatile.Write(ref _draining, 1);
             if (!_operationsDrained.Wait(_options.ShutdownTimeout))
+                // Retain physical ownership on timeout. Callers may retry disposal
+                // after admitted operations finish; this is not a successful close.
                 throw new TimeoutException("Server shutdown is still draining admitted requests. Physical ownership is retained; retry disposal after those requests finish.");
             _registry.Dispose();
             Volatile.Write(ref _disposed, 1);

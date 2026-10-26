@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Reflection;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Documents;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
@@ -163,6 +164,7 @@ public sealed class LocalServerCoreTests
             await authorisation.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             await Assert.ThrowsAsync<TimeoutException>(() => Task.Run(server.Dispose, TestContext.Current.CancellationToken));
             Assert.Equal("draining", (await server.GetReadinessAsync(TestContext.Current.CancellationToken)).Value!.Status);
+            Assert.Equal("draining", (await server.GetHealthAsync(TestContext.Current.CancellationToken)).Value!.Status);
             Assert.Throws<IOException>(() => File.Open(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None).Dispose());
             authorisation.Release();
             await pending.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
@@ -213,6 +215,7 @@ public sealed class LocalServerCoreTests
             Assert.NotNull(readiness);
             Assert.False(readiness!.IsReady);
             Assert.Equal("draining", readiness.Status);
+            Assert.Equal("draining", (await server.GetHealthAsync(TestContext.Current.CancellationToken)).Value!.Status);
             authorisation.Release();
             await pending.WaitAsync(TestContext.Current.CancellationToken);
             await stopping.WaitAsync(TestContext.Current.CancellationToken);
@@ -263,6 +266,58 @@ public sealed class LocalServerCoreTests
 
             if (cleanupFailure is not null && testFailure is null)
                 throw cleanupFailure;
+        }
+    }
+
+    [Fact]
+    public async Task HealthInspectionOverlappingShutdown_DrainsBeforeRegistryClose() =>
+        await AssertHealthReadDrainsBeforeRegistryCloseAsync(server => server.GetHealthAsync().AsTask());
+
+    [Fact]
+    public async Task ReadinessInspectionOverlappingShutdown_DrainsBeforeRegistryClose() =>
+        await AssertHealthReadDrainsBeforeRegistryCloseAsync(server => server.GetReadinessAsync().AsTask());
+
+    [Fact]
+    public async Task HealthAuthenticationFailureDoesNotLeakOperationAdmission()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-auth-failure-{Guid.NewGuid():N}");
+        LocalServerCore server = await LocalServerCore.OpenAsync(
+            new ServerCoreOptions { DataRoot = root },
+            ServerPortSet.Community with { Authentication = new ThrowingAuthenticationProvider() });
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => server.GetHealthAsync().AsTask());
+            Assert.Equal(0, GetPrivateInt(server, "_activeOperations"));
+        }
+        finally
+        {
+            server.Dispose();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task ReadinessAuthenticationCancellationDoesNotLeakOperationAdmission()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-readiness-auth-cancel-{Guid.NewGuid():N}");
+        var authentication = new BlockingAuthenticationProvider();
+        LocalServerCore server = await LocalServerCore.OpenAsync(
+            new ServerCoreOptions { DataRoot = root },
+            ServerPortSet.Community with { Authentication = authentication });
+        using var cancellation = new CancellationTokenSource();
+        try
+        {
+            Task<ServiceResult<ReadinessResponse>> readiness = server.GetReadinessAsync(cancellation.Token).AsTask();
+            await authentication.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => readiness);
+            Assert.Equal(0, GetPrivateInt(server, "_activeOperations"));
+        }
+        finally
+        {
+            authentication.Release();
+            server.Dispose();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
         }
     }
 
@@ -710,6 +765,57 @@ public sealed class LocalServerCoreTests
         topology,
         new MutableIndexSettings(null, null, "content", null));
 
+    private static async Task AssertHealthReadDrainsBeforeRegistryCloseAsync(Func<LocalServerCore, Task> inspect)
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-read-drain-{Guid.NewGuid():N}");
+        LocalServerCore server = await LocalServerCore.OpenAsync(
+            new ServerCoreOptions { DataRoot = root, ShutdownTimeout = TimeSpan.FromSeconds(5) });
+        object entriesLock = GetPrivateField(GetPrivateField(server, "_registry"), "_entries");
+        Task? inspection = null;
+        Task? stopping = null;
+        Monitor.Enter(entriesLock);
+        try
+        {
+            inspection = Task.Factory.StartNew(
+                () => inspect(server),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap();
+            Assert.True(SpinWait.SpinUntil(
+                () => GetPrivateInt(server, "_activeOperations") > 0,
+                TimeSpan.FromSeconds(5)),
+                "The health/readiness registry read was not admitted as an operation.");
+
+            stopping = Task.Factory.StartNew(
+                server.Dispose,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            Assert.True(SpinWait.SpinUntil(
+                () => GetPrivateInt(server, "_draining") != 0,
+                TimeSpan.FromSeconds(5)),
+                "Shutdown did not close operation admission.");
+            Assert.False(stopping.IsCompleted,
+                "Shutdown completed while a health/readiness registry read was still admitted.");
+        }
+        finally
+        {
+            Monitor.Exit(entriesLock);
+            if (inspection is not null)
+                await inspection.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            if (stopping is not null)
+                await stopping.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            server.Dispose();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    private static object GetPrivateField(object instance, string fieldName) =>
+        instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(instance)!;
+
+    private static int GetPrivateInt(object instance, string fieldName) =>
+        (int)GetPrivateField(instance, fieldName);
+
     private static async Task WriteDocument(LocalServerCore server, string id, string content, bool refresh)
     {
         using JsonDocument document = JsonDocument.Parse(JsonSerializer.Serialize(new { content }));
@@ -758,5 +864,27 @@ public sealed class LocalServerCoreTests
         }
 
         private static TaskCompletionSource NewCompletion() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class ThrowingAuthenticationProvider : IAuthenticationProvider
+    {
+        public ValueTask<AuthenticationResult> AuthenticateAsync(AuthenticationRequest request, CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("injected authentication failure");
+    }
+
+    private sealed class BlockingAuthenticationProvider : IAuthenticationProvider
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal void Release() => _release.TrySetResult();
+
+        public async ValueTask<AuthenticationResult> AuthenticateAsync(AuthenticationRequest request, CancellationToken cancellationToken = default)
+        {
+            Entered.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return new AuthenticationResult(CallerIdentity.Anonymous, false);
+        }
     }
 }
