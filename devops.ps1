@@ -50,7 +50,7 @@ function Assert-LeanCorpusCheckout {
     }
 
     if ($isGitDirectory -or $isGitFile) {
-        $gitRootLines = @(& $script:GitCommand.Source -C $GitWorkingDirectory -c "safe.directory=$GitWorkingDirectory" rev-parse --show-toplevel 2>&1)
+        $gitRootLines = @(& $script:GitCommand.Source -C $GitWorkingDirectory -c "safe.directory=$root" rev-parse --show-toplevel 2>&1)
         $gitExitCode = $LASTEXITCODE
         if ($gitExitCode -ne 0 -or $gitRootLines.Count -eq 0) {
             $gitOutput = [string]::Join([System.Environment]::NewLine, [string[]]@($gitRootLines | ForEach-Object { [string]$_ }))

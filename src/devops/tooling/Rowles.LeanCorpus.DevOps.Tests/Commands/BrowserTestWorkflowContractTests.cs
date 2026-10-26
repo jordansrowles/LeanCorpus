@@ -160,6 +160,7 @@ public sealed class BrowserTestWorkflowContractTests
         Assert.Contains("check-playwright-runtime.ps1", orchardWindows, StringComparison.Ordinal);
         foreach (string containerJob in new[] { orchardLinux, GetJobBlock(workflow, "docs-site") })
         {
+            Assert.Contains("git config --global --add safe.directory \"$GITHUB_WORKSPACE\"", containerJob, StringComparison.Ordinal);
             Assert.Contains("git -c \"safe.directory=$GITHUB_WORKSPACE\" -C \"$GITHUB_WORKSPACE\" rev-parse --show-toplevel", containerJob, StringComparison.Ordinal);
         }
 
@@ -263,7 +264,7 @@ public sealed class BrowserTestWorkflowContractTests
 
     private static string[] GetFrameworkMatrix(string job)
     {
-        var match = Regex.Match(job, "(?m)^        framework: \\[(?<values>[^\\]]+)\\]$", RegexOptions.CultureInvariant);
+        var match = Regex.Match(job, "(?m)^        framework: \\[(?<values>[^\\]]+)\\]\\r?$", RegexOptions.CultureInvariant);
         Assert.True(match.Success, "Browser job is missing the full framework matrix.");
         return match.Groups["values"].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }

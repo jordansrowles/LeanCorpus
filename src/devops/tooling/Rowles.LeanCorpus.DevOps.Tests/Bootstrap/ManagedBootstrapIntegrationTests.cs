@@ -181,6 +181,7 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
             var run = await _fixture.RunScriptAsync(checkout, ["bootstrap"], new Dictionary<string, string?>
             {
                 ["BOOTSTRAP_GIT_SAFE_DIRECTORY"] = linkedRoot,
+                ["BOOTSTRAP_GIT_CANONICAL_SAFE_DIRECTORY"] = checkout.Root,
                 ["GITHUB_WORKSPACE"] = linkedRoot
             }, pathOverride: checkout.FakeBin, scriptPathOverride: checkout.ScriptPath);
 
@@ -881,8 +882,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
             var gitPath = ManagedBootstrapTestFixture.FindExecutable("git");
             var wrapperPath = Path.Combine(FakeBin, "git");
             var content = $"#!/bin/sh{Environment.NewLine}" +
-                "if [ \"$1\" = \"-C\" ] && [ \"$2\" != \"$BOOTSTRAP_GIT_SAFE_DIRECTORY\" ]; then\n" +
-                "  echo 'fatal: detected dubious ownership; only the logical checkout path is marked safe' >&2\n" +
+                "if [ \"$1\" = \"-C\" ] && { [ \"$2\" != \"$BOOTSTRAP_GIT_SAFE_DIRECTORY\" ] || [ \"$3\" != \"-c\" ] || [ \"$4\" != \"safe.directory=$BOOTSTRAP_GIT_CANONICAL_SAFE_DIRECTORY\" ]; }; then\n" +
+                "  echo 'fatal: managed bootstrap did not pair the logical workspace with its canonical safe directory' >&2\n" +
                 "  exit 128\n" +
                 "fi\n" +
                 $"GIT_TEST_ASSUME_DIFFERENT_OWNER=1 exec '{gitPath.Replace("'", "'\\''", StringComparison.Ordinal)}' \"$@\"{Environment.NewLine}";
