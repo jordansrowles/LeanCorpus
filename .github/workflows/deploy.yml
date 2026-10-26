@@ -37,7 +37,7 @@ jobs:
       - name: Resolve successful Build run
         id: source
         shell: pwsh
-        run: node scripts/devops/validation/resolve-docs-deployment-run.mjs
+        run: node .github/scripts/docs/resolve-docs-deployment-run.mjs
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GH_API_URL: ${{ github.api_url }}

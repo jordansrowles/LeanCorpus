@@ -3,8 +3,7 @@
     "path": "../Rowles.LeanCorpus.slnx",
     "projects": [
       "core/Rowles.Text/Rowles.Text.csproj",
-      "devops/tests/Rowles.Text.Tests/Rowles.Text.Tests.csproj",
-      "examples/Rowles.Text.Example.Tokenise/Rowles.Text.Example.Tokenise.csproj"
+      "devops/tests/Rowles.Text.Tests/Rowles.Text.Tests.csproj"
     ]
   }
 }

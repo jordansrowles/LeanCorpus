@@ -52,7 +52,7 @@ internal static class ManagedHostFingerprint
 
         if (!File.Exists(manifestPath))
         {
-            return $"The managed DevOps executable '{executable}' has no promotion manifest at '{manifestPath}'. Run `pwsh ./setup.ps1` to publish it.";
+            return $"The managed DevOps executable '{executable}' has no promotion manifest at '{manifestPath}'. Run `pwsh ./devops.ps1 bootstrap` to publish it.";
         }
 
         try
@@ -66,13 +66,13 @@ internal static class ManagedHostFingerprint
             var currentSources = GetSourceEntries(root);
             if (!string.Equals(manifest.SourceFingerprint, ComputeSourceFingerprint(currentSources), StringComparison.Ordinal) || !SourceEntriesEqual(manifest.SourceFiles, currentSources))
             {
-                return "The managed DevOps apphost is stale because its source inputs changed. Run `pwsh ./setup.ps1` to rebuild it.";
+                return "The managed DevOps apphost is stale because its source inputs changed. Run `pwsh ./devops.ps1 bootstrap` to rebuild it.";
             }
 
             var executableHash = HashFile(executable);
             if (!string.Equals(manifest.ExecutableSha256, executableHash, StringComparison.Ordinal))
             {
-                return "The managed DevOps executable does not match its promotion manifest. Run `pwsh ./setup.ps1` to rebuild it.";
+                return "The managed DevOps executable does not match its promotion manifest. Run `pwsh ./devops.ps1 bootstrap` to rebuild it.";
             }
 
             return null;

@@ -6,6 +6,8 @@ internal sealed record PackageConsumerProjectFiles(string ProjectPath, string Pr
 
 internal static class PackageConsumerProjectWriter
 {
+    private const string AssetResourcePrefix = "Rowles.LeanCorpus.DevOps.Packaging.Assets.";
+
     public static PackageConsumerProjectFiles Write(
         string repositoryRoot,
         string scenarioDirectory,
@@ -17,15 +19,8 @@ internal static class PackageConsumerProjectWriter
         ArgumentNullException.ThrowIfNull(scenario);
         ArgumentNullException.ThrowIfNull(packageIndex);
 
-        var packagingDirectory = Path.Combine(repositoryRoot, "scripts", "devops", "packaging");
-        var projectTemplatePath = Path.Combine(packagingDirectory, "Consumer.csproj.template");
-        if (!File.Exists(projectTemplatePath))
-        {
-            throw new FileNotFoundException("Package consumer project template is missing.", projectTemplatePath);
-        }
-
         var references = BuildPackageReferences(repositoryRoot, scenario, packageIndex);
-        var projectXml = File.ReadAllText(projectTemplatePath)
+        var projectXml = ReadEmbeddedAsset("Consumer.csproj.template")
             .Replace("SDK_NAME", scenario.Sdk, StringComparison.Ordinal)
             .Replace("FRAMEWORK", scenario.Framework, StringComparison.Ordinal)
             .Replace("EXTRA_PROPERTIES", scenario.ExtraProperties, StringComparison.Ordinal)
@@ -41,7 +36,7 @@ internal static class PackageConsumerProjectWriter
             throw new InvalidDataException("SourceGen consumer must reference the generator as a private analyser dependency.");
         }
 
-        var source = ReadScenarioSource(packagingDirectory, scenario, packageIndex);
+        var source = ReadScenarioSource(scenario, packageIndex);
         Directory.CreateDirectory(scenarioDirectory);
         var projectPath = Path.Combine(scenarioDirectory, "Consumer.csproj");
         var programPath = Path.Combine(scenarioDirectory, "Program.cs");
@@ -111,23 +106,13 @@ internal static class PackageConsumerProjectWriter
         throw new InvalidDataException($"No centrally managed external package version is declared for {packageId}.");
     }
 
-    private static string ReadScenarioSource(string packagingDirectory, ConsumerScenario scenario, PackageManifestIndex packageIndex)
+    private static string ReadScenarioSource(ConsumerScenario scenario, PackageManifestIndex packageIndex)
     {
         if (scenario.RuntimeKind != "compression")
         {
-            var sourcePath = Path.Combine(packagingDirectory, "consumer-sources", scenario.Kind + ".cs");
-            if (!File.Exists(sourcePath))
-            {
-                throw new FileNotFoundException($"Package consumer source fixture is missing for '{scenario.Kind}'.", sourcePath);
-            }
-            return File.ReadAllText(sourcePath);
+            return ReadEmbeddedAsset($"ConsumerSources.{scenario.Kind}.cs.txt");
         }
 
-        var templatePath = Path.Combine(packagingDirectory, "Program.cs.template");
-        if (!File.Exists(templatePath))
-        {
-            throw new FileNotFoundException("Compression consumer program template is missing.", templatePath);
-        }
         var codec = scenario.PackageId.Split('.').Last();
         if (!packageIndex.Packages.TryGetValue(scenario.CorePackageId, out var core) || !packageIndex.Packages.TryGetValue(scenario.PackageId, out var optional))
         {
@@ -137,12 +122,21 @@ internal static class PackageConsumerProjectWriter
         var optionalAssemblyVersion = GetAssemblyVersion(optional.Version);
         var registration = codec == "LZ4" ? "Lz4Compression" : codec + "Compression";
         var policy = codec == "LZ4" ? "Lz4" : codec;
-        return File.ReadAllText(templatePath)
+        return ReadEmbeddedAsset("Program.cs.template")
             .Replace("CORE_ASSEMBLY_VERSION", coreAssemblyVersion, StringComparison.Ordinal)
             .Replace("OPTIONAL_ASSEMBLY_VERSION", optionalAssemblyVersion, StringComparison.Ordinal)
             .Replace("CODEC", codec, StringComparison.Ordinal)
             .Replace("REGISTRATION", registration, StringComparison.Ordinal)
             .Replace("POLICY", policy, StringComparison.Ordinal);
+    }
+
+    private static string ReadEmbeddedAsset(string assetName)
+    {
+        var resourceName = AssetResourcePrefix + assetName;
+        using var stream = typeof(PackageConsumerProjectWriter).Assembly.GetManifestResourceStream(resourceName)
+            ?? throw new FileNotFoundException($"Managed package consumer asset '{assetName}' is missing from the DevOps host.", resourceName);
+        using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
     }
 
     private static string GetAssemblyVersion(string packageVersion)

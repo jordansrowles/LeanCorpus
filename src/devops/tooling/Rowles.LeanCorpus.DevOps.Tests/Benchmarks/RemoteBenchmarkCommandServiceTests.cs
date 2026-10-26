@@ -33,9 +33,11 @@ public sealed class RemoteBenchmarkCommandServiceTests
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         Assert.NotNull(remoteRecord);
         Assert.Equal("running", remoteRecord.State);
+        Assert.Equal("issue-97", remoteRecord.Branch);
         Assert.Equal("remote-commit", remoteRecord.RemoteSourceCommit);
 
         var startScript = Assert.IsType<string>(Assert.Single(processRunner.Requests).StandardInputText);
+        Assert.Contains("branch='issue-97'", startScript, StringComparison.Ordinal);
         Assert.Contains("devops\" benchmark", startScript, StringComparison.Ordinal);
         Assert.Contains("'--filter' '*Term Query*'", startScript, StringComparison.Ordinal);
         Assert.Contains("'\"'\"'", startScript, StringComparison.Ordinal);
@@ -86,6 +88,7 @@ public sealed class RemoteBenchmarkCommandServiceTests
         Assert.NotNull(remoteRecord);
         Assert.Equal("unknown", remoteRecord.State);
         Assert.False(remoteRecord.RemoteTerminationConfirmed);
+        Assert.Contains("ssh disconnected", remoteRecord.Failure, StringComparison.Ordinal);
     }
 
     private sealed class RecordingProcessRunner(IReadOnlyList<string> states, OutcomeKind outcome = OutcomeKind.Success) : IProcessRunner

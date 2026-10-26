@@ -31,11 +31,13 @@ is added or moved, update the master and each relevant filter, then run the
 managed solution-inventory validation. It compares Git-tracked `src/**/*.csproj`
 paths with the master and checks that every filter points back to that master
 and selects only projects listed there. It reports drift without rewriting files.
+The tracked inventory reflects project files currently present in the working
+tree, so a deliberate removal can be validated before it is staged.
 
 | Filter | Direct projects |
 | --- | --- |
 | `core` | Core, the three compression packages, Core tests and shared test support |
-| `text` | Rowles.Text, its tests and the tokenisation example |
+| `text` | Rowles.Text and its tests |
 | `sourcegen` | Source generator and its tests |
 | `server` | Server abstractions, Core, transports, local host, Studio and non-Orchard Server tests |
 | `orchard` | Orchard provider, provider tests, test host, test module and functional tests |
@@ -43,5 +45,5 @@ and selects only projects listed there. It reports drift without rewriting files
 | `dataforge` | DataForge library, workloads, tool and tests |
 | `benchmarks` | Core, Text, compression, profiling and benchmark workload projects |
 | `aot` | Native AOT smoke test project; publishing and execution remain explicit DevOps commands |
-| `examples` | All examples, including the Text tokeniser and Linux kernel code-search example |
+| `examples` | The retained Linux kernel code-search workload |
 | `tests` | All Core, Text, source-generator, architecture, docs, Server and Orchard test projects |

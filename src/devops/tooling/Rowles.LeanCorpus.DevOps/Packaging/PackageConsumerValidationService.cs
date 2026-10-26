@@ -117,7 +117,7 @@ internal sealed class PackageConsumerValidationService(
             sourceCommit = packageIndex.SourceCommit;
             var externalSources = await GetExternalSourcesAsync(request.Checkout.RepositoryRoot, runDirectory, childExitCodes, cancellationToken).ConfigureAwait(false);
             var packagePolicy = PackagePolicyReader.Read(
-                Path.Combine(request.Checkout.RepositoryRoot, "scripts", "devops", "packaging", "package-policy.json"),
+                Path.Combine(request.Checkout.RepositoryRoot, ".config", "devops", "package-policy.json"),
                 request.Checkout.RepositoryRoot);
             var policyEntries = request.Scope == "compression"
                 ? packagePolicy.Packages.Where(entry => entry.PackageGroups.Contains(packagePolicy.CompressionContract.PackageGroup, StringComparer.Ordinal)).ToArray()

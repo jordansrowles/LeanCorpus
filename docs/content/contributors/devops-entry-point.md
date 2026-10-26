@@ -1,23 +1,25 @@
 # DevOps entry point
 
-Run `pwsh -NoProfile -File ./setup.ps1` after cloning or when the managed host
-needs rebuilding. It restores the pinned repository tools, restores and builds
-the managed DevOps test-project graph, independently verifies the host's
-multi-RID lock, runs the compiled test apphost, then publishes and validates a
-current-RID single-file executable at the repository root. Setup builds the
-DevOps test project graph directly, so the host bootstraps without first
-building the full product solution. The complete project inventory is
-`src/Rowles.LeanCorpus.slnx`; focused build entry points are under
+Run `pwsh -NoProfile -File ./devops.ps1 bootstrap` after cloning or when the
+managed host is missing or stale. This explicit command restores the pinned
+repository tools, restores and builds the managed DevOps test-project graph,
+independently verifies the host's multi-RID lock, runs the compiled test
+apphost, then publishes and validates a current-RID single-file executable at
+the repository root. Bootstrap builds the DevOps test project graph directly,
+so the host is ready without first building the full product solution. Normal
+commands never restore, build or test implicitly. The complete project
+inventory is `src/Rowles.LeanCorpus.slnx`; focused build entry points are under
 `src/solutions/`.
 
 On Linux and macOS, `./devops` is that generated managed apphost. On Windows,
 use `./devops.exe`. Every supported command runs through the managed host.
-`devops.ps1` remains a thin compatibility shim: it checks the host fingerprint
-and forwards arguments without importing the retired PowerShell command
-application. Workflows call the managed host directly. `setup.ps1` is the
-separate repository bootstrap. A missing or stale managed host is a setup
-error; a managed command failure never falls back to PowerShell. The apphost
-supports documentation, local/affected and SSH/tmux benchmark runs, DataForge
+`devops.ps1` is the maintained PowerShell entry point: it checks the host
+fingerprint and forwards arguments without importing the retired PowerShell
+command application. `bootstrap` is its sole reserved verb. Workflows call the
+managed host directly after bootstrap. A missing or stale managed host refuses
+dispatch and prints the bootstrap command; a managed command failure never
+falls back to PowerShell. The apphost supports documentation, local/affected
+and SSH/tmux benchmark runs, DataForge
 generation/reference commands and qualification, diagnostics, reporting,
 packaging and distribution.
 
@@ -47,7 +49,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `benchmark` | Managed apphost: local and affected BenchmarkDotNet suites plus remote SSH/tmux lifecycle | `./devops benchmark --list` |
 | `config validate` | Validate managed metadata without building; `--deep` compares already-built benchmark host manifests; `--solution-inventory` checks tracked projects and solution filters | `./devops config validate --solution-inventory` |
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
-| `data` | Managed: prepare benchmark datasets and migration fixtures | `./devops data gutenberg --book-count 200` |
+| `data` | Managed: prepare benchmark datasets and generate pinned historical fixtures | `./devops data gutenberg --book-count 200`; `./devops data fixtures --list` |
 | `dataforge` | Managed apphost: run DataForge generation, reference and qualification commands | `./devops dataforge qualify` |
 | `docs` | Managed: prepare inputs, generate API metadata, build, validate or serve DocFX | `./devops docs build --skip-benchmarks` |
 | `server start` | Managed: start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
@@ -57,8 +59,8 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `report` | Managed: report repository history, tracked files or code health; `--json` writes a versioned evidence envelope | `./devops report git --json` |
 | `ui` | Managed apphost: open the interactive Spectre.Console workbench | `./devops ui` |
 
-Use `pwsh -NoProfile -File ./setup.ps1` to restore tools and publish the
-managed host. There is no `devops setup` command.
+Use `pwsh -NoProfile -File ./devops.ps1 bootstrap` to restore tools and publish
+the managed host. There is no `devops setup` command.
 
 The optional workbench is included in the managed apphost and uses the managed
 command services.
@@ -198,6 +200,13 @@ flowchart LR
 `--dry` prints the resolved managed command plan. Use it when changing routing
 or investigating a local invocation.
 
+The bounded manual benchmark workflow collects run reports and shard exits,
+then calls `benchmark qualification-summary`. Pass the expected report count
+from the plan, including its smoke run; `--plan-only` writes a schema-v1 summary
+without requiring completed runs. The summary records run qualification and
+failure reason codes, keeps comparative values unpublished, and exits non-zero
+when the expected reports or shard results are incomplete.
+
 `benchmark affected` reads staged, modified, renamed and untracked paths from
 the current checkout, matches the existing benchmark group map, and records
 the selected paths and groups with the run. It refuses an empty selection.
@@ -260,8 +269,8 @@ Generated repository copies, API, site, benchmark, and coverage output must rema
 ## Tool discovery
 
 The documentation workflow uses the repository-pinned DocFX tool restored by
-`pwsh -NoProfile -File ./setup.ps1`. Coverage reports use the repository-pinned
-ReportGenerator tool restored by the same bootstrap.
+`pwsh -NoProfile -File ./devops.ps1 bootstrap`. Coverage reports use the
+repository-pinned ReportGenerator tool restored by the same bootstrap.
 
 The current DocFX tool release bundles its own frontend dependencies. The documentation diagram pipeline separately pins authoring dependencies under `docs/site-config/diagrams` where a version must be controlled by the repository.
 
@@ -288,7 +297,7 @@ tasks that are not command routes.
 
 `.github/workflows/build.yml` is the required validation contract. The DevOps entry point and CI should use equivalent commands where practical, but local-only diagnostics and expensive repeated benchmarks should remain opt-in unless they are intentionally promoted to merge validation.
 
-CI bootstraps the checked-out DevOps host with `setup.ps1` and invokes the root apphost directly for product builds, tests, AOT, diagnostics, `report all`, package archive validation, package consumers and the manual benchmark workflow.
+CI bootstraps the checked-out DevOps host with `pwsh -NoProfile -File ./devops.ps1 bootstrap` and invokes the root apphost directly for product builds, tests, AOT, diagnostics, `report all`, package archive validation, package consumers and the manual benchmark workflow.
 
 When changing routing, inspect both local callers and workflow callers before removing an option or alias.
 

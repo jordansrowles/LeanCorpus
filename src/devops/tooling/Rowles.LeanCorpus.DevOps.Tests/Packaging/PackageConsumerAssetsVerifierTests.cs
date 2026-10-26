@@ -53,9 +53,9 @@ public sealed class PackageConsumerAssetsVerifierTests
     {
         for (var directory = new DirectoryInfo(Environment.CurrentDirectory); directory is not null; directory = directory.Parent)
         {
-            if (!File.Exists(Path.Combine(directory.FullName, "scripts/devops/packaging/package-policy.json")))
+            if (!File.Exists(Path.Combine(directory.FullName, ".config/devops/package-policy.json")))
                 continue;
-            var policy = PackagePolicyReader.Read(Path.Combine(directory.FullName, "scripts/devops/packaging/package-policy.json"), directory.FullName);
+            var policy = PackagePolicyReader.Read(Path.Combine(directory.FullName, ".config/devops/package-policy.json"), directory.FullName);
             return ConsumerScenarioCatalog.Create(policy, "compression", directory.FullName).First(item => item.PackageId == packageId);
         }
 

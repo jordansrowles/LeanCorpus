@@ -273,7 +273,7 @@ internal sealed class DiagnosticsCommandService(
         var manifestPath = Path.Combine(repositoryRoot, ".config", "dotnet-tools.json");
         if (!File.Exists(manifestPath))
         {
-            failure = $"The repository tool manifest is missing at '{manifestPath}'. Run 'pwsh ./setup.ps1' to restore repository tools.";
+            failure = $"The repository tool manifest is missing at '{manifestPath}'. Run 'pwsh ./devops.ps1 bootstrap' to restore repository tools.";
             return null;
         }
 

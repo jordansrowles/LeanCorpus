@@ -146,7 +146,7 @@ internal sealed class SolutionInventoryValidator
             }
 
             if (!path.StartsWith("src/", StringComparison.Ordinal) || !path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) ||
-                HasGeneratedDirectory(path))
+                HasGeneratedDirectory(path) || IsHistoricalFixtureProject(path))
             {
                 continue;
             }
@@ -167,6 +167,9 @@ internal sealed class SolutionInventoryValidator
     private static bool HasGeneratedDirectory(string path)
         => path.Split('/').Any(static part => part.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
             part.Equals("obj", StringComparison.OrdinalIgnoreCase) || part.Equals("artifacts", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsHistoricalFixtureProject(string path)
+        => path.StartsWith("src/devops/tests/fixtures/historical/", StringComparison.Ordinal);
 
     private static void ValidateFilter(
         string root,
@@ -313,6 +316,7 @@ internal sealed class SolutionInventoryValidator
                 .Select(static entry => entry.Path.Replace('\\', '/'))
                 .Where(static path => path.StartsWith("src/", StringComparison.Ordinal) &&
                     path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase) && !HasGeneratedDirectory(path))
+                .Where(path => File.Exists(Path.Combine(root, path.Replace('/', Path.DirectorySeparatorChar))))
                 .ToArray();
         }
 

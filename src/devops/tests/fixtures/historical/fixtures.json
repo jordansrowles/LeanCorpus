@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "versions": [
+    {
+      "version": "3.1.1",
+      "packageId": "LeanCorpus",
+      "packageVersion": "3.1.1",
+      "packageSha256": "cf124d5a2b9b3bf623cd69f98ea25c5a2e3f7d67ac9bdb4c017a60a00d00e478",
+      "packageAssemblySha256": "6a633412002f615c36579490b6f7b5be57e6b237778bb92bd24492b943d6060c",
+      "assemblyVersion": "3.1.1.0",
+      "sdkVersion": "10.0.103",
+      "targetFramework": "net10.0",
+      "projectPath": "src/devops/tests/fixtures/historical/versions/3.1.1/Generator.csproj",
+      "scenarios": [
+        {
+          "id": "migration",
+          "outputs": [
+            {
+              "archiveFile": "3.1.1-release-loose.fixture.b64",
+              "archiveRoot": "loose",
+              "manifestFile": "3.1.1-release-loose.manifest.json",
+              "baselinePath": "src/devops/tests/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/3.1.1-release-loose.fixture.b64",
+              "baselineSha256": "657007c6f4d09eb317fe2903861c0ce1820cf672b2a7c5d2833035ea349a2299",
+              "baselineManifestSha256": "793ee7380213b809767a5f918ecb11ae34ffa9834a213f0015102c79bfddc2a9"
+            },
+            {
+              "archiveFile": "3.1.1-release-compound.fixture.b64",
+              "archiveRoot": "compound",
+              "manifestFile": "3.1.1-release-compound.manifest.json",
+              "baselinePath": "src/devops/tests/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/3.1.1-release-compound.fixture.b64",
+              "baselineSha256": "e3adfcba53955611f65282e3080f19035d15fa1ed2b8612f110de4d1b60c79a2",
+              "baselineManifestSha256": "1705cdef8fe294abe63cdfe4d6fc83516e430d698c6ea3252543f523d978e055"
+            }
+          ]
+        },
+        {
+          "id": "sparse-hnsw",
+          "outputs": [
+            {
+              "archiveFile": "3.1.1-sparse-hnsw.fixture.b64",
+              "archiveRoot": ".",
+              "manifestFile": "sparse-hnsw.manifest.json",
+              "baselinePath": "src/devops/tests/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/3.1.1-sparse-hnsw.fixture.b64",
+              "baselineSha256": "ebaec3b42819af4c35049e589d75fc682dd4b6169ad85fbf2e7b7197e066a961"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

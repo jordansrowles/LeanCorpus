@@ -11,7 +11,7 @@ After cloning or changing the managed DevOps source, build and promote the
 current apphost:
 
 ```powershell
-pwsh -NoProfile -File ./setup.ps1
+pwsh -NoProfile -File ./devops.ps1 bootstrap
 ./devops ui
 ```
 

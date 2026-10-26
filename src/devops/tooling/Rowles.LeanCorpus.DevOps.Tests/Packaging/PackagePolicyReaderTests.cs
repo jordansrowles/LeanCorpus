@@ -10,7 +10,7 @@ public sealed class PackagePolicyReaderTests
     {
         var repositoryRoot = FindRepositoryRoot();
         var policy = PackagePolicyReader.Read(
-            Path.Combine(repositoryRoot, "scripts/devops/packaging/package-policy.json"),
+            Path.Combine(repositoryRoot, ".config/devops/package-policy.json"),
             repositoryRoot);
 
         Assert.Equal(2, policy.SchemaVersion);
@@ -76,13 +76,13 @@ public sealed class PackagePolicyReaderTests
     }
 
     private static JsonObject ReadPolicyDocument(string repositoryRoot)
-        => JsonNode.Parse(File.ReadAllText(Path.Combine(repositoryRoot, "scripts/devops/packaging/package-policy.json")))!.AsObject();
+        => JsonNode.Parse(File.ReadAllText(Path.Combine(repositoryRoot, ".config/devops/package-policy.json")))!.AsObject();
 
     private static string FindRepositoryRoot()
     {
         for (var directory = new DirectoryInfo(Environment.CurrentDirectory); directory is not null; directory = directory.Parent)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "scripts/devops/packaging/package-policy.json")))
+            if (File.Exists(Path.Combine(directory.FullName, ".config/devops/package-policy.json")))
             {
                 return directory.FullName;
             }

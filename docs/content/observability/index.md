@@ -37,7 +37,9 @@ The [slow query log](02-slow-query-log.md) writes queries exceeding a configurab
 
 The [Aspire dashboard](05-aspire-dashboard.md) provides a local visualisation of traces, metrics, and structured logs. Run `aspire-dashboard -s false` alongside your application, point the OTLP exporter at `localhost:4317`, and all LeanCorpus telemetry appears in the dashboard with no additional configuration.
 
-A complete telemetry example is at `src/examples/Rowles.LeanCorpus.Example.Telemetry`.
+The [OpenTelemetry guide](04-opentelemetry.md) shows how to configure an
+application exporter and the [Aspire guide](05-aspire-dashboard.md) shows how
+to inspect its signals locally.
 
 ## Index diagnostics
 

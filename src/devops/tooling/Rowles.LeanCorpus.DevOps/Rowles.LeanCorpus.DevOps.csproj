@@ -64,6 +64,21 @@
     <InternalsVisibleTo Include="Rowles.LeanCorpus.DevOps.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Packaging/Assets/Consumer.csproj.template">
+      <LogicalName>Rowles.LeanCorpus.DevOps.Packaging.Assets.Consumer.csproj.template</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Packaging/Assets/Program.cs.template">
+      <LogicalName>Rowles.LeanCorpus.DevOps.Packaging.Assets.Program.cs.template</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Packaging/Assets/ConsumerSources/*.cs.txt">
+      <LogicalName>Rowles.LeanCorpus.DevOps.Packaging.Assets.ConsumerSources.%(Filename)%(Extension)</LogicalName>
+      <WithCulture>false</WithCulture>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <ItemGroup Condition="'$(DevOpsDistributionProfile)' == 'Tool'">
     <None Update="README.md" Pack="true" PackagePath="/" />
     <None Update="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />

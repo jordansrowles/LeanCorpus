@@ -1,6 +1,6 @@
 # Managed DevOps migration ledger
 
-> Historical migration record. Its source inventories and phase notes describe the recorded revisions, not the current tree. The Issue-97 follow-up retires the PowerShell command application and `.psd1` snapshots; current commands run through the managed root apphost, with `setup.ps1`, `devops.ps1` and `scripts/devops/managed-host.ps1` retained as PowerShell entry points. Historical test and bootstrap results below remain scoped to their recorded revisions.
+> Historical migration record. Its source inventories and phase notes describe the recorded revisions, not the current tree. The Issue-97 follow-up retires the PowerShell command application, `.psd1` snapshots and split bootstrap helpers. Current bootstrap and argument forwarding run through the root `devops.ps1`; dated test and bootstrap results below remain scoped to their recorded revisions.
 
 > The older #11 baseline was `4ccdf1ba7ae447ed982a34dc64478df47879baf3` on `issue-97`; later exact-source Linux build, managed suite and all-groups report, plus Windows report comparison, used clean commit `62de80daaf986144020e2cc3597e1de0cfef36b7`. Earlier Phase 7 workbench and docs evidence retains its original dirty-tree provenance. The source inventory below records that migration snapshot.
 

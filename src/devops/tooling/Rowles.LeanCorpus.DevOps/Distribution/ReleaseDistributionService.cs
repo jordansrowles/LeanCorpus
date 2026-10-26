@@ -103,7 +103,9 @@ internal sealed class ReleaseDistributionService(
                     "Release executable publish failed.", publish.CommandResult.Details, publish.CommandResult.RawChildExitCode, publish.RunId).ConfigureAwait(false);
             }
 
-            var projectRoot = Path.Combine(artifactPaths.RepositoryRoot, "src", "devops", "Rowles.LeanCorpus.DevOps");
+            var projectPath = RepositoryProjectCatalog.GetExistingProjectPath(artifactPaths.RepositoryRoot, RepositoryProjectRole.DevOpsHost);
+            var projectRoot = Path.GetDirectoryName(projectPath)
+                ?? throw new InvalidOperationException("The managed DevOps project path does not have a parent directory.");
             var archive = await new ReleaseArchiveBuilder().BuildAsync(new ReleaseArchiveRequest
             {
                 RepositoryRoot = artifactPaths.RepositoryRoot,

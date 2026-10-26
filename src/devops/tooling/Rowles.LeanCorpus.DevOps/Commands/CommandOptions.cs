@@ -56,6 +56,14 @@ internal sealed record DataCommandOptions(
     string PackageSource,
     string? RepositoryPath = null);
 
+internal sealed record HistoricalFixturesCommandOptions(
+    string? Version,
+    string? Scenario,
+    bool List,
+    string PackageSource,
+    string? OutputDirectory,
+    string? RepositoryPath = null);
+
 internal sealed record DataForgeCommandOptions(
     IReadOnlyList<string> Arguments,
     string? RepositoryPath = null);
@@ -129,6 +137,13 @@ internal sealed record BenchmarkRemoteCommandOptions(
     string? SessionName,
     Guid? RunId,
     IReadOnlyList<string> BenchmarkArguments,
+    string? RepositoryPath = null);
+
+internal sealed record BenchmarkQualificationSummaryCommandOptions(
+    string ReportsPath,
+    string OutputPath,
+    bool PlanOnly,
+    int? ExpectedRunCount,
     string? RepositoryPath = null);
 
 internal sealed record UiCommandOptions(string? RepositoryPath = null);

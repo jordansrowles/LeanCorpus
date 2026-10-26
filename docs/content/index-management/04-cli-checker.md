@@ -242,15 +242,6 @@ leancorpus-cli.exe restore .\index.backup .\index.restored
 }
 ```
 
-## Create a sample index
-
-```powershell
-dotnet run --project .\src\examples\Rowles.LeanCorpus.Example.NewsgroupsIndexer -- --index .\artifacts\newsgroups-index --limit 500
-leancorpus-cli.exe check .\artifacts\newsgroups-index --deep
-leancorpus-cli.exe inspect .\artifacts\newsgroups-index --json
-leancorpus-cli.exe compat .\artifacts\newsgroups-index
-```
-
 ## See also
 
 - [Validation and recovery](03-validation-recovery.md)

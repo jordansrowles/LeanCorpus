@@ -1,6 +1,6 @@
 # DevOps projects and repository tooling
 
-Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The managed apphost is `./devops` on Linux and macOS and `./devops.exe` on Windows. CI invokes the managed host directly. The retained PowerShell entry points are repository-root `setup.ps1`, repository-root `devops.ps1`, and `scripts/devops/managed-host.ps1`; the dispatcher forwards invocations to the fingerprint-validated managed host and does not load a PowerShell command application.
+Use this directory when you need to run or extend LeanCorpus tests, benchmarks, coverage, profiling or command-line tools. The managed apphost is `./devops` on Linux and macOS and `./devops.exe` on Windows. CI invokes the managed host directly after using the root `devops.ps1 bootstrap` command. That root script is the maintained PowerShell entry point: `bootstrap` explicitly restores, tests and promotes the host; all other arguments go to the fingerprint-validated managed host.
 
 ## Choose a task
 
@@ -133,7 +133,7 @@ an explicitly selected .NET process, use the standard diagnostic tools:
 ```
 
 On Windows, run the managed apphost as `./devops.exe diagnostics ...` after
-`pwsh ./setup.ps1` publishes it. Use `./devops.exe diagnostics ...` directly.
+`pwsh -NoProfile -File ./devops.ps1 bootstrap` publishes it. Use `./devops.exe diagnostics ...` directly.
 
 Trace, GC dump, dump and capture output is written under
 `artifacts/diagnostics/runs/<run-id>/`. Dumps can contain sensitive application

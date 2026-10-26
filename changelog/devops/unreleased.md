@@ -25,6 +25,7 @@
 - Add a separate fail-closed comparison assessment for paired v5 rows. It rejects duplicate jobs, historical v4 reports, incomplete or failed rows, unverified preflight, mismatched source/dataset/host/runtime/GC/PGO, and low or noisy samples; ratios appear only for fully qualified pairs.
 - Record terminal benchmark setup-preflight evidence in each Core v5 row so the separate comparator can distinguish a passing preflight from missing or failed evidence.
 - Replace the monolithic benchmark workflow with managed plan, build, smoke, four sequential bounded shards, evidence collection and a qualification summary. Missing, cancelled or failed shards and incomplete report counts now fail closed; no exhaustive or stress strategy is dispatched by this workflow.
+- Consolidate the 3.1.1 sparse-HNSW and migration fixture generators behind `data fixtures`, with shared source, exact package and assembly pins, isolated SDK/NuGet restore and immutable archive baselines; retain `data migration-fixtures-311` as a deprecated alias.
 
 ## Changed
 
@@ -33,6 +34,7 @@
 - Share Build concurrency groups across same-branch pushes and pull requests to avoid duplicate runs.
 
 - Route every `devops.ps1` invocation through the fingerprint-validated managed host, retire the legacy `benchmarks docs` and `setup` command aliases, and align contributor examples with managed docs, DataForge, test, AOT and package commands.
+- Validate solution inventory against tracked project files present in the working tree so intentional project removals can be checked before staging.
 - Validate Compression benchmark round trips before timing, retain exact input/output bytes and DataForge identity, and register directional codec cases with explicit size metrics.
 
 - Run Build, platform, stress and diagnostics tests and AOT through the managed host; bootstrap platform smoke before invocation.
@@ -72,9 +74,13 @@
 - Import managed DevOps release notes as an independent changelog stream and derive its displayed project version separately from Core and Server versions.
 - Bootstrap the managed host before collecting hosted coverage and call its coverage command directly.
 - Run `report all --json` through promoted Linux and Windows hosts in Build CI and retain the full report run evidence.
+- Consolidate bootstrap, host fingerprint validation and argument forwarding in root `devops.ps1`; cover isolated failure, rollback, lease, manifest and dispatch cases in MTP integration tests, and update CI to use the explicit `bootstrap` verb.
+- Add managed `benchmark qualification-summary` output with source identity, planned report counts, shard exit codes, deterministic schema-v1 JSON and fail-closed qualification results for the manual benchmark workflow.
 
 ## Fixed
 
+- Preserve UTC kind when validating managed bootstrap lease markers on Windows, and clear read-only checkout files during temporary-worktree test cleanup.
+- Resolve release-archive documentation and licence inputs from the managed DevOps project catalog so distribution works from the current repository layout.
 - Disable MSBuild node reuse for documentation version probes so Windows can remove temporary checkout directories after each child process exits.
 - Use registered managed test and AOT option spellings in CI and report unrecognised managed arguments with test-runner separator guidance.
 - Remove the retired PowerShell DevOps command application and shadow `.psd1` configuration; keep managed run, package, CI and bootstrap workflows on their current owners.
@@ -116,6 +122,8 @@
 - Validate equivalent query ASTs at the parser guard limit and reject limit-plus-one input before timing, with valid parsing and rejection kept as separate benchmark operations.
 
 ## Removed
+
+- Retire the JSON API, Newsgroups, telemetry and Rowles.Text tokenisation demo applications, the legacy news downloader and machine-specific nightly benchmark runner; keep the Linux kernel code-search workload and its manual reproduction guide.
 
 ## Deprecated
 

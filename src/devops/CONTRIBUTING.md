@@ -171,7 +171,7 @@ Choose the destination by responsibility:
 | Command handlers and services | `src/devops/tooling/Rowles.LeanCorpus.DevOps/Commands/` and their owning service directories |
 | Test, benchmark and area configuration | `.config/devops/*.json` |
 | Run artefacts and cleanup | `src/devops/tooling/Rowles.LeanCorpus.DevOps/Artifacts/` |
-| Independent package and CI validation scripts | `scripts/devops/packaging/` and `scripts/devops/validation/` |
+| Package and CI validation | Managed services and tests under `src/devops/tooling/Rowles.LeanCorpus.DevOps/`; package policy under `.config/devops/package-policy.json`; workflow-specific admission checks under `.github/scripts/` |
 
 For a new top-level command:
 

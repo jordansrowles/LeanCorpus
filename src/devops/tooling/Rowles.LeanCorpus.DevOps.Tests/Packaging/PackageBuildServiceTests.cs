@@ -42,7 +42,7 @@ public sealed class PackageBuildServiceTests
     {
         using var checkout = TemporaryCheckout.Create();
         var process = new PackageProcessRunner();
-        var policyPath = Path.Combine(checkout.Root, "scripts/devops/packaging/package-policy.json");
+        var policyPath = Path.Combine(checkout.Root, ".config/devops/package-policy.json");
         var policy = JsonNode.Parse(File.ReadAllText(policyPath))!;
         var packages = policy["packages"]!.AsArray();
         packages.RemoveAt(packages.IndexOf(packages.Single(item => item!["packageId"]!.GetValue<string>() == "LeanCorpus.Compression.LZ4")));
@@ -131,7 +131,7 @@ public sealed class PackageBuildServiceTests
         public static TemporaryCheckout Create()
         {
             var root = Path.Combine(Path.GetTempPath(), "leancorpus-package-run-" + Guid.NewGuid().ToString("N"));
-            var packaging = Path.Combine(root, "scripts/devops/packaging");
+            var packaging = Path.Combine(root, ".config/devops");
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(packaging);
             var coreProject = Path.Combine(root, "src/LeanCorpus/LeanCorpus.csproj");

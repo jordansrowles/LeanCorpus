@@ -5,11 +5,11 @@ namespace Rowles.LeanCorpus.DevOps.Tests.Packaging;
 public sealed class PackageConsumerProjectWriterTests
 {
     [Fact]
-    public void SourceGeneratorConsumerUsesTheExactPrivateAnalyzerPackageReference()
+    public void WritesSourceGeneratorConsumerFromAssetsOutsideTheCheckout()
     {
-        using var repository = TemporaryRepository.Create();
         var repositoryRoot = FindRepositoryRoot();
-        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, "scripts/devops/packaging/package-policy.json"), repositoryRoot);
+        using var repository = TemporaryRepository.Create(repositoryRoot);
+        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, ".config/devops/package-policy.json"), repositoryRoot);
         var scenario = ConsumerScenarioCatalog.Create(policy, "all", repositoryRoot).First(item => item.Kind == "sourcegen");
         var packages = new Dictionary<string, PackageManifestPackage>(StringComparer.OrdinalIgnoreCase)
         {
@@ -29,11 +29,54 @@ public sealed class PackageConsumerProjectWriterTests
         Assert.Contains("SOURCEGEN", File.ReadAllText(consumer.ProgramPath), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void WritesCompressionConsumerFromEmbeddedProgramTemplate()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        using var repository = TemporaryRepository.Create(repositoryRoot);
+        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, ".config/devops/package-policy.json"), repositoryRoot);
+        var scenario = ConsumerScenarioCatalog.Create(policy, "compression", repositoryRoot).First();
+        var packages = scenario.PackageIds.ToDictionary(static id => id, static id =>
+            new PackageManifestPackage(id, "4.0.0", $"/packages/{id}.nupkg", $"{id}.nupkg", new string('a', 64)), StringComparer.Ordinal);
+
+        var consumer = PackageConsumerProjectWriter.Write(repository.Root, Path.Combine(repository.Root, "consumer"), scenario,
+            new PackageManifestIndex("abc123", packages));
+        var program = File.ReadAllText(consumer.ProgramPath);
+
+        Assert.DoesNotContain("CORE_ASSEMBLY_VERSION", program, StringComparison.Ordinal);
+        Assert.DoesNotContain("OPTIONAL_ASSEMBLY_VERSION", program, StringComparison.Ordinal);
+        Assert.DoesNotContain("REGISTRATION", program, StringComparison.Ordinal);
+        Assert.DoesNotContain("POLICY", program, StringComparison.Ordinal);
+        Assert.Contains(scenario.PackageId, File.ReadAllText(consumer.ProjectPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void EveryPolicyScenarioCanBeMaterialisedFromEmbeddedAssetsOutsideTheCheckout()
+    {
+        var repositoryRoot = FindRepositoryRoot();
+        using var repository = TemporaryRepository.Create(repositoryRoot);
+        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, ".config/devops/package-policy.json"), repositoryRoot);
+        var scenarios = ConsumerScenarioCatalog.Create(policy, "all", repositoryRoot);
+        var packages = policy.Packages.ToDictionary(static entry => entry.PackageId, static entry =>
+            new PackageManifestPackage(entry.PackageId, "4.0.0", $"/packages/{entry.PackageId}.nupkg", $"{entry.PackageId}.nupkg", new string('a', 64)), StringComparer.Ordinal);
+        var packageIndex = new PackageManifestIndex("abc123", packages);
+
+        foreach (var scenario in scenarios)
+        {
+            var outputDirectory = Path.Combine(repository.Root, "generated", scenario.Name, scenario.Framework);
+            var consumer = PackageConsumerProjectWriter.Write(repository.Root, outputDirectory, scenario, packageIndex);
+
+            Assert.True(new FileInfo(consumer.ProjectPath).Length > 0, scenario.Name);
+            Assert.True(new FileInfo(consumer.ProgramPath).Length > 0, scenario.Name);
+            Assert.DoesNotContain("PACKAGE_REFERENCES", File.ReadAllText(consumer.ProjectPath), StringComparison.Ordinal);
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         for (var directory = new DirectoryInfo(Environment.CurrentDirectory); directory is not null; directory = directory.Parent)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "scripts/devops/packaging/package-policy.json")))
+            if (File.Exists(Path.Combine(directory.FullName, ".config/devops/package-policy.json")))
                 return directory.FullName;
         }
 
@@ -46,19 +89,11 @@ public sealed class PackageConsumerProjectWriterTests
 
         public string Root { get; }
 
-        public static TemporaryRepository Create()
+        public static TemporaryRepository Create(string repositoryRoot)
         {
             var root = Path.Combine(Path.GetTempPath(), "leancorpus-consumer-project-" + Guid.NewGuid().ToString("N"));
-            var packaging = Path.Combine(root, "scripts/devops/packaging");
-            var sources = Path.Combine(packaging, "consumer-sources");
-            Directory.CreateDirectory(sources);
-            File.WriteAllText(Path.Combine(packaging, "Consumer.csproj.template"), """
-                <Project>
-                  <PropertyGroup><ImportDirectoryBuildProps>false</ImportDirectoryBuildProps><TargetFramework>FRAMEWORK</TargetFramework>EXTRA_PROPERTIES</PropertyGroup>
-                  <ItemGroup>PACKAGE_REFERENCES</ItemGroup>
-                </Project>
-                """);
-            File.WriteAllText(Path.Combine(sources, "sourcegen.cs"), "Console.WriteLine(\"SOURCEGEN Product\");");
+            Directory.CreateDirectory(root);
+            File.Copy(Path.Combine(repositoryRoot, "Directory.Packages.props"), Path.Combine(root, "Directory.Packages.props"));
             return new TemporaryRepository(root);
         }
 

@@ -384,8 +384,9 @@
     },
     "package-policy": {
       "Globs": [
-        "scripts/devops/packaging/package-policy.json",
-        "scripts/devops/packaging/validate-package-consumers.ps1"
+        ".config/devops/package-policy.json",
+        "src/devops/tooling/Rowles.LeanCorpus.DevOps/Packaging/**",
+        "src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Packaging/**"
       ],
       "Targets": [
         "architecture:Architecture",
@@ -505,9 +506,10 @@
     "lifecycle-workflow": {
       "Globs": [
         ".github/workflows/build.yml",
-        "scripts/devops/managed-host.ps1",
-        "scripts/devops/validation/managed-bootstrap-smoke.ps1",
+        "devops.ps1",
+        "src/devops/tooling/Rowles.LeanCorpus.DevOps/Repository/ManagedHostFingerprint.cs",
         "src/devops/tooling/Rowles.LeanCorpus.DevOps/Program.cs",
+        "src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Bootstrap/ManagedBootstrapIntegrationTests.cs",
         "src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Commands/ManagedCliWorkflowContractTests.cs"
       ],
       "Targets": []

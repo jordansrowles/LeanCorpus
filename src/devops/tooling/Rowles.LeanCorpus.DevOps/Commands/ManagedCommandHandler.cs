@@ -700,7 +700,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
                 !options.Dataset.Equals("migration-fixtures-311", StringComparison.OrdinalIgnoreCase))
             {
                 return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
-                    $"Unknown data set '{options.Dataset}'. Valid data sets: gutenberg, migration-fixtures-311."), output, error);
+                    $"Unknown data set '{options.Dataset}'. Valid data set: gutenberg. Historical fixtures use 'data fixtures'."), output, error);
             }
 
             var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
@@ -709,25 +709,11 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
                 return staleExitCode;
             }
 
-            var paths = new ArtifactPaths(checkout.RepositoryRoot);
             if (options.Dataset.Equals("migration-fixtures-311", StringComparison.OrdinalIgnoreCase))
             {
-                var processRunner = new ProcessRunner();
-                var fixtureResult = new MigrationFixtureGenerationService(
-                    paths,
-                    new ArtifactRunStore(paths, runCategory: "data"),
-                    processRunner,
-                    new GitRepositoryProvenanceReader(processRunner),
-                    message => output.WriteLine(message)).GenerateAsync(new MigrationFixtureGenerationRequest(
-                        checkout, options.PackageSource, options.OutputDirectory), cancellation.Token).GetAwaiter().GetResult();
-                var fixtureCommandResult = fixtureResult.CommandResult with
-                {
-                    Message = fixtureResult.CommandResult.Outcome == OutcomeKind.Success
-                        ? $"{fixtureResult.CommandResult.Message} Run evidence: {fixtureResult.RunDirectory}"
-                        : fixtureResult.CommandResult.Message,
-                    Details = JoinDetails(fixtureResult.RunDirectory, fixtureResult.CommandResult.Details)
-                };
-                return _renderer.Render(fixtureCommandResult, output, error);
+                output.WriteLine("Deprecated alias: use 'data fixtures --version 3.1.1 --scenario migration'.");
+                return GenerateHistoricalFixtures(checkout, "3.1.1", "migration", options.PackageSource,
+                    options.OutputDirectory, cancellation.Token);
             }
 
             if (options.BookCount < 1)
@@ -759,6 +745,97 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         {
             Console.CancelKeyPress -= cancelHandler;
         }
+    }
+
+    public int DataFixtures(HistoricalFixturesCommandOptions options)
+    {
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+                return staleExitCode;
+
+            if (options.List)
+            {
+                HistoricalFixtureCatalog catalog = HistoricalFixtureCatalog.Load(checkout.RepositoryRoot);
+                IEnumerable<HistoricalFixtureVersion> versions = options.Version is null
+                    ? catalog.Versions
+                    : [catalog.GetVersion(options.Version)];
+                foreach (HistoricalFixtureVersion version in versions.OrderBy(static item => item.Version, StringComparer.Ordinal))
+                {
+                    output.WriteLine($"{version.Version} ({version.PackageId} {version.PackageVersion}; {version.TargetFramework}; SDK {version.SdkVersion})");
+                    foreach (HistoricalFixtureScenario scenario in version.Scenarios.OrderBy(static item => item.Id, StringComparer.Ordinal))
+                        output.WriteLine($"  {scenario.Id}");
+                }
+                return 0;
+            }
+
+            if (string.IsNullOrWhiteSpace(options.Version) || string.IsNullOrWhiteSpace(options.Scenario))
+                return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                    "Supply --version and --scenario, or use --list."), output, error);
+
+            using var cancellation = new CancellationTokenSource();
+            ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+            {
+                eventArgs.Cancel = true;
+                cancellation.Cancel();
+            };
+            Console.CancelKeyPress += cancelHandler;
+            try
+            {
+                return GenerateHistoricalFixtures(checkout, options.Version, options.Scenario,
+                    options.PackageSource, options.OutputDirectory, cancellation.Token);
+            }
+            finally
+            {
+                Console.CancelKeyPress -= cancelHandler;
+            }
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (KeyNotFoundException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (OperationCanceledException)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Historical fixture generation was cancelled."), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception or System.Text.Json.JsonException)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
+                "Could not load or run historical fixture generation.", Details: exception.Message), output, error);
+        }
+    }
+
+    private int GenerateHistoricalFixtures(
+        CheckoutIdentity checkout,
+        string version,
+        string scenario,
+        string packageSource,
+        string? outputDirectory,
+        CancellationToken cancellationToken)
+    {
+        var paths = new ArtifactPaths(checkout.RepositoryRoot);
+        var processRunner = new ProcessRunner();
+        HistoricalFixtureGenerationResult result = new HistoricalFixtureGenerationService(
+            paths,
+            new ArtifactRunStore(paths, runCategory: "data"),
+            processRunner,
+            new GitRepositoryProvenanceReader(processRunner),
+            message => output.WriteLine(message))
+            .GenerateAsync(new HistoricalFixtureGenerationRequest(
+                checkout, version, scenario, packageSource, outputDirectory), cancellationToken).GetAwaiter().GetResult();
+        CommandResult commandResult = result.CommandResult with
+        {
+            Message = result.CommandResult.Outcome == OutcomeKind.Success
+                ? $"{result.CommandResult.Message} Run evidence: {result.RunDirectory}"
+                : result.CommandResult.Message,
+            Details = JoinDetails(result.RunDirectory, result.CommandResult.Details)
+        };
+        return _renderer.Render(commandResult, output, error);
     }
 
     public int DataForge(DataForgeCommandOptions options)
@@ -1036,6 +1113,52 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
         {
             return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure, "Could not run the managed remote benchmark command.", Details: exception.Message), output, error);
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int BenchmarkQualificationSummary(BenchmarkQualificationSummaryCommandOptions options)
+    {
+        using var cancellation = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cancellation.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+                return staleExitCode;
+
+            var paths = new ArtifactPaths(checkout.RepositoryRoot);
+            var processRunner = new ProcessRunner();
+            var service = new BenchmarkQualificationSummaryCommandService(
+                paths,
+                new ArtifactRunStore(paths, runCategory: "benchmark"),
+                new GitRepositoryProvenanceReader(processRunner));
+            var result = service.RunAsync(checkout, options, cancellationToken: cancellation.Token).GetAwaiter().GetResult();
+            if (string.IsNullOrEmpty(result.RunDirectory))
+                return _renderer.Render(result.CommandResult, output, error);
+            return _renderer.Render(WithRunEvidence(result.CommandResult, result.RunDirectory,
+                "Benchmark qualification summary completed"), output, error);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled, "Benchmark qualification summary was cancelled."), output, error);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException or System.ComponentModel.Win32Exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
+                "Could not run the benchmark qualification summary command.", Details: exception.Message), output, error);
         }
         finally
         {

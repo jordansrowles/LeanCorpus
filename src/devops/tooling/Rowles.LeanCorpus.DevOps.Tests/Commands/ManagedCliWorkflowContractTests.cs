@@ -24,8 +24,7 @@ public sealed class ManagedCliWorkflowContractTests
         [
             ".github/workflows/build.yml",
             ".github/workflows/test-stress.yml",
-            ".github/workflows/test-diagnostics.yml",
-            "scripts/devops/validation/managed-bootstrap-smoke.ps1"
+            ".github/workflows/test-diagnostics.yml"
         ];
         var invocations = relativeFiles
             .SelectMany(relativePath => ExtractInvocations(checkout.RepositoryRoot, relativePath))
@@ -55,8 +54,19 @@ public sealed class ManagedCliWorkflowContractTests
             ExtractOptions(invocation.Arguments).Contains("--hang-timeout", StringComparer.Ordinal));
         Assert.Contains(invocations, invocation => invocation.Source.EndsWith("test-diagnostics.yml", StringComparison.Ordinal) &&
             ExtractOptions(invocation.Arguments).Contains("--filter", StringComparer.Ordinal));
-        Assert.Contains(invocations, invocation => invocation.Source.EndsWith("managed-bootstrap-smoke.ps1", StringComparison.Ordinal) &&
-            invocation.Command == "aot" && ExtractOptions(invocation.Arguments).Contains("--rid", StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void RootDispatcherReservesBootstrapAndForwardsOtherArgumentsExactly()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var script = File.ReadAllText(Path.Combine(checkout.RepositoryRoot, "devops.ps1"));
+
+        Assert.Contains("bootstrap", script, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("@($args)", script, StringComparison.Ordinal);
+        Assert.Contains("& $managedHost @forwardedArguments", script, StringComparison.Ordinal);
+        Assert.Contains("exit $LASTEXITCODE", script, StringComparison.Ordinal);
+        Assert.DoesNotContain("setup.ps1", script, StringComparison.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<ManagedInvocation> ExtractInvocations(string repositoryRoot, string relativePath)

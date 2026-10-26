@@ -16,14 +16,16 @@ The container listens for its web interface on port `18888`. Container port `188
 
 The dashboard prints a login URL containing a token. Open that URL rather than assuming the root page is unauthenticated.
 
-## Run the telemetry example
+## Run your application
 
-In another terminal:
+Configure your application with the OTLP exporter shown in the
+[OpenTelemetry guide](04-opentelemetry.md). Set the endpoint for the process
+that runs your application:
 
 ```powershell
 $env:OTEL_EXPORTER_OTLP_ENDPOINT = "http://localhost:4317"
 $env:OTEL_EXPORTER_OTLP_PROTOCOL = "grpc"
-dotnet run --project src/examples/Rowles.LeanCorpus.Example.Telemetry
+dotnet run --project path/to/your/application
 ```
 
 For Bash:
@@ -31,10 +33,10 @@ For Bash:
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 \
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc \
-dotnet run --project src/examples/Rowles.LeanCorpus.Example.Telemetry
+dotnet run --project path/to/your/application
 ```
 
-If using the locally installed Aspire dashboard command instead, its insecure HTTP option must agree with the example's plain HTTP OTLP endpoint:
+If using the locally installed Aspire dashboard command instead, its insecure HTTP option must agree with the plain HTTP OTLP endpoint:
 
 ```powershell
 aspire-dashboard -s false
@@ -47,7 +49,7 @@ aspire-dashboard -s false
 | Traces | Search, commit, flush, merge, and instrumented application operations |
 | Metrics | Search latency, query cache, commits, merges, indexing, and HNSW traversal |
 | Structured logs | Application and slow-query records when their providers are configured |
-| Resources | The service name and resource attributes supplied by the example |
+| Resources | The service name and resource attributes supplied by your application |
 
 Select a trace to inspect spans and duration. Use metric charts to correlate search latency with merge or indexing activity. The standalone dashboard retains telemetry for development inspection, not long-term production monitoring.
 

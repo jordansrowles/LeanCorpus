@@ -38,13 +38,9 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
-      - name: Exercise managed bootstrap failure and rollback contracts
-        if: matrix.platform == 'linux-x64'
-        shell: pwsh
-        run: pwsh -NoProfile -File ./scripts/devops/validation/managed-bootstrap-smoke.ps1
       - name: Bootstrap and qualify managed DevOps host
         shell: pwsh
-        run: pwsh -NoProfile -File ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Validate solution project inventory
         shell: pwsh
         run: |
@@ -125,7 +121,7 @@ jobs:
           dotnet-quality: preview
       - name: Bootstrap managed DevOps host
         shell: pwsh
-        run: pwsh -NoProfile -File ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Build solution
         shell: pwsh
         run: |
@@ -173,7 +169,7 @@ jobs:
           dotnet-quality: preview
       - name: Bootstrap managed DevOps host
         shell: pwsh
-        run: pwsh -NoProfile -File ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Collect MTP coverage
         shell: pwsh
         run: ./devops coverage --framework net10.0 --clean
@@ -205,7 +201,7 @@ jobs:
           dotnet-quality: preview
       - name: Bootstrap managed DevOps host
         shell: pwsh
-        run: pwsh -NoProfile -File ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Build solution
         shell: pwsh
         run: |
@@ -254,7 +250,7 @@ jobs:
           dotnet-quality: preview
       - name: Bootstrap managed DevOps host
         shell: pwsh
-        run: pwsh -NoProfile -File ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Validate shipping package APIs and archives
         shell: pwsh
         run: |
@@ -282,7 +278,7 @@ jobs:
           dotnet-quality: preview
       - name: Bootstrap managed DevOps host
         shell: pwsh
-        run: pwsh -NoProfile -File ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Validate generated package consumers
         shell: pwsh
         run: |
@@ -328,7 +324,7 @@ jobs:
           dotnet-quality: preview
       - name: Bootstrap managed DevOps host
         shell: pwsh
-        run: pwsh -NoProfile -File ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Run platform smoke and Native AOT
         shell: pwsh
         run: |
@@ -365,10 +361,10 @@ jobs:
           cache: npm
           cache-dependency-path: docs/site-config/diagrams/package-lock.json
       - name: Validate docs deployment admission rules
-        run: node scripts/devops/validation/resolve-docs-deployment-run.test.mjs
+        run: node --test .github/scripts/docs/resolve-docs-deployment-run.test.mjs
       - name: Restore repository tools
         shell: pwsh
-        run: ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - uses: actions/download-artifact@v7
         with:
           name: coverage-runs

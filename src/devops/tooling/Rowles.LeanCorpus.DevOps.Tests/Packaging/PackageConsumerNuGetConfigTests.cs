@@ -9,7 +9,7 @@ public sealed class PackageConsumerNuGetConfigTests
     public void MapsPolicyPackagesToTheLocalGeneratedFeed()
     {
         var repositoryRoot = FindRepositoryRoot();
-        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, "scripts/devops/packaging/package-policy.json"), repositoryRoot);
+        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, ".config/devops/package-policy.json"), repositoryRoot);
         using var directory = new TemporaryDirectory();
         var configPath = Path.Combine(directory.Path, "NuGet.Config");
 
@@ -30,7 +30,7 @@ public sealed class PackageConsumerNuGetConfigTests
     public void MapsTheContractCorePackageToExternalFeedsForTheNegativeCompatibilityProbe()
     {
         var repositoryRoot = FindRepositoryRoot();
-        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, "scripts/devops/packaging/package-policy.json"), repositoryRoot);
+        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, ".config/devops/package-policy.json"), repositoryRoot);
         using var directory = new TemporaryDirectory();
         var configPath = Path.Combine(directory.Path, "Negative.NuGet.Config");
 
@@ -52,7 +52,7 @@ public sealed class PackageConsumerNuGetConfigTests
     {
         for (var directory = new DirectoryInfo(Environment.CurrentDirectory); directory is not null; directory = directory.Parent)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "scripts/devops/packaging/package-policy.json")))
+            if (File.Exists(Path.Combine(directory.FullName, ".config/devops/package-policy.json")))
                 return directory.FullName;
         }
 

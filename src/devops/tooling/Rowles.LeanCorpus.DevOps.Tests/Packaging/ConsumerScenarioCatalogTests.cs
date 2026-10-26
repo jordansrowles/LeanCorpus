@@ -8,7 +8,7 @@ public sealed class ConsumerScenarioCatalogTests
     public void AllScopeCoversEveryShippingConsumerAcrossBothFrameworks()
     {
         var repositoryRoot = FindRepositoryRoot();
-        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, "scripts/devops/packaging/package-policy.json"), repositoryRoot);
+        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, ".config/devops/package-policy.json"), repositoryRoot);
         var scenarios = ConsumerScenarioCatalog.Create(policy, "all", repositoryRoot);
 
         Assert.Equal(26, scenarios.Count);
@@ -24,7 +24,7 @@ public sealed class ConsumerScenarioCatalogTests
     public void CompressionScopeContainsOnlyCodecConsumersAcrossBothFrameworks()
     {
         var repositoryRoot = FindRepositoryRoot();
-        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, "scripts/devops/packaging/package-policy.json"), repositoryRoot);
+        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, ".config/devops/package-policy.json"), repositoryRoot);
         var scenarios = ConsumerScenarioCatalog.Create(policy, "compression", repositoryRoot);
 
         Assert.Equal(6, scenarios.Count);
@@ -37,7 +37,7 @@ public sealed class ConsumerScenarioCatalogTests
     public void ConsumerFrameworkCasesFollowEachPolicyPackageTarget()
     {
         var repositoryRoot = FindRepositoryRoot();
-        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, "scripts/devops/packaging/package-policy.json"), repositoryRoot);
+        var policy = PackagePolicyReader.Read(Path.Combine(repositoryRoot, ".config/devops/package-policy.json"), repositoryRoot);
         var narrowedText = policy.Packages.Select(entry => entry.PackageId == "Rowles.Text"
             ? entry with { ExpectedFrameworks = ["net10.0"] }
             : entry).ToArray();
@@ -51,7 +51,7 @@ public sealed class ConsumerScenarioCatalogTests
     {
         for (var directory = new DirectoryInfo(Environment.CurrentDirectory); directory is not null; directory = directory.Parent)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "scripts/devops/packaging/package-policy.json")))
+            if (File.Exists(Path.Combine(directory.FullName, ".config/devops/package-policy.json")))
                 return directory.FullName;
         }
 

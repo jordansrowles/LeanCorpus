@@ -25,10 +25,6 @@
   <Project Path="devops/tooling/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj" />
   <Project Path="devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj" />
   <Project Path="devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj" />
-  <Project Path="examples/Rowles.LeanCorpus.Example.JsonApi/Rowles.LeanCorpus.Example.JsonApi.csproj" />
-  <Project Path="examples/Rowles.LeanCorpus.Example.NewsgroupsIndexer/Rowles.LeanCorpus.Example.NewsgroupsIndexer.csproj" />
-  <Project Path="examples/Rowles.LeanCorpus.Example.Telemetry/Rowles.LeanCorpus.Example.Telemetry.csproj" />
-  <Project Path="examples/Rowles.Text.Example.Tokenise/Rowles.Text.Example.Tokenise.csproj" />
   <Project Path="examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch.csproj" />
   <Project Path="server/Rowles.LeanCorpus.OrchardCore.Search/Rowles.LeanCorpus.OrchardCore.Search.csproj" />
   <Project Path="server/Rowles.LeanCorpus.Server.Abstractions/Rowles.LeanCorpus.Server.Abstractions.csproj" />

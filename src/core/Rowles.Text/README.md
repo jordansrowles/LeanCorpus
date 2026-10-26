@@ -46,8 +46,6 @@ file sealed class ConsoleTokenSink : ISpanTokenSink
 
 The sink receives each analysed token together with its source offsets and position increment.
 
-A runnable version lives in [Rowles.Text.Example.Tokenise](../../examples/Rowles.Text.Example.Tokenise/).
-
 ## Choose an analysis path
 
 | I need to... | Start with |
@@ -94,7 +92,6 @@ Performance-sensitive changes should be checked with the registered analysis ben
 
 ## Next steps
 
-- Run the [tokenisation example](../../examples/Rowles.Text.Example.Tokenise/).
 - Browse the [analysis guides](../../../docs/content/analysis/index.md).
 - Learn how lexicon files are used in the [lexicons README](../../../lexicons/README.md).
 - Contribute an analyser, filter, stemmer or tokeniser using [CONTRIBUTING.md](CONTRIBUTING.md).

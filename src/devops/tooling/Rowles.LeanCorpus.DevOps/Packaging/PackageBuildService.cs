@@ -31,7 +31,7 @@ internal sealed class PackageBuildService(
         string policyPath;
         try
         {
-            policyPath = Path.Combine(artifactPaths.RepositoryRoot, "scripts", "devops", "packaging", "package-policy.json");
+            policyPath = Path.Combine(artifactPaths.RepositoryRoot, ".config", "devops", "package-policy.json");
             policy = PackagePolicyReader.Read(policyPath, artifactPaths.RepositoryRoot);
             var selected = SelectPackages(policy, request);
             ValidateCompressionSelection(selected, policy.CompressionContract);

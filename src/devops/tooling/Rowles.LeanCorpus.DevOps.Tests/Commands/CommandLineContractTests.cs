@@ -73,7 +73,7 @@ public sealed class CommandLineContractTests
 
     [Theory]
     [InlineData(new[] { "benchmarks", "docs" }, "docs build")]
-    [InlineData(new[] { "setup" }, "setup.ps1")]
+    [InlineData(new[] { "setup" }, "devops.ps1 bootstrap")]
     public void RetiredPowerShellEntryPointsGiveManagedGuidance(string[] args, string expectedGuidance)
     {
         var output = new StringWriter();
@@ -236,6 +236,33 @@ public sealed class CommandLineContractTests
 
         Assert.Equal(new DataCommandOptions("migration-fixtures-311", 200, outputDirectory, "/tmp/nuget-feed"),
             Assert.IsType<DataCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void HistoricalFixtureCommandSupportsListingAndScenarioSelection()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+        const string outputDirectory = "/tmp/historical fixtures";
+
+        Assert.Equal(0, Invoke(["--repo", repository, "data", "fixtures", "--version", "3.1.1",
+            "--scenario", "sparse-hnsw", "--package-source", "/tmp/nuget-feed", "--output-dir", outputDirectory], handler));
+
+        Assert.Equal(new HistoricalFixturesCommandOptions("3.1.1", "sparse-hnsw", false,
+            "/tmp/nuget-feed", outputDirectory, repository),
+            Assert.IsType<HistoricalFixturesCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void HistoricalFixtureCommandListsWithoutRequiringVersionOrScenario()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["data", "fixtures", "--list"], handler));
+
+        Assert.Equal(new HistoricalFixturesCommandOptions(null, null, true,
+                "https://api.nuget.org/v3/index.json", null),
+            Assert.IsType<HistoricalFixturesCommandOptions>(Assert.Single(handler.Calls)));
     }
 
     [Fact]
@@ -873,6 +900,20 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
+    public void BenchmarkQualificationSummaryPreservesPathsAndExpectedPlanCount()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+
+        Assert.Equal(0, Invoke(["--repo", repository, "benchmark", "qualification-summary",
+            "--reports", "/tmp/run reports.json", "--output", "/tmp/qualification summary.json", "--expected-run-count", "5"], handler));
+
+        Assert.Equal(new BenchmarkQualificationSummaryCommandOptions(
+            "/tmp/run reports.json", "/tmp/qualification summary.json", false, 5, repository),
+            Assert.IsType<BenchmarkQualificationSummaryCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
     public void CoverageCommandRoutesThroughManagedHandler()
     {
         var handler = new RecordingCommandHandler();
@@ -1057,6 +1098,12 @@ public sealed class CommandLineContractTests
             return 0;
         }
 
+        public int DataFixtures(HistoricalFixturesCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
         public int DataForge(DataForgeCommandOptions options)
         {
             Calls.Add(options);
@@ -1076,6 +1123,12 @@ public sealed class CommandLineContractTests
         }
 
         public int BenchmarkRemote(BenchmarkRemoteCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int BenchmarkQualificationSummary(BenchmarkQualificationSummaryCommandOptions options)
         {
             Calls.Add(options);
             return 0;

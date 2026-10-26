@@ -107,7 +107,7 @@ jobs:
 
       - name: Bootstrap managed DevOps host
         shell: pwsh
-        run: pwsh -NoProfile -File ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
 
       - name: Build prepared test output
         shell: pwsh
@@ -195,7 +195,7 @@ jobs:
 
       - name: Bootstrap managed DevOps host
         shell: pwsh
-        run: pwsh -NoProfile -File ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
 
       - name: Build prepared test output
         shell: pwsh

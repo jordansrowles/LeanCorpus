@@ -77,7 +77,9 @@ logger.LogInformation("Search {QueryType} returned {HitCount} hits", queryType, 
 
 Aspire Runner defaults to HTTPS for OTLP. If your app uses `http://localhost:4317`, start the dashboard with `aspire-dashboard -s false`.
 
-A worked example lives in `src/examples/Rowles.LeanCorpus.Example.Telemetry`.
+Use the snippets above in the application that owns your index and searcher.
+The OpenTelemetry tests exercise the library activity and meter names without a
+separate demonstration application.
 
 ## See also
 

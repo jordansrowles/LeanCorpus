@@ -674,8 +674,9 @@ internal static class Program
     {
         var dataset = new Argument<string>("dataset")
         {
-            Description = "Dataset to prepare: gutenberg or migration-fixtures-311.",
-            Arity = ArgumentArity.ExactlyOne
+            Description = "Dataset to prepare: gutenberg or the deprecated migration-fixtures-311 alias.",
+            Arity = ArgumentArity.ZeroOrOne,
+            DefaultValueFactory = _ => string.Empty
         };
         var bookCount = new Option<int>("--book-count", ["-BookCount"])
         {
@@ -691,7 +692,7 @@ internal static class Program
             Description = "NuGet source used by the pinned 3.1.1 fixture generator.",
             DefaultValueFactory = _ => "https://api.nuget.org/v3/index.json"
         };
-        var command = new Command("data", "Prepare benchmark datasets and migration fixtures.");
+        var command = new Command("data", "Prepare benchmark datasets and historical fixtures.");
         command.Add(dataset);
         command.Add(bookCount);
         command.Add(outputDirectory);
@@ -702,6 +703,42 @@ internal static class Program
             result.GetValue(outputDirectory),
             result.GetValue(packageSource) ?? "https://api.nuget.org/v3/index.json",
             result.GetValue(repository))));
+
+        var fixtureVersion = new Option<string?>("--version")
+        {
+            Description = "Pinned LeanCorpus package version from src/devops/tests/fixtures/historical/fixtures.json."
+        };
+        var fixtureScenario = new Option<string?>("--scenario")
+        {
+            Description = "Historical scenario to generate, such as sparse-hnsw or migration."
+        };
+        var fixtureList = new Option<bool>("--list")
+        {
+            Description = "List catalogued historical package versions and scenarios."
+        };
+        var fixturePackageSource = new Option<string>("--package-source")
+        {
+            Description = "Only NuGet source used to restore the exact historical package.",
+            DefaultValueFactory = _ => "https://api.nuget.org/v3/index.json"
+        };
+        var fixtureOutputDirectory = new Option<string?>("--output-dir")
+        {
+            Description = "New output directory for generated archives and manifests."
+        };
+        var fixtures = new Command("fixtures", "List or generate pinned historical index fixtures.");
+        fixtures.Add(fixtureVersion);
+        fixtures.Add(fixtureScenario);
+        fixtures.Add(fixtureList);
+        fixtures.Add(fixturePackageSource);
+        fixtures.Add(fixtureOutputDirectory);
+        fixtures.SetAction(result => handler.DataFixtures(new HistoricalFixturesCommandOptions(
+            result.GetValue(fixtureVersion),
+            result.GetValue(fixtureScenario),
+            result.GetValue(fixtureList),
+            result.GetValue(fixturePackageSource) ?? "https://api.nuget.org/v3/index.json",
+            result.GetValue(fixtureOutputDirectory),
+            result.GetValue(repository))));
+        command.Add(fixtures);
         return command;
     }
 
@@ -818,6 +855,7 @@ internal static class Program
 
         var command = new Command("benchmark", "Run selected BenchmarkDotNet suites and sustained workloads.");
         command.Add(BuildBenchmarkWorkloadCommand(handler, repository));
+        command.Add(BuildBenchmarkQualificationSummaryCommand(handler, repository));
         command.Add(suite);
         command.Add(strategy);
         command.Add(framework);
@@ -870,6 +908,40 @@ internal static class Program
             WorkloadId = result.GetValue(workloadId),
             MaxCases = result.GetValue(maxCases)
         }));
+        return command;
+    }
+
+    private static Command BuildBenchmarkQualificationSummaryCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var reports = new Option<string>("--reports")
+        {
+            Description = "Collected run-report JSON array (default: collected-run-reports.json).",
+            DefaultValueFactory = _ => "collected-run-reports.json"
+        };
+        var output = new Option<string>("--output")
+        {
+            Description = "Qualification summary JSON output (default: qualification-summary.json).",
+            DefaultValueFactory = _ => "qualification-summary.json"
+        };
+        var expectedRunCount = new Option<int?>("--expected-run-count")
+        {
+            Description = "Expected report count including the smoke run and all planned benchmark shards. Required unless --plan-only is set."
+        };
+        var planOnly = new Option<bool>("--plan-only")
+        {
+            Description = "Write the schema-v1 summary without requiring completed runs or shard exit codes."
+        };
+        var command = new Command("qualification-summary", "Summarise collected benchmark run qualification and shard outcomes.");
+        command.Add(reports);
+        command.Add(output);
+        command.Add(expectedRunCount);
+        command.Add(planOnly);
+        command.SetAction(result => handler.BenchmarkQualificationSummary(new BenchmarkQualificationSummaryCommandOptions(
+            result.GetValue(reports) ?? "collected-run-reports.json",
+            result.GetValue(output) ?? "qualification-summary.json",
+            result.GetValue(planOnly),
+            result.GetValue(expectedRunCount),
+            result.GetValue(repository))));
         return command;
     }
 
@@ -972,7 +1044,7 @@ internal static class CommandLineApplication
 
         if (args.Length > 0 && args[0].Equals("setup", StringComparison.OrdinalIgnoreCase))
         {
-            error.WriteLine("The DevOps setup inspection command has been retired. Run `pwsh -NoProfile -File ./setup.ps1` to bootstrap the managed host when required.");
+            error.WriteLine("The DevOps setup inspection command has been retired. Run `pwsh -NoProfile -File ./devops.ps1 bootstrap` to bootstrap the managed host when required.");
             return 2;
         }
 
@@ -1211,7 +1283,8 @@ internal static class CommandLineApplication
         var suiteIndex = commandIndex + 1;
         if (commandIndex >= args.Length || !args[commandIndex].Equals("benchmark", StringComparison.OrdinalIgnoreCase) ||
             suiteIndex >= args.Length || args[suiteIndex].StartsWith("-", StringComparison.Ordinal) || args[suiteIndex] == "--" ||
-            args[suiteIndex].Equals("workload", StringComparison.OrdinalIgnoreCase))
+            args[suiteIndex].Equals("workload", StringComparison.OrdinalIgnoreCase) ||
+            args[suiteIndex].Equals("qualification-summary", StringComparison.OrdinalIgnoreCase))
         {
             return args;
         }
@@ -1318,6 +1391,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
 
     public int Data(DataCommandOptions options) => Missing("data");
 
+    public int DataFixtures(HistoricalFixturesCommandOptions options) => Missing("data fixtures");
+
     public int DataForge(DataForgeCommandOptions options) => Missing("dataforge");
 
     public int Diagnostics(DiagnosticsCommandOptions options) => Missing("diagnostics");
@@ -1325,6 +1400,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int Benchmark(BenchmarkCommandOptions options) => Missing("benchmark");
 
     public int BenchmarkRemote(BenchmarkRemoteCommandOptions options) => Missing("benchmark remote");
+
+    public int BenchmarkQualificationSummary(BenchmarkQualificationSummaryCommandOptions options) => Missing("benchmark qualification-summary");
 
     public int Ui(UiCommandOptions options) => Missing("ui");
 

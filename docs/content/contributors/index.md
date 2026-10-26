@@ -8,7 +8,7 @@ This section routes repository contributors to the shortest useful guide. Packag
 ## Make a first contribution
 
 1. Read the [contribution guide](contributing.md).
-2. Run `pwsh -NoProfile -File ./setup.ps1` and `./devops build`.
+2. Run `pwsh -NoProfile -File ./devops.ps1 bootstrap` and `./devops build`.
 3. Choose the subsystem that owns the behaviour.
 4. Run one focused test selection.
 5. Make the change and add tests.

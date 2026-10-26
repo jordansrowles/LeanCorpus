@@ -39,6 +39,22 @@ public sealed class SolutionInventoryValidatorTests
     }
 
     [Fact]
+    public async Task ExcludesHistoricalFixtureGeneratorFromTheProductSolutionInventory()
+    {
+        using var checkout = TemporaryCheckout.Create();
+        checkout.WriteProject("devops/tests/fixtures/historical/versions/3.1.1/Generator.csproj");
+        checkout.WriteMaster();
+
+        var result = await new SolutionInventoryValidator().ValidateAsync(checkout.Identity,
+            ["src/devops/tests/fixtures/historical/versions/3.1.1/Generator.csproj"], TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsValid, string.Join(Environment.NewLine, result.Diagnostics));
+        Assert.Equal(0, result.TrackedProjectCount);
+        Assert.Equal(0, result.MasterProjectCount);
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
     public async Task ReportsDuplicateMasterProjectEntries()
     {
         using var checkout = TemporaryCheckout.Create();

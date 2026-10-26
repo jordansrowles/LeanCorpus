@@ -20,18 +20,18 @@ Most contributions affect one part of the monorepo. You do not need to understan
 From the repository root:
 
 ```bash
-pwsh -NoProfile -File ./setup.ps1
+pwsh -NoProfile -File ./devops.ps1 bootstrap
 ./devops build
 ```
 
 On Windows PowerShell:
 
 ```powershell
-pwsh -NoProfile -File ./setup.ps1
+pwsh -NoProfile -File ./devops.ps1 bootstrap
 ./devops.ps1 build
 ```
 
-`setup.ps1` restores and validates the repository's managed host and pinned tools. `build` confirms that the normal Release configuration compiles.
+`devops.ps1 bootstrap` restores the pinned tools, builds and tests the managed host, then publishes and validates the current-RID apphost. `build` confirms that the normal Release configuration compiles.
 
 > [!TIP]
 > Run `./devops --help` for the current command contract. Use the repository entry point instead of assembling an undocumented sequence of `dotnet` commands.

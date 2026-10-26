@@ -20,6 +20,8 @@ internal interface ICommandHandler
 
     int Data(DataCommandOptions options);
 
+    int DataFixtures(HistoricalFixturesCommandOptions options);
+
     int DataForge(DataForgeCommandOptions options);
 
     int Diagnostics(DiagnosticsCommandOptions options);
@@ -27,6 +29,8 @@ internal interface ICommandHandler
     int Benchmark(BenchmarkCommandOptions options);
 
     int BenchmarkRemote(BenchmarkRemoteCommandOptions options);
+
+    int BenchmarkQualificationSummary(BenchmarkQualificationSummaryCommandOptions options);
 
     int Ui(UiCommandOptions options);
 

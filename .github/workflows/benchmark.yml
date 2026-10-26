@@ -48,7 +48,7 @@ jobs:
           dotnet-quality: preview
 
       - name: Bootstrap managed DevOps host
-        run: pwsh ./setup.ps1
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
 
       - name: Plan bounded case shards
         shell: pwsh
@@ -73,6 +73,7 @@ jobs:
               --dataset synthetic --profile $shard.profile --case $shard.cases --max-cases 2 --dry
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+          Add-Content -Path $env:GITHUB_ENV -Value "EXPECTED_BENCHMARK_RUN_COUNT=$($shards.Count + 1)"
 
       - name: Build benchmark host
         if: ${{ !inputs.plan_only }}
@@ -183,7 +184,18 @@ jobs:
         shell: pwsh
         env:
           PLAN_ONLY: ${{ inputs.plan_only }}
-        run: pwsh -NoProfile -File ./scripts/devops/validation/benchmark-qualification-summary.ps1 -PlanOnly $env:PLAN_ONLY
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          $arguments = @('benchmark', 'qualification-summary', '--reports', 'collected-run-reports.json',
+            '--output', 'qualification-summary.json')
+          if ($env:PLAN_ONLY -eq 'true') {
+            $arguments += '--plan-only'
+          } else {
+            $arguments += @('--expected-run-count', $env:EXPECTED_BENCHMARK_RUN_COUNT)
+          }
+          & $managedHost @arguments
+          exit $LASTEXITCODE
 
       - name: Upload benchmark run evidence
         if: always()
