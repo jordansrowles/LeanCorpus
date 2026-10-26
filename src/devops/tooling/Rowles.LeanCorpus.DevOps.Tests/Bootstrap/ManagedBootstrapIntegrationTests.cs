@@ -850,8 +850,35 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         {
             if (Directory.Exists(_cleanupRoot))
             {
+                DeleteReparsePoints(_cleanupRoot);
                 ClearReadOnlyAttributes(_cleanupRoot);
                 Directory.Delete(_cleanupRoot, recursive: true);
+            }
+        }
+
+        private static void DeleteReparsePoints(string path)
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(path))
+            {
+                var attributes = File.GetAttributes(entry);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    if ((attributes & FileAttributes.Directory) != 0)
+                    {
+                        Directory.Delete(entry);
+                    }
+                    else
+                    {
+                        File.Delete(entry);
+                    }
+
+                    continue;
+                }
+
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    DeleteReparsePoints(entry);
+                }
             }
         }
 

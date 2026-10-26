@@ -274,6 +274,32 @@ public sealed class ManagedHostFingerprintTests
     private static string HashFile(string path)
         => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
 
+    private static void DeleteReparsePoints(string path)
+    {
+        foreach (var entry in Directory.EnumerateFileSystemEntries(path))
+        {
+            var attributes = File.GetAttributes(entry);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    Directory.Delete(entry);
+                }
+                else
+                {
+                    File.Delete(entry);
+                }
+
+                continue;
+            }
+
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                DeleteReparsePoints(entry);
+            }
+        }
+    }
+
     private sealed class TemporaryCheckout : IDisposable
     {
         private TemporaryCheckout(string root) => Root = root;
@@ -319,6 +345,7 @@ public sealed class ManagedHostFingerprintTests
         {
             if (Directory.Exists(Root))
             {
+                DeleteReparsePoints(Root);
                 Directory.Delete(Root, recursive: true);
             }
         }
