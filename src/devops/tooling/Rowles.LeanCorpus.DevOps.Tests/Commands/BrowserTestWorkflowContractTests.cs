@@ -158,11 +158,8 @@ public sealed class BrowserTestWorkflowContractTests
         Assert.Contains("Install Playwright Chromium", orchardWindows, StringComparison.Ordinal);
         Assert.Contains("check-playwright-runtime.ps1", orchardLinux, StringComparison.Ordinal);
         Assert.Contains("check-playwright-runtime.ps1", orchardWindows, StringComparison.Ordinal);
-        foreach (string containerJob in new[] { orchardLinux, GetJobBlock(workflow, "docs-site") })
-        {
-            Assert.Contains("git config --global --add safe.directory \"$GITHUB_WORKSPACE\"", containerJob, StringComparison.Ordinal);
-            Assert.Contains("git -c \"safe.directory=$GITHUB_WORKSPACE\" -C \"$GITHUB_WORKSPACE\" rev-parse --show-toplevel", containerJob, StringComparison.Ordinal);
-        }
+        Assert.Contains("git config --global --add safe.directory \"$GITHUB_WORKSPACE\"", orchardLinux, StringComparison.Ordinal);
+        Assert.Contains("git -c \"safe.directory=$GITHUB_WORKSPACE\" -C \"$GITHUB_WORKSPACE\" rev-parse --show-toplevel", orchardLinux, StringComparison.Ordinal);
 
         var assignments = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
@@ -189,10 +186,18 @@ public sealed class BrowserTestWorkflowContractTests
             Assert.Equal(packageVersion, image.Groups["version"].Value);
         }
         Assert.Contains("mcr.microsoft.com/playwright/dotnet:v" + packageVersion + "-noble", orchardLinux, StringComparison.Ordinal);
-        Assert.Contains("mcr.microsoft.com/playwright/dotnet:v" + packageVersion + "-noble", docs, StringComparison.Ordinal);
-        Assert.Contains("check-playwright-runtime.ps1 -ProjectOutputDirectory", docs, StringComparison.Ordinal);
+        Assert.Contains("container:", orchardLinux, StringComparison.Ordinal);
+        Assert.Contains("runs-on: ubuntu-24.04", docs, StringComparison.Ordinal);
+        Assert.DoesNotContain("container:", docs, StringComparison.Ordinal);
+        Assert.DoesNotContain("mcr.microsoft.com/playwright/dotnet:", docs, StringComparison.Ordinal);
+        Assert.Contains("name: Verify docs host toolchain", docs, StringComparison.Ordinal);
+        Assert.Contains("name: Install Playwright Chromium", docs, StringComparison.Ordinal);
+        Assert.Contains("artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0", docs, StringComparison.Ordinal);
+        Assert.Contains("Test-Path -LiteralPath $playwrightScript -PathType Leaf", docs, StringComparison.Ordinal);
+        Assert.Contains("pwsh $playwrightScript install --with-deps chromium", docs, StringComparison.Ordinal);
+        Assert.Contains("check-playwright-runtime.ps1 -ProjectOutputDirectory $projectOutputDirectory", docs, StringComparison.Ordinal);
         Assert.Contains("-ExpectedImageVersion '" + packageVersion + "'", orchardLinux, StringComparison.Ordinal);
-        Assert.Contains("-ExpectedImageVersion '" + packageVersion + "'", docs, StringComparison.Ordinal);
+        Assert.DoesNotContain("-ExpectedImageVersion", docs, StringComparison.Ordinal);
 
         Assert.Contains("needs: coverage", docs, StringComparison.Ordinal);
         Assert.DoesNotContain("needs: linux-tests", coverage, StringComparison.Ordinal);

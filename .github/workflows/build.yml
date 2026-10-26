@@ -440,10 +440,6 @@ jobs:
   docs-site:
     needs: coverage
     runs-on: ubuntu-24.04
-    container:
-      image: mcr.microsoft.com/playwright/dotnet:v1.63.0-noble
-      # Browser tests exercise only the local, same-commit documentation site.
-      options: --ipc=host --init
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
@@ -458,15 +454,13 @@ jobs:
           node-version: '22.23.3'
           cache: npm
           cache-dependency-path: docs/site-config/diagrams/package-lock.json
-      - name: Verify Playwright container toolchain
+      - name: Verify docs host toolchain
         shell: bash
         run: |
           command -v git
           command -v pwsh
           command -v node
           command -v dotnet
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git -c "safe.directory=$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" rev-parse --show-toplevel
           test -w "$GITHUB_WORKSPACE"
           mkdir -p artifacts
           test -w artifacts
@@ -484,9 +478,17 @@ jobs:
       - name: Build docs test target
         shell: pwsh
         run: ./devops build --project src/devops/tests/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj --framework net10.0
-      - name: Validate Playwright Chromium runtime
+      - name: Install Playwright Chromium
         shell: pwsh
-        run: pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory 'artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0' -ExpectedImageVersion '1.63.0'
+        run: |
+          $projectOutputDirectory = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0'
+          $playwrightScript = Join-Path $projectOutputDirectory 'playwright.ps1'
+          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) {
+            throw "Generated Playwright installer is missing: $playwrightScript"
+          }
+          pwsh $playwrightScript install --with-deps chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pwsh -NoProfile -File ./scripts/devops/check-playwright-runtime.ps1 -ProjectOutputDirectory $projectOutputDirectory
       - name: Build documentation site
         shell: pwsh
         run: ./devops docs build
