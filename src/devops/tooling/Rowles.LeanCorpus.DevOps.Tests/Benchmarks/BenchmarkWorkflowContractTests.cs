@@ -32,6 +32,29 @@ public sealed class BenchmarkWorkflowContractTests
     }
 
     [Fact]
+    public void WorkflowAlwaysWritesAndUploadsPlanOnlyOrNormalQualificationEvidence()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        string workflow = File.ReadAllText(Path.Combine(checkout.RepositoryRoot, ".github", "workflows", "benchmark.yml"));
+        int summaryStart = workflow.IndexOf("- name: Write qualification summary", StringComparison.Ordinal);
+        int summaryEnd = workflow.IndexOf("- name: Upload benchmark run evidence", summaryStart, StringComparison.Ordinal);
+        Assert.True(summaryStart >= 0 && summaryEnd > summaryStart);
+        string summaryStep = workflow[summaryStart..summaryEnd];
+
+        Assert.Contains("if: always()", summaryStep, StringComparison.Ordinal);
+        Assert.Contains("PLAN_ONLY: ${{ inputs.plan_only }}", summaryStep, StringComparison.Ordinal);
+        Assert.Contains("if ($env:PLAN_ONLY -eq 'true')", summaryStep, StringComparison.Ordinal);
+        Assert.Contains("$arguments += '--plan-only'", summaryStep, StringComparison.Ordinal);
+        Assert.Contains("$arguments += @('--expected-run-count', $env:EXPECTED_BENCHMARK_RUN_COUNT)", summaryStep, StringComparison.Ordinal);
+        Assert.Contains("exit $LASTEXITCODE", summaryStep, StringComparison.Ordinal);
+
+        string uploadStep = workflow[summaryEnd..];
+        Assert.Contains("if: always()", uploadStep, StringComparison.Ordinal);
+        Assert.Contains("collected-run-reports.json", uploadStep, StringComparison.Ordinal);
+        Assert.Contains("qualification-summary.json", uploadStep, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void WorkflowShardCasesExistInTheManagedCaseManifest()
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);

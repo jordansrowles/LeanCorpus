@@ -5,7 +5,7 @@ namespace Rowles.LeanCorpus.DevOps.Benchmarks;
 internal sealed record BenchmarkQualificationRunSummary(
     string? RunId,
     string? Status,
-    string? ExecutionClassification,
+    JsonElement? Execution,
     string? QualificationState,
     bool EligibleForRatio,
     IReadOnlyList<string> ReasonCodes,
@@ -118,7 +118,10 @@ internal static class BenchmarkQualificationSummaryBuilder
                 Fail("BenchmarkShardFailed", "One or more fixed benchmark shards failed, were cancelled, or did not report an exit code.");
         }
 
-        if (runs.Any(static run => run.Status != "Passed" || run.ExecutionClassification != "Completed"))
+        if (runs.Any(static run => !HasValidExecution(run.Execution)))
+            Fail("RunExecutionInvalid", "One or more benchmark run reports have a missing or malformed execution.classification.");
+
+        if (runs.Any(static run => run.Status != "Passed" || ReadExecutionClassification(run.Execution) != "Completed"))
             Fail("BenchmarkRunIncomplete", "One or more benchmark runs did not complete successfully.");
 
         if (runs.Any(static run => string.IsNullOrWhiteSpace(run.SourceCommit)))
@@ -169,16 +172,18 @@ internal static class BenchmarkQualificationSummaryBuilder
             report.ValueKind != JsonValueKind.Object)
             return false;
 
-        JsonElement execution = GetObject(report, "execution");
         JsonElement comparison = GetObject(report, "comparisonAssessment");
         JsonElement source = GetObject(report, "source");
+        JsonElement? execution = report.TryGetProperty("execution", out JsonElement executionValue)
+            ? executionValue.Clone()
+            : null;
         var eligible = comparison.TryGetProperty("eligibleForRatio", out JsonElement eligibleValue) &&
                        eligibleValue.ValueKind == JsonValueKind.True;
 
         run = new BenchmarkQualificationRunSummary(
             ReadScalar(report, "runId"),
             ReadScalar(report, "status"),
-            ReadScalar(execution, "classification"),
+            execution,
             ReadScalar(comparison, "qualificationState"),
             eligible,
             ReadStringArray(comparison, "reasonCodes"),
@@ -186,6 +191,17 @@ internal static class BenchmarkQualificationSummaryBuilder
             ReadScalar(source, "commit"));
         return true;
     }
+
+    private static bool HasValidExecution(JsonElement? execution)
+        => execution.HasValue && execution.Value.ValueKind == JsonValueKind.Object &&
+           execution.Value.TryGetProperty("classification", out JsonElement classification) &&
+           classification.ValueKind == JsonValueKind.String &&
+           !string.IsNullOrWhiteSpace(classification.GetString());
+
+    private static string? ReadExecutionClassification(JsonElement? execution)
+        => execution.HasValue && execution.Value.ValueKind == JsonValueKind.Object
+            ? ReadScalar(execution.Value, "classification")
+            : null;
 
     private static JsonElement GetObject(JsonElement value, string propertyName)
         => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(propertyName, out JsonElement result) &&

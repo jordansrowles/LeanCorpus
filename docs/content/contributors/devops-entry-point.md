@@ -205,7 +205,9 @@ then calls `benchmark qualification-summary`. Pass the expected report count
 from the plan, including its smoke run; `--plan-only` writes a schema-v1 summary
 without requiring completed runs. The summary records run qualification and
 failure reason codes, keeps comparative values unpublished, and exits non-zero
-when the expected reports or shard results are incomplete.
+when the expected reports or shard results are incomplete. Each run retains the
+schema-v1 nested `execution` object, including `execution.classification`; a
+missing or malformed classification fails qualification.
 
 `benchmark affected` reads staged, modified, renamed and untracked paths from
 the current checkout, matches the existing benchmark group map, and records

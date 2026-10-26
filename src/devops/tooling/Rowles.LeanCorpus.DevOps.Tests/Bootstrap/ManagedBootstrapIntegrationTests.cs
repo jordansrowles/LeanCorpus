@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Rowles.LeanCorpus.DevOps.Repository;
 
 namespace Rowles.LeanCorpus.DevOps.Tests.Bootstrap;
@@ -105,8 +106,51 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         Assert.True(File.Exists(checkout.ManifestPath));
         Assert.False(File.Exists(checkout.ExecutablePath + ".deps.json"));
         Assert.Null(ManagedHostFingerprint.Validate(checkout.Root, checkout.ExecutablePath));
+        using (var manifestDocument = JsonDocument.Parse(await File.ReadAllBytesAsync(checkout.ManifestPath, cancellationToken)))
+        {
+            var sourceFiles = manifestDocument.RootElement.GetProperty("sourceFiles").EnumerateArray().ToArray();
+            var expectedPaths = GetSourceFiles(checkout.Root);
+            Assert.Equal(expectedPaths, sourceFiles.Select(file => file.GetProperty("path").GetString()));
+            Assert.Contains("src/devops/tooling/Rowles.LeanCorpus.DevOps/Packaging/Assets/Consumer.csproj.template", expectedPaths, StringComparer.Ordinal);
+            Assert.Contains("src/devops/tooling/Rowles.LeanCorpus.DevOps/Packaging/Assets/Program.cs.template", expectedPaths, StringComparer.Ordinal);
+            Assert.Contains("src/devops/tooling/Rowles.LeanCorpus.DevOps/Packaging/Assets/ConsumerSources/core.cs.txt", expectedPaths, StringComparer.Ordinal);
+            Assert.All(sourceFiles, file =>
+            {
+                var path = file.GetProperty("path").GetString();
+                var hash = file.GetProperty("sha256").GetString();
+                Assert.DoesNotContain("\\", path, StringComparison.Ordinal);
+                Assert.Matches("^[0-9a-f]{64}$", hash);
+            });
+            var canonical = string.Concat(sourceFiles.Select(file => $"{file.GetProperty("path").GetString()}\0{file.GetProperty("sha256").GetString()}\n"));
+            var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
+            Assert.Equal(manifestDocument.RootElement.GetProperty("sourceFingerprint").GetString(), fingerprint);
+        }
         Assert.Empty(Directory.EnumerateFiles(leases, "reader-*.json"));
         Assert.False(File.Exists(Path.Combine(leases, "promotion.lock")));
+    }
+
+    [Fact]
+    public async Task BootstrapAcceptsAScriptPathThroughADirectoryLink()
+    {
+        using var checkout = await TemporaryCheckout.CreateAsync(_fixture);
+        var linkedRoot = Path.Combine(Path.GetTempPath(), "LeanCorpus bootstrap checkout alias " + Guid.NewGuid().ToString("N"));
+        CreateDirectoryLink(linkedRoot, checkout.Root);
+        try
+        {
+            var linkedScript = Path.Combine(linkedRoot, "devops.ps1");
+            var run = await _fixture.RunScriptAsync(checkout, ["bootstrap"], scriptPathOverride: linkedScript);
+
+            AssertProcessExitCode(0, run);
+            Assert.True(File.Exists(checkout.ExecutablePath));
+            Assert.Null(ManagedHostFingerprint.Validate(checkout.Root, checkout.ExecutablePath));
+        }
+        finally
+        {
+            if (Directory.Exists(linkedRoot))
+            {
+                Directory.Delete(linkedRoot);
+            }
+        }
     }
 
     [Theory]
@@ -253,11 +297,22 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
     [InlineData("modified-source")]
     [InlineData("changed-config")]
     [InlineData("tampered-executable")]
+    [InlineData("modified-template")]
+    [InlineData("modified-resource")]
+    [InlineData("added-resource")]
+    [InlineData("deleted-resource")]
+    [InlineData("renamed-resource")]
     public async Task DispatchRefusesMissingOrStaleHostInputsAndRequiresExplicitBootstrap(string mutation)
     {
         using var checkout = await TemporaryCheckout.CreateAsync(_fixture, includeDotNet: false, initialiseGit: false);
         checkout.InstallStubHost();
         WriteManifest(checkout.Root, checkout.ExecutablePath, checkout.ManifestPath);
+        if (mutation is "modified-template" or "modified-resource" or "added-resource" or "deleted-resource" or "renamed-resource")
+        {
+            var baseline = await _fixture.RunScriptAsync(checkout, ["--help"]);
+            AssertProcessExitCode(0, baseline);
+        }
+
         switch (mutation)
         {
             case "missing-apphost":
@@ -275,6 +330,23 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
             case "tampered-executable":
                 await File.AppendAllTextAsync(checkout.ExecutablePath, "tampered", TestContext.Current.CancellationToken);
                 break;
+            case "modified-template":
+                await File.AppendAllTextAsync(GetConsumerAssetPath(checkout.Root, "Consumer.csproj.template"), " changed", TestContext.Current.CancellationToken);
+                break;
+            case "modified-resource":
+                await File.AppendAllTextAsync(GetConsumerAssetPath(checkout.Root, "ConsumerSources/core.cs.txt"), " changed", TestContext.Current.CancellationToken);
+                break;
+            case "added-resource":
+                await File.WriteAllTextAsync(GetConsumerAssetPath(checkout.Root, "ConsumerSources/added.cs.txt"), "added", TestContext.Current.CancellationToken);
+                break;
+            case "deleted-resource":
+                File.Delete(GetConsumerAssetPath(checkout.Root, "ConsumerSources/core.cs.txt"));
+                break;
+            case "renamed-resource":
+                File.Move(
+                    GetConsumerAssetPath(checkout.Root, "ConsumerSources/core.cs.txt"),
+                    GetConsumerAssetPath(checkout.Root, "ConsumerSources/renamed.cs.txt"));
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(mutation), mutation, "Unknown host mutation.");
         }
@@ -288,6 +360,79 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         AssertProcessExitCode(3, run);
         AssertProcessCombinedOutputContains(run, "bootstrap", StringComparison.OrdinalIgnoreCase);
         Assert.False(File.Exists(capturePath));
+    }
+
+    [Fact]
+    public async Task DispatchIgnoresGeneratedOutputDirectoriesWithinTheManagedHostTree()
+    {
+        using var checkout = await TemporaryCheckout.CreateAsync(_fixture, includeDotNet: false, initialiseGit: false);
+        checkout.InstallStubHost();
+        var hostSource = Path.Combine(checkout.Root, "src", "devops", "tooling", "Rowles.LeanCorpus.DevOps");
+        foreach (var directoryName in new[] { "artifacts", "bin", "obj" })
+        {
+            var generatedDirectory = Path.Combine(hostSource, directoryName, "Nested");
+            Directory.CreateDirectory(generatedDirectory);
+            await File.WriteAllTextAsync(Path.Combine(generatedDirectory, "Generated.cs"), "generated output", TestContext.Current.CancellationToken);
+        }
+        WriteManifest(checkout.Root, checkout.ExecutablePath, checkout.ManifestPath);
+
+        var run = await _fixture.RunScriptAsync(checkout, ["--help"]);
+
+        AssertProcessExitCode(0, run);
+        AssertProcessStandardOutputContains(run, "LeanCorpus managed DevOps fixture", StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DispatchRejectsAReparsePointInsideTheManagedHostTree()
+    {
+        using var checkout = await TemporaryCheckout.CreateAsync(_fixture, includeDotNet: false, initialiseGit: false);
+        checkout.InstallStubHost();
+        WriteManifest(checkout.Root, checkout.ExecutablePath, checkout.ManifestPath);
+        var linkedSourceDirectory = Path.Combine(checkout.Root, "linked source directory");
+        Directory.CreateDirectory(linkedSourceDirectory);
+        await File.WriteAllTextAsync(Path.Combine(linkedSourceDirectory, "Linked.cs"), "linked source", TestContext.Current.CancellationToken);
+        CreateDirectoryLink(
+            Path.Combine(checkout.Root, "src", "devops", "tooling", "Rowles.LeanCorpus.DevOps", "LinkedSources"),
+            linkedSourceDirectory);
+
+        var capturePath = Path.Combine(checkout.Root, "must-not-run.txt");
+        var run = await _fixture.RunScriptAsync(checkout, ["build"], new Dictionary<string, string?>
+        {
+            ["DEVOPS_CAPTURE_PATH"] = capturePath
+        });
+
+        AssertProcessExitCode(3, run);
+        AssertProcessCombinedOutputContains(run, "link or reparse point", StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(capturePath));
+    }
+
+    [Fact]
+    public async Task DispatchRejectsAReparsePointAtTheManagedHostSourceRoot()
+    {
+        using var checkout = await TemporaryCheckout.CreateAsync(_fixture, includeDotNet: false, initialiseGit: false);
+        checkout.InstallStubHost();
+        WriteManifest(checkout.Root, checkout.ExecutablePath, checkout.ManifestPath);
+        var hostSource = Path.Combine(checkout.Root, "src", "devops", "tooling", "Rowles.LeanCorpus.DevOps");
+        var movedSource = Path.Combine(Path.GetTempPath(), "linked managed host source " + Guid.NewGuid().ToString("N"));
+        Directory.Move(hostSource, movedSource);
+        CreateDirectoryLink(hostSource, movedSource);
+        try
+        {
+            var capturePath = Path.Combine(checkout.Root, "must-not-run.txt");
+            var run = await _fixture.RunScriptAsync(checkout, ["build"], new Dictionary<string, string?>
+            {
+                ["DEVOPS_CAPTURE_PATH"] = capturePath
+            });
+
+            AssertProcessExitCode(3, run);
+            AssertProcessCombinedOutputContains(run, "link or reparse point", StringComparison.OrdinalIgnoreCase);
+            Assert.False(File.Exists(capturePath));
+        }
+        finally
+        {
+            Directory.Delete(hostSource);
+            Directory.Move(movedSource, hostSource);
+        }
     }
 
     [Fact]
@@ -402,7 +547,9 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         string expected,
         StringComparison comparison)
     {
-        if (run.CombinedOutput.Contains(expected, comparison))
+        var normalisedOutput = Regex.Replace(run.CombinedOutput, "\\s+", " ", RegexOptions.CultureInvariant);
+        var normalisedExpected = Regex.Replace(expected, "\\s+", " ", RegexOptions.CultureInvariant);
+        if (normalisedOutput.Contains(normalisedExpected, comparison))
         {
             return;
         }
@@ -455,8 +602,18 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
 
             foreach (var path in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
             {
-                if (new[] { ".cs", ".csproj", ".json", ".props", ".targets", ".slnx" }
-                    .Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+                var relativePath = Path.GetRelativePath(directory, path);
+                if (relativePath.Split(Path.DirectorySeparatorChar).Any(IsTransientOutputDirectory))
+                {
+                    continue;
+                }
+
+                var isStandardSource = new[] { ".cs", ".csproj", ".json", ".props", ".targets", ".slnx" }
+                    .Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+                var isManagedHostResource = relativeDirectory == "src/devops/tooling/Rowles.LeanCorpus.DevOps" &&
+                    (Path.GetExtension(path).Equals(".template", StringComparison.OrdinalIgnoreCase) ||
+                     Path.GetFileName(path).EndsWith(".cs.txt", StringComparison.OrdinalIgnoreCase));
+                if (isStandardSource || isManagedHostResource)
                 {
                     paths.Add(Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/'));
                 }
@@ -464,6 +621,44 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         }
 
         return paths.Order(StringComparer.Ordinal).ToArray();
+    }
+
+    private static bool IsTransientOutputDirectory(string name)
+        => name.Equals("artifacts", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("obj", StringComparison.OrdinalIgnoreCase);
+
+    private static string GetConsumerAssetPath(string root, string relativePath)
+        => Path.Combine(root, "src", "devops", "tooling", "Rowles.LeanCorpus.DevOps", "Packaging", "Assets", relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+    private static void CreateDirectoryLink(string linkPath, string targetPath)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateSymbolicLink(linkPath, targetPath);
+            return;
+        }
+
+        var startInfo = new ProcessStartInfo(Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (var argument in new[] { "/c", "mklink", "/J", linkPath, targetPath })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Could not start cmd.exe to create a test junction.");
+        var standardOutput = process.StandardOutput.ReadToEnd();
+        var standardError = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException($"Creating a test junction failed with exit code {process.ExitCode}.{Environment.NewLine}{standardOutput}{Environment.NewLine}{standardError}");
+        }
     }
 
     private static string HashFile(string path)
@@ -574,6 +769,22 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
                 File.WriteAllText(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
             }
+
+            var hostDirectory = Path.Combine(Root, "src", "devops", "tooling", "Rowles.LeanCorpus.DevOps");
+            File.WriteAllText(Path.Combine(hostDirectory, "Rowles.LeanCorpus.DevOps.csproj"), """
+                <Project>
+                  <ItemGroup>
+                    <EmbeddedResource Include="Packaging/Assets/Consumer.csproj.template" />
+                    <EmbeddedResource Include="Packaging/Assets/Program.cs.template" />
+                    <EmbeddedResource Include="Packaging/Assets/ConsumerSources/*.cs.txt" />
+                  </ItemGroup>
+                </Project>
+                """, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            var assetsDirectory = Path.Combine(hostDirectory, "Packaging", "Assets");
+            Directory.CreateDirectory(Path.Combine(assetsDirectory, "ConsumerSources"));
+            File.WriteAllText(Path.Combine(assetsDirectory, "Consumer.csproj.template"), "consumer project template", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.WriteAllText(Path.Combine(assetsDirectory, "Program.cs.template"), "consumer program template", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.WriteAllText(Path.Combine(assetsDirectory, "ConsumerSources", "core.cs.txt"), "core consumer source", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
             if (includeSolution)
             {
@@ -745,21 +956,24 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
         ManagedBootstrapIntegrationTests.TemporaryCheckout checkout,
         IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string?>? environment = null,
-        string? pathOverride = null)
+        string? pathOverride = null,
+        string? scriptPathOverride = null)
     {
         Directory.CreateDirectory(checkout.FakeHome);
         var diagnosticsPath = Path.Combine(checkout.FakeHome, "bootstrap-process-diagnostics-" + Guid.NewGuid().ToString("N") + ".txt");
         var wrapperPath = Path.Combine(checkout.FakeHome, "bootstrap-process-wrapper-" + Guid.NewGuid().ToString("N") + ".ps1");
         File.WriteAllText(wrapperPath, CreateDiagnosticWrapper(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
+        var scriptPath = scriptPathOverride ?? checkout.ScriptPath;
+        var scriptDirectory = Path.GetDirectoryName(scriptPath)!;
         var startInfo = new ProcessStartInfo(PowerShellPath)
         {
-            WorkingDirectory = checkout.Root,
+            WorkingDirectory = scriptDirectory,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true
         };
-        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-File", wrapperPath, checkout.ScriptPath }.Concat(arguments))
+        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-File", wrapperPath, scriptPath }.Concat(arguments))
         {
             startInfo.ArgumentList.Add(argument);
         }
@@ -796,11 +1010,11 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
         }
 
         var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start the PowerShell entry point.");
-        var command = string.Join(" ", new[] { PowerShellPath, "-NoProfile", "-NonInteractive", "-File", wrapperPath, checkout.ScriptPath }
+        var command = string.Join(" ", new[] { PowerShellPath, "-NoProfile", "-NonInteractive", "-File", wrapperPath, scriptPath }
             .Concat(arguments)
             .Select(QuoteForDisplay));
         var environmentSummary = ManagedBootstrapProcessDiagnostics.CreateEnvironmentSummary(startInfo.Environment);
-        return new RunningScript(process, command, checkout.Root, checkout.FakeBin, diagnosticsPath, environmentSummary);
+        return new RunningScript(process, command, scriptDirectory, checkout.FakeBin, diagnosticsPath, environmentSummary);
     }
 
     private static string CreateDiagnosticWrapper() => """
@@ -835,9 +1049,10 @@ public sealed class ManagedBootstrapTestFixture : IAsyncLifetime
         IReadOnlyList<string> arguments,
         IReadOnlyDictionary<string, string?>? environment = null,
         string? pathOverride = null,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        string? scriptPathOverride = null)
     {
-        await using var running = StartScript(checkout, arguments, environment, pathOverride);
+        await using var running = StartScript(checkout, arguments, environment, pathOverride, scriptPathOverride);
         return await running.WaitAsync(timeout ?? TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
     }
 

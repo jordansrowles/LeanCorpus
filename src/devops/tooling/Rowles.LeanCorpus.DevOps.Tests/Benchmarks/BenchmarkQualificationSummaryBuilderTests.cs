@@ -31,6 +31,60 @@ public sealed class BenchmarkQualificationSummaryBuilderTests
     }
 
     [Fact]
+    public void PreservesTheSchemaV1NestedExecutionObject()
+    {
+        var summary = BenchmarkQualificationSummaryBuilder.Build(
+            CreateReports(1, SourceCommit), SourceCommit, planOnly: false, expectedRunCount: 1,
+            new Dictionary<string, string?>());
+
+        using JsonDocument output = JsonDocument.Parse(JsonSerializer.Serialize(summary, BenchmarkQualificationSummaryBuilder.JsonOptions));
+        JsonElement root = output.RootElement;
+        Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+        Assert.False(root.GetProperty("planOnly").GetBoolean());
+        Assert.Equal(SourceCommit, root.GetProperty("sourceCommit").GetString());
+        JsonElement run = Assert.Single(root.GetProperty("runs").EnumerateArray());
+        Assert.Equal("run-0", run.GetProperty("runId").GetString());
+        Assert.Equal("Passed", run.GetProperty("status").GetString());
+        Assert.Equal("Completed", run.GetProperty("execution").GetProperty("classification").GetString());
+        Assert.False(run.TryGetProperty("executionClassification", out _));
+    }
+
+    [Fact]
+    public void FailsClosedWhenTheExecutionObjectIsMissing()
+    {
+        string reports = CreateReports(1, SourceCommit).Replace(
+            "\"execution\":{\"classification\":\"Completed\"},", string.Empty, StringComparison.Ordinal);
+
+        BenchmarkQualificationSummaryDocument summary = BenchmarkQualificationSummaryBuilder.Build(
+            reports, SourceCommit, planOnly: true, expectedRunCount: 0, new Dictionary<string, string?>());
+
+        Assert.Contains(summary.FailureReasonCodes, code => code == "RunExecutionInvalid");
+        Assert.Contains(summary.FailureReasonCodes, code => code == "BenchmarkRunIncomplete");
+        Assert.Single(summary.Runs);
+        Assert.NotEmpty(summary.FailureReasons);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("\"Completed\"")]
+    [InlineData("{}")]
+    [InlineData("[]")]
+    public void FailsClosedWhenExecutionClassificationIsMalformed(string executionJson)
+    {
+        string reports = CreateReports(1, SourceCommit).Replace(
+            "\"execution\":{\"classification\":\"Completed\"}",
+            $"\"execution\":{executionJson}", StringComparison.Ordinal);
+
+        BenchmarkQualificationSummaryDocument summary = BenchmarkQualificationSummaryBuilder.Build(
+            reports, SourceCommit, planOnly: true, expectedRunCount: 0, new Dictionary<string, string?>());
+
+        Assert.Contains(summary.FailureReasonCodes, code => code == "RunExecutionInvalid");
+        Assert.Contains(summary.FailureReasonCodes, code => code == "BenchmarkRunIncomplete");
+        Assert.Single(summary.Runs);
+        Assert.NotEmpty(summary.FailureReasons);
+    }
+
+    [Fact]
     public void FailsClosedForMissingReportsAndMissingOrCancelledShardExits()
     {
         string reports = CreateReports(4, SourceCommit);

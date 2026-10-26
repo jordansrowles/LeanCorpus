@@ -8,10 +8,31 @@ function Stop-Setup {
     throw $Message
 }
 
+function Get-PhysicalDirectoryPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $pathRoot = [System.IO.Path]::GetPathRoot($fullPath)
+    $relativePath = $fullPath.Substring($pathRoot.Length)
+    $segments = $relativePath.Split([System.IO.Path]::DirectorySeparatorChar, [System.StringSplitOptions]::RemoveEmptyEntries)
+    $current = $pathRoot
+    foreach ($segment in $segments) {
+        $current = [System.IO.Path]::Combine($current, $segment)
+        if (Test-Path -LiteralPath $current -PathType Container) {
+            $target = [System.IO.DirectoryInfo]::new($current).ResolveLinkTarget($true)
+            if ($null -ne $target) {
+                $current = $target.FullName
+            }
+        }
+    }
+
+    return [System.IO.Path]::GetFullPath($current)
+}
+
 function Assert-LeanCorpusCheckout {
     param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
 
-    $root = [System.IO.Path]::GetFullPath($RepositoryRoot)
+    $root = Get-PhysicalDirectoryPath -Path $RepositoryRoot
     $gitMarker = Join-Path $root '.git'
     $isGitDirectory = Test-Path -LiteralPath $gitMarker -PathType Container
     $isGitFile = Test-Path -LiteralPath $gitMarker -PathType Leaf
@@ -30,7 +51,7 @@ function Assert-LeanCorpusCheckout {
         if ($LASTEXITCODE -ne 0 -or $gitRootLines.Count -eq 0) {
             Stop-Setup 'Git could not identify the managed DevOps checkout root.'
         }
-        $gitRoot = [System.IO.Path]::GetFullPath([string]$gitRootLines[-1])
+        $gitRoot = Get-PhysicalDirectoryPath -Path ([string]$gitRootLines[-1])
         if (-not [string]::Equals([System.IO.Path]::TrimEndingDirectorySeparator($gitRoot), [System.IO.Path]::TrimEndingDirectorySeparator($root), (Get-ManagedHostComparison))) {
             Stop-Setup "The managed DevOps script directory '$root' does not match the Git checkout root '$gitRoot'."
         }
@@ -241,6 +262,11 @@ function Get-ManagedHostSourceEntries {
     foreach ($relativeDirectory in @('src/devops/tooling/Rowles.LeanCorpus.DevOps', '.config/devops')) {
         $directory = Join-Path $root ($relativeDirectory.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
         if (-not (Test-Path -LiteralPath $directory -PathType Container)) { continue }
+        $directoryAttributes = [System.IO.File]::GetAttributes($directory)
+        if (($directoryAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Managed DevOps source directory '$directory' is a link or reparse point."
+        }
+        $includeEmbeddedResources = [string]::Equals($relativeDirectory, 'src/devops/tooling/Rowles.LeanCorpus.DevOps', [System.StringComparison]::Ordinal)
         $pending = [System.Collections.Generic.Stack[string]]::new()
         $pending.Push($directory)
         while ($pending.Count -gt 0) {
@@ -250,10 +276,17 @@ function Get-ManagedHostSourceEntries {
                     throw "Managed DevOps source input '$($item.FullName)' is a link or reparse point."
                 }
                 if ($item.PSIsContainer) {
+                    if ($item.Name -in @('artifacts', 'bin', 'obj')) {
+                        continue
+                    }
                     $pending.Push($item.FullName)
                     continue
                 }
-                if ($extensions -contains $item.Extension.ToLowerInvariant()) {
+                $isStandardSource = $extensions -contains $item.Extension.ToLowerInvariant()
+                $isEmbeddedResource = $includeEmbeddedResources -and
+                    ($item.Extension.Equals('.template', [System.StringComparison]::OrdinalIgnoreCase) -or
+                     $item.Name.EndsWith('.cs.txt', [System.StringComparison]::OrdinalIgnoreCase))
+                if ($isStandardSource -or $isEmbeddedResource) {
                     $paths.Add([System.IO.Path]::GetRelativePath($root, $item.FullName).Replace([System.IO.Path]::DirectorySeparatorChar, '/'))
                 }
             }
@@ -385,10 +418,11 @@ if ($PSVersionTable.PSVersion.Major -lt 7) {
 }
 
 $forwardedArguments = @($args)
+$scriptDirectory = Get-PhysicalDirectoryPath -Path $PSScriptRoot
 $bootstrapRequested = $forwardedArguments.Count -gt 0 -and [string]::Equals([string]$forwardedArguments[0], 'bootstrap', [System.StringComparison]::OrdinalIgnoreCase)
 if (-not $bootstrapRequested) {
-    $managedHost = Join-Path $PSScriptRoot (Get-ManagedHostExecutableName)
-    $hostStatus = Test-ManagedHost -RepositoryRoot $PSScriptRoot -ExecutablePath $managedHost
+    $managedHost = Join-Path $scriptDirectory (Get-ManagedHostExecutableName)
+    $hostStatus = Test-ManagedHost -RepositoryRoot $scriptDirectory -ExecutablePath $managedHost
     if (-not $hostStatus.IsCurrent) {
         [Console]::Error.WriteLine("Managed DevOps host is unavailable: $($hostStatus.Reason)")
         [Console]::Error.WriteLine('Run `pwsh ./devops.ps1 bootstrap` to build, test and promote it.')
@@ -418,7 +452,7 @@ if ($LASTEXITCODE -ne 0 -or $gitVersion.Count -eq 0) {
     Stop-Setup 'Git was found but could not run. Repair the Git installation, then run `pwsh ./devops.ps1 bootstrap` again.'
 }
 
-$repositoryRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
+$repositoryRoot = $scriptDirectory
 Assert-LeanCorpusCheckout -RepositoryRoot $repositoryRoot
 
 $dotnetCommand = Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1

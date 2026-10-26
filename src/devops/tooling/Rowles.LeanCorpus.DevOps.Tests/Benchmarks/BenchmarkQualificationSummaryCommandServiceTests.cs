@@ -34,6 +34,7 @@ public sealed class BenchmarkQualificationSummaryCommandServiceTests
         Assert.Equal(1, output.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.Equal(SourceCommit, output.RootElement.GetProperty("sourceCommit").GetString());
         Assert.False(output.RootElement.GetProperty("comparativeValuesPublished").GetBoolean());
+        Assert.Equal("Completed", output.RootElement.GetProperty("runs")[0].GetProperty("execution").GetProperty("classification").GetString());
         Assert.Contains("Source commit:", await File.ReadAllTextAsync(stepSummaryPath, TestContext.Current.CancellationToken), StringComparison.Ordinal);
 
         using JsonDocument manifest = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(result.RunDirectory, "run.json"), TestContext.Current.CancellationToken));
@@ -64,6 +65,50 @@ public sealed class BenchmarkQualificationSummaryCommandServiceTests
         using JsonDocument manifest = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(result.RunDirectory, "run.json"), TestContext.Current.CancellationToken));
         Assert.Equal("failed", manifest.RootElement.GetProperty("state").GetString());
         Assert.Equal(1, manifest.RootElement.GetProperty("childExitCodes")[0].GetInt32());
+    }
+
+    [Fact]
+    public async Task WritesPlanOnlySummaryAndStepSummary()
+    {
+        using var checkout = new TemporaryCheckout();
+        var paths = new ArtifactPaths(checkout.Root);
+        var service = CreateService(paths);
+        string reportsPath = Path.Combine(checkout.Root, "collected reports.json");
+        string outputPath = Path.Combine(checkout.Root, "qualification summary.json");
+        string stepSummaryPath = Path.Combine(checkout.Root, "step summary.md");
+        await File.WriteAllTextAsync(reportsPath, "[]", TestContext.Current.CancellationToken);
+
+        var result = await service.RunAsync(checkout.Identity,
+            new BenchmarkQualificationSummaryCommandOptions(reportsPath, outputPath, true, 0),
+            new Dictionary<string, string?> { ["GITHUB_STEP_SUMMARY"] = stepSummaryPath },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
+        using JsonDocument output = JsonDocument.Parse(await File.ReadAllBytesAsync(outputPath, TestContext.Current.CancellationToken));
+        Assert.True(output.RootElement.GetProperty("planOnly").GetBoolean());
+        Assert.Equal(0, output.RootElement.GetProperty("expectedRunCount").GetInt32());
+        Assert.Contains("Runs collected: 0 of 0", await File.ReadAllTextAsync(stepSummaryPath, TestContext.Current.CancellationToken), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WritesFailureStepSummaryAndReturnsNonzeroForFailedQualification()
+    {
+        using var checkout = new TemporaryCheckout();
+        var paths = new ArtifactPaths(checkout.Root);
+        var service = CreateService(paths);
+        string outputPath = Path.Combine(checkout.Root, "qualification summary.json");
+        string stepSummaryPath = Path.Combine(checkout.Root, "step summary.md");
+
+        var result = await service.RunAsync(checkout.Identity,
+            new BenchmarkQualificationSummaryCommandOptions(Path.Combine(checkout.Root, "missing.json"), outputPath, true, 0),
+            new Dictionary<string, string?> { ["GITHUB_STEP_SUMMARY"] = stepSummaryPath },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.CommandFailure, result.CommandResult.Outcome);
+        Assert.Equal(1, result.CommandResult.ExitCode);
+        Assert.Contains("Collected run reports file is missing", await File.ReadAllTextAsync(stepSummaryPath, TestContext.Current.CancellationToken), StringComparison.Ordinal);
+        Assert.True(File.Exists(outputPath));
+        Assert.True(File.Exists(Path.Combine(result.RunDirectory, "run.json")));
     }
 
     private static BenchmarkQualificationSummaryCommandService CreateService(ArtifactPaths paths)

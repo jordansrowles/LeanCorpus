@@ -77,6 +77,10 @@ internal static class ManagedHostFingerprint
 
             return null;
         }
+        catch (InvalidDataException exception)
+        {
+            return $"Managed DevOps source inputs are invalid: {exception.Message}";
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
         {
             return $"Could not validate the managed DevOps promotion manifest: {exception.Message}";
@@ -99,8 +103,8 @@ internal static class ManagedHostFingerprint
             }
         }
 
-        AddDirectoryFiles(repositoryRoot, "src/devops/tooling/Rowles.LeanCorpus.DevOps", paths);
-        AddDirectoryFiles(repositoryRoot, ".config/devops", paths);
+        AddDirectoryFiles(repositoryRoot, "src/devops/tooling/Rowles.LeanCorpus.DevOps", paths, includeEmbeddedResources: true);
+        AddDirectoryFiles(repositoryRoot, ".config/devops", paths, includeEmbeddedResources: false);
         if (!paths.Contains(RepositoryProjectCatalog.GetRelativePath(RepositoryProjectRole.DevOpsHost)))
         {
             throw new InvalidDataException("The managed DevOps host project is missing from the selected checkout.");
@@ -111,7 +115,7 @@ internal static class ManagedHostFingerprint
             .ToArray();
     }
 
-    private static void AddDirectoryFiles(string repositoryRoot, string relativeDirectory, HashSet<string> paths)
+    private static void AddDirectoryFiles(string repositoryRoot, string relativeDirectory, HashSet<string> paths, bool includeEmbeddedResources)
     {
         var fullDirectory = Path.Combine(repositoryRoot, relativeDirectory.Replace('/', Path.DirectorySeparatorChar));
         if (!Directory.Exists(fullDirectory))
@@ -122,7 +126,11 @@ internal static class ManagedHostFingerprint
         foreach (var fullPath in EnumerateFilesWithoutLinks(fullDirectory))
         {
             var extension = Path.GetExtension(fullPath);
-            if (!SourceExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+            var isStandardSource = SourceExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+            var isEmbeddedResource = includeEmbeddedResources &&
+                (extension.Equals(".template", StringComparison.OrdinalIgnoreCase) ||
+                 Path.GetFileName(fullPath).EndsWith(".cs.txt", StringComparison.OrdinalIgnoreCase));
+            if (!isStandardSource && !isEmbeddedResource)
             {
                 continue;
             }
@@ -152,12 +160,28 @@ internal static class ManagedHostFingerprint
 
         foreach (var childDirectory in Directory.EnumerateDirectories(directory))
         {
+            var childAttributes = File.GetAttributes(childDirectory);
+            if ((childAttributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidDataException($"Managed DevOps source directory '{childDirectory}' is a link or reparse point.");
+            }
+
+            if (IsTransientOutputDirectory(Path.GetFileName(childDirectory)))
+            {
+                continue;
+            }
+
             foreach (var file in EnumerateFilesWithoutLinks(childDirectory))
             {
                 yield return file;
             }
         }
     }
+
+    private static bool IsTransientOutputDirectory(string name)
+        => name.Equals("artifacts", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+           name.Equals("obj", StringComparison.OrdinalIgnoreCase);
 
     private static string ComputeSourceFingerprint(IEnumerable<SourceFileFingerprint> entries)
     {
