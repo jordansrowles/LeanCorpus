@@ -41,9 +41,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 ## Added
 
 - Compose first-party physical indexes under an internal runtime with terminal close, operation and search leases, definitive health, and correlated resource diagnostics.
-
 - Add trace-correlated backup/restore filesystem measurements and a fixed-seed DevOps matrix; honour configured FsCheck iterations without reducing default coverage. Publish the completed diagnostic results and distinguish read-open timings from deletion.
-
 - Add a Spectre.Console CLI Workbench for interactive index browsing, search, analysis, Core-backed inspection, deterministic index creation, fingerprints and workload replay. ([49cfcd898](https://github.com/jordansrowles/LeanCorpus/commit/49cfcd8980793b428469c1df503196637cf1d834))
 - Add public read-only `IndexInspector` and typed inspection models for committed-index overviews, segments, fields, terms and postings, documents, vector and spatial metadata, and format and size inspection. ([49cfcd898](https://github.com/jordansrowles/LeanCorpus/commit/49cfcd8980793b428469c1df503196637cf1d834))
 - Expose ordered multi-document replacement through `IndexWriter.UpdateDocuments`, applying one delete pass before ordered replacements in a batch. ([d158f0507](https://github.com/jordansrowles/LeanCorpus/commit/d158f0507c56a38ac149dd043215359c8d6d1d70))
@@ -73,7 +71,6 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 - Update the standalone Rowles.Text README's benchmark commands to the managed DevOps CLI and clarify this branch's unreleased package target.
 - Clarify unreleased package versions and API-reference coverage in the documentation preview, and direct first-time users to the canonical installation guide.
-
 - Rename the internal Core JSON metadata namespace and source area to British `Serialisation`; preserve Core JSON payload shapes and property names, with Server wire-contract types untouched.
 - Pin DocFX 2.78.5 in the repository-local .NET tool manifest and add root bootstrap checks for PowerShell 7, Git and the `global.json` SDK family.
 - Move canonical documentation and site configuration into `docs/content/` and `docs/site-config/`; stage generated API, import, ADR, changelog, benchmark and site outputs under `artifacts/docs/`.
@@ -140,21 +137,17 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- Make concurrent mapped-input disposal wait for the same cleanup outcome, retain directory ownership after cleanup faults, and retry only unfinished resource-release stages.
 - Correct the analysis guide to identify the standalone Rowles.Text 2.0 release.
 - Resolve coverage source paths from the repository root and limit generated HTML to first-party assemblies, keeping coverage links valid in the documentation site.
 - Keep benchmark-run discovery as an array when documentation generation skips the scan or finds no runs.
 - Include linked DevOps migration-ledger JSON files in the generated documentation site.
 - Close managed run-manifest read handles before recording interrupted runs, so Windows can atomically replace the manifest; normalise the server project path before forwarding it to `dotnet`.
-
 - Reclaim idle file-lifetime registry states after directory owners, file leases and deferred-delete callbacks have settled; preserve failed deletes for recovery.
-
 - Report the definitive fatal writer failure after an earlier recoverable error, preserving terminal close failure provenance.
-
 - Retain failed deferred deletions for observable cleanup and require unleased pending cleanup to finish before composed physical close succeeds.
-
 - Keep copied reader leases safe to dispose repeatedly, and count outstanding leases on retired reader generations correctly.
 - Compose Orchard functional-test exclusions with explicit and affected test filters without mixing incompatible xUnit filter modes.
-
 - Publish the `LowercaseFilter` non-ASCII uppercase correction in standalone Rowles.Text; this fix was already included in LeanCorpus 3.1.1. ([a717abcce](https://github.com/jordansrowles/LeanCorpus/commit/a717abccea6c726c0862400c6f21aee35d52d36b))
 - Publish recoverable per-call token-budget accounting in standalone Rowles.Text so a rejected input does not poison later reuse of the same tokeniser; this fix was already included in LeanCorpus 3.1.1. ([2783e3720](https://github.com/jordansrowles/LeanCorpus/commit/2783e3720084117a2b283794159afe93f75f288f))
 - Preserve deletion snapshots across repeated uncommitted updates and rollback, and isolate background merges from concurrent segment-state changes. ([793d1b49f](https://github.com/jordansrowles/LeanCorpus/commit/793d1b49f1bacf00c2bbc47d8998a7edf70d3b5a))
