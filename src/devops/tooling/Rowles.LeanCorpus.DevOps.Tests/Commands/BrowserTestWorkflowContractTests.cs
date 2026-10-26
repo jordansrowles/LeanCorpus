@@ -254,7 +254,7 @@ public sealed class BrowserTestWorkflowContractTests
     {
         var match = Regex.Match(GetJobBlock(workflow, jobName), "(?m)^    if: (?<condition>.+)$", RegexOptions.CultureInvariant);
         Assert.True(match.Success, $"Workflow job '{jobName}' is missing its event qualification condition.");
-        return match.Groups["condition"].Value;
+        return match.Groups["condition"].Value.TrimEnd('\r');
     }
 
     private static string[] GetFrameworkMatrix(string job)

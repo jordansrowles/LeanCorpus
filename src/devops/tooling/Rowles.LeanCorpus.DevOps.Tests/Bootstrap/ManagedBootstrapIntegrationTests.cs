@@ -164,6 +164,39 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
         }
     }
 
+    [Fact]
+    public async Task BootstrapUsesTheGitSafeLogicalPathWhenTheScriptDirectoryIsLinked()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        using var checkout = await TemporaryCheckout.CreateAsync(_fixture);
+        var linkedRoot = Path.Combine(Path.GetTempPath(), "LeanCorpus bootstrap safe checkout alias " + Guid.NewGuid().ToString("N"));
+        CreateDirectoryLink(linkedRoot, checkout.Root);
+        checkout.InstallGitWrapperForSafeDirectory();
+        try
+        {
+            var linkedScript = Path.Combine(linkedRoot, "devops.ps1");
+            var run = await _fixture.RunScriptAsync(checkout, ["bootstrap"], new Dictionary<string, string?>
+            {
+                ["BOOTSTRAP_GIT_SAFE_DIRECTORY"] = linkedRoot
+            }, pathOverride: checkout.FakeBin, scriptPathOverride: linkedScript);
+
+            AssertProcessExitCode(0, run);
+            Assert.True(File.Exists(checkout.ExecutablePath));
+            Assert.Null(ManagedHostFingerprint.Validate(checkout.Root, checkout.ExecutablePath));
+        }
+        finally
+        {
+            if (Directory.Exists(linkedRoot))
+            {
+                Directory.Delete(linkedRoot);
+            }
+        }
+    }
+
     [Theory]
     [InlineData("tool-restore")]
     [InlineData("restore")]
@@ -836,6 +869,28 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
                     UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
                     UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
             }
+        }
+
+        public void InstallGitWrapperForSafeDirectory()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                throw new PlatformNotSupportedException("The safe-directory Git wrapper is only used by the Linux symlink regression test.");
+            }
+
+            var gitPath = ManagedBootstrapTestFixture.FindExecutable("git");
+            var wrapperPath = Path.Combine(FakeBin, "git");
+            var content = $"#!/bin/sh{Environment.NewLine}" +
+                "if [ \"$1\" = \"-C\" ] && [ \"$2\" != \"$BOOTSTRAP_GIT_SAFE_DIRECTORY\" ]; then\n" +
+                "  echo 'fatal: detected dubious ownership; only the logical checkout path is marked safe' >&2\n" +
+                "  exit 128\n" +
+                "fi\n" +
+                $"exec '{gitPath.Replace("'", "'\\''", StringComparison.Ordinal)}' \"$@\"{Environment.NewLine}";
+            File.WriteAllText(wrapperPath, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.SetUnixFileMode(wrapperPath,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
         }
 
         public PreviousInstallation WritePreviousInstallation()

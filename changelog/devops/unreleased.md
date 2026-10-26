@@ -82,6 +82,8 @@
 
 ## Fixed
 
+- Preserve the Git-approved logical checkout path during managed bootstrap while comparing canonical roots across filesystem links.
+
 - Preserve UTC kind when validating managed bootstrap lease markers on Windows, and clear read-only checkout files during temporary-worktree test cleanup.
 - Resolve release-archive documentation and licence inputs from the managed DevOps project catalog so distribution works from the current repository layout.
 - Disable MSBuild node reuse for documentation version probes so Windows can remove temporary checkout directories after each child process exits.

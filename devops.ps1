@@ -30,7 +30,10 @@ function Get-PhysicalDirectoryPath {
 }
 
 function Assert-LeanCorpusCheckout {
-    param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$GitWorkingDirectory
+    )
 
     $root = Get-PhysicalDirectoryPath -Path $RepositoryRoot
     $gitMarker = Join-Path $root '.git'
@@ -47,7 +50,7 @@ function Assert-LeanCorpusCheckout {
     }
 
     if ($isGitDirectory -or $isGitFile) {
-        $gitRootLines = @(& $script:GitCommand.Source -C $root rev-parse --show-toplevel 2>&1)
+        $gitRootLines = @(& $script:GitCommand.Source -C $GitWorkingDirectory rev-parse --show-toplevel 2>&1)
         if ($LASTEXITCODE -ne 0 -or $gitRootLines.Count -eq 0) {
             Stop-Setup 'Git could not identify the managed DevOps checkout root.'
         }
@@ -453,7 +456,7 @@ if ($LASTEXITCODE -ne 0 -or $gitVersion.Count -eq 0) {
 }
 
 $repositoryRoot = $scriptDirectory
-Assert-LeanCorpusCheckout -RepositoryRoot $repositoryRoot
+Assert-LeanCorpusCheckout -RepositoryRoot $repositoryRoot -GitWorkingDirectory $PSScriptRoot
 
 $dotnetCommand = Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($null -eq $dotnetCommand) {
