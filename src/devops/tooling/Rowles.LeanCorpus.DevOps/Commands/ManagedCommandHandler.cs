@@ -696,6 +696,9 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         Console.CancelKeyPress += cancelHandler;
         try
         {
+            if (options.LegacyRoute && options.Dataset.Equals("gutenberg", StringComparison.OrdinalIgnoreCase))
+                output.WriteLine("Deprecated command: use 'corpus gutenberg'.");
+
             if (!options.Dataset.Equals("gutenberg", StringComparison.OrdinalIgnoreCase) &&
                 !options.Dataset.Equals("migration-fixtures-311", StringComparison.OrdinalIgnoreCase))
             {
@@ -711,7 +714,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
             if (options.Dataset.Equals("migration-fixtures-311", StringComparison.OrdinalIgnoreCase))
             {
-                output.WriteLine("Deprecated alias: use 'data fixtures --version 3.1.1 --scenario migration'.");
+                output.WriteLine("Deprecated alias: use 'fixtures generate --version 3.1.1 --scenario migration'.");
                 return GenerateHistoricalFixtures(checkout, "3.1.1", "migration", options.PackageSource,
                     options.OutputDirectory, cancellation.Token);
             }
@@ -751,6 +754,9 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
     {
         try
         {
+            if (options.LegacyRoute)
+                output.WriteLine("Deprecated command: use 'fixtures list' or 'fixtures generate'.");
+
             var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
             if (RejectStaleManagedHost(checkout) is { } staleExitCode)
                 return staleExitCode;
@@ -1176,10 +1182,10 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
                 return staleExitCode;
             }
 
-            var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
             return new DevOpsWorkbench(
                 AnsiConsole.Console,
-                configuration,
+                () => new ConfigurationLoader(checkout.RepositoryRoot).Load(),
+                checkout.RepositoryRoot,
                 new ManagedWorkbenchOperations(this, checkout, output, error)).Run();
         }
         catch (InvalidOperationException exception)
@@ -1190,6 +1196,62 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         {
             return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
                 "Could not start the managed DevOps workbench.", Details: exception.Message), output, error);
+        }
+    }
+
+    public int ShowConfiguration(ConfigSummaryCommandOptions options)
+    {
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            var configurationRoot = Path.Combine(checkout.RepositoryRoot, ".config", "devops");
+            var files = Directory.EnumerateFiles(configurationRoot, "*.json", SearchOption.TopDirectoryOnly)
+                .Select(static file => Path.GetFileName(file) ?? string.Empty)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+            var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+            var frameworks = configuration.TestSuites.Values.SelectMany(static suite => suite.Frameworks)
+                .Concat(configuration.BenchmarkProjects.Values.SelectMany(static project => project.Frameworks))
+                .Concat(configuration.BenchmarkSuites.Values.SelectMany(static suite => suite.Frameworks))
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToArray();
+
+            output.WriteLine("LeanCorpus DevOps configuration");
+            output.WriteLine($"Checkout: {checkout.RepositoryRoot}");
+            output.WriteLine($"Configuration: {Path.GetRelativePath(checkout.RepositoryRoot, configurationRoot)}");
+            output.WriteLine($"Files: {(files.Length == 0 ? "none" : string.Join(", ", files))}");
+            output.WriteLine($"Test suites: {configuration.TestSuites.Count}");
+            output.WriteLine($"Benchmark suites: {configuration.BenchmarkSuites.Count}");
+            output.WriteLine($"Benchmark projects: {configuration.BenchmarkProjects.Count}");
+            output.WriteLine($"Benchmark strategies: {configuration.BenchmarkStrategies.Count}");
+            output.WriteLine($"Default dataset: {configuration.DefaultBenchmarkDataset}");
+            output.WriteLine($"Frameworks: {(frameworks.Length == 0 ? "none" : string.Join(", ", frameworks))}");
+            return 0;
+        }
+        catch (InvalidOperationException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                "Could not summarise DevOps configuration. Check the checkout or pass --repo <path>.",
+                Details: exception.Message), output, error);
+        }
+        catch (InvalidDataException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                "DevOps configuration is invalid. Check the checkout or pass --repo <path>.",
+                Details: exception.Message), output, error);
+        }
+        catch (FileNotFoundException exception)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                "DevOps configuration is incomplete. Check the checkout or pass --repo <path>.",
+                Details: exception.Message), output, error);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.InfrastructureFailure,
+                "Could not read DevOps configuration. Check the checkout or pass --repo <path>.",
+                Details: exception.Message), output, error);
         }
     }
 

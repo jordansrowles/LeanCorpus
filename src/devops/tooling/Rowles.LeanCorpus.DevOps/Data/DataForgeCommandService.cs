@@ -32,6 +32,7 @@ internal sealed class DataForgeCommandService(
                 $"The DataForge tool project was not found at '{projectPath}'."), null, null);
         }
 
+        outputProgress?.Invoke("Preparing DataForge run evidence.");
         var manifest = await runStore.StartAsync("dataforge",
             new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -44,6 +45,7 @@ internal sealed class DataForgeCommandService(
 
         try
         {
+            outputProgress?.Invoke("Recording DataForge source provenance.");
             var git = await provenanceReader.ReadAsync(request.Checkout, runDirectory, cancellationToken).ConfigureAwait(false);
             if (git.Outcome != OutcomeKind.Success)
             {
@@ -52,6 +54,7 @@ internal sealed class DataForgeCommandService(
             manifest = await runStore.UpdateRunningAsync(manifest, git.Commit, git.Branch, git.Dirty,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
 
+            outputProgress?.Invoke("Resolving the SDK selected by global.json.");
             var sdk = await sdkResolver.ResolveAsync(request.Checkout, runDirectory, cancellationToken).ConfigureAwait(false);
             if (sdk.Outcome != OutcomeKind.Success)
             {
@@ -74,6 +77,7 @@ internal sealed class DataForgeCommandService(
                     ["effectiveArguments"] = JsonSerializer.Serialize(arguments)
                 }).ConfigureAwait(false);
 
+            outputProgress?.Invoke("Executing the DataForge tool.");
             var child = await processRunner.RunAsync(new ProcessRequest
             {
                 ExecutablePath = dotnetExecutable,

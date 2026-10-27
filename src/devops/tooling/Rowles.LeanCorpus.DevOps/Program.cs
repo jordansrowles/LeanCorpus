@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using Rowles.DataForge.Tool;
 using Rowles.LeanCorpus.DevOps.Commands;
 using Rowles.LeanCorpus.DevOps.Testing;
 
@@ -30,6 +31,8 @@ internal static class Program
         var pack = BuildPackCommand(handler, repository);
         var distribute = BuildDistributeCommand(handler, repository);
         var data = BuildDataCommand(handler, repository);
+        var fixtures = BuildFixturesCommand(handler, repository);
+        var corpus = BuildCorpusCommand(handler, repository);
         var dataForge = BuildDataForgeCommand(handler, repository);
         var diagnostics = BuildDiagnosticsCommand(handler, repository);
         var benchmark = BuildBenchmarkCommand(handler, repository);
@@ -46,6 +49,8 @@ internal static class Program
         root.Add(pack);
         root.Add(distribute);
         root.Add(data);
+        root.Add(fixtures);
+        root.Add(corpus);
         root.Add(dataForge);
         root.Add(diagnostics);
         root.Add(benchmark);
@@ -692,7 +697,7 @@ internal static class Program
             Description = "NuGet source used by the pinned 3.1.1 fixture generator.",
             DefaultValueFactory = _ => "https://api.nuget.org/v3/index.json"
         };
-        var command = new Command("data", "Prepare benchmark datasets and historical fixtures.");
+        var command = new Command("data", "Deprecated compatibility routes for corpus and historical fixtures; use 'corpus' or 'fixtures'.");
         command.Add(dataset);
         command.Add(bookCount);
         command.Add(outputDirectory);
@@ -702,7 +707,8 @@ internal static class Program
             result.GetValue(bookCount),
             result.GetValue(outputDirectory),
             result.GetValue(packageSource) ?? "https://api.nuget.org/v3/index.json",
-            result.GetValue(repository))));
+            result.GetValue(repository),
+            LegacyRoute: true)));
 
         var fixtureVersion = new Option<string?>("--version")
         {
@@ -725,7 +731,7 @@ internal static class Program
         {
             Description = "New output directory for generated archives and manifests."
         };
-        var fixtures = new Command("fixtures", "List or generate pinned historical index fixtures.");
+        var fixtures = new Command("fixtures", "Deprecated compatibility route; use 'fixtures list' or 'fixtures generate'.");
         fixtures.Add(fixtureVersion);
         fixtures.Add(fixtureScenario);
         fixtures.Add(fixtureList);
@@ -737,9 +743,78 @@ internal static class Program
             result.GetValue(fixtureList),
             result.GetValue(fixturePackageSource) ?? "https://api.nuget.org/v3/index.json",
             result.GetValue(fixtureOutputDirectory),
-            result.GetValue(repository))));
+            result.GetValue(repository),
+            LegacyRoute: true)));
         command.Add(fixtures);
         return command;
+    }
+
+    private static Command BuildFixturesCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var fixtures = new Command("fixtures", "List or generate pinned historical index fixtures.");
+
+        var listVersion = new Option<string?>("--version")
+        {
+            Description = "Limit the listing to one pinned LeanCorpus package version."
+        };
+        var list = new Command("list", "List catalogued historical package versions and scenarios.");
+        list.Add(listVersion);
+        list.SetAction(result => handler.DataFixtures(new HistoricalFixturesCommandOptions(
+            result.GetValue(listVersion), null, true,
+            "https://api.nuget.org/v3/index.json", null, result.GetValue(repository))));
+
+        var version = new Option<string?>("--version")
+        {
+            Description = "Pinned LeanCorpus package version from the historical fixture catalogue."
+        };
+        var scenario = new Option<string?>("--scenario")
+        {
+            Description = "Historical scenario to generate, such as sparse-hnsw or migration."
+        };
+        var packageSource = new Option<string>("--package-source", ["-PackageSource"])
+        {
+            Description = "Only NuGet source used to restore the exact historical package.",
+            DefaultValueFactory = _ => "https://api.nuget.org/v3/index.json"
+        };
+        var outputDirectory = new Option<string?>("--output-dir", ["-OutputDir"])
+        {
+            Description = "New output directory for generated archives and manifests."
+        };
+        var generate = new Command("generate", "Generate pinned historical index fixtures.");
+        generate.Add(version);
+        generate.Add(scenario);
+        generate.Add(packageSource);
+        generate.Add(outputDirectory);
+        generate.SetAction(result => handler.DataFixtures(new HistoricalFixturesCommandOptions(
+            result.GetValue(version), result.GetValue(scenario), false,
+            result.GetValue(packageSource) ?? "https://api.nuget.org/v3/index.json",
+            result.GetValue(outputDirectory), result.GetValue(repository))));
+
+        fixtures.Add(list);
+        fixtures.Add(generate);
+        return fixtures;
+    }
+
+    private static Command BuildCorpusCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var corpus = new Command("corpus", "Prepare benchmark corpora.");
+        var bookCount = new Option<int>("--book-count", ["-BookCount"])
+        {
+            Description = "Number of Project Gutenberg books to prepare (default: 200).",
+            DefaultValueFactory = _ => 200
+        };
+        var outputDirectory = new Option<string?>("--output-dir", ["-OutputDir"])
+        {
+            Description = "Output directory (dataset-specific default when omitted)."
+        };
+        var gutenberg = new Command("gutenberg", "Download and prepare the Project Gutenberg corpus.");
+        gutenberg.Add(bookCount);
+        gutenberg.Add(outputDirectory);
+        gutenberg.SetAction(result => handler.Data(new DataCommandOptions(
+            "gutenberg", result.GetValue(bookCount), result.GetValue(outputDirectory),
+            "https://api.nuget.org/v3/index.json", result.GetValue(repository))));
+        corpus.Add(gutenberg);
+        return corpus;
     }
 
     private static Command BuildDataForgeCommand(ICommandHandler handler, Option<string?> repository)
@@ -788,6 +863,7 @@ internal static class Program
             result.GetValue(repository), result.GetValue(deep), result.GetValue(solutionInventory))));
 
         var command = new Command("config", "Inspect managed DevOps configuration.");
+        command.SetAction(result => handler.ShowConfiguration(new ConfigSummaryCommandOptions(result.GetValue(repository))));
         command.Add(validate);
         return command;
     }
@@ -1026,8 +1102,27 @@ internal static class CommandLineApplication
             return commandHandler.BenchmarkRemote(remoteParse.Options!);
         }
 
-        if (TryGetDataForgeOptions(args, out var dataForgeOptions))
+        if (TryGetDataForgeOptions(args, out var dataForgeOptions, out var dataForgeError))
         {
+            if (dataForgeError is not null)
+            {
+                error.WriteLine(dataForgeError);
+                return 2;
+            }
+
+            var helpRequest = DataForgeHelp.ParseRequest(dataForgeOptions.Arguments, includeQualification: true);
+            if (helpRequest.Requested)
+            {
+                if (helpRequest.Error is not null)
+                {
+                    error.WriteLine(helpRequest.Error);
+                    return 2;
+                }
+
+                DataForgeHelp.WriteHelp(output, "devops dataforge", helpRequest.Topic, includeQualification: true);
+                return 0;
+            }
+
             return commandHandler.DataForge(dataForgeOptions);
         }
 
@@ -1292,28 +1387,103 @@ internal static class CommandLineApplication
         return [.. args.Take(suiteIndex), "--suite", args[suiteIndex], .. args.Skip(suiteIndex + 1)];
     }
 
-    private static bool TryGetDataForgeOptions(string[] args, out DataForgeCommandOptions options)
+    private static bool TryGetDataForgeOptions(string[] args, out DataForgeCommandOptions options, out string? error)
     {
         string? repositoryPath = null;
+        bool repositorySpecified = false;
+        var terminatorIndex = Array.IndexOf(args, "--");
+        var visibleCount = terminatorIndex < 0 ? args.Length : terminatorIndex;
         var commandIndex = -1;
-        if (args.Length >= 3 && args[0].Equals("--repo", StringComparison.OrdinalIgnoreCase) &&
-            args[2].Equals("dataforge", StringComparison.OrdinalIgnoreCase))
+        for (var index = 0; index < visibleCount; index++)
         {
-            repositoryPath = args[1];
-            commandIndex = 2;
-        }
-        else if (args.Length > 0 && args[0].Equals("dataforge", StringComparison.OrdinalIgnoreCase))
-        {
-            commandIndex = 0;
+            string argument = args[index];
+            if (argument.Equals("--repo", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 >= visibleCount)
+                    break;
+                index++;
+                continue;
+            }
+
+            if (argument.StartsWith("-", StringComparison.Ordinal))
+                break;
+
+            if (!argument.Equals("dataforge", StringComparison.OrdinalIgnoreCase))
+                break;
+
+            commandIndex = index;
+            break;
         }
 
         if (commandIndex < 0)
         {
             options = null!;
+            error = null;
             return false;
         }
 
-        options = new DataForgeCommandOptions(args.Skip(commandIndex + 1).ToArray(), repositoryPath);
+        for (var index = 0; index < commandIndex; index++)
+        {
+            if (!args[index].Equals("--repo", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (index + 1 >= commandIndex)
+            {
+                options = null!;
+                error = "The --repo option requires a repository path.";
+                return true;
+            }
+            if (repositorySpecified)
+            {
+                options = null!;
+                error = "The --repo option can be supplied only once for a DataForge command.";
+                return true;
+            }
+            repositoryPath = args[++index];
+            repositorySpecified = true;
+        }
+
+        var childArguments = new List<string>();
+        for (var index = commandIndex + 1; index < args.Length; index++)
+        {
+            string argument = args[index];
+            if (argument == "--")
+            {
+                childArguments.AddRange(args.Skip(index));
+                break;
+            }
+
+            if (argument.Equals("--version", StringComparison.OrdinalIgnoreCase))
+            {
+                options = null!;
+                error = "DataForge does not accept --version. Use `devops --version` for the managed tool version.";
+                return true;
+            }
+
+            if (argument.Equals("--repo", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 >= visibleCount)
+                {
+                    options = null!;
+                    error = "The --repo option requires a repository path.";
+                    return true;
+                }
+                if (repositorySpecified)
+                {
+                    options = null!;
+                    error = "The --repo option can be supplied only once for a DataForge command.";
+                    return true;
+                }
+
+                repositoryPath = args[++index];
+                repositorySpecified = true;
+                continue;
+            }
+
+            childArguments.Add(argument);
+        }
+
+        options = new DataForgeCommandOptions(childArguments, repositoryPath);
+        error = null;
         return true;
     }
 
@@ -1404,6 +1574,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int BenchmarkQualificationSummary(BenchmarkQualificationSummaryCommandOptions options) => Missing("benchmark qualification-summary");
 
     public int Ui(UiCommandOptions options) => Missing("ui");
+
+    public int ShowConfiguration(ConfigSummaryCommandOptions options) => Missing("config");
 
     public int ValidateConfiguration(ConfigValidateCommandOptions options) => Missing("config validate");
 

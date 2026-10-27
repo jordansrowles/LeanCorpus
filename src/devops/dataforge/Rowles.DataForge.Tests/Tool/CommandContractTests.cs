@@ -4,6 +4,55 @@ namespace Rowles.DataForge.Tests.Tool;
 
 public sealed class CommandContractTests
 {
+    [Theory]
+    [InlineData("--help")]
+    [InlineData("help")]
+    [InlineData("-h")]
+    public void Help_requests_are_local_and_do_not_require_a_repository(string helpArgument)
+    {
+        string missingRepository = Path.Combine(Path.GetTempPath(), "dataforge-help-missing-" + Guid.NewGuid().ToString("N"));
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = DataForgeCommandLine.Run([helpArgument], output, error, missingRepository);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("profiles", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("qualify", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(error.ToString());
+        Assert.False(Directory.Exists(missingRepository));
+    }
+
+    [Fact]
+    public void Nested_reference_help_shows_the_matching_tool_options_without_running_it()
+    {
+        string missingRepository = Path.Combine(Path.GetTempPath(), "dataforge-help-missing-" + Guid.NewGuid().ToString("N"));
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = DataForgeCommandLine.Run(["reference", "verify", "--help"], output, error, missingRepository);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("-ReferencePath", output.ToString(), StringComparison.Ordinal);
+        Assert.Empty(error.ToString());
+        Assert.False(Directory.Exists(missingRepository));
+    }
+
+    [Fact]
+    public void Unsupported_nested_help_returns_actionable_usage_without_running_a_command()
+    {
+        string missingRepository = Path.Combine(Path.GetTempPath(), "dataforge-help-missing-" + Guid.NewGuid().ToString("N"));
+        var output = new StringWriter();
+        var error = new StringWriter();
+
+        int exitCode = DataForgeCommandLine.Run(["reference", "unknown", "--help"], output, error, missingRepository);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("Unknown DataForge reference help topic", error.ToString(), StringComparison.Ordinal);
+        Assert.Contains("help", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.False(Directory.Exists(missingRepository));
+    }
+
     [Fact]
     public void Profiles_command_lists_identity_kind_defaults_and_description()
     {

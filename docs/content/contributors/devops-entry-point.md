@@ -47,10 +47,12 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `aot` | Managed: publish and run Native AOT smoke tests; release qualification remains open | `./devops aot --framework net10.0` |
 | `coverage` | Managed apphost: run coverage-eligible suites and optionally generate a pinned HTML report | `./devops coverage -Suite sourcegen -GenerateReport` |
 | `benchmark` | Managed apphost: local and affected BenchmarkDotNet suites plus remote SSH/tmux lifecycle | `./devops benchmark --list` |
-| `config validate` | Validate managed metadata without building; `--deep` compares already-built benchmark host manifests; `--solution-inventory` checks tracked projects and solution filters | `./devops config validate --solution-inventory` |
+| `config` | Print a bounded checkout and configuration summary; `config validate` checks metadata, while `--deep` compares built benchmark host manifests and `--solution-inventory` checks tracked projects and filters | `./devops config`; `./devops config validate --solution-inventory` |
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
-| `data` | Managed: prepare benchmark datasets and generate pinned historical fixtures | `./devops data gutenberg --book-count 200`; `./devops data fixtures --list` |
-| `dataforge` | Managed apphost: run DataForge generation, reference and qualification commands | `./devops dataforge qualify` |
+| `corpus` | Prepare managed benchmark datasets | `./devops corpus gutenberg --book-count 200` |
+| `fixtures` | List or generate pinned historical fixtures | `./devops fixtures list`; `./devops fixtures generate --version 3.1.1 --scenario migration` |
+| `data` | Deprecated compatibility routes for corpus and historical fixture workflows | `./devops data gutenberg --book-count 200`; `./devops data fixtures --list` |
+| `dataforge` | Managed apphost: run DataForge generation, reference and qualification commands; `--help` resolves locally without launching the tool | `./devops dataforge --help`; `./devops dataforge qualify` |
 | `docs` | Managed: prepare inputs, generate API metadata, build, validate or serve DocFX | `./devops docs build --skip-benchmarks` |
 | `server start` | Managed: start the Community Server in the foreground on loopback, or use `-External` for trusted-network access | `./devops server start -External` |
 | `clean` | Managed: remove selected DevOps-owned output | `./devops clean test` |
@@ -62,8 +64,17 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 Use `pwsh -NoProfile -File ./devops.ps1 bootstrap` to restore tools and publish
 the managed host. There is no `devops setup` command.
 
-The optional workbench is included in the managed apphost and uses the managed
-command services.
+The optional workbench is included in the managed apphost. Its build and
+quality menus cover clean, build, pack, distribute, tests, coverage, AOT and
+repository reports. Benchmark choices cover configured suites, sustained
+workloads, remote runs, qualification summaries and the registered catalogue.
+DataForge choices cover profile discovery, generation, Wikipedia reference
+operations, and generated-dataset inspection, verification and reproduction.
+Separate menus cover fixtures, corpora, documentation, server diagnostics,
+configuration and recent runs. Selecting a command sends argument tokens
+through the same managed parser and handlers used by the CLI. The home screen
+loads only version and checkout information; repository, SDK and run metadata
+are read when their corresponding views are selected.
 
 ## Optional .NET tool package
 

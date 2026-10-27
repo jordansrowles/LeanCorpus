@@ -65,6 +65,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="../../dataforge/shared/DataForgeHelp.cs" Link="DataForge/DataForgeHelp.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="Packaging/Assets/Consumer.csproj.template">
       <LogicalName>Rowles.LeanCorpus.DevOps.Packaging.Assets.Consumer.csproj.template</LogicalName>
       <WithCulture>false</WithCulture>

@@ -21,6 +21,15 @@ public static class DataForgeCommandLine
 
         try
         {
+            var helpRequest = DataForgeHelp.ParseRequest(args, includeQualification: false);
+            if (helpRequest.Requested)
+            {
+                if (helpRequest.Error is not null)
+                    throw new CommandLineException(helpRequest.Error);
+                DataForgeHelp.WriteHelp(output, "devops dataforge", helpRequest.Topic, includeQualification: false);
+                return 0;
+            }
+
             if (args.Length == 0)
                 throw new CommandLineException("A DataForge command is required.");
 
@@ -34,7 +43,6 @@ public static class DataForgeCommandLine
                 "inspect" => RunInspect(tail, output),
                 "verify" => RunVerify(tail, output),
                 "reproduce" => RunReproduce(tail, output),
-                "help" or "--help" or "-h" => WriteHelp(tail, output),
                 _ => throw new CommandLineException($"Unknown DataForge command '{args[0]}'.")
             };
         }
@@ -381,29 +389,6 @@ public static class DataForgeCommandLine
         output.WriteLine($"Seed: {result.Manifest.Seed?.ToString(CultureInfo.InvariantCulture)}");
         output.WriteLine($"Count: {result.Manifest.RecordCount.ToString(CultureInfo.InvariantCulture)}");
         output.WriteLine($"ContentSha256: {result.Manifest.ContentSha256}");
-        return 0;
-    }
-
-    private static int WriteHelp(string[] args, TextWriter output)
-    {
-        if (args.Length != 0)
-            throw new CommandLineException("Help does not accept arguments.");
-        output.WriteLine("Usage:");
-        output.WriteLine("  devops dataforge profiles [-Json]");
-        output.WriteLine("    -Json writes profile descriptors with version, kind, defaults and description.");
-        output.WriteLine("  devops dataforge generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000 [-Output <path>] [-Force]");
-        output.WriteLine("  devops dataforge generate -Profile leancorpus-vector -Version 1 -Seed 42 -Count 1000 [-Dimension 64] [-VectorDistribution Uniform] [-ClusterCount 8] [-QueryCount 1] [-Output <path>] [-Force]");
-        output.WriteLine("  devops dataforge generate -Profile leancorpus-hybrid -Version 1 -Seed 42 -Count 20000 [-Dimension 64] [-Output <path>] [-Force]");
-        output.WriteLine("  devops dataforge generate -Profile leancorpus-stress -Mode search|vector|hybrid [-Version 1] [-Seed 42] [-Count <count>] [-AllowLarge] [-Output <path>] [-Force]");
-        output.WriteLine("  devops dataforge generate -Profile rowles-text-multilingual -Language en|fr|de|es|it|pt|nl|ru|ar|zh|ja|ko [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
-        output.WriteLine("  devops dataforge generate -Profile leancorpus-e2e [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
-        output.WriteLine("  devops dataforge reference download [-Cache <path>] [-Force]");
-        output.WriteLine("  devops dataforge reference build [-Cache <path>] [-Output <path>]");
-        output.WriteLine("  devops dataforge reference inspect [-ReferencePath <path>]");
-        output.WriteLine("  devops dataforge reference verify [-ReferencePath <path>]");
-        output.WriteLine("  devops dataforge inspect <dataset-dir-or-manifest>");
-        output.WriteLine("  devops dataforge verify <dataset-dir-or-manifest>");
-        output.WriteLine("  devops dataforge reproduce <dataset-dir-or-manifest>");
         return 0;
     }
 

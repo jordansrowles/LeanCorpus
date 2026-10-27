@@ -10,6 +10,9 @@ Use this directory when you need to run or extend LeanCorpus tests, benchmarks, 
 | Run the managed test executor | `./devops test all` |
 | Run managed tests affected by current changes | `./devops test affected` |
 | Run one managed production area | `./devops test core --area Index` |
+| Read the current checkout's DevOps configuration summary | `./devops config` |
+| Generate historical fixtures or a benchmark corpus | `./devops fixtures generate --version 3.1.1 --scenario migration`; `./devops corpus gutenberg --book-count 200` |
+| Read DataForge wrapper help without starting its child process | `./devops dataforge --help` |
 | Repeat a focused managed target with artefacts | `./devops test core --count 3 --filter 'FullyQualifiedName~Writer'` |
 | Capture managed test diagnostics | `./devops test core --diagnostics` |
 | Validate Native AOT through the managed executor | `./devops aot` |
@@ -54,6 +57,16 @@ Examples:
 The PowerShell compatibility shim forwards command arguments to the checked
 managed host. Cross-platform release qualification remains separate from this
 routing cut-over.
+
+The `ui` workbench offers typed flows for clean/build/pack/distribute;
+tests/coverage/AOT/reports; benchmark suites, sustained workloads, remote runs,
+qualification summaries and catalogue listing; and DataForge profiles,
+generation, reference operations, dataset inspection, verification and
+reproduction. Separate views cover fixtures and corpora, documentation, server
+diagnostics, configuration, repository status and recent runs. Selections go
+through the same managed command parser and handlers as direct CLI calls.
+Optional repository, SDK and recent-run details load only when their views are
+selected.
 
 `Area` and `Category` become trait filters. `Filter` is passed to the test runner.
 

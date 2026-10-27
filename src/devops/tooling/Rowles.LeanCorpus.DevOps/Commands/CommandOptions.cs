@@ -54,7 +54,8 @@ internal sealed record DataCommandOptions(
     int BookCount,
     string? OutputDirectory,
     string PackageSource,
-    string? RepositoryPath = null);
+    string? RepositoryPath = null,
+    bool LegacyRoute = false);
 
 internal sealed record HistoricalFixturesCommandOptions(
     string? Version,
@@ -62,7 +63,8 @@ internal sealed record HistoricalFixturesCommandOptions(
     bool List,
     string PackageSource,
     string? OutputDirectory,
-    string? RepositoryPath = null);
+    string? RepositoryPath = null,
+    bool LegacyRoute = false);
 
 internal sealed record DataForgeCommandOptions(
     IReadOnlyList<string> Arguments,
@@ -149,6 +151,8 @@ internal sealed record BenchmarkQualificationSummaryCommandOptions(
 internal sealed record UiCommandOptions(string? RepositoryPath = null);
 
 internal sealed record ConfigValidateCommandOptions(string? RepositoryPath = null, bool Deep = false, bool SolutionInventory = false);
+
+internal sealed record ConfigSummaryCommandOptions(string? RepositoryPath = null);
 
 internal sealed record TestCommandOptions(
     TestRunOptions RunOptions,

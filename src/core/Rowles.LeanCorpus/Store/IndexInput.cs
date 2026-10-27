@@ -782,7 +782,8 @@ public sealed unsafe class IndexInput : IDisposable
     public void Dispose()
     {
         _disposed = true;
-        if (!_operations.BeginDisposeAndWaitForCompletion())
+        OperationDrain.DisposalAttempt? attempt = _operations.BeginDisposeAndWaitForCompletion();
+        if (attempt is null)
         {
             GC.SuppressFinalize(this);
             return;
@@ -792,12 +793,12 @@ public sealed unsafe class IndexInput : IDisposable
         {
             using (Diagnostics.FileSystemMeasurement.Start("input.drain"))
                 ReleaseResources(fromFinaliser: false);
-            _operations.CompleteDisposalSuccessfully();
+            _operations.CompleteDisposalSuccessfully(attempt);
             GC.SuppressFinalize(this);
         }
         catch (Exception exception)
         {
-            _operations.CompleteDisposalWithFailure(exception);
+            _operations.CompleteDisposalWithFailure(attempt, exception);
             ExceptionDispatchInfo.Capture(exception).Throw();
         }
     }
@@ -912,18 +913,23 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     ~IndexInput()
     {
+        OperationDrain.DisposalAttempt? attempt = null;
         try
         {
-            if (!_operations.BeginDisposeAndWaitForCompletion())
+            attempt = _operations.BeginDisposeAndWaitForCompletion();
+            if (attempt is null)
                 return;
 
             _disposed = true;
             ReleaseResources(fromFinaliser: true);
-            _operations.CompleteDisposalSuccessfully();
+            _operations.CompleteDisposalSuccessfully(attempt);
         }
         catch (Exception exception)
         {
-            _operations.CompleteDisposalWithFailure(exception);
+            // A finaliser which joined another caller's attempt only observes its
+            // outcome. It must not publish that failure as its own cleanup result.
+            if (attempt is not null)
+                _operations.CompleteDisposalWithFailure(attempt, exception);
         }
     }
 

@@ -50,6 +50,57 @@ public sealed class OperationDrainTests
         dispose.Join();
     }
 
+    [Fact(DisplayName = "Operation Drain: Waiter Observes The Attempt It Joined Across Retry")]
+    public void BeginDisposeAndWaitForCompletion_WaiterKeepsJoinedFailureWhenRetryCompletesFirst()
+    {
+        var drain = new OperationDrain();
+        using var waiterJoined = new ManualResetEventSlim();
+        using var allowWaiter = new ManualResetEventSlim();
+        drain.BeforeDisposalAttemptWaitTestHook = () =>
+        {
+            waiterJoined.Set();
+            if (!allowWaiter.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The joined disposal waiter was not released.");
+        };
+
+        OperationDrain.DisposalAttempt firstAttempt = Assert.IsType<OperationDrain.DisposalAttempt>(
+            drain.BeginDisposeAndWaitForCompletion());
+        var injectedFailure = new IOException("first cleanup attempt failed");
+        Exception? waiterFailure = null;
+        var waiter = new Thread(() =>
+        {
+            try { drain.BeginDisposeAndWaitForCompletion(); }
+            catch (Exception exception) { waiterFailure = exception; }
+        }) { IsBackground = true, Name = "operation-drain-waiter" };
+        OperationDrain.DisposalAttempt? retryAttempt = null;
+
+        try
+        {
+            waiter.Start();
+            Assert.True(waiterJoined.Wait(TimeSpan.FromSeconds(5)), "The waiter did not capture the first cleanup attempt.");
+
+            drain.CompleteDisposalWithFailure(firstAttempt, injectedFailure);
+            retryAttempt = Assert.IsType<OperationDrain.DisposalAttempt>(drain.BeginDisposeAndWaitForCompletion());
+            drain.CompleteDisposalSuccessfully(retryAttempt);
+            allowWaiter.Set();
+
+            Assert.True(waiter.Join(TimeSpan.FromSeconds(5)), "The waiter did not finish after its joined attempt completed.");
+            Assert.Same(injectedFailure, waiterFailure);
+            Assert.Null(drain.BeginDisposeAndWaitForCompletion());
+        }
+        finally
+        {
+            if (!firstAttempt.IsCompleted)
+                drain.CompleteDisposalWithFailure(firstAttempt, injectedFailure);
+            if (retryAttempt is { IsCompleted: false })
+                drain.CompleteDisposalSuccessfully(retryAttempt);
+            allowWaiter.Set();
+            if (waiter.IsAlive)
+                waiter.Join(TimeSpan.FromSeconds(10));
+            drain.BeforeDisposalAttemptWaitTestHook = null;
+        }
+    }
+
     private static void WaitUntilRejected(Func<IDisposable> acquire)
     {
         bool rejected = SpinWait.SpinUntil(

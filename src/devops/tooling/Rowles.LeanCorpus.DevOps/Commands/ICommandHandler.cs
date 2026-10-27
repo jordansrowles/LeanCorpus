@@ -34,6 +34,8 @@ internal interface ICommandHandler
 
     int Ui(UiCommandOptions options);
 
+    int ShowConfiguration(ConfigSummaryCommandOptions options);
+
     int ValidateConfiguration(ConfigValidateCommandOptions options);
 
     int Test(TestCommandOptions options);

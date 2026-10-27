@@ -29,6 +29,8 @@ public sealed class CommandLineContractTests
         Assert.Contains("distribute", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("data", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("dataforge", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("fixtures", output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("corpus", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("benchmark", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("docs", output.ToString(), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("ui", output.ToString(), StringComparison.OrdinalIgnoreCase);
@@ -222,6 +224,18 @@ public sealed class CommandLineContractTests
 
         Assert.Equal(0, Invoke(["--repo", repository, "data", "gutenberg", "-BookCount", "321", "-OutputDir", "/tmp/books"], handler));
 
+        Assert.Equal(new DataCommandOptions("gutenberg", 321, "/tmp/books", "https://api.nuget.org/v3/index.json", repository, LegacyRoute: true),
+            Assert.IsType<DataCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void CorpusGutenbergUsesTheExistingManagedDataHandlerWithoutLegacyMarking()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+
+        Assert.Equal(0, Invoke(["--repo", repository, "corpus", "gutenberg", "--book-count", "321", "--output-dir", "/tmp/books"], handler));
+
         Assert.Equal(new DataCommandOptions("gutenberg", 321, "/tmp/books", "https://api.nuget.org/v3/index.json", repository),
             Assert.IsType<DataCommandOptions>(Assert.Single(handler.Calls)));
     }
@@ -234,7 +248,7 @@ public sealed class CommandLineContractTests
 
         Assert.Equal(0, Invoke(["data", "migration-fixtures-311", "-PackageSource", "/tmp/nuget-feed", "-OutputDir", outputDirectory], handler));
 
-        Assert.Equal(new DataCommandOptions("migration-fixtures-311", 200, outputDirectory, "/tmp/nuget-feed"),
+        Assert.Equal(new DataCommandOptions("migration-fixtures-311", 200, outputDirectory, "/tmp/nuget-feed", LegacyRoute: true),
             Assert.IsType<DataCommandOptions>(Assert.Single(handler.Calls)));
     }
 
@@ -249,7 +263,7 @@ public sealed class CommandLineContractTests
             "--scenario", "sparse-hnsw", "--package-source", "/tmp/nuget-feed", "--output-dir", outputDirectory], handler));
 
         Assert.Equal(new HistoricalFixturesCommandOptions("3.1.1", "sparse-hnsw", false,
-            "/tmp/nuget-feed", outputDirectory, repository),
+            "/tmp/nuget-feed", outputDirectory, repository, LegacyRoute: true),
             Assert.IsType<HistoricalFixturesCommandOptions>(Assert.Single(handler.Calls)));
     }
 
@@ -261,7 +275,34 @@ public sealed class CommandLineContractTests
         Assert.Equal(0, Invoke(["data", "fixtures", "--list"], handler));
 
         Assert.Equal(new HistoricalFixturesCommandOptions(null, null, true,
-                "https://api.nuget.org/v3/index.json", null),
+                "https://api.nuget.org/v3/index.json", null, LegacyRoute: true),
+            Assert.IsType<HistoricalFixturesCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void CanonicalFixturesGenerateUsesHistoricalFixtureHandler()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+        const string outputDirectory = "/tmp/historical fixtures";
+
+        Assert.Equal(0, Invoke(["--repo", repository, "fixtures", "generate", "--version", "3.1.1",
+            "--scenario", "sparse-hnsw", "--package-source", "/tmp/nuget-feed", "--output-dir", outputDirectory], handler));
+
+        Assert.Equal(new HistoricalFixturesCommandOptions("3.1.1", "sparse-hnsw", false,
+            "/tmp/nuget-feed", outputDirectory, repository),
+            Assert.IsType<HistoricalFixturesCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void CanonicalFixturesListUsesHistoricalFixtureHandlerWithoutGenerationOptions()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["fixtures", "list", "--version", "3.1.1"], handler));
+
+        Assert.Equal(new HistoricalFixturesCommandOptions("3.1.1", null, true,
+            "https://api.nuget.org/v3/index.json", null),
             Assert.IsType<HistoricalFixturesCommandOptions>(Assert.Single(handler.Calls)));
     }
 
@@ -331,6 +372,131 @@ public sealed class CommandLineContractTests
         var actual = Assert.IsType<DataForgeCommandOptions>(Assert.Single(handler.Calls));
         Assert.Equal(arguments, actual.Arguments);
         Assert.Equal(repository, actual.RepositoryPath);
+    }
+
+    [Theory]
+    [InlineData(new[] { "dataforge", "--help" }, "qualify")]
+    [InlineData(new[] { "dataforge", "help" }, "reference")]
+    [InlineData(new[] { "dataforge", "-h" }, "profiles")]
+    [InlineData(new[] { "--repo", "/missing LeanCorpus checkout", "dataforge", "--help" }, "qualify")]
+    [InlineData(new[] { "dataforge", "--repo", "/missing LeanCorpus checkout", "--help" }, "qualify")]
+    public void DataForgeHelpIsLocalAndDoesNotRequireRepositoryResolution(string[] arguments, string expectedText)
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = CommandLineApplication.Run(arguments, output, error, handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(expectedText, output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(error.ToString());
+        Assert.Empty(handler.Calls);
+    }
+
+    [Theory]
+    [InlineData(new[] { "dataforge", "qualify", "--help" }, "--reference-path")]
+    [InlineData(new[] { "dataforge", "reference", "--help" }, "download")]
+    [InlineData(new[] { "dataforge", "reference", "verify", "--help" }, "-ReferencePath")]
+    [InlineData(new[] { "dataforge", "generate", "--help" }, "-Profile")]
+    [InlineData(new[] { "dataforge", "profiles", "--help" }, "-Json")]
+    public void DataForgeNestedHelpShowsTheSelectedCommandWithoutDispatch(string[] arguments, string expectedText)
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = CommandLineApplication.Run(arguments, output, error, handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(expectedText, output.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(error.ToString());
+        Assert.Empty(handler.Calls);
+    }
+
+    [Fact]
+    public void DataForgeRejectsUnknownHelpTopicsWithoutStartingTheTool()
+    {
+        var error = new StringWriter();
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = CommandLineApplication.Run(["dataforge", "reference", "unknown", "--help"], new StringWriter(), error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("reference", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("help", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(handler.Calls);
+    }
+
+    [Fact]
+    public void DataForgeExtractsRecursiveRepositoryOptionAndPreservesTerminatedChildArguments()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+        string[] childArguments = ["generate", "--", "--repo", "child-value", "-Seed", "42"];
+
+        var exitCode = CommandLineApplication.Run(["dataforge", "--repo", repository, .. childArguments],
+            new StringWriter(), new StringWriter(), handler);
+
+        Assert.Equal(0, exitCode);
+        var actual = Assert.IsType<DataForgeCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal(childArguments, actual.Arguments);
+        Assert.Equal(repository, actual.RepositoryPath);
+    }
+
+    [Fact]
+    public void DataForgeRejectsDuplicateRecursiveRepositoryOptionsBeforeDispatch()
+    {
+        var handler = new RecordingCommandHandler();
+        var error = new StringWriter();
+
+        var exitCode = CommandLineApplication.Run(
+            ["--repo", "/tmp/first checkout", "dataforge", "--repo", "/tmp/second checkout", "profiles"],
+            new StringWriter(), error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("only once", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(handler.Calls);
+    }
+
+    [Fact]
+    public void DataForgeVersionRequestGetsManagedVersionGuidance()
+    {
+        var error = new StringWriter();
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = CommandLineApplication.Run(["dataforge", "--version"], new StringWriter(), error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("devops --version", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(handler.Calls);
+    }
+
+    [Fact]
+    public void UnknownDataForgeCommandIsForwardedUnchangedToTheToolHandler()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, CommandLineApplication.Run(["dataforge", "unknown-command", "--value", "a b"],
+            new StringWriter(), new StringWriter(), handler));
+
+        var actual = Assert.IsType<DataForgeCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal(["unknown-command", "--value", "a b"], actual.Arguments);
+        Assert.Null(actual.RepositoryPath);
+    }
+
+    [Fact]
+    public void DataForgeUnsupportedHelpOptionsFailQuicklyWithGuidance()
+    {
+        var error = new StringWriter();
+        var handler = new RecordingCommandHandler();
+
+        var exitCode = CommandLineApplication.Run(["dataforge", "reference", "--help", "--unknown"],
+            new StringWriter(), error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("help", error.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(handler.Calls);
     }
 
     [Fact]
@@ -770,6 +936,53 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
+    public void BareConfigRoutesToItsSummaryHandlerWithoutValidationOptions()
+    {
+        var handler = new RecordingCommandHandler();
+        const string repository = "/tmp/LeanCorpus checkout";
+
+        Assert.Equal(0, Invoke(["--repo", repository, "config"], handler));
+
+        Assert.Equal(new ConfigSummaryCommandOptions(repository),
+            Assert.IsType<ConfigSummaryCommandOptions>(Assert.Single(handler.Calls)));
+    }
+
+    [Fact]
+    public void BareConfigPrintsBoundedPlainSummary()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new ManagedCommandHandler(output, error);
+
+        var exitCode = CommandLineApplication.Run(["--repo", checkout.RepositoryRoot, "config"], output, error, handler);
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(checkout.RepositoryRoot, output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Configuration: .config/devops", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Test suites:", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Benchmark strategies:", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Frameworks:", output.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("\u001b[", output.ToString(), StringComparison.Ordinal);
+        Assert.Empty(error.ToString());
+    }
+
+    [Fact]
+    public void BareConfigFailureIncludesExplicitRepositoryGuidance()
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var handler = new ManagedCommandHandler(output, error);
+        string missingCheckout = Path.Combine(Path.GetTempPath(), "missing leancorpus checkout " + Guid.NewGuid().ToString("N"));
+
+        var exitCode = CommandLineApplication.Run(["--repo", missingCheckout, "config"], output, error, handler);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("--repo <path>", error.ToString(), StringComparison.Ordinal);
+        Assert.Empty(output.ToString());
+    }
+
+    [Fact]
     public void ConfigValidateAcceptsAnExplicitDeepManifestCheck()
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
@@ -1135,6 +1348,12 @@ public sealed class CommandLineContractTests
         }
 
         public int Ui(UiCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
+
+        public int ShowConfiguration(ConfigSummaryCommandOptions options)
         {
             Calls.Add(options);
             return 0;

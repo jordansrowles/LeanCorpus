@@ -136,7 +136,8 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
     public void Dispose()
     {
         _disposed = true;
-        if (!_operations.BeginDisposeAndWaitForCompletion())
+        OperationDrain.DisposalAttempt? attempt = _operations.BeginDisposeAndWaitForCompletion();
+        if (attempt is null)
             return;
 
         try
@@ -162,7 +163,8 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
                 _trackedInputs.RemoveAll(reference => !reference.TryGetTarget(out var input) || input.ResourcesReleased);
                 if (_trackedInputs.Count > 0 && failures is null)
                     (failures ??= []).Add(new InvalidOperationException("Tracked mapped inputs remain after disposal completed."));
-                System.Diagnostics.Debug.Assert(_trackedInputs.Count == 0, "Successful input disposal must release every tracked mapping.");
+                if (failures is null)
+                    System.Diagnostics.Debug.Assert(_trackedInputs.Count == 0, "Successful input disposal must release every tracked mapping.");
             }
 
             if (failures is { Count: 1 })
@@ -171,11 +173,11 @@ public sealed class MMapDirectory : LeanDirectory, IDisposable
                 ExceptionDispatchInfo.Capture(new AggregateException("One or more mapped inputs failed to close.", failures)).Throw();
 
             ReleaseDirectoryRegistration();
-            _operations.CompleteDisposalSuccessfully();
+            _operations.CompleteDisposalSuccessfully(attempt);
         }
         catch (Exception exception)
         {
-            _operations.CompleteDisposalWithFailure(exception);
+            _operations.CompleteDisposalWithFailure(attempt, exception);
             ExceptionDispatchInfo.Capture(exception).Throw();
         }
     }

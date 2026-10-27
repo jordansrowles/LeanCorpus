@@ -29,6 +29,8 @@
 
 ## Changed
 
+- Expand the managed workbench with typed clean/build/pack/distribute and test/coverage/AOT/report flows; benchmark suite, workload, remote, qualification-summary and catalogue routes; and DataForge profile, generation, reference, inspection, verification and reproduction routes. All selections use the managed parser and handlers, with recent-run elapsed time and lazy repository metadata.
+- Add local wrapper help for DataForge commands, including wrapper-only qualification guidance, and add canonical `fixtures` and `corpus` routes while retaining deprecated `data` aliases.
 - Move the complete solution inventory and 11 focused build filters under `src/`, group DevOps projects by purpose, validate tracked solution/filter membership in managed DevOps, and resolve solution entries relative to the relocated master.
 
 - Exclude browser-required test suites from generic `test all` selection while retaining their explicit and affected-source routes.

@@ -224,6 +224,108 @@ public sealed class MMapLifetimeTests : IDisposable
         }
     }
 
+    [Theory(DisplayName = "IndexInput: Failed Native Cleanup Retries Only Incomplete Stages")]
+    [InlineData((int)IndexInputCleanupStage.ReleasePointer)]
+    [InlineData((int)IndexInputCleanupStage.DisposeAccessor)]
+    [InlineData((int)IndexInputCleanupStage.DisposeMemoryMappedFile)]
+    public void Dispose_FailedNativeCleanupStage_RetryRepeatsOnlyIncompleteStages(int failingStageValue)
+    {
+        IndexInputCleanupStage failingStage = (IndexInputCleanupStage)failingStageValue;
+        Directory.CreateDirectory(_path);
+        string filePath = Path.Combine(_path, "native-cleanup.bin");
+        File.WriteAllBytes(filePath, [42]);
+        var input = new IndexInput(filePath);
+        var injectedFailure = new IOException($"injected {failingStage} failure");
+        var observedStages = new List<IndexInputCleanupStage>();
+        int injectFailure = 1;
+        input.CleanupStageTestHook = stage =>
+        {
+            observedStages.Add(stage);
+            if (stage == failingStage && Interlocked.Exchange(ref injectFailure, 0) == 1)
+                throw injectedFailure;
+        };
+
+        try
+        {
+            Assert.Same(injectedFailure, Assert.Throws<IOException>(input.Dispose));
+            Assert.False(input.ResourcesReleased);
+
+            input.Dispose();
+
+            Assert.True(input.ResourcesReleased);
+            IndexInputCleanupStage[] expectedStages = failingStage switch
+            {
+                IndexInputCleanupStage.ReleasePointer =>
+                [IndexInputCleanupStage.ReleasePointer,
+                 IndexInputCleanupStage.ReleasePointer,
+                 IndexInputCleanupStage.DisposeAccessor,
+                 IndexInputCleanupStage.DisposeMemoryMappedFile],
+                IndexInputCleanupStage.DisposeAccessor =>
+                [IndexInputCleanupStage.ReleasePointer,
+                 IndexInputCleanupStage.DisposeAccessor,
+                 IndexInputCleanupStage.DisposeAccessor,
+                 IndexInputCleanupStage.DisposeMemoryMappedFile],
+                IndexInputCleanupStage.DisposeMemoryMappedFile =>
+                [IndexInputCleanupStage.ReleasePointer,
+                 IndexInputCleanupStage.DisposeAccessor,
+                 IndexInputCleanupStage.DisposeMemoryMappedFile,
+                 IndexInputCleanupStage.DisposeMemoryMappedFile],
+                _ => throw new ArgumentOutOfRangeException(nameof(failingStage))
+            };
+            Assert.Equal(expectedStages, observedStages);
+        }
+        finally
+        {
+            input.CleanupStageTestHook = null;
+            try { input.Dispose(); }
+            catch (Exception) { }
+        }
+    }
+
+    [Fact(DisplayName = "IndexInput: Failed Owner Lease Release Retries Only The Owner Lease")]
+    public void Dispose_FailedOwnerLeaseRelease_RetryDoesNotRepeatCompletedStages()
+    {
+        Directory.CreateDirectory(_path);
+        string filePath = Path.Combine(_path, "owner-lease-cleanup.bin");
+        File.WriteAllBytes(filePath, [42]);
+        var owner = new IndexInput(filePath);
+        IndexInput child = owner.OpenSharedSlice(0, 1);
+        var injectedFailure = new IOException("injected owner-lease cleanup failure");
+        var observedStages = new List<IndexInputCleanupStage>();
+        int injectFailure = 1;
+        child.CleanupStageTestHook = stage =>
+        {
+            observedStages.Add(stage);
+            if (stage == IndexInputCleanupStage.ReleaseOwnerLease
+                && Interlocked.Exchange(ref injectFailure, 0) == 1)
+                throw injectedFailure;
+        };
+
+        try
+        {
+            Assert.Same(injectedFailure, Assert.Throws<IOException>(child.Dispose));
+            Assert.False(child.ResourcesReleased);
+            Assert.Equal([IndexInputCleanupStage.ReleaseOwnerLease], observedStages);
+            Assert.Equal((byte)42, owner.ReadByte());
+
+            child.Dispose();
+
+            Assert.True(child.ResourcesReleased);
+            Assert.Equal(
+                [IndexInputCleanupStage.ReleaseOwnerLease, IndexInputCleanupStage.ReleaseOwnerLease],
+                observedStages);
+            owner.Dispose();
+        }
+        finally
+        {
+            child.CleanupStageTestHook = null;
+            try { child.Dispose(); }
+            catch (Exception) { }
+            try { owner.Dispose(); }
+            catch (Exception) { }
+        }
+    }
+
     [Fact(DisplayName = "IndexInput: Finaliser And Explicit Disposal Share Cleanup")]
     public async Task Dispose_FinaliserAndExplicitDisposal_JoinSameCleanup()
     {
@@ -300,6 +402,88 @@ public sealed class MMapLifetimeTests : IDisposable
         }
     }
 
+    [Fact(DisplayName = "IndexInput: Finaliser Joiner Cannot Corrupt A Retried Explicit Disposal")]
+    public void Dispose_FinaliserJoinsFailedExplicitCleanup_RetryRemainsSuccessful()
+    {
+        Directory.CreateDirectory(_path);
+        string filePath = Path.Combine(_path, "finaliser-retry.bin");
+        File.WriteAllBytes(filePath, [42]);
+        var input = new IndexInput(filePath);
+        var operations = GetOperationDrain(input);
+        var injectedFailure = new IOException("injected explicit pointer-release failure");
+        using var cleanupEntered = new ManualResetEventSlim();
+        using var continueCleanup = new ManualResetEventSlim();
+        using var finaliserJoined = new ManualResetEventSlim();
+        using var continueFinaliserWait = new ManualResetEventSlim();
+        int injectFailure = 1;
+        input.CleanupStageTestHook = stage =>
+        {
+            if (stage == IndexInputCleanupStage.ReleasePointer
+                && Interlocked.Exchange(ref injectFailure, 0) == 1)
+            {
+                cleanupEntered.Set();
+                if (!continueCleanup.Wait(TimeSpan.FromSeconds(10)))
+                    throw new TimeoutException("Timed out before publishing the explicit cleanup failure.");
+                throw injectedFailure;
+            }
+        };
+        operations.BeforeDisposalAttemptWaitTestHook = () =>
+        {
+            finaliserJoined.Set();
+            if (!continueFinaliserWait.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("Timed out before the finaliser observed its joined attempt.");
+        };
+
+        Exception? explicitFailure = null;
+        Exception? finaliserFailure = null;
+        var explicitThread = new Thread(() =>
+        {
+            try { input.Dispose(); }
+            catch (Exception exception) { explicitFailure = exception; }
+        }) { IsBackground = true, Name = "index-input-explicit-failing-dispose" };
+        MethodInfo finaliser = typeof(IndexInput).GetMethod("Finalize", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var finaliserThread = new Thread(() =>
+        {
+            try { finaliser.Invoke(input, null); }
+            catch (Exception exception) { finaliserFailure = exception; }
+        }) { IsBackground = true, Name = "index-input-finaliser-joined-dispose" };
+
+        try
+        {
+            explicitThread.Start();
+            Assert.True(cleanupEntered.Wait(TimeSpan.FromSeconds(5)), "Explicit cleanup did not reach the injected failure.");
+            finaliserThread.Start();
+            Assert.True(finaliserJoined.Wait(TimeSpan.FromSeconds(5)), "The finaliser did not capture the active explicit attempt.");
+
+            continueCleanup.Set();
+            Assert.True(explicitThread.Join(TimeSpan.FromSeconds(5)), "The explicit cleanup owner did not finish.");
+            Assert.Same(injectedFailure, explicitFailure);
+
+            input.CleanupStageTestHook = null;
+            input.Dispose();
+            Assert.True(input.ResourcesReleased);
+
+            continueFinaliserWait.Set();
+            Assert.True(finaliserThread.Join(TimeSpan.FromSeconds(5)), "The finaliser did not finish observing its joined attempt.");
+            Assert.Null(finaliserFailure);
+            Assert.Null(operations.BeginDisposeAndWaitForCompletion());
+            input.Dispose();
+        }
+        finally
+        {
+            continueCleanup.Set();
+            continueFinaliserWait.Set();
+            if (explicitThread.IsAlive)
+                explicitThread.Join(TimeSpan.FromSeconds(10));
+            if (finaliserThread.IsAlive)
+                finaliserThread.Join(TimeSpan.FromSeconds(10));
+            input.CleanupStageTestHook = null;
+            operations.BeforeDisposalAttemptWaitTestHook = null;
+            try { input.Dispose(); }
+            catch (Exception) { }
+        }
+    }
+
     [Fact(DisplayName = "IndexInput: Public ReadSpan Remains Valid After Disposal")]
     public void ReadSpan_DisposedInput_ReturnedDataRemainsValid()
     {
@@ -342,6 +526,11 @@ public sealed class MMapLifetimeTests : IDisposable
         try { operation.Dispose(); }
         catch (Exception) { }
     }
+
+    private static OperationDrain GetOperationDrain(IndexInput input)
+        => (OperationDrain)typeof(IndexInput)
+            .GetField("_operations", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(input)!;
 
     public void Dispose()
     {
