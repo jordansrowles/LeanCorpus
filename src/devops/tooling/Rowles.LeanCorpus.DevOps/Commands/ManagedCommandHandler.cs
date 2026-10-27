@@ -1199,6 +1199,8 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         }
     }
 
+    internal static string FormatRepositoryRelativeDisplayPath(string path) => path.Replace('\\', '/');
+
     public int ShowConfiguration(ConfigSummaryCommandOptions options)
     {
         try
@@ -1219,7 +1221,9 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
             output.WriteLine("LeanCorpus DevOps configuration");
             output.WriteLine($"Checkout: {checkout.RepositoryRoot}");
-            output.WriteLine($"Configuration: {Path.GetRelativePath(checkout.RepositoryRoot, configurationRoot)}");
+            var relativeConfigurationPath = FormatRepositoryRelativeDisplayPath(
+                Path.GetRelativePath(checkout.RepositoryRoot, configurationRoot));
+            output.WriteLine($"Configuration: {relativeConfigurationPath}");
             output.WriteLine($"Files: {(files.Length == 0 ? "none" : string.Join(", ", files))}");
             output.WriteLine($"Test suites: {configuration.TestSuites.Count}");
             output.WriteLine($"Benchmark suites: {configuration.BenchmarkSuites.Count}");

@@ -967,6 +967,15 @@ public sealed class CommandLineContractTests
         Assert.Empty(error.ToString());
     }
 
+    [Theory]
+    [InlineData(".config\\devops", ".config/devops")]
+    [InlineData(".config/devops", ".config/devops")]
+    [InlineData("src\\devops\\test-suites.json", "src/devops/test-suites.json")]
+    public void RepositoryRelativeDisplayPathsUseForwardSlashes(string path, string expected)
+    {
+        Assert.Equal(expected, ManagedCommandHandler.FormatRepositoryRelativeDisplayPath(path));
+    }
+
     [Fact]
     public void BareConfigFailureIncludesExplicitRepositoryGuidance()
     {

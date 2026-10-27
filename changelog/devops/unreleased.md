@@ -85,6 +85,7 @@
 
 ## Fixed
 
+- Render repository-relative paths in the managed configuration summary with forward slashes on every operating system.
 - Check the logical workspace path during managed bootstrap with a command-scoped safe-directory value, then compare canonical roots across filesystem links.
 
 - Preserve UTC kind when validating managed bootstrap lease markers on Windows, and clear read-only checkout files during temporary-worktree test cleanup.
