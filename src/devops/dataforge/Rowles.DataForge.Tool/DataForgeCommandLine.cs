@@ -110,13 +110,19 @@ public static class DataForgeCommandLine
             ?? throw new CommandLineException($"Unknown generated profile '{profileId}'.");
         var stress = profile is LeanCorpusStressProfile;
         var multilingual = profile is RowlesTextMultilingualProfile;
-        var optionalDefaults = stress || multilingual || profile is LeanCorpusE2eProfile;
         var mode = stress ? Required(options.Values, "Mode") : null;
-        var defaultCount = mode switch { "search" => 100_000, "vector" or "hybrid" => 50_000, _ => profile.Descriptor.DefaultCount };
-        var version = ParseInt(optionalDefaults ? options.Values.GetValueOrDefault("Version") ?? "1" : Required(options.Values, "Version"), "Version");
-        var seed = ParseUInt64(optionalDefaults ? options.Values.GetValueOrDefault("Seed") ?? "42" : Required(options.Values, "Seed"), "Seed");
-        var count = ParseInt(optionalDefaults ? options.Values.GetValueOrDefault("Count") ?? defaultCount.ToString(CultureInfo.InvariantCulture)
-            : Required(options.Values, "Count"), "Count");
+        var defaultCount = mode switch
+        {
+            DataForgeProfileOptions.StressSearchMode => 100_000,
+            DataForgeProfileOptions.StressVectorMode or DataForgeProfileOptions.StressHybridMode => 50_000,
+            _ => profile.Descriptor.DefaultCount
+        };
+        var version = ParseInt(options.Values.GetValueOrDefault("Version")
+            ?? profile.Descriptor.ProfileVersion.ToString(CultureInfo.InvariantCulture), "Version");
+        var seed = ParseUInt64(options.Values.GetValueOrDefault("Seed")
+            ?? profile.Descriptor.DefaultSeed.ToString(CultureInfo.InvariantCulture), "Seed");
+        var count = ParseInt(options.Values.GetValueOrDefault("Count")
+            ?? defaultCount.ToString(CultureInfo.InvariantCulture), "Count");
         if (version != profile.Descriptor.ProfileVersion)
             throw new CommandLineException($"Profile '{profileId}' supports version {profile.Descriptor.ProfileVersion}, not {version}.");
         var parameters = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -155,7 +161,7 @@ public static class DataForgeCommandLine
             throw new CommandLineException("The hybrid profile accepts only the dimension parameter.");
         if (profile is LeanCorpusVectorProfile && parameters.Keys.Any(static key => key is not ("dimension" or "vectorDistribution" or "clusterCount" or "queryCount")))
             throw new CommandLineException("The vector profile accepts only vector parameters.");
-        if (stress && mode is not ("search" or "vector" or "hybrid"))
+        if (stress && !DataForgeProfileOptions.StressModes.Contains(mode, StringComparer.Ordinal))
             throw new CommandLineException($"Stress generation failed for {ReplayIdentity(profileId, version, seed, count, parameters)}: mode must be search, vector or hybrid.");
         if (stress && !options.Flags.Contains("AllowLarge"))
         {

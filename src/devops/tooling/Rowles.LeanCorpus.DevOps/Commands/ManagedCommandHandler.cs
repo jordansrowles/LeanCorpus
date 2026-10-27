@@ -18,13 +18,19 @@ using Spectre.Console;
 
 namespace Rowles.LeanCorpus.DevOps.Commands;
 
-internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error) : ICommandHandler
+internal sealed class ManagedCommandHandler(
+    TextWriter output,
+    TextWriter error,
+    CancellationToken operationCancellationToken = default,
+    Func<IProcessRunner>? dataForgeProcessRunnerFactory = null) : ICommandHandler
 {
+    private readonly CancellationToken _operationCancellationToken = operationCancellationToken;
+    private readonly Func<IProcessRunner> _dataForgeProcessRunnerFactory = dataForgeProcessRunnerFactory ?? (() => new ProcessRunner());
     private readonly CommandResultRenderer _renderer = new();
 
     public int Build(BuildCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -121,7 +127,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int StartServer(ServerStartCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -188,7 +194,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int Report(ReportCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -264,7 +270,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int Pack(PackCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -346,7 +352,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int Distribute(DistributeCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -404,7 +410,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int Coverage(CoverageCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -477,7 +483,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.RunOptions);
 
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -560,7 +566,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(options.MatrixOptions);
 
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -611,7 +617,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int Docs(DocsCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -687,7 +693,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int Data(DataCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -780,7 +786,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
                 return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
                     "Supply --version and --scenario, or use --list."), output, error);
 
-            using var cancellation = new CancellationTokenSource();
+            using var cancellation = CreateCancellationSource();
             ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
             {
                 eventArgs.Cancel = true;
@@ -846,7 +852,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int DataForge(DataForgeCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -862,7 +868,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
             }
 
             var paths = new ArtifactPaths(checkout.RepositoryRoot);
-            var processRunner = new ProcessRunner();
+            var processRunner = _dataForgeProcessRunnerFactory();
             if (options.Arguments.FirstOrDefault()?.Equals("qualify", StringComparison.OrdinalIgnoreCase) is true)
             {
                 var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
@@ -943,7 +949,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         if (parsed.Request.Operation == DiagnosticsOperation.ProcessList)
             return ListProcesses();
 
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -1036,7 +1042,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int Benchmark(BenchmarkCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -1084,7 +1090,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int BenchmarkRemote(BenchmarkRemoteCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -1128,7 +1134,7 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
 
     public int BenchmarkQualificationSummary(BenchmarkQualificationSummaryCommandOptions options)
     {
-        using var cancellation = new CancellationTokenSource();
+        using var cancellation = CreateCancellationSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
@@ -1186,7 +1192,9 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
                 AnsiConsole.Console,
                 () => new ConfigurationLoader(checkout.RepositoryRoot).Load(),
                 checkout.RepositoryRoot,
-                new ManagedWorkbenchOperations(this, checkout, output, error)).Run();
+                new ManagedWorkbenchOperations(
+                    cancellationToken => new ManagedCommandHandler(output, error, cancellationToken),
+                    checkout, output, error)).Run();
         }
         catch (InvalidOperationException exception)
         {
@@ -1355,4 +1363,9 @@ internal sealed class ManagedCommandHandler(TextWriter output, TextWriter error)
         var present = values.Where(static value => !string.IsNullOrWhiteSpace(value)).ToArray();
         return present.Length == 0 ? null : string.Join(Environment.NewLine, present);
     }
+
+    private CancellationTokenSource CreateCancellationSource()
+        => _operationCancellationToken.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(_operationCancellationToken)
+            : new CancellationTokenSource();
 }

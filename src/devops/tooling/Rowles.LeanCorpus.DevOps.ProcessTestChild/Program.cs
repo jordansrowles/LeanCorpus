@@ -38,6 +38,19 @@ switch (args[0])
             await Task.Delay(10);
         }
         return 0;
+    case "wait-for-release":
+    {
+        string processIdPath = args[1] + ".tmp";
+        await File.WriteAllTextAsync(processIdPath, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        File.Move(processIdPath, args[1], overwrite: true);
+        Console.Out.WriteLine("child-ready");
+        Console.Out.Flush();
+        while (!File.Exists(args[2]))
+        {
+            await Task.Delay(10);
+        }
+        return 0;
+    }
     case "long-line":
         Console.WriteLine(new string('x', int.Parse(args[1])));
         return 0;

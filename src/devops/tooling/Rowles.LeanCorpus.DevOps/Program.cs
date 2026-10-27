@@ -1084,8 +1084,14 @@ internal static class Program
 
 internal static class CommandLineApplication
 {
-    public static int Run(string[] args, TextWriter output, TextWriter error, ICommandHandler? handler = null)
+    public static int Run(
+        string[] args,
+        TextWriter output,
+        TextWriter error,
+        ICommandHandler? handler = null,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var commandHandler = handler ?? new ManagedCommandHandler(output, error);
         if (TryGetBenchmarkRemoteOptions(args, out var remoteParse))
         {

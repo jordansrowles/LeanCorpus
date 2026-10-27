@@ -66,6 +66,7 @@
 
   <ItemGroup>
     <Compile Include="../../dataforge/shared/DataForgeHelp.cs" Link="DataForge/DataForgeHelp.cs" />
+    <Compile Include="../../dataforge/shared/DataForgeProfileOptions.cs" Link="DataForge/DataForgeProfileOptions.cs" />
   </ItemGroup>
 
   <ItemGroup>

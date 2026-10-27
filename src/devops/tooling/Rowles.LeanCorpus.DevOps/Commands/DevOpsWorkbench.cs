@@ -6,6 +6,7 @@ using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Terminal;
 using Rowles.LeanCorpus.DevOps.Testing;
+using Rowles.DataForge.Workloads;
 using Spectre.Console;
 
 namespace Rowles.LeanCorpus.DevOps.Commands;
@@ -619,13 +620,64 @@ internal sealed class DevOpsWorkbench(
             "leancorpus-stress", "rowles-text-multilingual", "leancorpus-e2e"]);
         if (profile == "Back")
             return [];
-        string version = ReadValue("Profile version", "1");
-        string seed = ReadValue("Seed", "42");
-        string count = ReadValue("Record count", "20000");
-        var arguments = new List<string> { "generate", "-Profile", profile, "-Version", version, "-Seed", seed, "-Count", count };
-        string output = ReadOptionalValue("Output directory");
-        if (output.Length > 0)
-            arguments.AddRange(["-Output", output]);
+        string? mode = null;
+        string? language = null;
+        var arguments = new List<string> { "generate", "-Profile", profile };
+        if (profile == "leancorpus-stress")
+        {
+            mode = Select("Stress workload mode", ["Back", .. DataForgeProfileOptions.StressModes]);
+            if (mode == "Back")
+                return [];
+            arguments.AddRange(["-Mode", mode]);
+        }
+        else if (profile == "rowles-text-multilingual")
+        {
+            language = Select("Multilingual language", ["Back", .. DataForgeProfileOptions.MultilingualLanguages]);
+            if (language == "Back")
+                return [];
+            arguments.AddRange(["-Language", language]);
+        }
+
+        AddOptionalPair(arguments, "-Version", ReadOptionalValue("Profile version override (blank for profile default)"));
+        AddOptionalPair(arguments, "-Seed", ReadOptionalValue("Seed override (blank for profile default)"));
+        AddOptionalPair(arguments, "-Count", ReadOptionalValue("Record count override (blank for profile default)"));
+
+        if (profile == "leancorpus-vector" || mode == DataForgeProfileOptions.StressVectorMode)
+        {
+            AddOptionalPair(arguments, "-Dimension", ReadOptionalValue("Vector dimension override"));
+            AddOptionalPair(arguments, "-VectorDistribution", ReadOptionalValue("Vector distribution override"));
+            AddOptionalPair(arguments, "-ClusterCount", ReadOptionalValue("Vector cluster count override"));
+            AddOptionalPair(arguments, "-QueryCount", ReadOptionalValue("Vector query count override"));
+        }
+        else if (profile == "leancorpus-hybrid" || mode == DataForgeProfileOptions.StressHybridMode)
+        {
+            AddOptionalPair(arguments, "-Dimension", ReadOptionalValue("Hybrid vector dimension override"));
+            if (mode == DataForgeProfileOptions.StressHybridMode)
+            {
+                AddOptionalPair(arguments, "-CategoryCardinality", ReadOptionalValue("Category cardinality override"));
+                AddOptionalPair(arguments, "-NarrowFilterBasisPoints", ReadOptionalValue("Narrow filter share override"));
+            }
+        }
+        else if (mode == DataForgeProfileOptions.StressSearchMode)
+        {
+            AddOptionalPair(arguments, "-VeryLongShareBasisPoints", ReadOptionalValue("Very long record share override"));
+            AddOptionalPair(arguments, "-LongShareBasisPoints", ReadOptionalValue("Long record share override"));
+            AddOptionalPair(arguments, "-CategoryCardinality", ReadOptionalValue("Category cardinality override"));
+            AddOptionalPair(arguments, "-RegionCardinality", ReadOptionalValue("Region cardinality override"));
+            AddOptionalPair(arguments, "-RareAnchorBasisPoints", ReadOptionalValue("Rare anchor share override"));
+        }
+
+        if (mode is not null)
+        {
+            string largeWorkload = Select("Allow stress workloads above the safety limits?",
+                ["Back", "No", "Yes, allow large"]);
+            if (largeWorkload == "Back")
+                return [];
+            if (largeWorkload == "Yes, allow large")
+                arguments.Add("-AllowLarge");
+        }
+
+        AddOptionalPair(arguments, "-Output", ReadOptionalValue("Output directory"));
         return arguments;
     }
 
@@ -947,7 +999,7 @@ internal sealed class DevOpsWorkbench(
 }
 
 internal sealed class ManagedWorkbenchOperations(
-    ICommandHandler commandHandler,
+    Func<CancellationToken, ICommandHandler> commandHandlerFactory,
     CheckoutIdentity checkout,
     TextWriter output,
     TextWriter error) : IWorkbenchOperations
@@ -955,7 +1007,9 @@ internal sealed class ManagedWorkbenchOperations(
     public int RunCommand(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return CommandLineApplication.Run(["--repo", checkout.RepositoryRoot, .. arguments], output, error, commandHandler);
+        var commandHandler = commandHandlerFactory(cancellationToken);
+        return CommandLineApplication.Run(
+            ["--repo", checkout.RepositoryRoot, .. arguments], output, error, commandHandler, cancellationToken);
     }
 
     public string ReadRepositoryMetadata(CancellationToken cancellationToken)

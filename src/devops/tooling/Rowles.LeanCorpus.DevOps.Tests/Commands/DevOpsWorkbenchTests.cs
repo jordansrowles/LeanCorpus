@@ -1,8 +1,15 @@
 using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Text.Json;
 using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Benchmarks;
 using Rowles.LeanCorpus.DevOps.Configuration;
 using Rowles.LeanCorpus.DevOps.Commands;
+using Rowles.LeanCorpus.DevOps.Infrastructure;
+using Rowles.LeanCorpus.DevOps.Repository;
+using Rowles.LeanCorpus.DevOps.Terminal;
+using Rowles.DataForge.Tool;
+using Rowles.DataForge.Workloads;
 using Spectre.Console.Testing;
 
 namespace Rowles.LeanCorpus.DevOps.Tests.Commands;
@@ -136,6 +143,235 @@ public sealed class DevOpsWorkbenchTests
 
         Assert.Equal(0, exitCode);
         Assert.Equal(new[] { "dataforge", "qualify", "--dry" }, Assert.Single(operations.Calls));
+    }
+
+    [Fact]
+    public void DataForgeGenerationWorkbench_EmitsProfileSpecificTokensAcceptedByTheRealParser()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "workbench-dataforge-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var scenarios = new[]
+        {
+            (Name: "stress-search", Profile: "leancorpus-stress", Mode: "search", Language: (string?)null,
+                OptionValues: new[] { "100", "200", "8", "4", "3" }, AllowLarge: "No",
+                Expected: new[] { "-VeryLongShareBasisPoints", "100", "-LongShareBasisPoints", "200",
+                    "-CategoryCardinality", "8", "-RegionCardinality", "4", "-RareAnchorBasisPoints", "3" }),
+            (Name: "stress-vector", Profile: "leancorpus-stress", Mode: "vector", Language: (string?)null,
+                OptionValues: new[] { "16", "Uniform", "4", "1" }, AllowLarge: "No",
+                Expected: new[] { "-Dimension", "16", "-VectorDistribution", "Uniform", "-ClusterCount", "4", "-QueryCount", "1" }),
+            (Name: "stress-hybrid", Profile: "leancorpus-stress", Mode: "hybrid", Language: (string?)null,
+                OptionValues: new[] { "16", "8", "5" }, AllowLarge: "No",
+                Expected: new[] { "-Dimension", "16", "-CategoryCardinality", "8", "-NarrowFilterBasisPoints", "5" }),
+            (Name: "stress-search-large-consent", Profile: "leancorpus-stress", Mode: "search", Language: (string?)null,
+                OptionValues: new[] { "", "", "", "", "" }, AllowLarge: "Yes, allow large",
+                Expected: Array.Empty<string>()),
+            (Name: "multilingual", Profile: "rowles-text-multilingual", Mode: (string?)null, Language: "ko",
+                OptionValues: Array.Empty<string>(), AllowLarge: (string?)null,
+                Expected: Array.Empty<string>()),
+            (Name: "vector", Profile: "leancorpus-vector", Mode: (string?)null, Language: (string?)null,
+                OptionValues: new[] { "16", "Uniform", "4", "1" }, AllowLarge: (string?)null,
+                Expected: new[] { "-Dimension", "16", "-VectorDistribution", "Uniform", "-ClusterCount", "4", "-QueryCount", "1" }),
+            (Name: "hybrid", Profile: "leancorpus-hybrid", Mode: (string?)null, Language: (string?)null,
+                OptionValues: new[] { "16" }, AllowLarge: (string?)null,
+                Expected: new[] { "-Dimension", "16" }),
+            (Name: "search", Profile: "leancorpus-search", Mode: (string?)null, Language: (string?)null,
+                OptionValues: Array.Empty<string>(), AllowLarge: (string?)null,
+                Expected: Array.Empty<string>()),
+            (Name: "profile-defaults", Profile: "leancorpus-e2e", Mode: (string?)null, Language: (string?)null,
+                OptionValues: Array.Empty<string>(), AllowLarge: (string?)null,
+                Expected: Array.Empty<string>())
+        };
+
+        try
+        {
+            foreach (var scenario in scenarios)
+            {
+                string outputPath = Path.Combine(root, scenario.Name);
+                string[] promptValues = scenario.Name == "profile-defaults"
+                    ? ["", "", "", outputPath]
+                    : ["1", "42", "8", .. scenario.OptionValues, outputPath];
+                string[] tokens = CaptureDataForgeGenerationArguments(
+                    scenario.Profile, scenario.Mode, scenario.Language, scenario.AllowLarge, promptValues);
+
+                var expected = new List<string> { "dataforge", "generate", "-Profile", scenario.Profile };
+                if (scenario.Mode is not null)
+                    expected.AddRange(["-Mode", scenario.Mode]);
+                if (scenario.Language is not null)
+                    expected.AddRange(["-Language", scenario.Language]);
+                if (scenario.Name != "profile-defaults")
+                    expected.AddRange(["-Version", "1", "-Seed", "42", "-Count", "8"]);
+                expected.AddRange(scenario.Expected);
+                if (scenario.AllowLarge == "Yes, allow large")
+                    expected.Add("-AllowLarge");
+                expected.AddRange(["-Output", outputPath]);
+                Assert.Equal(expected, tokens);
+
+                using var output = new StringWriter();
+                using var error = new StringWriter();
+                int exitCode = DataForgeCommandLine.Run(tokens.Skip(1).ToArray(), output, error, root);
+                Assert.True(exitCode == 0, $"DataForge rejected {scenario.Name}: {error}{output}");
+                Assert.True(Directory.Exists(outputPath), $"DataForge did not materialise {scenario.Name}.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DataForgeGenerationWorkbench_BackFromProfileOrModeDoesNotRunACommand()
+    {
+        var console = new TestConsole().Interactive();
+        var operations = new RecordingWorkbenchOperations();
+        Choose(console, "DataForge", MainMenu);
+        Choose(console, "Generate a dataset", DataForgeActions);
+        Choose(console, "Back", DataForgeProfiles);
+        Choose(console, "Exit", MainMenu);
+
+        Assert.Equal(0, CreateWorkbench(console, operations, TestContext.Current.CancellationToken).Run());
+        Assert.Empty(operations.Calls);
+    }
+
+    [Fact]
+    public void DataForgeGenerationWorkbench_BackFromStressModeDoesNotRunACommand()
+    {
+        var console = new TestConsole().Interactive();
+        var operations = new RecordingWorkbenchOperations();
+        Choose(console, "DataForge", MainMenu);
+        Choose(console, "Generate a dataset", DataForgeActions);
+        Choose(console, "leancorpus-stress", DataForgeProfiles);
+        Choose(console, "Back", StressModes);
+        Choose(console, "Exit", MainMenu);
+
+        Assert.Equal(0, CreateWorkbench(console, operations, TestContext.Current.CancellationToken).Run());
+        Assert.Empty(operations.Calls);
+    }
+
+    [Fact]
+    public void ManagedWorkbenchOperations_DoesNotCreateAHandlerWhenCancellationPrecedesTheCommand()
+    {
+        int handlerCreations = 0;
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var operations = new ManagedWorkbenchOperations(
+            _ =>
+            {
+                handlerCreations++;
+                return new RecordingCommandHandler();
+            },
+            checkout,
+            TextWriter.Null,
+            TextWriter.Null);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.ThrowsAny<OperationCanceledException>(() => operations.RunCommand(["dataforge", "profiles"], cancellation.Token));
+        Assert.Equal(0, handlerCreations);
+    }
+
+    [Fact]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("xUnit", "xUnit1051", Justification = "The bounded task waits verify operation-token cancellation and cleanup.")]
+    public async Task DevOpsWorkbench_CancellationStopsActiveDataForgeChildAndRetainsEvidence()
+    {
+        string temporaryRoot = Path.Combine(Path.GetTempPath(), "workbench-cancellation-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryRoot);
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var processRunner = new GatedDataForgeProcessRunner(GetProcessTestChildPath(), temporaryRoot);
+        using var commandOutput = new StringWriter();
+        using var commandError = new StringWriter();
+        var operations = new ManagedWorkbenchOperations(
+            cancellationToken => new ManagedCommandHandler(commandOutput, commandError, cancellationToken, () => processRunner),
+            checkout,
+            commandOutput,
+            commandError);
+        using var cancellation = new CancellationTokenSource();
+        var console = new TestConsole().Interactive();
+        string outputPath = Path.Combine(temporaryRoot, "dataset");
+        PrepareDataForgeGenerationWorkbench(console, outputPath);
+        var workbench = new DevOpsWorkbench(
+            console,
+            () => new ConfigurationLoader(checkout.RepositoryRoot).Load(),
+            checkout.RepositoryRoot,
+            operations,
+            cancellation.Token);
+        Task<int> workbenchRun = Task.Run(workbench.Run);
+
+        try
+        {
+            string readyPath = processRunner.GetReadyPath(1);
+            Assert.True(SpinWait.SpinUntil(() => File.Exists(readyPath), TimeSpan.FromSeconds(20)),
+                "The DataForge child did not reach its active wait state.");
+            int childProcessId = int.Parse(File.ReadAllText(readyPath), System.Globalization.CultureInfo.InvariantCulture);
+
+            cancellation.Cancel();
+
+            Assert.Equal(130, await workbenchRun.WaitAsync(TimeSpan.FromSeconds(20)));
+            Assert.Contains("cancelled", commandError.ToString(), StringComparison.OrdinalIgnoreCase);
+            string cancelledRunDirectory = Assert.Single(processRunner.RunDirectories);
+            Assert.Contains(cancelledRunDirectory, commandError.ToString(), StringComparison.Ordinal);
+            using (var manifest = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(cancelledRunDirectory, "run.json"))))
+            {
+                Assert.Equal("cancelled", manifest.RootElement.GetProperty("state").GetString());
+                Assert.Empty(manifest.RootElement.GetProperty("childExitCodes").EnumerateArray());
+            }
+            Assert.True(SpinWait.SpinUntil(() => !IsProcessRunning(childProcessId), TimeSpan.FromSeconds(5)),
+                $"The cancelled DataForge child process {childProcessId} remained alive.");
+
+            processRunner.ReleaseSubsequentChildren = true;
+            using var completedCancellation = new CancellationTokenSource();
+            int completedExitCode = operations.RunCommand(
+                ["dataforge", "generate", "-Profile", "leancorpus-search", "-Version", "1", "-Seed", "42", "-Count", "8", "-Output", outputPath],
+                completedCancellation.Token);
+            Assert.Equal(0, completedExitCode);
+            string completedRunDirectory = processRunner.RunDirectories.Last();
+            completedCancellation.Cancel();
+            using (var manifest = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(completedRunDirectory, "run.json"))))
+            {
+                Assert.Equal("succeeded", manifest.RootElement.GetProperty("state").GetString());
+                Assert.Equal(0, manifest.RootElement.GetProperty("childExitCodes")[0].GetInt32());
+            }
+            Assert.Equal(2, processRunner.RunDirectories.Count);
+        }
+        finally
+        {
+            if (!workbenchRun.IsCompleted)
+                cancellation.Cancel();
+            try { await workbenchRun.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (TimeoutException) { }
+            if (Directory.Exists(temporaryRoot))
+                Directory.Delete(temporaryRoot, recursive: true);
+        }
+    }
+
+    private static string[] CaptureDataForgeGenerationArguments(
+        string profile,
+        string? mode,
+        string? language,
+        string? allowLarge,
+        IReadOnlyList<string> promptValues)
+    {
+        var console = new TestConsole().Interactive();
+        var operations = new RecordingWorkbenchOperations();
+        Choose(console, "DataForge", MainMenu);
+        Choose(console, "Generate a dataset", DataForgeActions);
+        Choose(console, profile, DataForgeProfiles);
+        if (mode is not null)
+            Choose(console, mode, StressModes);
+        if (language is not null)
+            Choose(console, language, ["Back", .. RowlesTextMultilingualProfile.Languages]);
+        int valuesBeforeConsent = allowLarge is null ? promptValues.Count : promptValues.Count - 1;
+        for (int index = 0; index < valuesBeforeConsent; index++)
+            console.Input.PushTextWithEnter(promptValues[index]);
+        if (allowLarge is not null)
+            Choose(console, allowLarge, LargeWorkloadChoices);
+        for (int index = valuesBeforeConsent; index < promptValues.Count; index++)
+            console.Input.PushTextWithEnter(promptValues[index]);
+        Choose(console, "Run command", ["Back", "Run command"]);
+        Choose(console, "Exit", MainMenu);
+
+        Assert.Equal(0, CreateWorkbench(console, operations, TestContext.Current.CancellationToken).Run());
+        return Assert.Single(operations.Calls);
     }
 
     [Fact]
@@ -496,7 +732,7 @@ public sealed class DevOpsWorkbenchTests
 
     private static DevOpsWorkbench CreateWorkbench(
         TestConsole console,
-        RecordingWorkbenchOperations operations,
+        IWorkbenchOperations operations,
         CancellationToken cancellationToken,
         Action? onConfigurationLoad = null)
     {
@@ -519,11 +755,59 @@ public sealed class DevOpsWorkbenchTests
         }, "/repo", operations, cancellationToken);
     }
 
+    private static void PrepareDataForgeGenerationWorkbench(TestConsole console, string outputPath)
+    {
+        Choose(console, "DataForge", MainMenu);
+        Choose(console, "Generate a dataset", DataForgeActions);
+        Choose(console, "leancorpus-search", DataForgeProfiles);
+        console.Input.PushTextWithEnter("1");
+        console.Input.PushTextWithEnter("42");
+        console.Input.PushTextWithEnter("8");
+        console.Input.PushTextWithEnter(outputPath);
+        Choose(console, "Run command", ["Back", "Run command"]);
+    }
+
+    private static string GetProcessTestChildPath()
+    {
+        string executableName = OperatingSystem.IsWindows() ? "devops-process-test-child.exe" : "devops-process-test-child";
+        string configuration = Path.GetFileName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Rowles.LeanCorpus.DevOps.ProcessTestChild", configuration, executableName));
+    }
+
+    private static bool IsProcessRunning(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
     private static readonly string[] MainMenu =
     [
         "Exit", "Build and package", "Tests and quality", "Benchmarks", "DataForge", "Fixtures and corpora",
         "Documentation", "Server and diagnostics", "Configuration", "Repository status", "Recent runs"
     ];
+
+    private static readonly string[] DataForgeActions =
+    [
+        "Back", "Preview release qualification", "Run release qualification", "Generate a dataset", "Reference dataset",
+        "List profiles", "Inspect a generated dataset", "Verify a generated dataset", "Reproduce a generated dataset",
+        "Enter token arguments"
+    ];
+
+    private static readonly string[] DataForgeProfiles =
+    [
+        "Back", "leancorpus-search", "leancorpus-vector", "leancorpus-hybrid",
+        "leancorpus-stress", "rowles-text-multilingual", "leancorpus-e2e"
+    ];
+
+    private static readonly string[] StressModes = ["Back", "search", "vector", "hybrid"];
+    private static readonly string[] LargeWorkloadChoices = ["Back", "No", "Yes, allow large"];
 
     private static void Choose(TestConsole console, string selected, params string[] choices)
     {
@@ -562,5 +846,74 @@ public sealed class DevOpsWorkbenchTests
         }
 
         public IReadOnlyList<WorkbenchRun> ReadRecentRuns() => Runs;
+    }
+
+    private sealed class RecordingCommandHandler : ICommandHandler
+    {
+        public int Build(BuildCommandOptions options) => 0;
+        public int Clean(CleanCommandOptions options) => 0;
+        public int Docs(DocsCommandOptions options) => 0;
+        public int StartServer(ServerStartCommandOptions options) => 0;
+        public int Report(ReportCommandOptions options) => 0;
+        public int Coverage(CoverageCommandOptions options) => 0;
+        public int Pack(PackCommandOptions options) => 0;
+        public int Distribute(DistributeCommandOptions options) => 0;
+        public int Data(DataCommandOptions options) => 0;
+        public int DataFixtures(HistoricalFixturesCommandOptions options) => 0;
+        public int DataForge(DataForgeCommandOptions options) => 0;
+        public int Diagnostics(DiagnosticsCommandOptions options) => 0;
+        public int Benchmark(BenchmarkCommandOptions options) => 0;
+        public int BenchmarkRemote(BenchmarkRemoteCommandOptions options) => 0;
+        public int BenchmarkQualificationSummary(BenchmarkQualificationSummaryCommandOptions options) => 0;
+        public int Test(TestCommandOptions options) => 0;
+        public int Ui(UiCommandOptions options) => 0;
+        public int ShowConfiguration(ConfigSummaryCommandOptions options) => 0;
+        public int ValidateConfiguration(ConfigValidateCommandOptions options) => 0;
+        public int BackupRestoreMatrix(BackupRestoreMatrixCommandOptions options) => 0;
+    }
+
+    private sealed class GatedDataForgeProcessRunner(string childPath, string temporaryRoot) : IProcessRunner
+    {
+        private readonly ProcessRunner _inner = new();
+        private readonly List<string> _runDirectories = [];
+
+        public IReadOnlyList<string> RunDirectories
+        {
+            get
+            {
+                lock (_runDirectories)
+                    return [.. _runDirectories];
+            }
+        }
+
+        public bool ReleaseSubsequentChildren { get; set; }
+
+        public string GetReadyPath(int sequence) => Path.Combine(temporaryRoot, $"child-{sequence}.pid");
+
+        public async Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken = default)
+        {
+            if (request.Arguments.Count >= 3 && request.Arguments[0] == "run" &&
+                request.Arguments.Any(static argument => argument.EndsWith("Rowles.DataForge.Tool.csproj", StringComparison.Ordinal)))
+            {
+                int sequence;
+                lock (_runDirectories)
+                {
+                    sequence = _runDirectories.Count + 1;
+                    _runDirectories.Add(Path.GetDirectoryName(request.StandardOutputLogPath)!);
+                }
+
+                string readyPath = GetReadyPath(sequence);
+                string releasePath = Path.Combine(temporaryRoot, $"child-{sequence}.release");
+                if (sequence > 1 && ReleaseSubsequentChildren)
+                    await File.WriteAllTextAsync(releasePath, "release", cancellationToken);
+                return await _inner.RunAsync(request with
+                {
+                    ExecutablePath = childPath,
+                    Arguments = ["wait-for-release", readyPath, releasePath]
+                }, cancellationToken);
+            }
+
+            return await _inner.RunAsync(request, cancellationToken);
+        }
     }
 }

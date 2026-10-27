@@ -22,6 +22,7 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
     // Lets lifecycle tests hold a joiner after it has captured its attempt. The
     // callback runs outside _waitLock and is null in normal operation.
     internal Action? BeforeDisposalAttemptWaitTestHook { get; set; }
+    internal Action? BeforeDisposalAttemptSelectionTestHook { get; set; }
 
     internal Scope Enter(object owner)
     {
@@ -78,34 +79,49 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
     /// </summary>
     internal DisposalAttempt? BeginDisposeAndWaitForCompletion()
     {
+        // This snapshot is the admission point for joining a cleanup already in
+        // progress. Capture it before taking _waitLock so a caller delayed before
+        // selection cannot accidentally join a later retry instead.
+        DisposalAttempt? admittedAttempt = Volatile.Read(ref _currentDisposalAttempt);
+        if (admittedAttempt?.IsCompleted != false)
+            admittedAttempt = null;
+
         RequestDispose();
+        BeforeDisposalAttemptSelectionTestHook?.Invoke();
         bool waited = false;
         DisposalAttempt? joinedAttempt;
 
         lock (_waitLock)
         {
-            while (Volatile.Read(ref _state) != DisposeRequested)
+            if (admittedAttempt is not null)
             {
-                waited = true;
-                Monitor.Wait(_waitLock);
-            }
-
-            if (_disposalSucceeded)
-                return null;
-
-            if (_currentDisposalAttempt is { IsCompleted: false } currentAttempt)
-            {
-                joinedAttempt = currentAttempt;
-            }
-            else if (waited && _currentDisposalAttempt is { IsCompleted: true } completedAttempt)
-            {
-                joinedAttempt = completedAttempt;
+                joinedAttempt = admittedAttempt;
             }
             else
             {
-                var attempt = new DisposalAttempt();
-                _currentDisposalAttempt = attempt;
-                return attempt;
+                while (Volatile.Read(ref _state) != DisposeRequested)
+                {
+                    waited = true;
+                    Monitor.Wait(_waitLock);
+                }
+
+                if (_disposalSucceeded)
+                    return null;
+
+                if (_currentDisposalAttempt is { IsCompleted: false } currentAttempt)
+                {
+                    joinedAttempt = currentAttempt;
+                }
+                else if (waited && _currentDisposalAttempt is { IsCompleted: true } completedAttempt)
+                {
+                    joinedAttempt = completedAttempt;
+                }
+                else
+                {
+                    var attempt = new DisposalAttempt();
+                    Volatile.Write(ref _currentDisposalAttempt, attempt);
+                    return attempt;
+                }
             }
         }
 

@@ -101,6 +101,79 @@ public sealed class OperationDrainTests
         }
     }
 
+    [Fact(DisplayName = "Operation Drain: Invocation Admitted Before Attempt Selection Joins The Original Attempt")]
+    public void BeginDisposeAndWaitForCompletion_InvocationAdmittedBeforeSelectionKeepsOriginalFailureAcrossRetry()
+    {
+        var drain = new OperationDrain();
+        OperationDrain.DisposalAttempt firstAttempt = Assert.IsType<OperationDrain.DisposalAttempt>(
+            drain.BeginDisposeAndWaitForCompletion());
+        var injectedFailure = new IOException("first cleanup attempt failed");
+        using var waiterAdmitted = new ManualResetEventSlim();
+        using var continueWaiter = new ManualResetEventSlim();
+        int selectionHookEntries = 0;
+        drain.BeforeDisposalAttemptSelectionTestHook = () =>
+        {
+            if (Interlocked.Exchange(ref selectionHookEntries, 1) != 0)
+                return;
+            waiterAdmitted.Set();
+            if (!continueWaiter.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("The admitted disposal caller was not released.");
+        };
+
+        Exception? waiterFailure = null;
+        var waiter = new Thread(() =>
+        {
+            try { drain.BeginDisposeAndWaitForCompletion(); }
+            catch (Exception exception) { waiterFailure = exception; }
+        }) { IsBackground = true, Name = "operation-drain-admitted-caller" };
+        OperationDrain.DisposalAttempt? retryAttempt = null;
+
+        try
+        {
+            waiter.Start();
+            Assert.True(waiterAdmitted.Wait(TimeSpan.FromSeconds(5)),
+                "The second caller did not reach the admission barrier before attempt selection.");
+
+            drain.CompleteDisposalWithFailure(firstAttempt, injectedFailure);
+            retryAttempt = Assert.IsType<OperationDrain.DisposalAttempt>(drain.BeginDisposeAndWaitForCompletion());
+            drain.CompleteDisposalSuccessfully(retryAttempt);
+            continueWaiter.Set();
+
+            Assert.True(waiter.Join(TimeSpan.FromSeconds(5)), "The admitted caller did not finish.");
+            Assert.Same(injectedFailure, waiterFailure);
+            Assert.Null(drain.BeginDisposeAndWaitForCompletion());
+        }
+        finally
+        {
+            if (!firstAttempt.IsCompleted)
+                drain.CompleteDisposalWithFailure(firstAttempt, injectedFailure);
+            if (retryAttempt is { IsCompleted: false })
+                drain.CompleteDisposalSuccessfully(retryAttempt);
+            continueWaiter.Set();
+            if (waiter.IsAlive)
+                waiter.Join(TimeSpan.FromSeconds(10));
+            drain.BeforeDisposalAttemptSelectionTestHook = null;
+        }
+    }
+
+    [Fact(DisplayName = "Operation Drain: Call After Failed Attempt Owns The Retry")]
+    public void BeginDisposeAndWaitForCompletion_CallAfterFailureStartsRetry()
+    {
+        var drain = new OperationDrain();
+        OperationDrain.DisposalAttempt firstAttempt = Assert.IsType<OperationDrain.DisposalAttempt>(
+            drain.BeginDisposeAndWaitForCompletion());
+        var injectedFailure = new IOException("first cleanup attempt failed");
+
+        drain.CompleteDisposalWithFailure(firstAttempt, injectedFailure);
+
+        OperationDrain.DisposalAttempt retryAttempt = Assert.IsType<OperationDrain.DisposalAttempt>(
+            drain.BeginDisposeAndWaitForCompletion());
+        Assert.NotSame(firstAttempt, retryAttempt);
+        drain.CompleteDisposalSuccessfully(retryAttempt);
+
+        Assert.Null(drain.BeginDisposeAndWaitForCompletion());
+    }
+
     private static void WaitUntilRejected(Func<IDisposable> acquire)
     {
         bool rejected = SpinWait.SpinUntil(

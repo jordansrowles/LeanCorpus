@@ -132,9 +132,9 @@ public sealed class LeanCorpusStressProfile : IDataForgeGeneratedProfile<StressR
             ?? throw new ArgumentException("Stress mode is required: search, vector or hybrid.", nameof(options));
         var mode = modeText switch
         {
-            "search" => StressMode.Search,
-            "vector" => StressMode.Vector,
-            "hybrid" => StressMode.Hybrid,
+            DataForgeProfileOptions.StressSearchMode => StressMode.Search,
+            DataForgeProfileOptions.StressVectorMode => StressMode.Vector,
+            DataForgeProfileOptions.StressHybridMode => StressMode.Hybrid,
             _ => throw new ArgumentException($"Unknown stress mode '{modeText}'.", nameof(options))
         };
         var allowed = mode switch

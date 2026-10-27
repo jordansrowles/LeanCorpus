@@ -137,7 +137,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
-- Preserve each concurrent mapped-input disposer’s per-attempt cleanup outcome across retries, retain ownership after cleanup faults without asserting successful-cleanup invariants, and retry only unfinished pointer, accessor, mapping and owner-lease release stages.
+- Bind overlapping mapped-input disposers to the cleanup attempt active at entry, preserve each attempt's outcome across retries, retain ownership after cleanup faults without asserting successful-cleanup invariants, and retry only unfinished pointer, accessor, mapping and owner-lease release stages.
 - Correct the analysis guide to identify the standalone Rowles.Text 2.0 release.
 - Resolve coverage source paths from the repository root and limit generated HTML to first-party assemblies, keeping coverage links valid in the documentation site.
 - Keep benchmark-run discovery as an array when documentation generation skips the scan or finds no runs.

@@ -41,6 +41,11 @@
           "xunit.v3.core.mtp-v2": "[4.0.0]"
         }
       },
+      "Bogus": {
+        "type": "Transitive",
+        "resolved": "35.6.5",
+        "contentHash": "2FGZn+aAVHjmCgClgmGkTDBVZk0zkLvAKGaxEf5JL6b3i9JbHTE4wnuY4vHCuzlCmJdU6VZjgDfHwmYkQF8VAA=="
+      },
       "LibGit2Sharp.NativeBinaries": {
         "type": "Transitive",
         "resolved": "2.0.324",
@@ -113,6 +118,11 @@
         "type": "Transitive",
         "resolved": "5.0.0",
         "contentHash": "dDoKi0PnDz31yAyETfRntsLArTlVAVzUzCIvvEDsDsucrl33Dl8pIJG06ePTJTI3tGpeyHS9Cq7Foc/s4EeKcg=="
+      },
+      "SharpCompress": {
+        "type": "Transitive",
+        "resolved": "0.50.4",
+        "contentHash": "/hxjUR7DEX6mky8/LQXyrnrKioOL6D6veAID1EZpro+q4s02x5dHEYBV3qjEN6lDYYilDoQQ76BcmQj+lRx51w=="
       },
       "Spectre.Console.Ansi": {
         "type": "Transitive",
@@ -219,6 +229,26 @@
           "Microsoft.VisualStudio.SolutionPersistence": "[1.0.52, )",
           "Spectre.Console": "[0.57.2, )",
           "System.CommandLine": "[3.0.0-preview.3.26207.106, )"
+        }
+      },
+      "rowles.dataforge": {
+        "type": "Project",
+        "dependencies": {
+          "Bogus": "[35.6.5, )"
+        }
+      },
+      "rowles.dataforge.tool": {
+        "type": "Project",
+        "dependencies": {
+          "Rowles.DataForge": "[1.0.0, )",
+          "Rowles.DataForge.Workloads": "[1.0.0, )",
+          "SharpCompress": "[0.50.4, )"
+        }
+      },
+      "rowles.dataforge.workloads": {
+        "type": "Project",
+        "dependencies": {
+          "Rowles.DataForge": "[1.0.0, )"
         }
       },
       "Bullseye": {

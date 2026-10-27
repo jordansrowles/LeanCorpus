@@ -1,3 +1,5 @@
+using Rowles.DataForge.Workloads;
+
 namespace Rowles.DataForge.Tool;
 
 internal sealed record DataForgeHelpRequest(bool Requested, string? Topic = null, string? Error = null);
@@ -145,12 +147,13 @@ internal static class DataForgeHelp
                 break;
             case "generate":
                 output.WriteLine("Usage:");
-                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-search -Version 1 -Seed 42 -Count 20000 [-Output <path>] [-Force]");
-                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-vector -Version 1 -Seed 42 -Count 1000 [-Dimension 64] [-VectorDistribution Uniform] [-ClusterCount 8] [-QueryCount 1] [-Output <path>] [-Force]");
-                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-hybrid -Version 1 -Seed 42 -Count 20000 [-Dimension 64] [-Output <path>] [-Force]");
-                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-stress -Mode search|vector|hybrid [-Version 1] [-Seed 42] [-Count <count>] [-AllowLarge] [-Output <path>] [-Force]");
-                output.WriteLine($"  {commandPrefix} generate -Profile rowles-text-multilingual -Language en|fr|de|es|it|pt|nl|ru|ar|zh|ja|ko [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
+                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-search [-Version <version>] [-Seed <seed>] [-Count <count>] [-Output <path>] [-Force]");
+                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-vector [-Version <version>] [-Seed <seed>] [-Count <count>] [-Dimension 64] [-VectorDistribution Uniform] [-ClusterCount 8] [-QueryCount 1] [-Output <path>] [-Force]");
+                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-hybrid [-Version <version>] [-Seed <seed>] [-Count <count>] [-Dimension 64] [-Output <path>] [-Force]");
+                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-stress -Mode {string.Join('|', DataForgeProfileOptions.StressModes)} [-Version <version>] [-Seed <seed>] [-Count <mode-default>] [-AllowLarge] [-Output <path>] [-Force]");
+                output.WriteLine($"  {commandPrefix} generate -Profile rowles-text-multilingual -Language {string.Join('|', DataForgeProfileOptions.MultilingualLanguages)} [-Version <version>] [-Seed <seed>] [-Count <count>] [-Output <path>] [-Force]");
                 output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-e2e [-Version 1] [-Seed 42] [-Count 256] [-Output <path>] [-Force]");
+                output.WriteLine("Omitted version, seed and count values use the selected profile defaults; stress counts depend on the mode.");
                 output.WriteLine("Use profiles to inspect the registered IDs and defaults.");
                 break;
             case "reference":

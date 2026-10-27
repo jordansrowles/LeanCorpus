@@ -86,6 +86,7 @@
 ## Fixed
 
 - Render repository-relative paths in the managed configuration summary with forward slashes on every operating system.
+- Build profile-specific DataForge workbench arguments from supported modes, languages, optional parameters and profile defaults; pass workbench cancellation through managed handlers to active child processes while retaining exit 130 and terminal run evidence.
 - Check the logical workspace path during managed bootstrap with a command-scoped safe-directory value, then compare canonical roots across filesystem links.
 
 - Preserve UTC kind when validating managed bootstrap lease markers on Windows, and clear read-only checkout files during temporary-worktree test cleanup.
