@@ -78,8 +78,8 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
             processId = int.MaxValue,
             processStartedUtc = DateTimeOffset.Parse("2000-01-01T00:00:00Z")
         });
-        File.WriteAllText(Path.Combine(leases, "promotion.lock"), staleMarker);
-        File.WriteAllText(Path.Combine(leases, "reader-stale.json"), staleMarker);
+        await File.WriteAllTextAsync(Path.Combine(leases, "promotion.lock"), staleMarker, TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(leases, "reader-stale.json"), staleMarker, TestContext.Current.CancellationToken);
 
         var restoreCapture = Path.Combine(checkout.Root, "restore-calls.txt");
         var buildCapture = Path.Combine(checkout.Root, "build-calls.txt");
@@ -604,9 +604,9 @@ public sealed class ManagedBootstrapIntegrationTests : IClassFixture<ManagedBoot
 
     private static string NormaliseProcessOutput(string output)
     {
-        var withoutAnsi = Regex.Replace(output, @"\x1B\[[0-?]*[ -/]*[@-~]", string.Empty, RegexOptions.CultureInvariant);
-        var withoutPowerShellContinuationBars = Regex.Replace(withoutAnsi, @"(?m)^[ \t]*\|[ \t]?", string.Empty, RegexOptions.CultureInvariant);
-        return Regex.Replace(withoutPowerShellContinuationBars, @"\s+", " ", RegexOptions.CultureInvariant);
+        var withoutAnsi = Regex.Replace(output, @"\x1B\[[0-?]*[ -/]*[@-~]", string.Empty, RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
+        var withoutPowerShellContinuationBars = Regex.Replace(withoutAnsi, @"(?m)^[ \t]*\|[ \t]?", string.Empty, RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
+        return Regex.Replace(withoutPowerShellContinuationBars, @"\s+", " ", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
     }
 
     private static void WriteManifest(string repositoryRoot, string executablePath, string manifestPath)

@@ -134,19 +134,21 @@ public sealed class RuntimeFailureTests
             Assert.True(handle.Runtime.Commits.Commit(refresh: true) is CommitPublished);
             foreach (string commit in Directory.EnumerateFiles(path, "segments_*"))
             {
-                saved.Add(commit, File.ReadAllBytes(commit));
-                File.WriteAllText(commit, "controlled corrupt commit");
+                saved.Add(commit, await File.ReadAllBytesAsync(commit, TestContext.Current.CancellationToken));
+                await File.WriteAllTextAsync(commit, "controlled corrupt commit", TestContext.Current.CancellationToken);
             }
             Assert.False(handle.Runtime.Searchers.Refresh());
             Assert.True(handle.Health.IsDegraded);
             Assert.True(handle.Health.IsUsable);
-            foreach (var commit in saved) File.WriteAllBytes(commit.Key, commit.Value);
+            foreach (var commit in saved)
+                await File.WriteAllBytesAsync(commit.Key, commit.Value, TestContext.Current.CancellationToken);
             handle.Runtime.Refresh();
             Assert.False(handle.Health.IsDegraded);
         }
         finally
         {
-            foreach (var commit in saved) File.WriteAllBytes(commit.Key, commit.Value);
+            foreach (var commit in saved)
+                await File.WriteAllBytesAsync(commit.Key, commit.Value, CancellationToken.None);
             await handle.DisposeAsync();
             Directory.Delete(path, recursive: true);
         }
@@ -180,7 +182,7 @@ public sealed class RuntimeFailureTests
             Assert.True(handle.Health.IsDegraded);
             Assert.Equal(receipt, await waiting.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
             Assert.ThrowsAny<Exception>(runtime.Refresh);
-            File.WriteAllBytes(commitPath!, committedBytes!);
+            await File.WriteAllBytesAsync(commitPath!, committedBytes!, TestContext.Current.CancellationToken);
             runtime.Refresh();
             Assert.False(handle.Health.IsDegraded);
             using var visible = runtime.Searchers.AcquireLease();
@@ -189,7 +191,8 @@ public sealed class RuntimeFailureTests
         finally
         {
             runtime.Writer.Config.PreparedCommitPublicationSync = null;
-            if (commitPath is not null && committedBytes is not null) File.WriteAllBytes(commitPath, committedBytes);
+            if (commitPath is not null && committedBytes is not null)
+                await File.WriteAllBytesAsync(commitPath, committedBytes, CancellationToken.None);
             await handle.DisposeAsync();
             Directory.Delete(path, recursive: true);
         }

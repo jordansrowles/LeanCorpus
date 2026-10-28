@@ -19,12 +19,13 @@ public sealed class DataForgeQualificationStepRunnerTests
         var sdkDirectory = Path.Combine(sdkRoot, "sdk", "11.0.100");
         var projectPath = Path.Combine(checkout.Root, "src", "devops", "dataforge", "Rowles.DataForge.Tests", "Rowles.DataForge.Tests.csproj");
         Directory.CreateDirectory(Path.GetDirectoryName(projectPath)!);
-        File.WriteAllText(projectPath, "<Project />");
+        await File.WriteAllTextAsync(projectPath, "<Project />", TestContext.Current.CancellationToken);
         var targetDirectory = Path.Combine(checkout.Root, "artifacts", "bin", "Rowles.DataForge.Tests", "release_net11.0");
         Directory.CreateDirectory(targetDirectory);
         var targetPath = Path.Combine(targetDirectory, "Rowles.DataForge.Tests.dll");
-        File.WriteAllText(targetPath, string.Empty);
-        File.WriteAllText(Path.Combine(targetDirectory, "Rowles.DataForge.Tests" + (OperatingSystem.IsWindows() ? ".exe" : string.Empty)), string.Empty);
+        await File.WriteAllTextAsync(targetPath, string.Empty, TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(targetDirectory, "Rowles.DataForge.Tests" + (OperatingSystem.IsWindows() ? ".exe" : string.Empty)), string.Empty,
+            TestContext.Current.CancellationToken);
 
         var processRunner = new RecordingProcessRunner(targetPath);
         var runner = new DataForgeQualificationStepRunner(

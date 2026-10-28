@@ -427,7 +427,7 @@ public class DeletionReplacementRefreshBenchmarks
     private void VerifyPublishedDocuments(string replacedGeneration)
     {
         using var lease = _searcherManager!.AcquireLease();
-        var result = lease.Searcher.Search(new LeanMatchAllDocsQuery(), DocumentCount);
+        var result = lease.Searcher.Search(new LeanMatchAllDocsQuery(), DocumentCount, CancellationToken.None);
         if (result.TotalHits != DocumentCount || result.ScoreDocs.Length != DocumentCount)
             throw new InvalidOperationException(
                 $"Replacement/refresh verification expected {DocumentCount} live documents, got {result.TotalHits} total hits and {result.ScoreDocs.Length} returned.");

@@ -53,7 +53,7 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
     public async Task<T> WithExclusiveAsync<T>(LeanCorpusIndexPaths paths, Func<Entry, T> operation)
     {
         var entry = await GetEntryAsync(paths).ConfigureAwait(false);
-        await entry.Gate.WaitAsync().ConfigureAwait(false);
+        await entry.Gate.WaitAsync(_stoppingRegistration.Token).ConfigureAwait(false);
         try
         {
             ThrowIfUnavailable();
@@ -68,7 +68,7 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
     public async Task<T> WithExclusiveAsync<T>(LeanCorpusIndexPaths paths, Func<Entry, Task<T>> operation)
     {
         var entry = await GetEntryAsync(paths).ConfigureAwait(false);
-        await entry.Gate.WaitAsync().ConfigureAwait(false);
+        await entry.Gate.WaitAsync(_stoppingRegistration.Token).ConfigureAwait(false);
         try
         {
             ThrowIfUnavailable();
@@ -86,7 +86,7 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
         LeanCorpusSchemaManifest? manifest = null)
     {
         var entry = await GetEntryAsync(paths).ConfigureAwait(false);
-        await entry.Gate.WaitAsync().ConfigureAwait(false);
+        await entry.Gate.WaitAsync(_stoppingRegistration.Token).ConfigureAwait(false);
         SearcherLease lease;
         try
         {
@@ -108,7 +108,7 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
         Func<Entry, Task<LeanCorpusSchemaManifest>> manifestFactory)
     {
         var entry = await GetEntryAsync(paths).ConfigureAwait(false);
-        await entry.Gate.WaitAsync().ConfigureAwait(false);
+        await entry.Gate.WaitAsync(_stoppingRegistration.Token).ConfigureAwait(false);
         SearcherLease lease;
         LeanCorpusSchemaManifest manifest;
         try
@@ -233,8 +233,8 @@ internal sealed class LeanCorpusIndexHandleCache : IDisposable, IAsyncDisposable
         }
         finally
         {
-            _stoppingRegistration.Dispose();
-            _stoppedRegistration.Dispose();
+            await _stoppingRegistration.DisposeAsync().ConfigureAwait(false);
+            await _stoppedRegistration.DisposeAsync().ConfigureAwait(false);
         }
     }
 

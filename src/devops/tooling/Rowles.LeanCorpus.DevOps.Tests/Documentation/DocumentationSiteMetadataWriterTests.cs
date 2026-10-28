@@ -43,7 +43,7 @@ public sealed class DocumentationSiteMetadataWriterTests
         Assert.Equal("4.0.0", result.ProductVersion);
         foreach (var name in new[] { "provenance.json", "site-metadata.json" })
         {
-            var content = File.ReadAllText(Path.Combine(generated, name));
+            var content = await File.ReadAllTextAsync(Path.Combine(generated, name), TestContext.Current.CancellationToken);
             Assert.EndsWith(Environment.NewLine, content, StringComparison.Ordinal);
             Assert.False(content.EndsWith(Environment.NewLine + Environment.NewLine, StringComparison.Ordinal));
         }
@@ -57,7 +57,7 @@ public sealed class DocumentationSiteMetadataWriterTests
         CreateProject(repositoryRoot, "src/core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj");
         var checkout = new CheckoutIdentity(repositoryRoot, Path.Combine(repositoryRoot, ".git"), CheckoutGitMarkerKind.Directory);
         using var cancellation = new CancellationTokenSource();
-        cancellation.Cancel();
+        await cancellation.CancelAsync();
         var writer = new DocumentationSiteMetadataWriter(new VersionProcessRunner(OutcomeKind.Cancelled));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => writer.WriteAsync(checkout,

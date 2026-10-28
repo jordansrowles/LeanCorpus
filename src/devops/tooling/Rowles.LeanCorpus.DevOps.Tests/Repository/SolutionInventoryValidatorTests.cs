@@ -142,7 +142,8 @@ public sealed class SolutionInventoryValidatorTests
         using var checkout = TemporaryCheckout.Create();
         checkout.WriteMaster();
         Directory.CreateDirectory(Path.Combine(checkout.Root, "src", "solutions"));
-        File.WriteAllText(Path.Combine(checkout.Root, "src", "solutions", "broken.slnf"), "{\"solution\":\"bad\"}");
+        await File.WriteAllTextAsync(Path.Combine(checkout.Root, "src", "solutions", "broken.slnf"), "{\"solution\":\"bad\"}",
+            TestContext.Current.CancellationToken);
 
         var result = await new SolutionInventoryValidator().ValidateAsync(checkout.Identity, [], TestContext.Current.CancellationToken);
 

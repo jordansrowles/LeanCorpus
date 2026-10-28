@@ -5,6 +5,8 @@ using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Store;
 
+namespace Rowles.LeanCorpus.HistoricalFixtures;
+
 internal static class SparseHnswScenario
 {
     public static void Generate(string outputRoot)

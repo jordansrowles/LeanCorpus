@@ -141,8 +141,8 @@ public sealed class CoverageServiceTests
         var testOutput = Path.Combine(checkout.Root, "artifacts", "test", "retained.txt");
         Directory.CreateDirectory(Path.GetDirectoryName(oldCoverage)!);
         Directory.CreateDirectory(Path.GetDirectoryName(testOutput)!);
-        File.WriteAllText(oldCoverage, "old report");
-        File.WriteAllText(testOutput, "test output");
+        await File.WriteAllTextAsync(oldCoverage, "old report", TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(testOutput, "test output", TestContext.Current.CancellationToken);
 
         var service = CreateService(checkout, new RecordingTestExecutor(checkout.Root), new RecordingProcessRunner());
         var result = await service.RunAsync(Request(checkout, suite: "core", clean: true),

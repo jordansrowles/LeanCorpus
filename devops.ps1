@@ -153,6 +153,65 @@ function Test-ProcessMarkerLive {
     }
 }
 
+function Remove-StaleManagedHostLeaseMarkers {
+    param(
+        [Parameter(Mandatory = $true)][string]$LeaseDirectory,
+        [Parameter(Mandatory = $true)][string]$PromotionPath
+    )
+
+    if ((Test-Path -LiteralPath $PromotionPath -PathType Leaf) -and -not (Test-ProcessMarkerLive $PromotionPath)) {
+        Remove-Item -LiteralPath $PromotionPath -Force
+    }
+    foreach ($readerPath in Get-ChildItem -LiteralPath $LeaseDirectory -Filter 'reader-*.json' -File -ErrorAction SilentlyContinue) {
+        if (-not (Test-ProcessMarkerLive $readerPath.FullName)) {
+            Remove-Item -LiteralPath $readerPath.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+function Try-CreateManagedHostPromotionGate {
+    param([Parameter(Mandatory = $true)][string]$PromotionPath)
+
+    $process = [System.Diagnostics.Process]::GetCurrentProcess()
+    $marker = [pscustomobject]@{ processId = $process.Id; processStartedUtc = $process.StartTime.ToUniversalTime() }
+    $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $marker -Compress))
+    try {
+        $stream = [System.IO.FileStream]::new(
+            $PromotionPath,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None,
+            1024,
+            [System.IO.FileOptions]::WriteThrough)
+        try {
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush($true)
+        } finally {
+            $stream.Dispose()
+        }
+        return $true
+    } catch [System.IO.IOException] {
+        return $false
+    }
+}
+
+function Get-LiveManagedHostReaders {
+    param([Parameter(Mandatory = $true)][string]$LeaseDirectory)
+
+    return @(
+        Get-ChildItem -LiteralPath $LeaseDirectory -Filter 'reader-*.json' -File -ErrorAction SilentlyContinue |
+            Where-Object { Test-ProcessMarkerLive $_.FullName }
+    )
+}
+
+function Remove-OwnedManagedHostPromotionGate {
+    param([Parameter(Mandatory = $true)][string]$PromotionPath)
+
+    if ((Test-Path -LiteralPath $PromotionPath -PathType Leaf) -and (Test-ProcessMarkerLive $PromotionPath)) {
+        Remove-Item -LiteralPath $PromotionPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Enter-ManagedHostPromotionLease {
     param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
 
@@ -165,44 +224,17 @@ function Enter-ManagedHostPromotionLease {
 
     try {
         while ($stopwatch.Elapsed -lt $timeout) {
-            if ((Test-Path -LiteralPath $promotionPath -PathType Leaf) -and -not (Test-ProcessMarkerLive $promotionPath)) {
-                Remove-Item -LiteralPath $promotionPath -Force
-            }
-            foreach ($readerPath in Get-ChildItem -LiteralPath $leaseDirectory -Filter 'reader-*.json' -File -ErrorAction SilentlyContinue) {
-                if (-not (Test-ProcessMarkerLive $readerPath.FullName)) {
-                    Remove-Item -LiteralPath $readerPath.FullName -Force -ErrorAction SilentlyContinue
-                }
-            }
+            Remove-StaleManagedHostLeaseMarkers -LeaseDirectory $leaseDirectory -PromotionPath $promotionPath
 
             if (-not $ownsPromotionGate) {
-                $process = [System.Diagnostics.Process]::GetCurrentProcess()
-                $marker = [pscustomobject]@{ processId = $process.Id; processStartedUtc = $process.StartTime.ToUniversalTime() }
-                $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $marker -Compress))
-                try {
-                    $stream = [System.IO.FileStream]::new(
-                        $promotionPath,
-                        [System.IO.FileMode]::CreateNew,
-                        [System.IO.FileAccess]::Write,
-                        [System.IO.FileShare]::None,
-                        1024,
-                        [System.IO.FileOptions]::WriteThrough)
-                    try {
-                        $stream.Write($bytes, 0, $bytes.Length)
-                        $stream.Flush($true)
-                    } finally {
-                        $stream.Dispose()
-                    }
-                    $ownsPromotionGate = $true
-                } catch [System.IO.IOException] {
+                if (-not (Try-CreateManagedHostPromotionGate -PromotionPath $promotionPath)) {
                     Start-Sleep -Milliseconds 100
                     continue
                 }
+                $ownsPromotionGate = $true
             }
 
-            $liveReaders = @(
-                Get-ChildItem -LiteralPath $leaseDirectory -Filter 'reader-*.json' -File -ErrorAction SilentlyContinue |
-                    Where-Object { Test-ProcessMarkerLive $_.FullName }
-            )
+            $liveReaders = @(Get-LiveManagedHostReaders -LeaseDirectory $leaseDirectory)
             if ($liveReaders.Count -eq 0) {
                 return $promotionPath
             }
@@ -211,8 +243,8 @@ function Enter-ManagedHostPromotionLease {
 
         Stop-Setup "Could not acquire the exclusive apphost promotion lease within $timeout."
     } catch {
-        if ($ownsPromotionGate -and (Test-Path -LiteralPath $promotionPath -PathType Leaf) -and (Test-ProcessMarkerLive $promotionPath)) {
-            Remove-Item -LiteralPath $promotionPath -Force -ErrorAction SilentlyContinue
+        if ($ownsPromotionGate) {
+            Remove-OwnedManagedHostPromotionGate -PromotionPath $promotionPath
         }
         throw
     }
@@ -244,78 +276,113 @@ function Get-ManagedHostExecutableName {
     return 'devops'
 }
 
-function Get-ManagedHostSourceEntries {
-    param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
+function Add-ManagedHostRequiredSourcePaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [AllowEmptyCollection()]
+        [Parameter(Mandatory = $true)][System.Collections.Generic.List[string]]$Paths
+    )
 
-    $root = [System.IO.Path]::GetFullPath($RepositoryRoot)
-    $paths = [System.Collections.Generic.List[string]]::new()
     $requiredFiles = @(
         'global.json', 'Directory.Build.props', 'Directory.Build.targets', 'Directory.Packages.props',
         'src/devops/Directory.Build.props', 'src/devops/Directory.Packages.props'
     )
     foreach ($relative in $requiredFiles) {
-        $path = Join-Path $root ($relative.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+        $path = Join-Path $Root ($relative.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
         if (Test-Path -LiteralPath $path -PathType Leaf) {
             $attributes = [System.IO.File]::GetAttributes($path)
             if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
                 throw "Managed DevOps source input '$path' is a link or reparse point."
             }
-            $paths.Add($relative)
+            $Paths.Add($relative)
         }
     }
+}
 
-    $extensions = @('.cs', '.csproj', '.json', '.props', '.targets', '.slnx')
-    foreach ($relativeDirectory in @('src/devops/tooling/Rowles.LeanCorpus.DevOps', '.config/devops')) {
-        $directory = Join-Path $root ($relativeDirectory.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
-        if (-not (Test-Path -LiteralPath $directory -PathType Container)) { continue }
-        $directoryAttributes = [System.IO.File]::GetAttributes($directory)
-        if (($directoryAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "Managed DevOps source directory '$directory' is a link or reparse point."
-        }
-        $includeEmbeddedResources = [string]::Equals($relativeDirectory, 'src/devops/tooling/Rowles.LeanCorpus.DevOps', [System.StringComparison]::Ordinal)
-        $pending = [System.Collections.Generic.Stack[string]]::new()
-        $pending.Push($directory)
-        while ($pending.Count -gt 0) {
-            $current = $pending.Pop()
-            foreach ($item in Get-ChildItem -LiteralPath $current -Force) {
-                if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-                    throw "Managed DevOps source input '$($item.FullName)' is a link or reparse point."
-                }
-                if ($item.PSIsContainer) {
-                    if ($item.Name -in @('artifacts', 'bin', 'obj')) {
-                        continue
-                    }
-                    $pending.Push($item.FullName)
-                    continue
-                }
-                $isStandardSource = $extensions -contains $item.Extension.ToLowerInvariant()
-                $isEmbeddedResource = $includeEmbeddedResources -and
-                    ($item.Extension.Equals('.template', [System.StringComparison]::OrdinalIgnoreCase) -or
-                     $item.Name.EndsWith('.cs.txt', [System.StringComparison]::OrdinalIgnoreCase))
-                if ($isStandardSource -or $isEmbeddedResource) {
-                    $paths.Add([System.IO.Path]::GetRelativePath($root, $item.FullName).Replace([System.IO.Path]::DirectorySeparatorChar, '/'))
-                }
+function Get-ManagedHostDirectorySourcePaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$RelativeDirectory,
+        [Parameter(Mandatory = $true)][string[]]$Extensions
+    )
+
+    $directory = Join-Path $Root ($RelativeDirectory.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) { return @() }
+    $directoryAttributes = [System.IO.File]::GetAttributes($directory)
+    if (($directoryAttributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Managed DevOps source directory '$directory' is a link or reparse point."
+    }
+
+    $paths = [System.Collections.Generic.List[string]]::new()
+    $includeEmbeddedResources = [string]::Equals($RelativeDirectory, 'src/devops/tooling/Rowles.LeanCorpus.DevOps', [System.StringComparison]::Ordinal)
+    $pending = [System.Collections.Generic.Stack[string]]::new()
+    $pending.Push($directory)
+    while ($pending.Count -gt 0) {
+        $current = $pending.Pop()
+        foreach ($item in Get-ChildItem -LiteralPath $current -Force) {
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Managed DevOps source input '$($item.FullName)' is a link or reparse point."
+            }
+            if ($item.PSIsContainer) {
+                if ($item.Name -in @('artifacts', 'bin', 'obj')) { continue }
+                $pending.Push($item.FullName)
+                continue
+            }
+
+            $isStandardSource = $Extensions -contains $item.Extension.ToLowerInvariant()
+            $isEmbeddedResource = $includeEmbeddedResources -and
+                ($item.Extension.Equals('.template', [System.StringComparison]::OrdinalIgnoreCase) -or
+                 $item.Name.EndsWith('.cs.txt', [System.StringComparison]::OrdinalIgnoreCase))
+            if ($isStandardSource -or $isEmbeddedResource) {
+                $paths.Add([System.IO.Path]::GetRelativePath($Root, $item.FullName).Replace([System.IO.Path]::DirectorySeparatorChar, '/'))
             }
         }
     }
 
-    $paths.Sort([System.StringComparer]::Ordinal)
+    return @($paths.ToArray())
+}
+
+function Get-ManagedHostSourceManifest {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [AllowEmptyCollection()]
+        [Parameter(Mandatory = $true)][System.Collections.Generic.List[string]]$Paths
+    )
+
+    $Paths.Sort([System.StringComparer]::Ordinal)
     $entries = [System.Collections.Generic.List[object]]::new()
     $canonical = [System.Text.StringBuilder]::new()
-    foreach ($relative in $paths) {
-        $path = Join-Path $root ($relative.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
+    foreach ($relative in $Paths) {
+        $path = Join-Path $Root ($relative.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
         $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
         [void]$entries.Add([pscustomobject]@{ path = $relative; sha256 = $hash })
         [void]$canonical.Append($relative).Append([char]0).Append($hash).Append([char]10)
     }
 
-    if (-not ($paths -contains 'src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj')) {
+    if (-not ($Paths -contains 'src/devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj')) {
         throw 'The managed DevOps host project is missing from the selected checkout.'
     }
 
     $utf8 = [System.Text.UTF8Encoding]::new($false)
     $sourceFingerprint = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($utf8.GetBytes($canonical.ToString()))).ToLowerInvariant()
     return [pscustomobject]@{ sourceFingerprint = $sourceFingerprint; sourceFiles = @($entries.ToArray()) }
+}
+
+function Get-ManagedHostSourceEntries {
+    param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
+
+    $root = [System.IO.Path]::GetFullPath($RepositoryRoot)
+    $paths = [System.Collections.Generic.List[string]]::new()
+    Add-ManagedHostRequiredSourcePaths -Root $root -Paths $paths
+
+    $extensions = @('.cs', '.csproj', '.json', '.props', '.targets', '.slnx')
+    foreach ($relativeDirectory in @('src/devops/tooling/Rowles.LeanCorpus.DevOps', '.config/devops')) {
+        foreach ($path in Get-ManagedHostDirectorySourcePaths -Root $root -RelativeDirectory $relativeDirectory -Extensions $extensions) {
+            $paths.Add($path)
+        }
+    }
+
+    return Get-ManagedHostSourceManifest -Root $root -Paths $paths
 }
 
 function Get-ManagedHostManifestPath {

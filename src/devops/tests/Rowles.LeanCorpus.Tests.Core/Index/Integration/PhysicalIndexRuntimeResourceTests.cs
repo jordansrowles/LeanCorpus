@@ -124,7 +124,7 @@ public sealed class PhysicalIndexRuntimeResourceTests
         var runtime = Open(path);
         var state = FileLifetimeRegistry.ForDirectory(path);
         string retired = Path.Combine(path, "retired.bin");
-        File.WriteAllText(retired, "retired input");
+        await File.WriteAllTextAsync(retired, "retired input", TestContext.Current.CancellationToken);
         using var lease = state.Acquire("retired.bin");
         try
         {

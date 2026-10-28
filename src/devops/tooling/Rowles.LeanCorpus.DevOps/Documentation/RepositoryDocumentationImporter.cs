@@ -14,8 +14,8 @@ internal sealed class RepositoryDocumentationImporter
         : StringComparison.Ordinal;
     private static readonly Regex MarkdownLinkPattern = new(
         "(?<prefix>!?\\[[^\\]]*\\]\\()(?<target><[^>]+>|[^)\\s]+)(?<suffix>\\s*(?:\"[^\"]*\"|'[^']*')?\\))",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-    private static readonly Regex GitCommitPattern = new("^[0-9a-fA-F]{40}$", RegexOptions.CultureInvariant);
+        RegexOptions.Compiled | RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex GitCommitPattern = new("^[0-9a-fA-F]{40}$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
 
     public int Import(
         string repositoryRoot,
@@ -346,7 +346,7 @@ internal sealed class RepositoryDocumentationImporter
     {
         if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath) ||
             relativePath.StartsWith('/') || relativePath.StartsWith('\\') ||
-            Regex.IsMatch(relativePath, "^[A-Za-z]:", RegexOptions.CultureInvariant) ||
+            Regex.IsMatch(relativePath, "^[A-Za-z]:", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout) ||
             relativePath.Replace('\\', '/').Split('/').Any(static segment => segment == ".."))
         {
             throw new InvalidDataException($"Documentation import {description} must be a relative path inside its owned root: {relativePath}");
@@ -410,7 +410,7 @@ internal sealed class RepositoryDocumentationImporter
         => target.Length >= 2 && target[0] == '<' && target[^1] == '>' ? target[1..^1] : target;
 
     private static bool HasUriScheme(string value)
-        => Regex.IsMatch(value, "^[a-z][a-z0-9+.-]*:", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        => Regex.IsMatch(value, "^[a-z][a-z0-9+.-]*:", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
 
     private static string DecodePath(string value)
     {

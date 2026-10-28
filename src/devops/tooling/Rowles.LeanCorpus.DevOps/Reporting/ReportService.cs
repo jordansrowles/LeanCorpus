@@ -36,10 +36,10 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
 {
     private static readonly Regex AotHostilePattern = new(
         @"\b(dynamic|MakeGenericType|MakeGenericMethod|Assembly\.Load|Marshal\.|Activator\.CreateInstance|Type\.GetType|GetConstructor|GetMethod|Reflection\.Emit)\b",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled);
+        RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
     private static readonly Regex ConventionalPattern = new(
         @"^(feat|fix|chore|docs|test|refactor|perf|build|ci|style|revert)(\([^)]*\))?!?:",
-        RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.IgnoreCase, RegexMatchTimeoutPolicy.MatchTimeout);
     private const long LargeFileThresholdBytes = 500 * 1024;
     private const int CoChangeMaximumFiles = 20;
     private const int CoChangeMinimumCount = 2;
@@ -960,8 +960,8 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
             loc,
             hasBom,
             text.Contains("\r\n", StringComparison.Ordinal),
-            Regex.IsMatch(text, @"(?m)[ \t]+$", RegexOptions.CultureInvariant),
-            Regex.IsMatch(text, @"(?m)^\t", RegexOptions.CultureInvariant),
+            Regex.IsMatch(text, @"(?m)[ \t]+$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout),
+            Regex.IsMatch(text, @"(?m)^\t", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout),
             aotMatches,
             types,
             methods,
@@ -984,9 +984,9 @@ internal sealed class ReportService(IProcessRunner processRunner, Action<string>
         foreach (var item in tree)
         {
             var name = Path.GetFileName(item.Path);
-            if (Regex.IsMatch(name, @"[<>:""\\|?*]", RegexOptions.CultureInvariant)) reservedChars.Add(item.Path);
-            if (Regex.IsMatch(name, @"[\x00-\x1f]", RegexOptions.CultureInvariant)) control.Add(item.Path);
-            if (Regex.IsMatch(name, @"[. ]$", RegexOptions.CultureInvariant)) trailing.Add(item.Path);
+            if (Regex.IsMatch(name, @"[<>:""\\|?*]", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout)) reservedChars.Add(item.Path);
+            if (Regex.IsMatch(name, @"[\x00-\x1f]", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout)) control.Add(item.Path);
+            if (Regex.IsMatch(name, @"[. ]$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout)) trailing.Add(item.Path);
             var dot = name.IndexOf('.');
             var stem = dot > 0 ? name[..dot] : name;
             if (devices.Contains(stem)) deviceNames.Add(item.Path);

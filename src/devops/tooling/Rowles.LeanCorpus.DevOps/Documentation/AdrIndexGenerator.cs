@@ -11,11 +11,11 @@ internal sealed class AdrIndexGenerator
     private static readonly string[] RequiredKeys = ["adr", "title", "date", "status", "version-added", "summary", "areas"];
     private static readonly string[] RelationshipKeys = ["supersedes", "depends-on", "extends", "relates-to", "superseded-by"];
     private static readonly string[] ValidStatuses = ["Accepted", "Deprecated", "Superseded", "Withdrawn"];
-    private static readonly Regex AdrIdPattern = new("^(ADR\\d{3}|ADR-S\\d{3})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex FrontMatterLinePattern = new("^([A-Za-z][A-Za-z0-9-]*):(?:\\s?(.*))$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex ChangeRowPattern = new("^\\|\\s*(\\d{4}-\\d{2}-\\d{2})\\s*\\|\\s*(Accepted|Clarified|Amended|Deprecated|Superseded|Withdrawn)\\s*\\|\\s*(.*?)\\s*\\|\\s*(.*?)\\s*\\|$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex ContextHeadingPattern = new("(?m)^## Context\\s*$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex RelationshipsBlockPattern = new("(?ms)^## Relationships\\r?\\n.*?(?=^## |\\z)", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex AdrIdPattern = new("^(ADR\\d{3}|ADR-S\\d{3})$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex FrontMatterLinePattern = new("^([A-Za-z][A-Za-z0-9-]*):(?:\\s?(.*))$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex ChangeRowPattern = new("^\\|\\s*(\\d{4}-\\d{2}-\\d{2})\\s*\\|\\s*(Accepted|Clarified|Amended|Deprecated|Superseded|Withdrawn)\\s*\\|\\s*(.*?)\\s*\\|\\s*(.*?)\\s*\\|$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex ContextHeadingPattern = new("(?m)^## Context\\s*$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex RelationshipsBlockPattern = new("(?ms)^## Relationships\\r?\\n.*?(?=^## |\\z)", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
 
     public int Generate(string adrDirectory, string outputPath, string? stagingAdrDirectory = null)
     {

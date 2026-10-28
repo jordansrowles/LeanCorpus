@@ -67,7 +67,7 @@ internal sealed class DotNetSdkResolver(IProcessRunner processRunner, string dot
         }
 
         var selectedVersion = process.StandardOutputTail.LastOrDefault()?.Trim();
-        if (string.IsNullOrWhiteSpace(selectedVersion) || !Regex.IsMatch(selectedVersion, "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$", RegexOptions.CultureInvariant))
+        if (string.IsNullOrWhiteSpace(selectedVersion) || !Regex.IsMatch(selectedVersion, "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             return new SdkResolution(OutcomeKind.InfrastructureFailure, requestedVersion, selectedVersion, rollForward,
                 "The dotnet --version response was empty or did not contain a valid SDK version.");

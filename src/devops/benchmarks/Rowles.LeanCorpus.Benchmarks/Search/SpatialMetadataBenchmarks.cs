@@ -571,8 +571,15 @@ public class SpatialAggregationBenchmarks
         GeoBoundsAggregationResult bounds = (GeoBoundsAggregationResult)combinedResults[3];
         GeoPoint? centre = centroid.Centroid;
         GeoRectangle? rectangle = bounds.Bounds;
+        long expectedNumericSumInteger = checked((long)DocumentCount * (DocumentCount - 1) / 2);
+        double expectedNumericSum = expectedNumericSumInteger;
+        const double Binary64MachineEpsilon = 2.2204460492503131e-16d;
+        // Bound accumulation rounding for the integer ranks and the final representable result.
+        double relativeSummationErrorBound = 4d * DocumentCount * Binary64MachineEpsilon;
+        double numericSumTolerance = Math.Abs(expectedNumericSum) * relativeSummationErrorBound
+            + Math.Abs(Math.BitIncrement(expectedNumericSum) - expectedNumericSum);
         if (numeric.Count != DocumentCount
-            || numeric.Sum != ((double)DocumentCount * (DocumentCount - 1)) / 2d
+            || Math.Abs(numeric.Sum - expectedNumericSum) > numericSumTolerance
             || !distance.Buckets.Select(static bucket => bucket.DocumentCount).SequenceEqual(expectedDistanceBuckets)
             || centroid.Dimension != SpatialDimension.Area
             || centroid.ContributingDocumentCount != DocumentCount

@@ -238,8 +238,9 @@ internal static class BenchmarkManifestValidator
             var configuredSuites = configuration.BenchmarkSuites
                 .Where(static pair => pair.Value.Project == "core")
                 .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal);
-            foreach (var suiteId in manifestSuites.Keys.Where(id => !configuredSuites.ContainsKey(id)))
-                throw Error($"Core benchmark host suite '{suiteId}' is missing from benchmark-suites.json.");
+            var unconfiguredSuite = manifestSuites.Keys.FirstOrDefault(id => !configuredSuites.ContainsKey(id));
+            if (unconfiguredSuite is not null)
+                throw Error($"Core benchmark host suite '{unconfiguredSuite}' is missing from benchmark-suites.json.");
             foreach (var (suiteId, suite) in configuredSuites)
             {
                 if (!manifestSuites.TryGetValue(suiteId, out var manifestSuite))

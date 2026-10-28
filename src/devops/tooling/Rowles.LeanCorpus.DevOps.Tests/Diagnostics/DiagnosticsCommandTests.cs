@@ -95,7 +95,8 @@ public sealed class DiagnosticsCommandTests
         Assert.Contains("dotnet-counters.stdout.log", result.Manifest.Artifacts);
         Assert.Contains("dotnet-trace.stderr.log", result.Manifest.Artifacts);
         Assert.Equal("9.0.661903", result.Manifest.ToolVersions["diagnostic-dotnet-counters"]);
-        using var writtenManifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(result.RunDirectory!, "run.json")));
+        using var writtenManifest = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(result.RunDirectory!, "run.json"), TestContext.Current.CancellationToken));
         Assert.Equal("succeeded", writtenManifest.RootElement.GetProperty("state").GetString());
     }
 

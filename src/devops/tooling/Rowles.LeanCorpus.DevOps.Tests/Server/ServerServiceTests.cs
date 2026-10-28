@@ -105,7 +105,7 @@ public sealed class ServerServiceTests
         var service = CreateService(checkout, process);
         var operation = service.StartAsync(new ServerStartRequest { Checkout = checkout.Identity }, cancellation.Token);
         await process.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-        cancellation.Cancel();
+        await cancellation.CancelAsync();
 
         var result = await operation;
         await using var exclusive = await ExecutionLease.AcquireExclusiveAsync(checkout.Root, TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);

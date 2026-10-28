@@ -76,7 +76,7 @@ public sealed class ReleaseArchiveBuilderTests
                 }
             }
 
-            using var manifestStream = archive.GetEntry("distribution-manifest.json")!.Open();
+            await using var manifestStream = await archive.GetEntry("distribution-manifest.json")!.OpenAsync(cancellationToken);
             using var manifest = await JsonDocument.ParseAsync(manifestStream, cancellationToken: cancellationToken);
             Assert.Equal("0123456789abcdef0123456789abcdef01234567", manifest.RootElement.GetProperty("sourceCommit").GetString());
             Assert.Equal("1.0.0", manifest.RootElement.GetProperty("productVersion").GetString());

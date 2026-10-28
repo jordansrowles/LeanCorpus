@@ -354,14 +354,16 @@ internal sealed class PackageConsumerValidationService(
         {
             row = row with { Status = "cancelled", Error = exception.Message };
             results.Add(row);
-            File.WriteAllText(Path.Combine(scenarioDirectory, "exception.txt"), exception.ToString(), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            await File.WriteAllTextAsync(Path.Combine(scenarioDirectory, "exception.txt"), exception.ToString(),
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false), CancellationToken.None).ConfigureAwait(false);
             throw;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException or ArgumentException or System.ComponentModel.Win32Exception or System.Xml.XmlException or ConsumerFailureException)
         {
             row = row with { Status = "failed", Error = exception.Message };
             results.Add(row);
-            File.WriteAllText(Path.Combine(scenarioDirectory, "exception.txt"), exception.ToString(), new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            await File.WriteAllTextAsync(Path.Combine(scenarioDirectory, "exception.txt"), exception.ToString(),
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false), CancellationToken.None).ConfigureAwait(false);
             throw;
         }
     }

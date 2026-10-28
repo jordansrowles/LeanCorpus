@@ -40,12 +40,12 @@ public sealed class LocalIndexExecutorTests
         Assert.Equal(-1, stream.ReadByte());
         stream.Position = 0;
         using var cancelled = new CancellationTokenSource();
-        cancelled.Cancel();
+        await cancelled.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
             await stream.ReadAsync(new byte[1], cancelled.Token));
         Assert.Equal(0, stream.Position);
         Assert.Throws<NotSupportedException>(() => stream.WriteByte(1));
-        stream.Dispose();
+        await stream.DisposeAsync();
         Assert.False(stream.CanRead);
         Assert.False(stream.CanSeek);
         Assert.Throws<ObjectDisposedException>(() => stream.ReadByte());

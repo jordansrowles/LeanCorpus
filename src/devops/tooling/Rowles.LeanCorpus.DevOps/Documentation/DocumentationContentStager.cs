@@ -5,8 +5,8 @@ namespace Rowles.LeanCorpus.DevOps.Documentation;
 
 internal sealed class DocumentationContentStager
 {
-    private static readonly Regex FrontMatterPattern = new("\\A---\\r?\\n(?<yaml>[\\s\\S]*?)\\r?\\n---(?=\\r?\\n|$)", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex DocUrlPattern = new("(?m)^docurl\\s*:.*$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex FrontMatterPattern = new("\\A---\\r?\\n(?<yaml>[\\s\\S]*?)\\r?\\n---(?=\\r?\\n|$)", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex DocUrlPattern = new("(?m)^docurl\\s*:.*$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
 
     public void CopyCanonicalContent(string sourceDirectory, string destinationDirectory)
     {
@@ -58,7 +58,7 @@ internal sealed class DocumentationContentStager
         ArgumentException.ThrowIfNullOrWhiteSpace(contentDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(manifestPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(commit);
-        if (!Regex.IsMatch(commit, "^[0-9a-fA-F]{40}$", RegexOptions.CultureInvariant))
+        if (!Regex.IsMatch(commit, "^[0-9a-fA-F]{40}$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             throw new InvalidDataException("Documentation contribution metadata requires a full 40-character source commit.");
         }

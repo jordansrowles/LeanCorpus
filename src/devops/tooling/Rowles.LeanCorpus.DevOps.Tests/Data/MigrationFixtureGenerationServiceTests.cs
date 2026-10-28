@@ -157,7 +157,7 @@ public sealed class HistoricalFixtureGenerationServiceTests
         using var artifacts = new TemporaryDirectory();
         using var output = new TemporaryDirectory();
         string marker = Path.Combine(output.Path, "keep.txt");
-        File.WriteAllText(marker, "user data");
+        await File.WriteAllTextAsync(marker, "user data", TestContext.Current.CancellationToken);
         CheckoutIdentity checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
         var runner = new RecordingProcessRunner(OutcomeKind.Success);
         var provenance = new RecordingProvenanceReader();
@@ -169,7 +169,7 @@ public sealed class HistoricalFixtureGenerationServiceTests
             checkout, "3.1.1", "migration", "https://example.test/v3/index.json", output.Path), TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.ValidationFailure, result.CommandResult.Outcome);
-        Assert.Equal("user data", File.ReadAllText(marker));
+        Assert.Equal("user data", await File.ReadAllTextAsync(marker, TestContext.Current.CancellationToken));
         Assert.Empty(runner.Requests);
         Assert.Equal(0, provenance.Calls);
     }
@@ -192,7 +192,8 @@ public sealed class HistoricalFixtureGenerationServiceTests
 
         Assert.Equal(OutcomeKind.Cancelled, result.CommandResult.Outcome);
         Assert.NotNull(result.RunDirectory);
-        using JsonDocument cleanup = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(result.RunDirectory!, "cleanup.json")));
+        using JsonDocument cleanup = JsonDocument.Parse(await File.ReadAllBytesAsync(
+            Path.Combine(result.RunDirectory!, "cleanup.json"), TestContext.Current.CancellationToken));
         Assert.False(cleanup.RootElement.GetProperty("removed").GetBoolean());
         Assert.Single(runner.Requests);
         Assert.Contains("--locked-mode", runner.Requests[0].Arguments);

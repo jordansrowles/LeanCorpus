@@ -10,7 +10,7 @@ internal sealed record BenchmarkDocumentationResult(int PageCount, IReadOnlyList
 
 internal sealed class BenchmarkDocumentationGenerator
 {
-    private static readonly Regex ChartIdPattern = new("[^a-zA-Z0-9]", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex ChartIdPattern = new("[^a-zA-Z0-9]", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
     public BenchmarkDocumentationResult Generate(
         string benchmarkRunsDirectory,
         string outputDirectory,
@@ -290,7 +290,7 @@ internal sealed class BenchmarkDocumentationGenerator
         {
             var table = GetTableContent(markdown);
             if (string.IsNullOrWhiteSpace(table)) continue;
-            var name = Regex.Replace(Path.GetFileNameWithoutExtension(markdown), "-report-github$", string.Empty, RegexOptions.CultureInvariant);
+            var name = Regex.Replace(Path.GetFileNameWithoutExtension(markdown), "-report-github$", string.Empty, RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
             builder.AppendLine($"## {name}");
             builder.AppendLine();
             builder.AppendLine(table);
@@ -453,7 +453,7 @@ internal sealed class BenchmarkDocumentationGenerator
     {
         foreach (var line in File.ReadLines(path))
         {
-            var match = Regex.Match(line, "^#\\s+(.+?)\\s*$", RegexOptions.CultureInvariant);
+            var match = Regex.Match(line, "^#\\s+(.+?)\\s*$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
             if (match.Success) return match.Groups[1].Value.Trim();
         }
         return null;

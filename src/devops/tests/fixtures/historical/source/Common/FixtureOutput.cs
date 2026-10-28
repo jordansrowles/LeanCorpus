@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 
+namespace Rowles.LeanCorpus.HistoricalFixtures;
+
 internal static class FixtureOutput
 {
     public static string Sha256(ReadOnlySpan<byte> bytes)

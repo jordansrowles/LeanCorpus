@@ -93,7 +93,7 @@ public sealed class LeanCorpusDocumentIndexManager : IDocumentIndexManager
                     current = current with { Metadata = metadata };
                     await _schemas.PublishAsync(paths.SchemaPath, current).ConfigureAwait(false);
                     if (analyserChanged)
-                        entry.Close();
+                        await entry.CloseAsync().ConfigureAwait(false);
                 }
                 LeanCorpusMappedBatch mapped = _mapper.Map(batchToMap, current);
                 if (!SameSchema(current, mapped.Manifest))
@@ -114,13 +114,13 @@ public sealed class LeanCorpusDocumentIndexManager : IDocumentIndexManager
             }
             catch (InvalidDataException exception)
             {
-                entry.Close();
+                await entry.CloseAsync().ConfigureAwait(false);
                 _logger.LogError(exception, "LeanCorpus cursor or schema state is invalid for index {IndexFullName}.", indexProfile.IndexFullName);
                 return false;
             }
             catch (Exception exception)
             {
-                entry.Close();
+                await entry.CloseAsync().ConfigureAwait(false);
                 _logger.LogError(exception, "LeanCorpus document batch failed for index {IndexFullName}.", indexProfile.IndexFullName);
                 return false;
             }
@@ -150,13 +150,13 @@ public sealed class LeanCorpusDocumentIndexManager : IDocumentIndexManager
             }
             catch (InvalidDataException exception)
             {
-                entry.Close();
+                await entry.CloseAsync().ConfigureAwait(false);
                 _logger.LogError(exception, "LeanCorpus cursor state is invalid for index {IndexFullName}.", indexProfile.IndexFullName);
                 return false;
             }
             catch (Exception exception)
             {
-                entry.Close();
+                await entry.CloseAsync().ConfigureAwait(false);
                 _logger.LogError(exception, "LeanCorpus document delete failed for index {IndexFullName}.", indexProfile.IndexFullName);
                 return false;
             }
@@ -179,13 +179,13 @@ public sealed class LeanCorpusDocumentIndexManager : IDocumentIndexManager
             }
             catch (InvalidDataException exception)
             {
-                entry.Close();
+                await entry.CloseAsync().ConfigureAwait(false);
                 _logger.LogError(exception, "LeanCorpus cursor state is invalid for index {IndexFullName}.", indexProfile.IndexFullName);
                 return false;
             }
             catch (Exception exception)
             {
-                entry.Close();
+                await entry.CloseAsync().ConfigureAwait(false);
                 _logger.LogError(exception, "LeanCorpus delete-all failed for index {IndexFullName}.", indexProfile.IndexFullName);
                 return false;
             }
@@ -211,13 +211,13 @@ public sealed class LeanCorpusDocumentIndexManager : IDocumentIndexManager
             }
             catch (InvalidDataException exception)
             {
-                entry.Close();
+                await entry.CloseAsync().ConfigureAwait(false);
                 _logger.LogError(exception, "LeanCorpus cursor state is invalid for reset of index {IndexFullName}.", indexProfile.IndexFullName);
                 return false;
             }
             catch (Exception exception)
             {
-                entry.Close();
+                await entry.CloseAsync().ConfigureAwait(false);
                 _logger.LogError(exception, "LeanCorpus reset failed for index {IndexFullName}.", indexProfile.IndexFullName);
                 return false;
             }

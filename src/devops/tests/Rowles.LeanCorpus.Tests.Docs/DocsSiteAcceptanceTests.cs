@@ -594,6 +594,7 @@ public sealed class DocsSiteAcceptanceTests
             Assert.True(await page.GetByRole(AriaRole.Link, new PageGetByRoleOptions { Name = "Benchmarking guide", Exact = true }).CountAsync() > 0);
 
             await page.GotoAsync(site.Url("analysis/08-rowles-text.html"));
+            await page.WaitForFunctionAsync("() => document.querySelector('#navbar.lc-navigation-ready .lc-primary-nav') !== null");
             var sourceUrl = await page.Locator("meta[name='docfx:docurl']").GetAttributeAsync("content");
             var editUrl = await page.Locator("a.edit-link").GetAttributeAsync("href");
             Assert.NotNull(sourceUrl);
@@ -629,7 +630,7 @@ public sealed class DocsSiteAcceptanceTests
 
             var redirectPath = Path.Combine(site.SiteDirectory, "_redirects");
             Assert.True(File.Exists(redirectPath), "The Cloudflare Pages redirect manifest was not copied to the site output.");
-            var redirectRules = File.ReadAllLines(redirectPath)
+            var redirectRules = (await File.ReadAllLinesAsync(redirectPath, TestContext.Current.CancellationToken))
                 .Where(static line => !string.IsNullOrWhiteSpace(line) && !line.TrimStart().StartsWith('#'))
                 .Select(static line => line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
                 .ToArray();

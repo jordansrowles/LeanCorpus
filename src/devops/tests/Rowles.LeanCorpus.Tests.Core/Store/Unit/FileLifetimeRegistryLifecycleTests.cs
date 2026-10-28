@@ -148,7 +148,7 @@ public sealed class FileLifetimeRegistryLifecycleTests
         Directory.CreateDirectory(path);
         const string name = "segment.tmp";
         string filePath = Path.Combine(path, name);
-        File.WriteAllText(filePath, "retired generation");
+        await File.WriteAllTextAsync(filePath, "retired generation", TestContext.Current.CancellationToken);
         var directory = new MMapDirectory(path);
         var state = directory.FileLifetimeStateForTesting;
         FileLease lease = state.Acquire(name);
@@ -168,10 +168,10 @@ public sealed class FileLifetimeRegistryLifecycleTests
             await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
 
             state.PrepareForWrite(name);
-            File.WriteAllText(filePath, "new generation");
+            await File.WriteAllTextAsync(filePath, "new generation", TestContext.Current.CancellationToken);
             releaseCallback.Set();
             await callbackFinished.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            Assert.Equal("new generation", File.ReadAllText(filePath));
+            Assert.Equal("new generation", await File.ReadAllTextAsync(filePath, TestContext.Current.CancellationToken));
         }
         finally
         {

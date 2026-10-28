@@ -143,12 +143,12 @@ internal sealed class ReleaseArchiveBuilder
             throw new InvalidDataException($"Release archives are not qualified for runtime identifier '{request.RuntimeIdentifier}'. Supported targets: {string.Join(", ", SupportedRuntimeIdentifiers.Order(StringComparer.Ordinal))}.");
         }
 
-        if (!System.Text.RegularExpressions.Regex.IsMatch(request.ProductVersion, "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+        if (!System.Text.RegularExpressions.Regex.IsMatch(request.ProductVersion, "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$", System.Text.RegularExpressions.RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             throw new InvalidDataException($"Release product version '{request.ProductVersion}' is invalid.");
         }
 
-        if (request.PublishRunId == Guid.Empty || !System.Text.RegularExpressions.Regex.IsMatch(request.SourceCommit, "^[0-9a-fA-F]{7,64}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+        if (request.PublishRunId == Guid.Empty || !System.Text.RegularExpressions.Regex.IsMatch(request.SourceCommit, "^[0-9a-fA-F]{7,64}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             throw new InvalidDataException("Release archive source and publish run identities are required.");
         }
@@ -207,7 +207,7 @@ internal sealed class ReleaseArchiveBuilder
             }
 
             await using var input = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read, 16_384, FileOptions.Asynchronous | FileOptions.SequentialScan);
-            await using var entryStream = entry.Open();
+            await using var entryStream = await entry.OpenAsync(cancellationToken).ConfigureAwait(false);
             await input.CopyToAsync(entryStream, cancellationToken).ConfigureAwait(false);
         }
     }

@@ -8,11 +8,11 @@ internal sealed record DocumentationStaticValidationResult(int MarkdownPages, in
 
 internal sealed class DocumentationStaticValidator
 {
-    private static readonly Regex TocHrefPattern = new("^\\s*href:\\s*(?:'(?<single>[^']*)'|\"(?<double>[^\"]*)\"|(?<plain>\\S+))\\s*$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex FrontMatterPattern = new("\\A---\\r?\\n(?<yaml>[\\s\\S]*?)\\r?\\n---(?=\\r?\\n|$)", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex ContributionUrlPattern = new("(?m)^docurl:\\s*'(?<url>[^']+)'\\s*$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex HtmlReferencePattern = new("(?is)\\b(?:href|src)\\s*=\\s*[\"'](?<url>[^\"']+)[\"']", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex AnchorPattern = new("(?is)\\b(?:id|name)\\s*=\\s*[\"'](?<id>[^\"']+)[\"']", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex TocHrefPattern = new("^\\s*href:\\s*(?:'(?<single>[^']*)'|\"(?<double>[^\"]*)\"|(?<plain>\\S+))\\s*$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex FrontMatterPattern = new("\\A---\\r?\\n(?<yaml>[\\s\\S]*?)\\r?\\n---(?=\\r?\\n|$)", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex ContributionUrlPattern = new("(?m)^docurl:\\s*'(?<url>[^']+)'\\s*$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex HtmlReferencePattern = new("(?is)\\b(?:href|src)\\s*=\\s*[\"'](?<url>[^\"']+)[\"']", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex AnchorPattern = new("(?is)\\b(?:id|name)\\s*=\\s*[\"'](?<id>[^\"']+)[\"']", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
 
     public DocumentationStaticValidationResult Validate(string repositoryRoot, string contentDirectory, string apiDirectory, string siteDirectory,
         string productVersion, string? devOpsVersion)
@@ -39,7 +39,7 @@ internal sealed class DocumentationStaticValidator
         var provenance = provenanceDocument.RootElement;
         var metadata = metadataDocument.RootElement;
         var commit = GetString(provenance, "commit");
-        if (commit is null || !Regex.IsMatch(commit, "^[0-9a-f]{40}$", RegexOptions.CultureInvariant))
+        if (commit is null || !Regex.IsMatch(commit, "^[0-9a-f]{40}$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             throw new InvalidDataException("The repository revision is missing or malformed.");
         }
@@ -187,7 +187,7 @@ internal sealed class DocumentationStaticValidator
     private static string? GetString(JsonElement element, string key)
         => element.ValueKind == JsonValueKind.Object && element.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
-    private static bool HasScheme(string value) => Regex.IsMatch(value, "^[a-z][a-z0-9+.-]*:", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static bool HasScheme(string value) => Regex.IsMatch(value, "^[a-z][a-z0-9+.-]*:", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
 
     private static void RequireFile(string path, string message)
     {

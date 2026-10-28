@@ -141,7 +141,7 @@ internal sealed class ProcessRunner : IProcessRunner
         }
         finally
         {
-            progressSource.Cancel();
+            await progressSource.CancelAsync().ConfigureAwait(false);
             try
             {
                 await progressTask.ConfigureAwait(false);

@@ -10,7 +10,7 @@ if (Environment.GetEnvironmentVariable("LEANCORPUS_BOOTSTRAP_TEST_STUB") == "1")
 
 if (args.Length == 0)
 {
-    Console.Error.WriteLine("A process fixture mode is required.");
+    await Console.Error.WriteLineAsync("A process fixture mode is required.");
     return 2;
 }
 
@@ -29,10 +29,10 @@ switch (args[0])
         return 0;
     }
     case "output-handshake":
-        Console.Out.WriteLine("out-ready");
-        Console.Out.Flush();
-        Console.Error.WriteLine("err-ready");
-        Console.Error.Flush();
+        await Console.Out.WriteLineAsync("out-ready");
+        await Console.Out.FlushAsync();
+        await Console.Error.WriteLineAsync("err-ready");
+        await Console.Error.FlushAsync();
         while (!File.Exists(args[1]))
         {
             await Task.Delay(10);
@@ -71,7 +71,7 @@ switch (args[0])
         return 0;
     }
     case "readiness":
-        Console.WriteLine("      Now listening: http://127.0.0.1:5080");
+        await Console.Out.WriteLineAsync("      Now listening: http://127.0.0.1:5080");
         await Task.Delay(int.Parse(args[1]));
         return 0;
     case "exit":

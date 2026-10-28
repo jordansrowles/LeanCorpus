@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Security.Cryptography;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.HistoricalFixtures;
 
 if (args.Length != 6)
     throw new ArgumentException("Supply the scenario, output directory, restored package archive and expected package and assembly identities.");

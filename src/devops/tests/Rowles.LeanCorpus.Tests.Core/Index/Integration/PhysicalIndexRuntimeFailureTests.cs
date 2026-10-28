@@ -103,8 +103,8 @@ public sealed class PhysicalIndexRuntimeFailureTests
             runtime.Commit(refresh: true);
             foreach (string commit in Directory.EnumerateFiles(path, "segments_*"))
             {
-                commits.Add(commit, File.ReadAllBytes(commit));
-                File.WriteAllText(commit, "controlled corrupt commit");
+                commits.Add(commit, await File.ReadAllBytesAsync(commit, TestContext.Current.CancellationToken));
+                await File.WriteAllTextAsync(commit, "controlled corrupt commit", TestContext.Current.CancellationToken);
             }
             Assert.False(runtime.Refresh());
             var diagnostic = runtime.GetDiagnostics();
@@ -113,13 +113,15 @@ public sealed class PhysicalIndexRuntimeFailureTests
             Assert.True(diagnostic.WritesAllowed);
             using (var old = runtime.AcquireSearcher())
                 Assert.Equal(1, old.Searcher.Search(new MatchAllDocsQuery(), 10, TestContext.Current.CancellationToken).TotalHits);
-            foreach (var commit in commits) File.WriteAllBytes(commit.Key, commit.Value);
+            foreach (var commit in commits)
+                await File.WriteAllBytesAsync(commit.Key, commit.Value, CancellationToken.None);
             runtime.Refresh();
             Assert.Equal(PhysicalIndexRuntimeHealth.Healthy, runtime.GetDiagnostics().Health);
         }
         finally
         {
-            foreach (var commit in commits) File.WriteAllBytes(commit.Key, commit.Value);
+            foreach (var commit in commits)
+                await File.WriteAllBytesAsync(commit.Key, commit.Value, CancellationToken.None);
             await runtime.DisposeAsync();
             Directory.Delete(path, recursive: true);
         }

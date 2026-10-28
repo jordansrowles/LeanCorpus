@@ -197,12 +197,12 @@ internal sealed class DotNetPublishService(
             return "Publish configuration must be a non-empty value without control characters.";
         }
 
-        if (request.Framework is { } framework && !Regex.IsMatch(framework, "^net[0-9]+\\.[0-9]+$", RegexOptions.CultureInvariant))
+        if (request.Framework is { } framework && !Regex.IsMatch(framework, "^net[0-9]+\\.[0-9]+$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             return $"Target framework '{framework}' is not a supported framework moniker.";
         }
 
-        if (request.RuntimeIdentifier is { } rid && !Regex.IsMatch(rid, "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$", RegexOptions.CultureInvariant))
+        if (request.RuntimeIdentifier is { } rid && !Regex.IsMatch(rid, "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             return $"Runtime identifier '{rid}' is invalid.";
         }

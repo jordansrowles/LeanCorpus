@@ -38,8 +38,8 @@ internal sealed class RemoteBenchmarkCommandService(
     private const int SupportedSchemaVersion = 1;
     private static readonly TimeSpan SshLimit = TimeSpan.FromSeconds(60);
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-    private static readonly Regex HostPattern = new("^[A-Za-z0-9_.@:-]+$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex SessionPattern = new("^[A-Za-z0-9_-]{1,80}$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex HostPattern = new("^[A-Za-z0-9_.@:-]+$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex SessionPattern = new("^[A-Za-z0-9_-]{1,80}$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
 
     public async Task<RemoteBenchmarkCommandResult> RunAsync(
         CheckoutIdentity checkout,

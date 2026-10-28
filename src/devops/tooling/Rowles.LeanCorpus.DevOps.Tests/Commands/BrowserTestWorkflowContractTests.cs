@@ -87,7 +87,8 @@ public sealed class BrowserTestWorkflowContractTests
                         RunnerOptions = null!
                     }, CancellationToken.None);
 
-                    using var selection = JsonDocument.Parse(File.ReadAllText(Path.Combine(temporaryDirectory, "selection.json")));
+                    using var selection = JsonDocument.Parse(await File.ReadAllTextAsync(
+                        Path.Combine(temporaryDirectory, "selection.json"), TestContext.Current.CancellationToken));
                     var selectedTarget = Assert.Single(selection.RootElement.GetProperty("selectedTargets").EnumerateArray().ToArray());
                     Assert.True(selectedTarget.GetProperty("requiresBrowser").GetBoolean());
                 }
@@ -178,10 +179,10 @@ public sealed class BrowserTestWorkflowContractTests
         }
 
         var packageVersion = Regex.Match(File.ReadAllText(Path.Combine(checkout.RepositoryRoot, "Directory.Packages.props")),
-            "<PackageVersion Include=\"Microsoft.Playwright\" Version=\"(?<version>[0-9.]+)\"", RegexOptions.CultureInvariant)
+            "<PackageVersion Include=\"Microsoft.Playwright\" Version=\"(?<version>[0-9.]+)\"", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout)
             .Groups["version"].Value;
         Assert.False(string.IsNullOrWhiteSpace(packageVersion));
-        foreach (Match image in Regex.Matches(workflow, "mcr\\.microsoft\\.com/playwright/dotnet:v(?<version>[0-9.]+)-noble", RegexOptions.CultureInvariant))
+        foreach (Match image in Regex.Matches(workflow, "mcr\\.microsoft\\.com/playwright/dotnet:v(?<version>[0-9.]+)-noble", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             Assert.Equal(packageVersion, image.Groups["version"].Value);
         }
@@ -244,21 +245,21 @@ public sealed class BrowserTestWorkflowContractTests
     {
         var match = Regex.Match(workflow,
             $"(?ms)^  {Regex.Escape(jobName)}:\\r?\\n(?<body>.*?)(?=^  [A-Za-z0-9_-]+:|\\z)",
-            RegexOptions.CultureInvariant);
+            RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
         Assert.True(match.Success, $"Workflow is missing job '{jobName}'.");
         return match.Groups["body"].Value;
     }
 
     private static string GetJobCondition(string workflow, string jobName)
     {
-        var match = Regex.Match(GetJobBlock(workflow, jobName), "(?m)^    if: (?<condition>.+)$", RegexOptions.CultureInvariant);
+        var match = Regex.Match(GetJobBlock(workflow, jobName), "(?m)^    if: (?<condition>.+)$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
         Assert.True(match.Success, $"Workflow job '{jobName}' is missing its event qualification condition.");
         return match.Groups["condition"].Value.TrimEnd('\r');
     }
 
     private static string[] GetFrameworkMatrix(string job)
     {
-        var match = Regex.Match(job, "(?m)^        framework: \\[(?<values>[^\\]]+)\\]\\r?$", RegexOptions.CultureInvariant);
+        var match = Regex.Match(job, "(?m)^        framework: \\[(?<values>[^\\]]+)\\]\\r?$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
         Assert.True(match.Success, "Browser job is missing the full framework matrix.");
         return match.Groups["values"].Value.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }

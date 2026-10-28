@@ -12,6 +12,8 @@ using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
 
+namespace Rowles.LeanCorpus.HistoricalFixtures;
+
 internal static class MigrationScenario
 {
     public static void Generate(string outputRoot, string packageArchive)

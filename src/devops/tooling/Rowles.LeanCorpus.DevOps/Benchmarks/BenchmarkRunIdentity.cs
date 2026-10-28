@@ -111,7 +111,7 @@ internal sealed record BenchmarkHostIdentity(
             {
                 using var process = Process.Start(new ProcessStartInfo
                 {
-                    FileName = "sysctl",
+                    FileName = "/usr/sbin/sysctl",
                     ArgumentList = { "-n", "machdep.cpu.brand_string" },
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,

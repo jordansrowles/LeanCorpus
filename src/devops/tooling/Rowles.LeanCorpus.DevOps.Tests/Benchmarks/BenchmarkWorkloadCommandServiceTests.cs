@@ -21,7 +21,7 @@ public sealed class BenchmarkWorkloadCommandServiceTests
         var project = Path.Combine(root, "src/devops/benchmarks/Rowles.LeanCorpus.Benchmark.Workloads/Rowles.LeanCorpus.Benchmark.Workloads.csproj");
         Directory.CreateDirectory(Path.GetDirectoryName(project)!);
         Directory.CreateDirectory(Path.Combine(root, ".git"));
-        File.WriteAllText(project, "<Project />");
+        await File.WriteAllTextAsync(project, "<Project />", TestContext.Current.CancellationToken);
         var paths = new ArtifactPaths(root);
         var store = new ArtifactRunStore(paths, runCategory: "benchmark");
         var processRunner = new StoppedChildProcessRunner(Enum.Parse<OutcomeKind>(stoppedOutcome));

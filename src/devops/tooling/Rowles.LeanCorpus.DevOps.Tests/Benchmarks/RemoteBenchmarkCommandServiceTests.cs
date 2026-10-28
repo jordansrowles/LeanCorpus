@@ -29,7 +29,7 @@ public sealed class RemoteBenchmarkCommandServiceTests
         Assert.Equal(OutcomeKind.Success, started.CommandResult.Outcome);
         var runId = Assert.IsType<Guid>(started.RunId);
         var remoteRecordPath = Path.Combine(started.RunDirectory!, "remote-run.json");
-        var remoteRecord = JsonSerializer.Deserialize<RemoteBenchmarkRunRecord>(File.ReadAllText(remoteRecordPath),
+        var remoteRecord = JsonSerializer.Deserialize<RemoteBenchmarkRunRecord>(await File.ReadAllTextAsync(remoteRecordPath, TestContext.Current.CancellationToken),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         Assert.NotNull(remoteRecord);
         Assert.Equal("running", remoteRecord.State);
@@ -48,7 +48,7 @@ public sealed class RemoteBenchmarkCommandServiceTests
 
         Assert.Equal(OutcomeKind.Success, cancel.CommandResult.Outcome);
         Assert.Contains("not confirmed", cancel.CommandResult.Message, StringComparison.Ordinal);
-        remoteRecord = JsonSerializer.Deserialize<RemoteBenchmarkRunRecord>(File.ReadAllText(remoteRecordPath),
+        remoteRecord = JsonSerializer.Deserialize<RemoteBenchmarkRunRecord>(await File.ReadAllTextAsync(remoteRecordPath, TestContext.Current.CancellationToken),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         Assert.NotNull(remoteRecord);
         Assert.True(remoteRecord.CancellationRequested);
@@ -60,7 +60,7 @@ public sealed class RemoteBenchmarkCommandServiceTests
 
         Assert.Equal(OutcomeKind.Success, status.CommandResult.Outcome);
         Assert.Contains("succeeded", status.CommandResult.Message, StringComparison.Ordinal);
-        remoteRecord = JsonSerializer.Deserialize<RemoteBenchmarkRunRecord>(File.ReadAllText(remoteRecordPath),
+        remoteRecord = JsonSerializer.Deserialize<RemoteBenchmarkRunRecord>(await File.ReadAllTextAsync(remoteRecordPath, TestContext.Current.CancellationToken),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         Assert.NotNull(remoteRecord);
         Assert.True(remoteRecord.RemoteTerminationConfirmed);
@@ -83,7 +83,7 @@ public sealed class RemoteBenchmarkCommandServiceTests
         Assert.Equal(OutcomeKind.InfrastructureFailure, result.CommandResult.Outcome);
         Assert.Contains("may still be running", result.CommandResult.Message, StringComparison.Ordinal);
         var remoteRecord = JsonSerializer.Deserialize<RemoteBenchmarkRunRecord>(
-            File.ReadAllText(Path.Combine(result.RunDirectory!, "remote-run.json")),
+            await File.ReadAllTextAsync(Path.Combine(result.RunDirectory!, "remote-run.json"), TestContext.Current.CancellationToken),
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         Assert.NotNull(remoteRecord);
         Assert.Equal("unknown", remoteRecord.State);
@@ -102,7 +102,7 @@ public sealed class RemoteBenchmarkCommandServiceTests
             Requests.Add(request);
             Directory.CreateDirectory(Path.GetDirectoryName(request.StandardOutputLogPath)!);
             var match = Regex.Match(request.StandardInputText ?? string.Empty,
-                "run_id='(?<id>[0-9a-fA-F-]{36})'", RegexOptions.CultureInvariant);
+                "run_id='(?<id>[0-9a-fA-F-]{36})'", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
             var runId = match.Success ? Guid.Parse(match.Groups["id"].Value) : Guid.Empty;
             var state = _nextState < states.Count ? states[_nextState++] : "unknown";
             var response = JsonSerializer.Serialize(new

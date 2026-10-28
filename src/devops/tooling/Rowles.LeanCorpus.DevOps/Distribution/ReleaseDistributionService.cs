@@ -207,7 +207,7 @@ internal sealed class ReleaseDistributionService(
         var assembly = Assembly.GetExecutingAssembly();
         var informationalVersion = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
         var semVer = informationalVersion?.Split('+', 2)[0];
-        if (semVer is not null && Regex.IsMatch(semVer, "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$", RegexOptions.CultureInvariant))
+        if (semVer is not null && Regex.IsMatch(semVer, "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             return semVer;
         }

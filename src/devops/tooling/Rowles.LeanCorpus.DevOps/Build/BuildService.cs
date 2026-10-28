@@ -286,13 +286,13 @@ internal sealed class BuildService(
             }
 
             var framework = request.Framework ?? "net11.0";
-            if (!Regex.IsMatch(framework, "^net[0-9]+\\.[0-9]+$", RegexOptions.CultureInvariant))
+            if (!Regex.IsMatch(framework, "^net[0-9]+\\.[0-9]+$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
             {
                 return $"Target framework '{framework}' is not a supported framework moniker.";
             }
         }
 
-        if (request.RuntimeIdentifier is { } rid && !Regex.IsMatch(rid, "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$", RegexOptions.CultureInvariant))
+        if (request.RuntimeIdentifier is { } rid && !Regex.IsMatch(rid, "^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             return $"Runtime identifier '{rid}' is invalid.";
         }

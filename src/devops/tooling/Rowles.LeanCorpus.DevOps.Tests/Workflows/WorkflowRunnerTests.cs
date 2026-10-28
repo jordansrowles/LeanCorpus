@@ -58,7 +58,7 @@ public sealed class WorkflowRunnerTests
         };
         var run = new WorkflowRunner().RunAsync(targets, ["finish"], cancellationToken: cancellation.Token);
         await Task.Delay(100, TestContext.Current.CancellationToken);
-        cancellation.Cancel();
+        await cancellation.CancelAsync();
 
         var result = await run;
 

@@ -6,8 +6,8 @@ namespace Rowles.LeanCorpus.DevOps.Documentation;
 
 internal sealed class DocumentationSectionCatalogWriter
 {
-    private static readonly Regex HeadingPattern = new("^#\\s+(.+?)\\s*$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
-    private static readonly Regex VersionFilePattern = new("^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex HeadingPattern = new("^#\\s+(.+?)\\s*$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex VersionFilePattern = new("^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
 
     public void Generate(
         string directory,
@@ -219,7 +219,7 @@ internal sealed class DocumentationSectionCatalogWriter
 
     private static string Humanise(string value)
     {
-        var words = Regex.Replace(value.Replace('-', ' ').Replace('_', ' '), "\\s+", " ", RegexOptions.CultureInvariant).Trim();
+        var words = Regex.Replace(value.Replace('-', ' ').Replace('_', ' '), "\\s+", " ", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout).Trim();
         return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(words.ToLowerInvariant());
     }
 
@@ -293,7 +293,7 @@ internal sealed class DocumentationSectionCatalogWriter
 
         private static int ParseLeadingNumber(string fileName)
         {
-            var match = Regex.Match(fileName, "^(?<number>\\d+)", RegexOptions.CultureInvariant);
+            var match = Regex.Match(fileName, "^(?<number>\\d+)", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
             return match.Success && int.TryParse(match.Groups["number"].Value, NumberStyles.None,
                 CultureInfo.InvariantCulture, out var value) ? value : int.MaxValue;
         }

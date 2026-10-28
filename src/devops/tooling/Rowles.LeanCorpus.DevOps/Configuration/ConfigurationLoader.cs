@@ -357,7 +357,7 @@ internal sealed class ConfigurationLoader
 
         var frameworks = ReadStringArray(value.GetProperty("Frameworks"), path, propertyPath + ".Frameworks");
         if (frameworks.IsDefaultOrEmpty || frameworks.Distinct(StringComparer.OrdinalIgnoreCase).Count() != frameworks.Length ||
-            frameworks.Any(framework => !System.Text.RegularExpressions.Regex.IsMatch(framework, "^net[0-9]+\\.[0-9]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)))
+            frameworks.Any(framework => !System.Text.RegularExpressions.Regex.IsMatch(framework, "^net[0-9]+\\.[0-9]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout)))
         {
             throw Error(path, propertyPath + ".Frameworks", "must contain unique framework monikers such as net10.0");
         }

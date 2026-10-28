@@ -105,11 +105,11 @@ internal sealed class LeanWorkloadEngine : SnapshotWorkloadEngine
     }
     protected override string? FindSnapshot(string id)
     {
-        var hits = searcher!.Search(new TermQuery("id", id), 2);
+        var hits = searcher!.Search(new TermQuery("id", id), 2, CancellationToken.None);
         return hits.TotalHits == 1 ? StoredId(hits.ScoreDocs[0].DocId) : null;
     }
     protected override string[] ReadSnapshotIds(int maximum)
-        => searcher!.Search(new MatchAllDocsQuery(), maximum + 1).ScoreDocs.Select(hit => StoredId(hit.DocId)).ToArray();
+        => searcher!.Search(new MatchAllDocsQuery(), maximum + 1, CancellationToken.None).ScoreDocs.Select(hit => StoredId(hit.DocId)).ToArray();
     private string StoredId(int documentId)
     {
         var fields = searcher!.GetStoredFields(documentId);

@@ -76,30 +76,30 @@ public sealed class ManagedCliWorkflowContractTests
 
         foreach (Match match in Regex.Matches(content,
             @"(?m)^\s*(?:run:\s*)?(?:&\s*\$managedHost\s+|\./devops(?:\.exe)?\s+)(?<command>test|aot)\b(?<arguments>[^\r\n]*)",
-            RegexOptions.CultureInvariant))
+            RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             yield return new ManagedInvocation(relativePath, match.Groups["command"].Value, match.Value);
         }
 
         foreach (Match match in Regex.Matches(content,
             @"(?m)^\s*&\s*\$powerShell\.Source\s+-NoProfile\s+-File\s+\$dispatcher\s+(?<command>test|aot)\b[^\r\n]*",
-            RegexOptions.CultureInvariant))
+            RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             yield return new ManagedInvocation(relativePath, match.Groups["command"].Value, match.Value);
         }
 
         foreach (Match match in Regex.Matches(content,
             @"(?s)\$testArgs\s*=\s*@\((?<arguments>.*?)&\s*\$managedHost\s+@testArgs",
-            RegexOptions.CultureInvariant))
+            RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
         {
             string arguments = match.Groups["arguments"].Value;
-            if (Regex.IsMatch(arguments, @"'test'|""test""", RegexOptions.CultureInvariant))
+            if (Regex.IsMatch(arguments, @"'test'|""test""", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
                 yield return new ManagedInvocation(relativePath, "test", arguments);
         }
     }
 
     private static string[] ExtractOptions(string arguments)
-        => Regex.Matches(arguments, @"(?<![A-Za-z0-9_])--(?<name>[A-Za-z][A-Za-z0-9-]*)", RegexOptions.CultureInvariant)
+        => Regex.Matches(arguments, @"(?<![A-Za-z0-9_])--(?<name>[A-Za-z][A-Za-z0-9-]*)", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout)
             .Select(match => "--" + match.Groups["name"].Value)
             .ToArray();
 

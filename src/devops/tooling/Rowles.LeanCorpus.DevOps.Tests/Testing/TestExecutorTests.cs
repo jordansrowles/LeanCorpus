@@ -226,7 +226,7 @@ public sealed class TestExecutorTests
         var project = Path.Combine("src", "devops", "Rowles.LeanCorpus.Tests.AOTSmoke", "Rowles.LeanCorpus.Tests.AOTSmoke.csproj");
         var projectPath = Path.Combine(checkout.Root, project);
         Directory.CreateDirectory(Path.GetDirectoryName(projectPath)!);
-        File.WriteAllText(projectPath, "<Project />");
+        await File.WriteAllTextAsync(projectPath, "<Project />", TestContext.Current.CancellationToken);
         var target = new TestTarget("aot/net10.0/linux-x64", "AOT", "aot", "AotNative", project,
             "net10.0", "Release", "linux-x64", "", [], false, [], ["--filter", "Area=Search"]);
         var processRunner = new AotRecordingProcessRunner(checkout.Root);

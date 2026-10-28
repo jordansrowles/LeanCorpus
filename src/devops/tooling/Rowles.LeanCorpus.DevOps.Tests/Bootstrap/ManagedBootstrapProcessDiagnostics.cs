@@ -8,16 +8,16 @@ internal static partial class ManagedBootstrapProcessDiagnostics
 {
     private const int MaximumCapturedCharacters = 16 * 1024;
 
-    [GeneratedRegex(@"(?im)^\s*authorization\s*:\s*.*$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?im)^\s*authorization\s*:\s*.*$", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex AuthorizationHeader();
 
-    [GeneratedRegex(@"(?i)(?<name>\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*)[^\s,;]+", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"(?i)(?<name>\b(?:password|passwd|token|secret|api[_-]?key)\b\s*[:=]\s*)[^\s,;]+", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex SensitiveAssignment();
 
-    [GeneratedRegex(@"\b(?:gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{10,})\b", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\b(?:gh[pousr]_[A-Za-z0-9_]{10,}|github_pat_[A-Za-z0-9_]{10,})\b", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex GitHubToken();
 
-    [GeneratedRegex(@"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\x1B\[[0-?]*[ -/]*[@-~]", RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex AnsiEscape();
 
     public static string Format(

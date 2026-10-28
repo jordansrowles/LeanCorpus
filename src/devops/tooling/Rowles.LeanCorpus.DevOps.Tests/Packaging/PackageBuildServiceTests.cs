@@ -29,7 +29,7 @@ public sealed class PackageBuildServiceTests
         Assert.All(process.Requests, AssertPackArguments);
         var packageManifest = Path.Combine(checkout.Root, "artifacts/package/release/manifest.json");
         Assert.True(File.Exists(packageManifest));
-        using var json = System.Text.Json.JsonDocument.Parse(File.ReadAllText(packageManifest));
+        using var json = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(packageManifest, TestContext.Current.CancellationToken));
         var packages = json.RootElement.GetProperty("packages").EnumerateArray().ToArray();
         Assert.Equal(
             new[] { "Example.Package", "LeanCorpus", "LeanCorpus.Compression.LZ4", "LeanCorpus.Compression.Snappy", "LeanCorpus.Compression.Zstandard" },
@@ -43,10 +43,10 @@ public sealed class PackageBuildServiceTests
         using var checkout = TemporaryCheckout.Create();
         var process = new PackageProcessRunner();
         var policyPath = Path.Combine(checkout.Root, ".config/devops/package-policy.json");
-        var policy = JsonNode.Parse(File.ReadAllText(policyPath))!;
+        var policy = JsonNode.Parse(await File.ReadAllTextAsync(policyPath, TestContext.Current.CancellationToken))!;
         var packages = policy["packages"]!.AsArray();
         packages.RemoveAt(packages.IndexOf(packages.Single(item => item!["packageId"]!.GetValue<string>() == "LeanCorpus.Compression.LZ4")));
-        File.WriteAllText(policyPath, policy.ToJsonString());
+        await File.WriteAllTextAsync(policyPath, policy.ToJsonString(), TestContext.Current.CancellationToken);
 
         var result = await CreateService(checkout, process).PackAsync(
             new PackageBuildRequest { Checkout = checkout.Identity, CompressionOnly = true }, TestContext.Current.CancellationToken);

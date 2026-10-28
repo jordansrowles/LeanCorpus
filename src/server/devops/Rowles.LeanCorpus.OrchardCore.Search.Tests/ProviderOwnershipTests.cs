@@ -48,6 +48,7 @@ public sealed class ProviderOwnershipTests
         await replacement.WithSearcherAsync(paths, _ => true);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<bool>? queued = null;
         Task<bool> admitted = fixture.Handles.WithExclusiveAsync(paths, async _ =>
         {
             entered.TrySetResult();
@@ -57,16 +58,17 @@ public sealed class ProviderOwnershipTests
         try
         {
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
-            Task<bool> queued = replacement.WithExclusiveAsync(paths, _ => true);
+            queued = replacement.WithExclusiveAsync(paths, _ => true);
             lifetime.StopApplication();
             var quiescing = replacement.GetDiagnostics();
             Assert.True(quiescing.AdmissionClosed);
             Assert.False(quiescing.CloseCompleted);
             Assert.Single(quiescing.RuntimeIds);
             Assert.Throws<IOException>(() => File.Open(Path.Combine(paths.IndexDirectory, "write.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None).Dispose());
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                await queued.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
             release.TrySetResult();
             await admitted;
-            await Assert.ThrowsAsync<ObjectDisposedException>(() => queued);
             lifetime.SignalStopped();
             Assert.True(replacement.GetDiagnostics().CloseCompleted);
         }
@@ -75,6 +77,12 @@ public sealed class ProviderOwnershipTests
             release.TrySetResult();
             await admitted;
             lifetime.SignalStopped();
+            if (queued is not null)
+            {
+                try { await queued; }
+                catch (ObjectDisposedException) { }
+                catch (OperationCanceledException) { }
+            }
         }
     }
 

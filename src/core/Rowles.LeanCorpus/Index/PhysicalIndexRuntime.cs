@@ -191,14 +191,14 @@ internal sealed class PhysicalIndexRuntime : IDisposable, IAsyncDisposable, ILif
         if (startClose)
             // Low-level close includes synchronous drains and filesystem barriers.
             // One worker performs them; callers asynchronously join the shared task.
-            _ = Task.Run(CompleteCloseAsync);
+            _ = Task.Run(CompleteCloseAsync, CancellationToken.None);
         return new ValueTask(cancellationToken.CanBeCanceled
             ? _closed.Task.WaitAsync(cancellationToken)
             : _closed.Task);
     }
 
-    public ValueTask DisposeAsync() => CloseAsync();
-    public void Dispose() => CloseAsync().AsTask().GetAwaiter().GetResult();
+    public ValueTask DisposeAsync() => CloseAsync(CancellationToken.None);
+    public void Dispose() => CloseAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult();
 
     void ILifetimeLeaseOwner.ReleaseLease(object token)
     {

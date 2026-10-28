@@ -126,7 +126,7 @@ internal sealed class TestRunPlanner(DevOpsConfiguration configuration, Affected
             return null;
         }
         var match = Regex.Match(value.Trim(), @"^(?<number>\d+(?:\.\d+)?)(?<unit>ms|s|m|h|d)$",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
         if (!match.Success || !double.TryParse(match.Groups["number"].Value, NumberStyles.AllowDecimalPoint,
                 CultureInfo.InvariantCulture, out var number))
         {

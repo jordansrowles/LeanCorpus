@@ -162,7 +162,7 @@ internal static class DiagnosticsArgumentParser
     {
         duration = TimeSpan.Zero;
         var match = System.Text.RegularExpressions.Regex.Match(value.Trim(), "^(?<number>\\d+(?:\\.\\d+)?)(?<unit>ms|s|m|h|d)$",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
         if (!match.Success || !double.TryParse(match.Groups["number"].Value, System.Globalization.NumberStyles.AllowDecimalPoint,
                 System.Globalization.CultureInfo.InvariantCulture, out var number) || number <= 0)
             return false;

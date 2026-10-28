@@ -199,7 +199,7 @@ internal sealed class WorkloadRunner(Func<WorkloadRequest, IWorkloadEngine>? eng
                         if (count % request.RefreshEveryDocuments == 0) CommitPending();
                     }
                 }
-                catch { linked.Cancel(); throw; }
+                catch { await linked.CancelAsync().ConfigureAwait(false); throw; }
             }, CancellationToken.None)).ToArray();
             var queryOrdinal = -1;
             var queryWorkers = Enumerable.Range(0, request.Concurrency).Select(_ => Task.Run(() =>

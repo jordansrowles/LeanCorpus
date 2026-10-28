@@ -217,7 +217,7 @@ public sealed class PhysicalIndexRuntimeTests
         try
         {
             Task closing = runtime.CloseAsync(cancellation.Token).AsTask();
-            cancellation.Cancel();
+            await cancellation.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => closing);
             Assert.Equal(PhysicalIndexRuntimeState.Quiescing, runtime.GetDiagnostics().State);
             Assert.Throws<ObjectDisposedException>(() => runtime.EnterOperation());

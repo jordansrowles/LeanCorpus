@@ -76,14 +76,14 @@ public sealed class RuntimeShutdownTests
             Task closing = handle.DisposeAsync().AsTask();
             Assert.False(closing.IsCompleted);
             Assert.Throws<IOException>(() => File.Open(Path.Combine(path, "write.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None).Dispose());
-            snapshot.Dispose();
-            snapshot.Dispose();
+            await snapshot.DisposeAsync();
+            await snapshot.DisposeAsync();
             Assert.Equal(0, handle.Health.ActiveSnapshotLeases);
             await closing.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
         }
         finally
         {
-            snapshot.Dispose();
+            await snapshot.DisposeAsync();
             await handle.DisposeAsync();
             Directory.Delete(path, recursive: true);
         }
@@ -161,7 +161,7 @@ public sealed class RuntimeShutdownTests
         {
             string file = snapshot.Manifest.Files.First().FileName;
             stream = snapshot.OpenRead(file);
-            snapshot.Dispose();
+            await snapshot.DisposeAsync();
             Assert.Equal(1, handle.Health.ActiveSnapshotLeases);
             var ownership = handle.GetLifecycleDiagnostics();
             Assert.Equal(handle.Descriptor.Id.Value, ownership.PhysicalIndexId);
@@ -171,7 +171,7 @@ public sealed class RuntimeShutdownTests
             Assert.False(closing.IsCompleted);
             Assert.True(await stream.ReadAsync(new byte[1], TestContext.Current.CancellationToken) > 0);
             await stream.DisposeAsync();
-            stream.Dispose();
+            await stream.DisposeAsync();
             Assert.Equal(0, handle.Health.ActiveSnapshotLeases);
             await closing.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
             using (File.Open(Path.Combine(path, "write.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) { }
@@ -179,7 +179,7 @@ public sealed class RuntimeShutdownTests
         finally
         {
             if (stream is not null) await stream.DisposeAsync();
-            snapshot.Dispose();
+            await snapshot.DisposeAsync();
             await handle.DisposeAsync();
             Directory.Delete(path, recursive: true);
         }
@@ -195,12 +195,12 @@ public sealed class RuntimeShutdownTests
         try
         {
             string file = snapshot.Manifest.Files.First().FileName;
-            snapshot.Dispose();
+            await snapshot.DisposeAsync();
             Assert.Throws<ObjectDisposedException>(() => { using Stream unexpected = snapshot.OpenRead(file); });
         }
         finally
         {
-            snapshot.Dispose();
+            await snapshot.DisposeAsync();
             await handle.DisposeAsync();
             Directory.Delete(path, recursive: true);
         }

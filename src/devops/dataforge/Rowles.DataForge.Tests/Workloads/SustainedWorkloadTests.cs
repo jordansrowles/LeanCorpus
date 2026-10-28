@@ -85,7 +85,8 @@ public sealed class SustainedWorkloadTests
             Assert.True(result.CancelledOperations > 0);
             Assert.Equal(24, result.CancelledOperations);
             Assert.True(File.Exists(partial));
-            var checkpoint = System.Text.Json.JsonSerializer.Deserialize<WorkloadResult>(File.ReadAllBytes(partial), WorkloadProtocol.JsonOptions)!;
+            var checkpoint = System.Text.Json.JsonSerializer.Deserialize<WorkloadResult>(
+                await File.ReadAllBytesAsync(partial, TestContext.Current.CancellationToken), WorkloadProtocol.JsonOptions)!;
             Assert.Equal("Running", checkpoint.Outcome);
             Assert.Equal(8, checkpoint.CommittedDocuments);
             Assert.Equal(8, checkpoint.CommittedLogicalIds.Length);
@@ -119,11 +120,11 @@ public sealed class SustainedWorkloadTests
         var request = Request("lucenenet", "ingest-throughput");
         Directory.CreateDirectory(request.IndexPath);
         var sentinel = Path.Combine(request.IndexPath, "sentinel.txt");
-        File.WriteAllText(sentinel, "preserve");
+        await File.WriteAllTextAsync(sentinel, "preserve", TestContext.Current.CancellationToken);
         try
         {
             await Assert.ThrowsAsync<InvalidDataException>(() => new WorkloadRunner().RunAsync(request));
-            Assert.Equal("preserve", File.ReadAllText(sentinel));
+            Assert.Equal("preserve", await File.ReadAllTextAsync(sentinel, TestContext.Current.CancellationToken));
         }
         finally { Remove(request.IndexPath); }
     }

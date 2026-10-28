@@ -51,7 +51,7 @@ public sealed class ReleaseDistributionServiceTests
                 await File.ReadAllTextAsync(Path.Combine(projectRoot, "RELEASE-ARCHIVE-README.md"), TestContext.Current.CancellationToken),
                 await ReadEntryAsync(archive, "README.md", TestContext.Current.CancellationToken));
 
-            using var manifestStream = archive.GetEntry("distribution-manifest.json")!.Open();
+            await using var manifestStream = await archive.GetEntry("distribution-manifest.json")!.OpenAsync(TestContext.Current.CancellationToken);
             using var manifest = await JsonDocument.ParseAsync(manifestStream, cancellationToken: TestContext.Current.CancellationToken);
             Assert.Equal("0123456789abcdef0123456789abcdef01234567", manifest.RootElement.GetProperty("sourceCommit").GetString());
             Assert.Equal("issue-97", manifest.RootElement.GetProperty("sourceBranch").GetString());
@@ -65,7 +65,7 @@ public sealed class ReleaseDistributionServiceTests
 
     private static async Task<string> ReadEntryAsync(ZipArchive archive, string name, CancellationToken cancellationToken)
     {
-        await using var stream = archive.GetEntry(name)!.Open();
+        await using var stream = await archive.GetEntry(name)!.OpenAsync(cancellationToken);
         using var reader = new StreamReader(stream);
         return await reader.ReadToEndAsync(cancellationToken);
     }

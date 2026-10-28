@@ -210,14 +210,18 @@ internal sealed class PackageBuildService(
                 {
                     PackageArchiveInspector.ValidateCompressionDependencyRange(packagePath, entry, policy.CompressionContract);
                 }
+                byte[] packageBytes = await File.ReadAllBytesAsync(packagePath, cancellationToken).ConfigureAwait(false);
+                string packageHash = Convert.ToHexStringLower(SHA256.HashData(packageBytes));
                 packageRows.Add(new PackageManifestEntry(entry.PackageId, metadata.Version, packageName,
-                    new FileInfo(packagePath).Length, Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(packagePath)))));
+                    new FileInfo(packagePath).Length, packageHash));
                 artefacts.Add(Path.GetRelativePath(artifactPaths.ArtifactRoot, packagePath).Replace('\\', '/'));
                 if (symbolName is not null)
                 {
                     var symbolPath = Path.Combine(outputDirectory, symbolName);
+                    byte[] symbolBytes = await File.ReadAllBytesAsync(symbolPath, cancellationToken).ConfigureAwait(false);
+                    string symbolHash = Convert.ToHexStringLower(SHA256.HashData(symbolBytes));
                     packageRows.Add(new PackageManifestEntry(entry.PackageId, metadata.Version, symbolName,
-                        new FileInfo(symbolPath).Length, Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(symbolPath)))));
+                        new FileInfo(symbolPath).Length, symbolHash));
                     artefacts.Add(Path.GetRelativePath(artifactPaths.ArtifactRoot, symbolPath).Replace('\\', '/'));
                 }
             }

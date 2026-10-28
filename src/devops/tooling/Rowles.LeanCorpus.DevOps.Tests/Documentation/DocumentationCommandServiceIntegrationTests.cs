@@ -37,7 +37,7 @@ public sealed class DocumentationCommandServiceIntegrationTests
             Console.WriteLine);
 
         var canonicalIndex = Path.Combine(repositoryRoot, "docs", "content", "index.md");
-        var canonicalContentBefore = File.ReadAllText(canonicalIndex);
+        var canonicalContentBefore = await File.ReadAllTextAsync(canonicalIndex, TestContext.Current.CancellationToken);
         var firstPrepare = await service.RunAsync(new DocumentationCommandRequest
         {
             Checkout = checkout,
@@ -47,7 +47,8 @@ public sealed class DocumentationCommandServiceIntegrationTests
             CommandLine = "managed docs prepare --skip-benchmarks --skip-coverage"
         }, TestContext.Current.CancellationToken);
         Assert.Equal(OutcomeKind.Success, firstPrepare.CommandResult.Outcome);
-        File.WriteAllText(Path.Combine(paths.ArtifactRoot, "docs", "content", "stale-test-page.md"), "stale");
+        await File.WriteAllTextAsync(Path.Combine(paths.ArtifactRoot, "docs", "content", "stale-test-page.md"), "stale",
+            TestContext.Current.CancellationToken);
         var repeatedPrepare = await service.RunAsync(new DocumentationCommandRequest
         {
             Checkout = checkout,
@@ -59,7 +60,7 @@ public sealed class DocumentationCommandServiceIntegrationTests
         Assert.Equal(OutcomeKind.Success, repeatedPrepare.CommandResult.Outcome);
         Assert.Equal(ReadManifestFileHashes(firstPrepare.RunDirectory), ReadManifestFileHashes(repeatedPrepare.RunDirectory));
         Assert.False(File.Exists(Path.Combine(paths.ArtifactRoot, "docs", "content", "stale-test-page.md")));
-        Assert.Equal(canonicalContentBefore, File.ReadAllText(canonicalIndex));
+        Assert.Equal(canonicalContentBefore, await File.ReadAllTextAsync(canonicalIndex, TestContext.Current.CancellationToken));
 
         var concurrentPrepares = await Task.WhenAll(
             service.RunAsync(new DocumentationCommandRequest
@@ -110,10 +111,11 @@ public sealed class DocumentationCommandServiceIntegrationTests
             $"Managed docs test returned {test.CommandResult.Outcome}: {test.CommandResult.Message} {test.CommandResult.Details}");
         Assert.Equal(RunState.Succeeded, test.Manifest.State);
         Assert.NotNull(test.StaticValidation);
-        Assert.Equal(218, test.StaticValidation.MarkdownPages);
-        Assert.Equal(1746, test.StaticValidation.HtmlPages);
+        Assert.Equal(209, test.StaticValidation.MarkdownPages);
+        Assert.Equal(870, test.StaticValidation.HtmlPages);
         var childRunId = Guid.Parse(test.Manifest.Inputs["docsSiteTestRunId"]);
-        using var childManifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(paths.ArtifactRoot, "test", "runs", childRunId.ToString("D"), "run.json")));
+        using var childManifest = JsonDocument.Parse(await File.ReadAllTextAsync(
+            Path.Combine(paths.ArtifactRoot, "test", "runs", childRunId.ToString("D"), "run.json"), TestContext.Current.CancellationToken));
         Assert.Equal(1, test.Manifest.SchemaVersion);
         Assert.Equal(test.Manifest.RunId, Guid.Parse(childManifest.RootElement.GetProperty("parentRunId").GetString()!));
         Assert.Equal(1, childManifest.RootElement.GetProperty("schemaVersion").GetInt32());

@@ -123,7 +123,7 @@ internal sealed class HistoricalFixtureGenerationService(
             string packagePath = Path.Combine(isolatedPackageRoot,
                 version.PackageId.ToLowerInvariant(), version.PackageVersion.ToLowerInvariant(),
                 $"{version.PackageId.ToLowerInvariant()}.{version.PackageVersion.ToLowerInvariant()}.nupkg");
-            if (!File.Exists(packagePath) || !string.Equals(Hash(File.ReadAllBytes(packagePath)), version.PackageSha256, StringComparison.Ordinal))
+            if (!File.Exists(packagePath) || !string.Equals(Hash(await File.ReadAllBytesAsync(packagePath, cancellationToken).ConfigureAwait(false)), version.PackageSha256, StringComparison.Ordinal))
                 return await FinishEarlyAsync(manifest, runDirectory, OutcomeKind.InfrastructureFailure,
                     "The isolated restore did not provide the catalogued package archive.", packagePath,
                     artifacts, childExitCodes, generationRoot).ConfigureAwait(false);

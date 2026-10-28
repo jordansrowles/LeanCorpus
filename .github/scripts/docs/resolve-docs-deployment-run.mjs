@@ -7,7 +7,19 @@ const docsArtifactName = 'leancorpus-docs-site';
 const allowedBuildEvents = new Set(['push', 'workflow_dispatch']);
 const productionSourceBranch = 'main';
 
-export function resolveBuildRun(run, { repository, eventName, eventPayload, requestedRunId }) {
+export function resolveBuildRun(run, options) {
+  validateBuildRunIdentity(run, options.repository);
+  validateBuildRunTrigger(run, options);
+
+  return {
+    runId: run.id,
+    headSha: run.head_sha,
+    branch: run.head_branch,
+    runNumber: run.run_number
+  };
+}
+
+function validateBuildRunIdentity(run, repository) {
   if (!run || run.name !== 'Build' || run.path !== buildWorkflowPath) {
     throw new Error('The selected run is not the repository Build workflow.');
   }
@@ -27,6 +39,11 @@ export function resolveBuildRun(run, { repository, eventName, eventPayload, requ
   if (typeof run.head_sha !== 'string' || !/^[0-9a-f]{40}$/.test(run.head_sha)) {
     throw new Error(`Build run ${run.id} has a malformed source commit.`);
   }
+
+  validateBuildRunBranch(run);
+}
+
+function validateBuildRunBranch(run) {
   if (typeof run.head_branch !== 'string' ||
       !/^[A-Za-z0-9._/-]+$/.test(run.head_branch) ||
       run.head_branch.split('/').some(part => part === '.' || part === '..')) {
@@ -35,41 +52,47 @@ export function resolveBuildRun(run, { repository, eventName, eventPayload, requ
   if (run.head_branch !== productionSourceBranch) {
     throw new Error(`Build run ${run.id} from branch '${run.head_branch}' is not an authorised production source.`);
   }
+}
 
+function validateBuildRunTrigger(run, { eventName, eventPayload, requestedRunId }) {
   if (eventName === 'workflow_run') {
-    const sourceEvent = eventPayload?.workflow_run;
-    if (run.event !== 'push') {
-      throw new Error('Automatic docs deployment requires a trusted Build push event.');
-    }
-    if (sourceEvent?.id !== run.id || sourceEvent.conclusion !== 'success') {
-      throw new Error('The completed Build event does not match the selected successful run.');
-    }
-    const message = sourceEvent.head_commit?.message;
-    if (typeof message !== 'string' || !message.startsWith('[deploy]')) {
-      throw new Error(`Build run ${run.id} does not opt in to automatic docs deployment.`);
-    }
-  } else if (eventName === 'workflow_dispatch') {
-    const requestedId = parsePositiveRunId(requestedRunId);
-    if (!Number.isSafeInteger(requestedId) || requestedId !== run.id) {
-      throw new Error(`Selected Build run ${run.id} does not match the requested run ID.`);
-    }
-  } else {
-    throw new Error(`Unsupported docs deployment event: ${eventName ?? '(missing)'}.`);
+    validateAutomaticBuildRun(run, eventPayload);
+    return;
+  }
+  if (eventName === 'workflow_dispatch') {
+    validateRequestedBuildRun(run, requestedRunId);
+    return;
   }
 
-  return {
-    runId: run.id,
-    headSha: run.head_sha,
-    branch: run.head_branch,
-    runNumber: run.run_number
-  };
+  throw new Error(`Unsupported docs deployment event: ${eventName ?? '(missing)'}.`);
+}
+
+function validateAutomaticBuildRun(run, eventPayload) {
+  const sourceEvent = eventPayload?.workflow_run;
+  if (run.event !== 'push') {
+    throw new Error('Automatic docs deployment requires a trusted Build push event.');
+  }
+  if (sourceEvent?.id !== run.id || sourceEvent.conclusion !== 'success') {
+    throw new Error('The completed Build event does not match the selected successful run.');
+  }
+  const message = sourceEvent.head_commit?.message;
+  if (typeof message !== 'string' || !message.startsWith('[deploy]')) {
+    throw new Error(`Build run ${run.id} does not opt in to automatic docs deployment.`);
+  }
+}
+
+function validateRequestedBuildRun(run, requestedRunId) {
+  const requestedId = parsePositiveRunId(requestedRunId);
+  if (!Number.isSafeInteger(requestedId) || requestedId !== run.id) {
+    throw new Error(`Selected Build run ${run.id} does not match the requested run ID.`);
+  }
 }
 
 function parsePositiveRunId(value) {
-  if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0 ? value : NaN;
-  if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) return NaN;
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0 ? value : Number.NaN;
+  if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) return Number.NaN;
   const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : NaN;
+  return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
 }
 
 export function resolveDocsArtifact(artifacts, run) {

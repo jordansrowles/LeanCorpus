@@ -12,7 +12,7 @@ internal sealed record DocumentationVersionResult(string ProductVersion, string?
 
 internal sealed class DocumentationSiteMetadataWriter(IProcessRunner processRunner)
 {
-    private static readonly Regex SemanticVersionPattern = new("^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex SemanticVersionPattern = new("^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
 
     public async Task<DocumentationVersionResult> WriteAsync(
         CheckoutIdentity checkout,

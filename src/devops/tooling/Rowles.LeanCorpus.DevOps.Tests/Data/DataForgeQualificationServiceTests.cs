@@ -48,7 +48,8 @@ public sealed class DataForgeQualificationServiceTests
 
         Assert.Equal(OutcomeKind.CommandFailure, result.CommandResult.Outcome);
         Assert.NotNull(result.QualificationDirectory);
-        using var summary = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(result.QualificationDirectory!, "qualification.json")));
+        using var summary = JsonDocument.Parse(await File.ReadAllBytesAsync(
+            Path.Combine(result.QualificationDirectory!, "qualification.json"), TestContext.Current.CancellationToken));
         Assert.Equal("Failed", summary.RootElement.GetProperty("status").GetString());
         Assert.False(summary.RootElement.GetProperty("wikipedia").GetProperty("verified").GetBoolean());
         Assert.DoesNotContain(runner.Executed, step => step.Group.StartsWith("wikipedia-", StringComparison.Ordinal));
@@ -64,7 +65,7 @@ public sealed class DataForgeQualificationServiceTests
         using var checkout = new TemporaryCheckout();
         var referencePath = Path.Combine(checkout.Identity.RepositoryRoot, "reference");
         Directory.CreateDirectory(referencePath);
-        File.WriteAllText(Path.Combine(referencePath, "manifest.json"), $$"""
+        await File.WriteAllTextAsync(Path.Combine(referencePath, "manifest.json"), $$"""
             {
               "sourceKind": "Imported",
               "source": { "datasetId": "leancorpus-wikipedia-en", "datasetVersion": "1", "dumpDate": "20260901", "primarySha1": "primary", "indexSha1": "index" },
@@ -73,7 +74,7 @@ public sealed class DataForgeQualificationServiceTests
               "contentSha256": "{{new string('a', 64)}}",
               "artefactSha256": "{{new string('b', 64)}}"
             }
-            """);
+            """, TestContext.Current.CancellationToken);
         var paths = new ArtifactPaths(checkout.Identity.RepositoryRoot);
         var runner = new SuccessfulStepRunner();
         var service = new DataForgeQualificationService(paths, new AtomicFileWriter(), runner, LoadConfiguration(),
@@ -84,7 +85,8 @@ public sealed class DataForgeQualificationServiceTests
 
         Assert.Contains(runner.Executed, step => step.Kind == DataForgeQualificationStepKind.ReferenceVerification);
         Assert.Contains(runner.Executed, step => step.Group == "wikipedia-smoke");
-        using var summary = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(result.QualificationDirectory!, "qualification.json")));
+        using var summary = JsonDocument.Parse(await File.ReadAllBytesAsync(
+            Path.Combine(result.QualificationDirectory!, "qualification.json"), TestContext.Current.CancellationToken));
         Assert.Contains(summary.RootElement.GetProperty("commands").EnumerateArray(),
             command => command.GetProperty("group").GetString() == "wikipedia-reference" &&
                        command.GetProperty("status").GetString() == "Passed");
@@ -112,7 +114,8 @@ public sealed class DataForgeQualificationServiceTests
         Assert.Equal(OutcomeKind.CommandFailure, result.CommandResult.Outcome);
         Assert.DoesNotContain(runner.Executed, step => step.Kind is DataForgeQualificationStepKind.ReferenceVerification or
             DataForgeQualificationStepKind.Test or DataForgeQualificationStepKind.Benchmark);
-        using var summary = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(result.QualificationDirectory!, "qualification.json")));
+        using var summary = JsonDocument.Parse(await File.ReadAllBytesAsync(
+            Path.Combine(result.QualificationDirectory!, "qualification.json"), TestContext.Current.CancellationToken));
         Assert.Contains(summary.RootElement.GetProperty("blockers").EnumerateArray(),
             blocker => blocker.GetString()!.Contains("leancorpus-hybrid", StringComparison.Ordinal));
     }
