@@ -30,7 +30,7 @@ public sealed class DataForgeCommandServiceTests
         string root = Path.Combine(Path.GetTempPath(), "leancorpus-dataforge-progress-" + Guid.NewGuid().ToString("N"));
         string project = Path.Combine(root, "src", "devops", "dataforge", "Rowles.DataForge.Tool", "Rowles.DataForge.Tool.csproj");
         Directory.CreateDirectory(Path.GetDirectoryName(project)!);
-        File.WriteAllText(project, "<Project />");
+        await File.WriteAllTextAsync(project, "<Project />", TestContext.Current.CancellationToken);
         var paths = new ArtifactPaths(root);
         var progress = new List<string>();
         var service = new DataForgeCommandService(

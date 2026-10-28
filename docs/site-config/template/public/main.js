@@ -7,10 +7,10 @@ function normaliseSearchPunctuation() {
 
     const caret = input.selectionStart;
     const value = input.value;
-    const normalised = value.replace(/\./g, " ");
+    const normalised = value.replaceAll(".", " ");
     input.value = normalised;
     if (caret !== null) {
-      const normalisedCaret = value.slice(0, caret).replace(/\./g, " ").length;
+      const normalisedCaret = value.slice(0, caret).replaceAll(".", " ").length;
       input.setSelectionRange(normalisedCaret, normalisedCaret);
     }
   }, true);

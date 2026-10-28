@@ -302,15 +302,15 @@ public sealed class DevOpsWorkbenchTests
             string readyPath = processRunner.GetReadyPath(1);
             Assert.True(SpinWait.SpinUntil(() => File.Exists(readyPath), TimeSpan.FromSeconds(20)),
                 "The DataForge child did not reach its active wait state.");
-            int childProcessId = int.Parse(File.ReadAllText(readyPath), System.Globalization.CultureInfo.InvariantCulture);
+            int childProcessId = int.Parse(await File.ReadAllTextAsync(readyPath, TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
 
-            cancellation.Cancel();
+            await cancellation.CancelAsync();
 
             Assert.Equal(130, await workbenchRun.WaitAsync(TimeSpan.FromSeconds(20)));
             Assert.Contains("cancelled", commandError.ToString(), StringComparison.OrdinalIgnoreCase);
             string cancelledRunDirectory = Assert.Single(processRunner.RunDirectories);
             Assert.Contains(cancelledRunDirectory, commandError.ToString(), StringComparison.Ordinal);
-            using (var manifest = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(cancelledRunDirectory, "run.json"))))
+            using (var manifest = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(cancelledRunDirectory, "run.json"), TestContext.Current.CancellationToken)))
             {
                 Assert.Equal("cancelled", manifest.RootElement.GetProperty("state").GetString());
                 Assert.Empty(manifest.RootElement.GetProperty("childExitCodes").EnumerateArray());
@@ -325,8 +325,8 @@ public sealed class DevOpsWorkbenchTests
                 completedCancellation.Token);
             Assert.Equal(0, completedExitCode);
             string completedRunDirectory = processRunner.RunDirectories.Last();
-            completedCancellation.Cancel();
-            using (var manifest = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(completedRunDirectory, "run.json"))))
+            await completedCancellation.CancelAsync();
+            using (var manifest = JsonDocument.Parse(await File.ReadAllBytesAsync(Path.Combine(completedRunDirectory, "run.json"), TestContext.Current.CancellationToken)))
             {
                 Assert.Equal("succeeded", manifest.RootElement.GetProperty("state").GetString());
                 Assert.Equal(0, manifest.RootElement.GetProperty("childExitCodes")[0].GetInt32());
@@ -336,7 +336,7 @@ public sealed class DevOpsWorkbenchTests
         finally
         {
             if (!workbenchRun.IsCompleted)
-                cancellation.Cancel();
+                await cancellation.CancelAsync();
             try { await workbenchRun.WaitAsync(TimeSpan.FromSeconds(10)); }
             catch (TimeoutException) { }
             if (Directory.Exists(temporaryRoot))

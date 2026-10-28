@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using Rowles.LeanCorpus.DevOps.Configuration;
+using Rowles.LeanCorpus.DevOps.Infrastructure;
+using Rowles.LeanCorpus.DevOps.Terminal;
 
 namespace Rowles.LeanCorpus.DevOps.Tests.Configuration;
 
@@ -60,6 +62,23 @@ public sealed class BenchmarkManifestValidatorTests
         Assert.Contains("Suite aliases for 'query' differ", error.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task CancelledBuiltHostExecutionPropagatesCancellation()
+    {
+        var processRunner = new CancelledProcessRunner();
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => BenchmarkManifestValidator.ValidateBuiltHostsAsync(
+            CreateConfiguration(),
+            Path.GetTempPath(),
+            processRunner,
+            cancellation.Token));
+
+        Assert.True(processRunner.ReceivedCancellationToken.IsCancellationRequested);
+        Assert.Equal(1, processRunner.InvocationCount);
+    }
+
     private static Dictionary<string, string> CreateManifests()
         => new(StringComparer.Ordinal)
         {
@@ -112,4 +131,28 @@ public sealed class BenchmarkManifestValidatorTests
     private static BenchmarkSuiteConfiguration Suite(string project, bool selector = false, ImmutableArray<string> benchmarkClasses = default)
         => new("Description", "Display", project, benchmarkClasses.IsDefault ? [] : benchmarkClasses, [], [], [], false, true, false,
             false, selector, null, null);
+
+    private sealed class CancelledProcessRunner : IProcessRunner
+    {
+        public CancellationToken ReceivedCancellationToken { get; private set; }
+
+        public int InvocationCount { get; private set; }
+
+        public Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken = default)
+        {
+            ReceivedCancellationToken = cancellationToken;
+            InvocationCount++;
+            return Task.FromResult(new ProcessResult(
+                OutcomeKind.Cancelled,
+                null,
+                [],
+                [],
+                0,
+                0,
+                TimeSpan.Zero,
+                request.StandardOutputLogPath,
+                request.StandardErrorLogPath,
+                "Process execution was cancelled."));
+        }
+    }
 }

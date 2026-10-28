@@ -331,7 +331,7 @@ public sealed class MMapLifetimeTests : IDisposable
     {
         Directory.CreateDirectory(_path);
         string filePath = Path.Combine(_path, "input.bin");
-        File.WriteAllBytes(filePath, [42]);
+        await File.WriteAllBytesAsync(filePath, [42], TestContext.Current.CancellationToken);
         var input = new IndexInput(filePath);
         var lease = input.AcquireLifetimeLease();
         using var cleanupEntered = new ManualResetEventSlim();

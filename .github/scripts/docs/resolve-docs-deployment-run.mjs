@@ -20,7 +20,7 @@ export function resolveBuildRun(run, options) {
 }
 
 function validateBuildRunIdentity(run, repository) {
-  if (!run || run.name !== 'Build' || run.path !== buildWorkflowPath) {
+  if (run?.name !== 'Build' || run.path !== buildWorkflowPath) {
     throw new Error('The selected run is not the repository Build workflow.');
   }
   if (run.status !== 'completed' || run.conclusion !== 'success') {
@@ -90,7 +90,7 @@ function validateRequestedBuildRun(run, requestedRunId) {
 
 function parsePositiveRunId(value) {
   if (typeof value === 'number') return Number.isSafeInteger(value) && value > 0 ? value : Number.NaN;
-  if (typeof value !== 'string' || !/^[1-9][0-9]*$/.test(value)) return Number.NaN;
+  if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value)) return Number.NaN;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
 }

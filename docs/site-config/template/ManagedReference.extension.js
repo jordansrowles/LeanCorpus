@@ -14,7 +14,7 @@ function removeMissingRootNamespaceLinks(model) {
     return model;
   }
 
-  const namespaceName = model.namespace && model.namespace.specName && model.namespace.specName[0];
+  const namespaceName = model.namespace?.specName?.[0];
   if (namespaceName && typeof namespaceName.value === "string") {
     namespaceName.value = namespaceName.value.replace(
       /<a\b[^>]*href=["'](?:\.\.\/)?Rowles\.html["'][^>]*>Rowles<\/a>\./g,

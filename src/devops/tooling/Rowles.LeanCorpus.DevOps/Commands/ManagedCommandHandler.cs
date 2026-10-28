@@ -100,7 +100,7 @@ internal sealed class ManagedCommandHandler(
 
             var paths = new ArtifactPaths(checkout.RepositoryRoot);
             var result = new CleanService(paths, new ArtifactRunStore(paths))
-                .CleanAsync(new CleanRequest { Checkout = checkout, Target = options.Target })
+                .CleanAsync(new CleanRequest { Checkout = checkout, Target = options.Target }, _operationCancellationToken)
                 .GetAwaiter().GetResult();
             var commandResult = result.RunDirectory is null
                 ? result.CommandResult
@@ -1275,13 +1275,13 @@ internal sealed class ManagedCommandHandler(
             var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
             if (options.Deep)
             {
-                BenchmarkManifestValidator.ValidateBuiltHostsAsync(configuration, checkout.RepositoryRoot, new ProcessRunner())
+                BenchmarkManifestValidator.ValidateBuiltHostsAsync(configuration, checkout.RepositoryRoot, new ProcessRunner(), _operationCancellationToken)
                     .GetAwaiter().GetResult();
             }
             SolutionInventoryValidationResult? solutionInventory = null;
             if (options.SolutionInventory)
             {
-                solutionInventory = new SolutionInventoryValidator().ValidateAsync(checkout).GetAwaiter().GetResult();
+                solutionInventory = new SolutionInventoryValidator().ValidateAsync(checkout, _operationCancellationToken).GetAwaiter().GetResult();
                 if (!solutionInventory.IsValid)
                 {
                     return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
@@ -1301,6 +1301,11 @@ internal sealed class ManagedCommandHandler(
             return _renderer.Render(new CommandResult(OutcomeKind.Success,
                 $"{validationMessage}: {configuration.BenchmarkProjects.Count} benchmark project(s), {configuration.BenchmarkSuites.Count} benchmark suite(s)."),
                 output, error);
+        }
+        catch (OperationCanceledException exception) when (_operationCancellationToken.IsCancellationRequested)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.Cancelled,
+                "Managed DevOps configuration validation was cancelled.", Details: exception.Message), output, error);
         }
         catch (InvalidOperationException exception)
         {

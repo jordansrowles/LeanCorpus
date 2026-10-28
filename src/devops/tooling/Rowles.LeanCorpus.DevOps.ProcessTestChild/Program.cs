@@ -43,8 +43,8 @@ switch (args[0])
         string processIdPath = args[1] + ".tmp";
         await File.WriteAllTextAsync(processIdPath, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
         File.Move(processIdPath, args[1], overwrite: true);
-        Console.Out.WriteLine("child-ready");
-        Console.Out.Flush();
+        await Console.Out.WriteLineAsync("child-ready");
+        await Console.Out.FlushAsync();
         while (!File.Exists(args[2]))
         {
             await Task.Delay(10);
@@ -81,7 +81,7 @@ switch (args[0])
         await Task.Delay(int.Parse(args[1]));
         return 0;
     default:
-        Console.Error.WriteLine($"Unknown process fixture mode '{args[0]}'.");
+        await Console.Error.WriteLineAsync($"Unknown process fixture mode '{args[0]}'.");
         return 2;
 }
 

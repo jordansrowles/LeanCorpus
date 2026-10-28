@@ -309,7 +309,7 @@ public sealed class LocalServerCoreTests
         {
             Task<ServiceResult<ReadinessResponse>> readiness = server.GetReadinessAsync(cancellation.Token).AsTask();
             await authentication.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            cancellation.Cancel();
+            await cancellation.CancelAsync();
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() => readiness);
             Assert.Equal(0, GetPrivateInt(server, "_activeOperations"));
         }

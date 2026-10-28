@@ -82,6 +82,11 @@ function Get-CurrentRuntimeIdentifier {
     return "$platform-$architecture"
 }
 
+function Show-SetupProgress {
+    param([Parameter(Mandatory = $true)][AllowNull()][object]$Message)
+    Write-Host $Message
+}
+
 function Invoke-SetupCommand {
     param(
         [Parameter(Mandatory = $true)][string]$Executable,
@@ -89,7 +94,7 @@ function Invoke-SetupCommand {
         [Parameter(Mandatory = $true)][string]$Description
     )
 
-    Write-Host "$Description..."
+    Show-SetupProgress "$Description..."
     & $Executable @Arguments
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
@@ -105,10 +110,10 @@ function Invoke-ManagedHostProbe {
         [string]$ExpectedText
     )
 
-    Write-Host "$Description..."
+    Show-SetupProgress "$Description..."
     $lines = @(& $Executable @Arguments 2>&1)
     $exitCode = $LASTEXITCODE
-    foreach ($line in $lines) { Write-Host $line }
+    foreach ($line in $lines) { Show-SetupProgress $line }
     if ($exitCode -ne 0) {
         Stop-Setup "$Description failed with exit code $exitCode."
     }
@@ -313,33 +318,57 @@ function Get-ManagedHostDirectorySourcePaths {
         throw "Managed DevOps source directory '$directory' is a link or reparse point."
     }
 
-    $paths = [System.Collections.Generic.List[string]]::new()
     $includeEmbeddedResources = [string]::Equals($RelativeDirectory, 'src/devops/tooling/Rowles.LeanCorpus.DevOps', [System.StringComparison]::Ordinal)
+    $paths = [System.Collections.Generic.List[string]]::new()
     $pending = [System.Collections.Generic.Stack[string]]::new()
     $pending.Push($directory)
     while ($pending.Count -gt 0) {
-        $current = $pending.Pop()
-        foreach ($item in Get-ChildItem -LiteralPath $current -Force) {
-            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-                throw "Managed DevOps source input '$($item.FullName)' is a link or reparse point."
-            }
-            if ($item.PSIsContainer) {
-                if ($item.Name -in @('artifacts', 'bin', 'obj')) { continue }
-                $pending.Push($item.FullName)
-                continue
-            }
-
-            $isStandardSource = $Extensions -contains $item.Extension.ToLowerInvariant()
-            $isEmbeddedResource = $includeEmbeddedResources -and
-                ($item.Extension.Equals('.template', [System.StringComparison]::OrdinalIgnoreCase) -or
-                 $item.Name.EndsWith('.cs.txt', [System.StringComparison]::OrdinalIgnoreCase))
-            if ($isStandardSource -or $isEmbeddedResource) {
-                $paths.Add([System.IO.Path]::GetRelativePath($Root, $item.FullName).Replace([System.IO.Path]::DirectorySeparatorChar, '/'))
-            }
-        }
+        Add-ManagedHostDirectorySourcePaths -Root $Root -CurrentDirectory $pending.Pop() -Extensions $Extensions `
+            -IncludeEmbeddedResources $includeEmbeddedResources -PendingDirectories $pending -Paths $paths
     }
 
     return @($paths.ToArray())
+}
+
+function Add-ManagedHostDirectorySourcePaths {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$CurrentDirectory,
+        [Parameter(Mandatory = $true)][string[]]$Extensions,
+        [Parameter(Mandatory = $true)][bool]$IncludeEmbeddedResources,
+        [Parameter(Mandatory = $true)][System.Collections.Generic.Stack[string]]$PendingDirectories,
+        [AllowEmptyCollection()]
+        [Parameter(Mandatory = $true)][System.Collections.Generic.List[string]]$Paths
+    )
+
+    foreach ($item in Get-ChildItem -LiteralPath $CurrentDirectory -Force) {
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Managed DevOps source input '$($item.FullName)' is a link or reparse point."
+        }
+        if ($item.PSIsContainer) {
+            if ($item.Name -in @('artifacts', 'bin', 'obj')) { continue }
+            $PendingDirectories.Push($item.FullName)
+            continue
+        }
+
+        if (Test-ManagedHostSourceFile -Item $item -Extensions $Extensions -IncludeEmbeddedResources $IncludeEmbeddedResources) {
+            $Paths.Add([System.IO.Path]::GetRelativePath($Root, $item.FullName).Replace([System.IO.Path]::DirectorySeparatorChar, '/'))
+        }
+    }
+}
+
+function Test-ManagedHostSourceFile {
+    param(
+        [Parameter(Mandatory = $true)][System.IO.FileSystemInfo]$Item,
+        [Parameter(Mandatory = $true)][string[]]$Extensions,
+        [Parameter(Mandatory = $true)][bool]$IncludeEmbeddedResources
+    )
+
+    $isStandardSource = $Extensions -contains $Item.Extension.ToLowerInvariant()
+    $isEmbeddedResource = $IncludeEmbeddedResources -and
+        ($Item.Extension.Equals('.template', [System.StringComparison]::OrdinalIgnoreCase) -or
+         $Item.Name.EndsWith('.cs.txt', [System.StringComparison]::OrdinalIgnoreCase))
+    return $isStandardSource -or $isEmbeddedResource
 }
 
 function Get-ManagedHostSourceManifest {

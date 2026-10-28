@@ -85,6 +85,7 @@
 
 ## Fixed
 
+- Pass operation cancellation through managed clean and configuration validation, including benchmark-host and solution-inventory checks.
 - Bound DevOps validation and workflow regular-expression matching to one second so pathological input fails promptly; resolve macOS hardware identity through `/usr/sbin/sysctl`.
 - Render repository-relative paths in the managed configuration summary with forward slashes on every operating system.
 - Build profile-specific DataForge workbench arguments from supported modes, languages, optional parameters and profile defaults; pass workbench cancellation through managed handlers to active child processes while retaining exit 130 and terminal run evidence.

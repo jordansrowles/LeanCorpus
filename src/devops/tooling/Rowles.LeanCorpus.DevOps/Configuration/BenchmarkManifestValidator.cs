@@ -63,6 +63,9 @@ internal static class BenchmarkManifestValidator
                         MaxTailCharacters = 4_000_000
                     }, cancellationToken).ConfigureAwait(false);
 
+                    if (result.Outcome == Rowles.LeanCorpus.DevOps.Terminal.OutcomeKind.Cancelled && cancellationToken.IsCancellationRequested)
+                        cancellationToken.ThrowIfCancellationRequested();
+
                     if (result.Outcome != Rowles.LeanCorpus.DevOps.Terminal.OutcomeKind.Success)
                     {
                         var details = string.Join(Environment.NewLine,
@@ -104,6 +107,9 @@ internal static class BenchmarkManifestValidator
                         MaxTailLines = 10,
                         MaxTailCharacters = 4_000_000
                     }, cancellationToken).ConfigureAwait(false);
+
+                    if (inventoryResult.Outcome == Rowles.LeanCorpus.DevOps.Terminal.OutcomeKind.Cancelled && cancellationToken.IsCancellationRequested)
+                        cancellationToken.ThrowIfCancellationRequested();
 
                     if (inventoryResult.Outcome != Rowles.LeanCorpus.DevOps.Terminal.OutcomeKind.Success)
                     {

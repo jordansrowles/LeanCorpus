@@ -148,7 +148,7 @@ internal sealed class IndexRuntime : IDisposable, IAsyncDisposable
     {
         var failures = new List<Exception>();
         Interlocked.Or(ref _flags, (int)LocalRuntimeFlags.Draining);
-        if (Mode == LocalIndexOpenMode.ReadWrite && PendingOperations > 0 && await Commits.CommitAsync(refresh: false).ConfigureAwait(false) is CommitFailed failed)
+        if (Mode == LocalIndexOpenMode.ReadWrite && PendingOperations > 0 && await Commits.CommitAsync(refresh: false, cancellationToken: CancellationToken.None).ConfigureAwait(false) is CommitFailed failed)
             failures.Add(failed.Exception ?? new IOException(failed.Message));
         try { await Commits.DisposeAsync().ConfigureAwait(false); }
         catch (Exception failure) { failures.Add(failure); }
