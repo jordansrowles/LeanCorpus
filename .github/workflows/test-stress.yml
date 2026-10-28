@@ -105,9 +105,16 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
 
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+
       - name: Build prepared test output
         shell: pwsh
-        run: ./devops.ps1 build
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Test Stress
         shell: pwsh
@@ -131,7 +138,7 @@ jobs:
               $env:TEST_COUNT,
               '--profile',
               'stress',
-              '--HangTimeout',
+              '--hang-timeout',
               $env:TEST_HANG_TIMEOUT
           )
 
@@ -154,7 +161,8 @@ jobs:
               $testArgs += @('--timeout', $env:TEST_PROCESS_TIMEOUT)
           }
 
-          & ./devops.ps1 @testArgs
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost @testArgs
           exit $LASTEXITCODE
 
       - name: Upload test run artefacts
@@ -184,9 +192,16 @@ jobs:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
 
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+
       - name: Build prepared test output
         shell: pwsh
-        run: ./devops.ps1 build
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Test Stress
         shell: pwsh
@@ -210,7 +225,7 @@ jobs:
               $env:TEST_COUNT,
               '--profile',
               'stress',
-              '--HangTimeout',
+              '--hang-timeout',
               $env:TEST_HANG_TIMEOUT
           )
 
@@ -233,7 +248,8 @@ jobs:
               $testArgs += @('--timeout', $env:TEST_PROCESS_TIMEOUT)
           }
 
-          & ./devops.ps1 @testArgs
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost @testArgs
           exit $LASTEXITCODE
 
       - name: Upload test run artefacts

@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Globalization;
@@ -44,6 +44,7 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
     private readonly DateTimeOffset _startedUtc;
     private readonly ConcurrentDictionary<string, IdempotencyStore> _idempotency = new(StringComparer.Ordinal);
     private readonly object _operationLock = new();
+    private readonly object _shutdownLock = new();
     private readonly ManualResetEventSlim _operationsDrained = new(initialState: true);
     private int _activeOperations;
     private int _draining;
@@ -475,7 +476,7 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
                 }
                 break;
             case InspectionResource.ReaderState:
-                ReaderManagerDiagnostics diagnostics = entry!.Runtime.Searchers.GetDiagnostics();
+                ReaderManagerDiagnostics diagnostics = entry!.Runtime.Searchers.GetReaderDiagnostics();
                 payload = new ReaderInspectionPayload(
                     indexName,
                     diagnostics.ActiveReaders,
@@ -537,14 +538,24 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         if (Volatile.Read(ref _draining) != 0)
             return Success(start.Context, new HealthResponse(false, "draining", observedUtc, [], "server is draining."));
 
-        (IReadOnlyList<IndexHealthSummary> indices, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
-        string status = hasUnusable ? "unhealthy" : hasDegraded ? "degraded" : "healthy";
-        string? reason = hasUnusable
-            ? "One or more indexes are unusable."
-            : hasDegraded
-                ? "One or more indexes are degraded; previously committed reads remain available."
-                : null;
-        return Success(start.Context, new HealthResponse(status == "healthy", status, observedUtc, indices, reason));
+        if (!TryEnterOperation())
+            return Success(start.Context, new HealthResponse(false, "draining", observedUtc, [], "server is draining."));
+
+        try
+        {
+            (IReadOnlyList<IndexHealthSummary> indices, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
+            string status = hasUnusable ? "unhealthy" : hasDegraded ? "degraded" : "healthy";
+            string? reason = hasUnusable
+                ? "One or more indexes are unusable."
+                : hasDegraded
+                    ? "One or more indexes are degraded; previously committed reads remain available."
+                    : null;
+            return Success(start.Context, new HealthResponse(status == "healthy", status, observedUtc, indices, reason));
+        }
+        finally
+        {
+            ExitOperation();
+        }
     }
 
     /// <inheritdoc />
@@ -558,25 +569,42 @@ public sealed class LocalServerCore : IIndexService, IHealthService, IDocumentSe
         if (Volatile.Read(ref _draining) != 0)
             return Success(start.Context, new ReadinessResponse(false, "draining", DateTimeOffset.UtcNow, "server is draining."));
 
-        (IReadOnlyList<IndexHealthSummary> _, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
-        if (hasUnusable)
-            return Success(start.Context, new ReadinessResponse(false, "unhealthy", DateTimeOffset.UtcNow, "One or more indexes are unusable."));
+        if (!TryEnterOperation())
+            return Success(start.Context, new ReadinessResponse(false, "draining", DateTimeOffset.UtcNow, "server is draining."));
 
-        // Degraded indexes remain ready because previously committed reads are
-        // still available. An unusable index is the readiness boundary.
-        return Success(start.Context, new ReadinessResponse(true, "ready", DateTimeOffset.UtcNow,
-            hasDegraded ? "One or more indexes are degraded; writes may be unavailable." : null));
+        try
+        {
+            (IReadOnlyList<IndexHealthSummary> _, bool hasUnusable, bool hasDegraded) = ReadIndexHealth();
+            if (hasUnusable)
+                return Success(start.Context, new ReadinessResponse(false, "unhealthy", DateTimeOffset.UtcNow, "One or more indexes are unusable."));
+
+            // Degraded indexes remain ready because previously committed reads are
+            // still available. An unusable index is the readiness boundary.
+            return Success(start.Context, new ReadinessResponse(true, "ready", DateTimeOffset.UtcNow,
+                hasDegraded ? "One or more indexes are degraded; writes may be unavailable." : null));
+        }
+        finally
+        {
+            ExitOperation();
+        }
     }
 
     /// <summary>Disposes all local index resources.</summary>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref _draining, 1) != 0)
-            return;
-
-        _operationsDrained.Wait(_options.ShutdownTimeout);
-        Interlocked.Exchange(ref _disposed, 1);
-        _registry.Dispose();
+        lock (_shutdownLock)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+                return;
+            lock (_operationLock)
+                Volatile.Write(ref _draining, 1);
+            if (!_operationsDrained.Wait(_options.ShutdownTimeout))
+                // Retain physical ownership on timeout. Callers may retry disposal
+                // after admitted operations finish; this is not a successful close.
+                throw new TimeoutException("Server shutdown is still draining admitted requests. Physical ownership is retained; retry disposal after those requests finish.");
+            _registry.Dispose();
+            Volatile.Write(ref _disposed, 1);
+        }
     }
 
     private async ValueTask<OperationStart> BeginAsync(OperationKind operation, string? indexName, string? correlationId, string? idempotencyKey, CancellationToken cancellationToken)

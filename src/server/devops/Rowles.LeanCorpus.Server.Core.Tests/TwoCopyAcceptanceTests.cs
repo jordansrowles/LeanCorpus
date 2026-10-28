@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.Json;
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Search;
@@ -252,8 +252,8 @@ public sealed class TwoCopyAcceptanceTests
             LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root, MaximumSearchResults = 100 });
 
             await WriteBatchAsync(executor, source, 0, 2);
-            await using CommitSnapshotLease first = await source.AcquireCommitSnapshotAsync();
-            Assert.True(await target.InstallCommitAsync(first) is CommitInstalled);
+            await using (CommitSnapshotLease first = await source.AcquireCommitSnapshotAsync())
+                Assert.True(await target.InstallCommitAsync(first) is CommitInstalled);
 
             await target.PromoteAsync();
             Assert.Equal(LocalIndexOpenMode.ReadWrite, target.Mode);

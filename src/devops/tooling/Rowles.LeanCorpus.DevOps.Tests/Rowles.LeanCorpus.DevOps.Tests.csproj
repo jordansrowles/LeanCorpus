@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.mtp-v2" />
+    <PackageReference Include="Microsoft.Testing.Extensions.GitHubActionsReport" />
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" />
+    <PackageReference Include="Spectre.Console.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj" />
+    <ProjectReference Include="../../dataforge/Rowles.DataForge.Tool/Rowles.DataForge.Tool.csproj" />
+    <ProjectReference Include="../Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj" ReferenceOutputAssembly="false" />
+    <Using Include="Xunit" />
+    <None Update="Fixtures/**/*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

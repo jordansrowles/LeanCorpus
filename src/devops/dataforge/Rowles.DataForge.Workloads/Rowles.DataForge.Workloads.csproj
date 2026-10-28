@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rowles.DataForge\Rowles.DataForge.csproj" />
+    <Compile Include="..\shared\DataForgeProfileOptions.cs" Link="DataForgeProfileOptions.cs" />
+    <InternalsVisibleTo Include="Rowles.DataForge.Tool" />
+  </ItemGroup>
+
+</Project>

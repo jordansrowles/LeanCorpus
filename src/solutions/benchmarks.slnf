@@ -1,0 +1,12 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj",
+      "devops/benchmarks/Rowles.LeanCorpus.Benchmark.Workloads/Rowles.LeanCorpus.Benchmark.Workloads.csproj",
+      "devops/benchmarks/Rowles.LeanCorpus.Benchmarks.Compression/Rowles.LeanCorpus.Benchmarks.Compression.csproj",
+      "devops/benchmarks/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj",
+      "devops/benchmarks/Rowles.LeanCorpus.Profiling/Rowles.LeanCorpus.Profiling.csproj"
+    ]
+  }
+}

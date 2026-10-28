@@ -1,25 +1,9 @@
 name: Benchmark
-run-name: Benchmark ${{ inputs.suite }} / ${{ inputs.strategy }} / ${{ inputs.framework }} / ${{ inputs.runner }}
+run-name: Bounded benchmark shards / ${{ inputs.framework }} / ${{ inputs.runner }}
 
 on:
   workflow_dispatch:
     inputs:
-      suite:
-        description: 'Suite: all, core, text, compression or a named DevOps suite (e.g. query)'
-        type: string
-        default: all
-        required: true
-      strategy:
-        description: Benchmark strategy preset
-        type: choice
-        default: default
-        options:
-          - fast
-          - default
-          - quick-compare
-          - intense
-          - stress
-          - exhaustive
       framework:
         description: Target framework
         type: choice
@@ -35,25 +19,8 @@ on:
           - ubuntu-latest
           - windows-latest
           - macos-latest
-      doc_count:
-        description: 'Document count override (0 uses the strategy default)'
-        type: number
-        default: 0
-      area:
-        description: 'Optional comma-separated areas (core or text suites only)'
-        type: string
-      group:
-        description: 'Optional comma-separated groups (core or text suites only)'
-        type: string
-      filter:
-        description: 'Optional BenchmarkDotNet filter, e.g. *TermQuery* (without area/group)'
-        type: string
-      corpus_only:
-        description: Skip Lucene.NET comparison for Core benchmarks
-        type: boolean
-        default: false
-      dry_run:
-        description: Print the resolved commands without running benchmarks
+      plan_only:
+        description: Validate and print the bounded plan without building or running benchmarks
         type: boolean
         default: false
 
@@ -61,9 +28,9 @@ permissions:
   contents: read
 
 jobs:
-  benchmark:
+  bounded-benchmark:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 360
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v6
         with:
@@ -80,50 +47,163 @@ jobs:
           global-json-file: global.json
           dotnet-quality: preview
 
-      - name: Run benchmarks
+      - name: Bootstrap managed DevOps host
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+
+      - name: Plan bounded case shards
         shell: pwsh
         env:
-          BENCHMARK_SUITE: ${{ inputs.suite }}
-          BENCHMARK_STRATEGY: ${{ inputs.strategy }}
           BENCHMARK_FRAMEWORK: ${{ inputs.framework }}
-          BENCHMARK_DOC_COUNT: ${{ inputs.doc_count }}
-          BENCHMARK_AREA: ${{ inputs.area }}
-          BENCHMARK_GROUP: ${{ inputs.group }}
-          BENCHMARK_FILTER: ${{ inputs.filter }}
-          BENCHMARK_CORPUS_ONLY: ${{ inputs.corpus_only }}
-          BENCHMARK_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $suites = Import-PowerShellDataFile './scripts/devops/config/benchmark-suites.psd1'
-          if ($env:BENCHMARK_SUITE -notin @('core', 'text', 'compression') -and -not $suites.ContainsKey($env:BENCHMARK_SUITE)) {
-            throw "Unknown benchmark suite '$env:BENCHMARK_SUITE'. Use ./devops benchmark -List to list suites."
-          }
-          $docCount = 0
-          if (-not [int]::TryParse($env:BENCHMARK_DOC_COUNT, [ref]$docCount) -or $docCount -lt 0) {
-            throw 'Document count must be a non-negative 32-bit integer.'
-          }
-          if (($env:BENCHMARK_AREA -or $env:BENCHMARK_GROUP) -and $env:BENCHMARK_SUITE -notin @('core', 'text')) {
-            throw 'Area and group selection require the core or text suite.'
-          }
-          if ($env:BENCHMARK_FILTER -and ($env:BENCHMARK_AREA -or $env:BENCHMARK_GROUP)) {
-            throw 'A BenchmarkDotNet filter cannot be combined with area or group selection.'
-          }
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost config validate
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $managedHost benchmark --list
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-          $benchmarkArguments = @('benchmark', '-Suite', $env:BENCHMARK_SUITE,
-            '-Strat', $env:BENCHMARK_STRATEGY, '-Framework', $env:BENCHMARK_FRAMEWORK)
-          if ($docCount -gt 0) { $benchmarkArguments += @('-DocCount', $docCount.ToString()) }
-          if ($env:BENCHMARK_AREA) { $benchmarkArguments += @('-Area', $env:BENCHMARK_AREA) }
-          if ($env:BENCHMARK_GROUP) { $benchmarkArguments += @('-Group', $env:BENCHMARK_GROUP) }
-          if ($env:BENCHMARK_CORPUS_ONLY -eq 'true') { $benchmarkArguments += '-CorpusOnly' }
-          if ($env:BENCHMARK_DRY_RUN -eq 'true') { $benchmarkArguments += '-Dry' }
-          if ($env:BENCHMARK_FILTER) { $benchmarkArguments += @('--', '--filter', $env:BENCHMARK_FILTER) }
-          & ./devops.ps1 @benchmarkArguments
+          $shards = @(
+            @{ profile = 'leancorpus-search-v1'; cases = 'collapse-complete-leancorpus,collapse-complete-lucenenet' },
+            @{ profile = 'leancorpus-search-v1'; cases = 'facet-offset-page-leancorpus,facet-offset-page-lucenenet' },
+            @{ profile = 'bval-03-morelikethis-cache-boundaries-v1'; cases = 'mlt-bval03-leancorpus-fixtureprebuiltsearch,mlt-bval03-lucenenet-fixtureprebuiltsearch' },
+            @{ profile = 'bval-03-morelikethis-cache-boundaries-v1'; cases = 'mlt-bval03-leancorpus-fixturecoldextraction,mlt-bval03-lucenenet-fixturecoldextraction' }
+          )
+          foreach ($shard in $shards) {
+            & $managedHost benchmark --suite all --strat quick-compare --framework $env:BENCHMARK_FRAMEWORK `
+              --dataset synthetic --profile $shard.profile --case $shard.cases --max-cases 2 --dry
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          Add-Content -Path $env:GITHUB_ENV -Value "EXPECTED_BENCHMARK_RUN_COUNT=$($shards.Count + 1)"
+
+      - name: Build benchmark host
+        if: ${{ !inputs.plan_only }}
+        shell: pwsh
+        env:
+          BENCHMARK_FRAMEWORK: ${{ inputs.framework }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost build --project src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj --framework $env:BENCHMARK_FRAMEWORK
           exit $LASTEXITCODE
 
-      - name: Upload benchmark results
-        if: always() && !inputs.dry_run
+      - name: Smoke one BDN case
+        if: ${{ !inputs.plan_only }}
+        shell: pwsh
+        env:
+          BENCHMARK_FRAMEWORK: ${{ inputs.framework }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost benchmark --suite all --strat fast --framework $env:BENCHMARK_FRAMEWORK `
+            --dataset synthetic --profile leancorpus-search-v1 --case collapse-complete-leancorpus `
+            --engine leancorpus --max-cases 1
+          exit $LASTEXITCODE
+
+      - name: Shard 1 - collapse top-score
+        if: ${{ !inputs.plan_only }}
+        continue-on-error: true
+        shell: pwsh
+        env:
+          BENCHMARK_FRAMEWORK: ${{ inputs.framework }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost benchmark --suite all --strat quick-compare --framework $env:BENCHMARK_FRAMEWORK `
+            --dataset synthetic --profile leancorpus-search-v1 `
+            --case collapse-complete-leancorpus,collapse-complete-lucenenet --max-cases 2
+          $exitCode = $LASTEXITCODE
+          Add-Content -Path $env:GITHUB_ENV -Value "SHARD1_EXIT=$exitCode"
+          exit $exitCode
+
+      - name: Shard 2 - facet page
+        if: ${{ !inputs.plan_only }}
+        continue-on-error: true
+        shell: pwsh
+        env:
+          BENCHMARK_FRAMEWORK: ${{ inputs.framework }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost benchmark --suite all --strat quick-compare --framework $env:BENCHMARK_FRAMEWORK `
+            --dataset synthetic --profile leancorpus-search-v1 `
+            --case facet-offset-page-leancorpus,facet-offset-page-lucenenet --max-cases 2
+          $exitCode = $LASTEXITCODE
+          Add-Content -Path $env:GITHUB_ENV -Value "SHARD2_EXIT=$exitCode"
+          exit $exitCode
+
+      - name: Shard 3 - MLT prebuilt search
+        if: ${{ !inputs.plan_only }}
+        continue-on-error: true
+        shell: pwsh
+        env:
+          BENCHMARK_FRAMEWORK: ${{ inputs.framework }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost benchmark --suite all --strat quick-compare --framework $env:BENCHMARK_FRAMEWORK `
+            --dataset synthetic --profile bval-03-morelikethis-cache-boundaries-v1 `
+            --case mlt-bval03-leancorpus-fixtureprebuiltsearch,mlt-bval03-lucenenet-fixtureprebuiltsearch --max-cases 2
+          $exitCode = $LASTEXITCODE
+          Add-Content -Path $env:GITHUB_ENV -Value "SHARD3_EXIT=$exitCode"
+          exit $exitCode
+
+      - name: Shard 4 - MLT cold extraction
+        if: ${{ !inputs.plan_only }}
+        continue-on-error: true
+        shell: pwsh
+        env:
+          BENCHMARK_FRAMEWORK: ${{ inputs.framework }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost benchmark --suite all --strat quick-compare --framework $env:BENCHMARK_FRAMEWORK `
+            --dataset synthetic --profile bval-03-morelikethis-cache-boundaries-v1 `
+            --case mlt-bval03-leancorpus-fixturecoldextraction,mlt-bval03-lucenenet-fixturecoldextraction --max-cases 2
+          $exitCode = $LASTEXITCODE
+          Add-Content -Path $env:GITHUB_ENV -Value "SHARD4_EXIT=$exitCode"
+          exit $exitCode
+
+      - name: Collect run evidence
+        if: always()
+        shell: pwsh
+        env:
+          PLAN_ONLY: ${{ inputs.plan_only }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reports = @(Get-ChildItem -Path 'artifacts/benchmark/runs' -Filter 'run-report.json' -File -Recurse -ErrorAction SilentlyContinue)
+          $collected = foreach ($item in $reports) {
+            [ordered]@{
+              path = $item.FullName.Replace((Get-Location).Path + [IO.Path]::DirectorySeparatorChar, '')
+              report = (Get-Content -Raw $item.FullName | ConvertFrom-Json)
+            }
+          }
+          @($collected) | ConvertTo-Json -Depth 16 | Set-Content -Path 'collected-run-reports.json' -Encoding utf8
+
+      - name: Write qualification summary
+        if: always()
+        shell: pwsh
+        env:
+          PLAN_ONLY: ${{ inputs.plan_only }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          $arguments = @('benchmark', 'qualification-summary', '--reports', 'collected-run-reports.json',
+            '--output', 'qualification-summary.json')
+          if ($env:PLAN_ONLY -eq 'true') {
+            $arguments += '--plan-only'
+          } else {
+            $arguments += @('--expected-run-count', $env:EXPECTED_BENCHMARK_RUN_COUNT)
+          }
+          & $managedHost @arguments
+          exit $LASTEXITCODE
+
+      - name: Upload benchmark run evidence
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: benchmark-results-${{ inputs.runner }}-${{ inputs.framework }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: artifacts/benchmark/runs
+          path: |
+            artifacts/benchmark/runs
+            collected-run-reports.json
+            qualification-summary.json
           if-no-files-found: ignore

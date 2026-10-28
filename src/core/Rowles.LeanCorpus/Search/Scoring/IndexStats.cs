@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Search.Scoring;

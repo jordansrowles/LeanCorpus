@@ -1,0 +1,21 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "devops/tests/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.Shared/Rowles.LeanCorpus.Tests.Shared.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj",
+      "devops/tests/Rowles.Text.Tests/Rowles.Text.Tests.csproj",
+      "server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj",
+      "server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj",
+      "server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj",
+      "server/devops/Rowles.LeanCorpus.OrchardCore.Search.Tests/Rowles.LeanCorpus.OrchardCore.Search.Tests.csproj",
+      "server/devops/Rowles.LeanCorpus.OrchardCore.Search.TestHost/Rowles.LeanCorpus.OrchardCore.Search.TestHost.csproj",
+      "server/devops/Rowles.LeanCorpus.OrchardCore.Search.TestModule/Rowles.LeanCorpus.OrchardCore.Search.TestModule.csproj",
+      "server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj"
+    ]
+  }
+}

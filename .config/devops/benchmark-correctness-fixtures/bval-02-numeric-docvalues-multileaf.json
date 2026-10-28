@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-02-numeric-docvalues-multileaf",
+  "deterministic": true,
+  "seed": 9702,
+  "domain": "numeric-aggregation",
+  "input": {
+    "segments": [
+      { "id": "segment-a", "documents": [
+        { "id": "price-10", "price": 10.0, "numericDocValuePresent": true },
+        { "id": "price-20", "price": 20.0, "numericDocValuePresent": true }
+      ] },
+      { "id": "segment-b", "documents": [
+        { "id": "price-30", "price": 30.0, "numericDocValuePresent": true },
+        { "id": "price-40", "price": 40.0, "numericDocValuePresent": true }
+      ] }
+    ],
+    "numericEncoding": "IEEE754-binary64-raw-bits"
+  },
+  "expected": {
+    "count": 4,
+    "sum": 100.0,
+    "sumOfSquares": 3000.0,
+    "minimum": 10.0,
+    "maximum": 40.0,
+    "mean": 25.0,
+    "populationVariance": 125.0,
+    "allValuesReadFromEverySegment": true
+  }
+}

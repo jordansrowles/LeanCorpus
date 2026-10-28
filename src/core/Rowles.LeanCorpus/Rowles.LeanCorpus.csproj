@@ -36,6 +36,8 @@
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.AOTSmoke" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Benchmarks" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Server.Core" />
+    <InternalsVisibleTo Include="Rowles.LeanCorpus.Server.Core.Tests" />
+    <InternalsVisibleTo Include="Rowles.LeanCorpus.OrchardCore.Search" />
   </ItemGroup>
 
   <ItemGroup>

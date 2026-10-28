@@ -136,6 +136,8 @@ public sealed class IndexSearcherConfig
     /// </summary>
     public bool EnableQueryCache { get; set; }
 
+    internal bool UseFuzzyExpansionCache { get; set; } = true;
+
     /// <summary>
     /// Maximum number of entries in the query result cache. Default: 1024.
     /// </summary>

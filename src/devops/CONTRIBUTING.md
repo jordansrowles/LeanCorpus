@@ -21,7 +21,7 @@ Techniques such as property-based, state-machine and metamorphic testing describ
 ### 3. Put the test under the owning area
 
 ```text
-src/devops/Rowles.LeanCorpus.Tests.Core/
+src/devops/tests/Rowles.LeanCorpus.Tests.Core/
     Search/
         Unit/
         Integration/
@@ -54,7 +54,7 @@ public sealed class IndexPersistenceTests
 ### 5. Run the focused selection
 
 ```bash
-./devops test -Suite core -Area Search -Category Unit
+./devops test core --area Search --category Unit
 ```
 
 ### 6. Connect new production paths
@@ -63,21 +63,21 @@ Affected testing follows this flow:
 
 ```mermaid
 flowchart LR
-    Change["Changed production path"] --> Mapping["code-areas.psd1"]
+    Change["Changed production path"] --> Mapping[".config/devops/code-areas.json"]
     Mapping --> Targets["suite:area targets"]
     Targets --> Traits["Tests with matching Area traits"]
     Traits --> Run["Focused test projects"]
 ```
 
-Update `scripts/devops/config/code-areas.psd1` when adding or moving a production area.
+Update `.config/devops/code-areas.json` when adding or moving a production area.
 
 ### 7. Run affected tests
 
 ```bash
 ./devops test affected
-./devops test affected -Commit HEAD
-./devops test affected -Commit caf4bd5
-./devops test affected -Range HEAD~3..HEAD
+./devops test affected --commit HEAD
+./devops test affected --commit caf4bd5
+./devops test affected --range HEAD~3..HEAD
 ```
 
 Plain `affected` selects modified, staged and untracked non-ignored files only.
@@ -167,31 +167,33 @@ Choose the destination by responsibility:
 
 | Change | Location |
 | --- | --- |
-| Top-level command orchestration | `scripts/devops/commands/` |
-| Small reusable helper | `scripts/devops/common/` |
-| Declarative suites, mappings or strategies | `scripts/devops/config/` |
-| Larger reusable subsystem | `scripts/devops/support/` |
-| Artefact paths, runs and cleaning | `scripts/devops/artifacts/` |
+| Managed command options and routing | `src/devops/tooling/Rowles.LeanCorpus.DevOps/Program.cs` |
+| Command handlers and services | `src/devops/tooling/Rowles.LeanCorpus.DevOps/Commands/` and their owning service directories |
+| Test, benchmark and area configuration | `.config/devops/*.json` |
+| Run artefacts and cleanup | `src/devops/tooling/Rowles.LeanCorpus.DevOps/Artifacts/` |
+| Package and CI validation | Managed services and tests under `src/devops/tooling/Rowles.LeanCorpus.DevOps/`; package policy under `.config/devops/package-policy.json`; workflow-specific admission checks under `.github/scripts/` |
 
 For a new top-level command:
 
-1. Add an `Invoke-DevOps...` entry point under `commands/`.
-2. Import it from `DevOps.psm1`.
-3. Add it to the dispatcher.
-4. Add concise top-level help and one useful example.
-5. Put generic helpers and declarative data in their owning directories.
-6. Exercise the command directly.
-7. Run `./devops test affected`.
-8. Update contributor documentation and the changelog when behaviour is visible.
+1. Add the command options and route to the managed root command in `Program.cs`.
+2. Keep orchestration in a managed handler or service with an explicit result contract.
+3. Add concise help, one useful example and command-line contract coverage.
+4. Put generic helpers and declarative configuration in their owning directories.
+5. Exercise the route through the managed apphost and run focused or affected tests.
+6. Update contributor documentation and the DevOps changelog when behaviour changes.
 
-Keep the root `devops` and `devops.ps1` wrappers small.
+Keep the root apphost as the normal entry point. `devops.ps1` remains a small
+fingerprint-checking compatibility shim and must not import a second command
+implementation. Retained PowerShell files are limited to the bootstrap,
+managed-host forwarding, CI checks, independent data generation and package
+validation; command behaviour belongs to the managed apphost.
 
 ### Test execution infrastructure
 
 All normal, affected, repeated, flaky and CI test commands use the shared
 target pipeline. Add suite details such as the project, runner kind, supported
 frameworks, coverage eligibility and diagnostic capabilities to
-`scripts/devops/config/test-suites.psd1`; do not duplicate that information in
+`.config/devops/test-suites.json`; do not duplicate that information in
 workflow YAML or another runner.
 
 The pipeline resolves concrete targets, prepares each project or AOT publish
@@ -229,7 +231,7 @@ a full trace or memory dump to every repeated test iteration.
 The manual GitHub Actions workflows **Test Stress** and **Test Diagnostics**
 are separate entry points. Stress always supplies `--ci --profile stress`;
 diagnostics supplies `--ci --diagnostics --profile integration`. Keep both as
-thin argument builders over `./devops.ps1 test`; add suite resolution,
+thin argument builders over the managed `./devops test` command; add suite resolution,
 preparation or reporting behaviour to the DevOps pipeline and suite registry,
 not to workflow YAML. Keep `count` and `CHAOS_ITERATIONS` independent when
 documenting or reproducing either run.
@@ -245,7 +247,7 @@ documenting or reproducing either run.
 List registered suites with:
 
 ```bash
-./devops benchmark -List
+./devops benchmark --list
 ```
 
 ## Validation by change
@@ -254,16 +256,16 @@ List registered suites with:
 | --- | --- |
 | Normal test addition | Focused selection, then `-Suite affected` |
 | Test infrastructure | Affected tests plus every directly impacted suite |
-| Architecture boundary | `./devops test -Suite architecture` |
+| Architecture boundary | `./devops test architecture` |
 | AOT smoke path | `./devops aot` |
-| Benchmark registration | `./devops benchmark -List` and a bounded smoke run |
+| Benchmark registration | `./devops benchmark --list` and a bounded smoke run |
 | Coverage tooling | `./devops coverage -Clean` |
-| Documentation tooling | `./devops docs build -SkipBenchmarks` |
+| Documentation tooling | `./devops docs build --skip-benchmarks` |
 
 > [!WARNING]
 > Generated coverage, benchmark and DocFX output must not be hand-edited. Change the inputs or generator and regenerate it through `./devops`.
 
-Repository guides copied into the site are mapped by `Copy-RepositoryDocumentation`. Add the canonical source and its site destination there, then update `docs/toc.yml`. Do not introduce a second metadata file when the repository README already contains the required catalogue or workflow.
+Repository guides copied into the site are mapped by `docs/site-config/imports.json`. Add the canonical source and its site destination there, then update `docs/content/toc.yml` when the page belongs in the top-level navigation. Do not introduce a second metadata file when the repository README already contains the required catalogue or workflow.
 
 ## Before submitting
 

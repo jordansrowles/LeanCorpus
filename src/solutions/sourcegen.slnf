@@ -1,0 +1,9 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "core/Rowles.LeanCorpus.SourceGen/Rowles.LeanCorpus.SourceGen.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj"
+    ]
+  }
+}

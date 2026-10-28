@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-03-morelikethis-cache-boundaries",
+  "deterministic": true,
+  "seed": 9703,
+  "domain": "more-like-this-cache-state",
+  "input": {
+    "analyser": "standard-lowercase-v1",
+    "sourceDocument": { "id": "seed", "text": "red bicycle commuter city road" },
+    "parameters": {
+      "minTermFreq": 1,
+      "minDocFreq": 2,
+      "minWordLength": 3,
+      "maxQueryTerms": 25,
+      "boostByScore": true
+    },
+    "documents": [
+      { "id": "candidate-a", "text": "bicycle commuter path" },
+      { "id": "candidate-b", "text": "commuter city bike route" },
+      { "id": "non-match", "text": "garden flowers and soil" }
+    ],
+    "selectedTerms": ["bicycle", "commuter", "city"],
+    "topN": 10
+  },
+  "expected": {
+    "coldExtractionTerms": ["bicycle", "commuter", "city"],
+    "warmExtractionTerms": ["bicycle", "commuter", "city"],
+    "coldLogicalCandidateIds": ["candidate-a", "candidate-b"],
+    "warmLogicalCandidateIds": ["candidate-a", "candidate-b"],
+    "cacheStateMustBeExplicit": true,
+    "uncachedComparisonMustIncludeExtractionOnBothEngines": true
+  }
+}

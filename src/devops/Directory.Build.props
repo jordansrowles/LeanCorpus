@@ -1,0 +1,31 @@
+<Project>
+  <PropertyGroup>
+    <IsManagedDevOpsProject Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus.DevOps' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.DevOps.Tests' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.DevOps.ProcessTestChild'">true</IsManagedDevOpsProject>
+  </PropertyGroup>
+
+  <Import Project="../../Directory.Build.props" Condition="'$(IsManagedDevOpsProject)' != 'true'" />
+
+  <PropertyGroup Condition="'$(IsManagedDevOpsProject)' == 'true'">
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)../../artifacts/devops</ArtifactsPath>
+    <BaseIntermediateOutputPath>$(ArtifactsPath)/obj/$(MSBuildProjectName)/</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(ArtifactsPath)/bin/$(MSBuildProjectName)/</BaseOutputPath>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>true</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus.DevOps.Tests'">
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.Text.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Profiling'">
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>

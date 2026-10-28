@@ -1,0 +1,9 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "core/Rowles.Text/Rowles.Text.csproj",
+      "devops/tests/Rowles.Text.Tests/Rowles.Text.Tests.csproj"
+    ]
+  }
+}

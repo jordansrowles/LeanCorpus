@@ -1,3 +1,5 @@
+﻿using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>
@@ -85,7 +87,7 @@ public sealed class ReaderManager<TReader> : IDisposable
             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             var current = _current;
             if (current.TryAcquire())
-                return new ReaderLease<TReader>(current.Reader, () => current.ReleaseLease());
+                return new ReaderLease<TReader>(current.Reader, new LifetimeLease(current, current));
             Thread.Yield();
         }
     }
@@ -144,7 +146,7 @@ public sealed class ReaderManager<TReader> : IDisposable
                     candidate.ReleaseLease();
                     continue;
                 }
-                lease = new ReaderLease<TReader>(candidate.Reader, () => candidate.ReleaseLease());
+                lease = new ReaderLease<TReader>(candidate.Reader, new LifetimeLease(candidate, candidate));
                 return true;
             }
         }
@@ -226,6 +228,12 @@ public sealed class ReaderManager<TReader> : IDisposable
         }
     }
 
+    internal (int Generation, int Retired) GetLifecycleSnapshot(Func<TReader, int> generation)
+    {
+        lock (_lock)
+            return (generation(_current.Reader), _readers.Count(static reader => reader.IsRetired));
+    }
+
     /// <summary>Stops refreshes and retires all readers.</summary>
     public void Dispose()
     {
@@ -277,7 +285,7 @@ public sealed class ReaderManager<TReader> : IDisposable
         }
     }
 
-    private sealed class ReaderRef
+    private sealed class ReaderRef : ILifetimeLeaseOwner
     {
         private readonly ReaderManager<TReader> _owner;
         private int _refCount = 1;
@@ -291,7 +299,9 @@ public sealed class ReaderManager<TReader> : IDisposable
 
         internal TReader Reader { get; }
         internal bool IsRetired => Volatile.Read(ref _retired) != 0;
-        internal int LeaseCount => Math.Max(0, Volatile.Read(ref _refCount) - 1);
+        internal int LeaseCount => Math.Max(0, Volatile.Read(ref _refCount) - (IsRetired ? 0 : 1));
+
+        void ILifetimeLeaseOwner.ReleaseLease(object token) => ReleaseLease();
 
         internal bool TryAcquire(bool allowRetired = false)
         {

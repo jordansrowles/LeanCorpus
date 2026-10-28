@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net11.0</TargetFramework>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
     <LangVersion>preview</LangVersion>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
@@ -15,8 +15,8 @@
     <PackageReference Include="xunit.v3.mtp-v2" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="../../../devops/Rowles.LeanCorpus.Tests.Shared/Diagnostics/LeanCorpusTestDiagnostics.cs" Link="Diagnostics/LeanCorpusTestDiagnostics.cs" />
-    <Compile Include="../../../devops/Rowles.LeanCorpus.Tests.Shared/Diagnostics/LeanCorpusTestTelemetryFixture.cs" Link="Diagnostics/LeanCorpusTestTelemetryFixture.cs" />
+    <Compile Include="../../../devops/tests/Rowles.LeanCorpus.Tests.Shared/Diagnostics/LeanCorpusTestDiagnostics.cs" Link="Diagnostics/LeanCorpusTestDiagnostics.cs" />
+    <Compile Include="../../../devops/tests/Rowles.LeanCorpus.Tests.Shared/Diagnostics/LeanCorpusTestTelemetryFixture.cs" Link="Diagnostics/LeanCorpusTestTelemetryFixture.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Rowles.LeanCorpus.Server.Abstractions/Rowles.LeanCorpus.Server.Abstractions.csproj" />

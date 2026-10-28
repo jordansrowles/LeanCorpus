@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.MTP" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CrashDump" />
+    <PackageReference Include="Microsoft.Testing.Extensions.HangDump" />
+    <PackageReference Include="Microsoft.Testing.Extensions.GitHubActionsReport" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Core\Metadata\TestMetadata.cs" Link="Metadata\TestMetadata.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Infrastructure\MaterialisingTokenSink.cs" Link="Infrastructure\MaterialisingTokenSink.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Diagnostics\LeanCorpusTestDiagnostics.cs" Link="Diagnostics\LeanCorpusTestDiagnostics.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Diagnostics\LeanCorpusTestTelemetryFixture.cs" Link="Diagnostics\LeanCorpusTestTelemetryFixture.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\core\Rowles.Text\Rowles.Text.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\..\..\lexicons\japanese.jlc" Link="lexicons\japanese.jlc" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

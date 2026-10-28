@@ -1,15 +1,15 @@
-﻿name: Deploy to Cloudflare Pages
+name: Deploy to Cloudflare Pages
 
 on:
   workflow_run:
     workflows: ["Build"]
     types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
-      ref:
-        description: Branch, tag or commit to deploy
+      run_id:
+        description: Successful main Build run ID with a validated production docs artefact
         required: true
-        default: main
         type: string
 
 jobs:
@@ -17,44 +17,61 @@ jobs:
     if: |
       (github.event_name == 'workflow_dispatch') ||
       (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
        startsWith(github.event.workflow_run.head_commit.message, '[deploy]'))
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       deployments: write
     steps:
-      - name: Check out requested ref
-        if: github.event_name == 'workflow_dispatch'
+      - name: Check out trusted deployment validator
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.ref }}
-      - name: Set up .NET 10
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/setup-dotnet@v5
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
         with:
-          dotnet-version: '10.0.x'
-      - name: Set up .NET 11
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '11.0.x'
-          dotnet-quality: preview
-      - name: Build requested documentation
-        if: github.event_name == 'workflow_dispatch'
+          node-version: '22.23.3'
+      - name: Resolve successful Build run
+        id: source
         shell: pwsh
-        run: ./devops docs build -SkipBenchmarks -SkipCoverage
-      - name: Download docs artifact
-        if: github.event_name == 'workflow_run'
+        run: node .github/scripts/docs/resolve-docs-deployment-run.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_API_URL: ${{ github.api_url }}
+      - name: Download validated documentation artefact
         uses: actions/download-artifact@v8
         with:
-          name: leancorpus-docs-site
+          artifact-ids: ${{ steps.source.outputs.artifact-id }}
           path: docs-site
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.source.outputs.run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Deploy to Cloudflare Pages
+          digest-mismatch: error
+      - name: Verify artefact revision
+        shell: pwsh
+        env:
+          EXPECTED_COMMIT: ${{ steps.source.outputs.head-sha }}
+          EXPECTED_ARTIFACT_DIGEST: ${{ steps.source.outputs.artifact-digest }}
+          EXPECTED_ARTIFACT_ID: ${{ steps.source.outputs.artifact-id }}
+          EXPECTED_BUILD_RUN_ID: ${{ steps.source.outputs.run-id }}
+          EXPECTED_BUILD_RUN_NUMBER: ${{ steps.source.outputs.run-number }}
+        run: |
+          $provenancePath = Join-Path $PWD 'docs-site/generated/provenance.json'
+          $sitePath = Join-Path $PWD 'docs-site/site'
+          if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) { throw 'The docs artefact has no provenance manifest.' }
+          if (-not (Test-Path -LiteralPath (Join-Path $sitePath 'index.html') -PathType Leaf)) { throw 'The docs artefact has no generated site.' }
+          $provenance = Get-Content -LiteralPath $provenancePath -Raw | ConvertFrom-Json
+          if ($provenance.schemaVersion -ne 1) { throw 'The docs artefact provenance schema is unsupported.' }
+          if ($provenance.repository -ne 'https://github.com/jordansrowles/LeanCorpus') { throw 'The docs artefact belongs to an unexpected repository.' }
+          if ($provenance.workingTreeDirty -ne $false) { throw 'The docs artefact was built from a dirty working tree.' }
+          if ($provenance.commit -ne $env:EXPECTED_COMMIT) { throw "Docs artefact commit '$($provenance.commit)' does not match Build commit '$env:EXPECTED_COMMIT'." }
+          if ($env:EXPECTED_ARTIFACT_DIGEST -notmatch '^sha256:[0-9a-f]{64}$') { throw 'The selected docs artefact has no valid SHA-256 digest.' }
+          Write-Host "Verified immutable docs artefact $env:EXPECTED_ARTIFACT_ID ($env:EXPECTED_ARTIFACT_DIGEST) from Build run $env:EXPECTED_BUILD_RUN_NUMBER/$env:EXPECTED_BUILD_RUN_ID at $($provenance.commit)."
+      - name: Deploy validated site to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy ${{ github.event_name == 'workflow_dispatch' && 'artifacts/docs/site' || 'docs-site' }} --project-name=leanlucene --branch=${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.event.workflow_run.head_branch }} --commit-dirty=true
+          command: pages deploy docs-site/site --project-name=leanlucene --branch=${{ steps.source.outputs.branch }} --commit-dirty=true

@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-01-geo-radius-boundaries",
+  "deterministic": true,
+  "seed": 9701,
+  "domain": "geo-distance-units",
+  "input": {
+    "centre": { "latitudeDegrees": 0.0, "longitudeDegrees": 0.0 },
+    "radiusMetres": 50000,
+    "earthMeanRadiusKilometres": 6371.0087714,
+    "points": [
+      { "id": "inside-49-9km", "latitudeDegrees": 0.0, "longitudeDegrees": 0.44876086351307015, "distanceKilometres": 49.9 },
+      { "id": "outside-50-1km", "latitudeDegrees": 0.0, "longitudeDegrees": 0.4505595042485934, "distanceKilometres": 50.1 }
+    ]
+  },
+  "expected": {
+    "includedIds": ["inside-49-9km"],
+    "excludedIds": ["outside-50-1km"],
+    "bothEnginesMustReturnSameLogicalIds": true,
+    "luceneRadiusKilometres": 50.0
+  }
+}

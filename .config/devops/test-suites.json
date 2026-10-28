@@ -1,0 +1,223 @@
+{
+  "schemaVersion": 1,
+  "areas": [
+    "Foundation",
+    "CodecKit",
+    "Diagnostics",
+    "Document",
+    "Index",
+    "Linq",
+    "Mapping",
+    "Search",
+    "Serialisation",
+    "Store",
+    "TextIntegration",
+    "Util",
+    "Analysers",
+    "Filters",
+    "Stemmers",
+    "Tokenisers",
+    "Dictionaries",
+    "Languages",
+    "Architecture",
+    "Functional",
+    "Orchard",
+    "Server"
+  ],
+  "data": {
+    "architecture": {
+      "Coverage": false,
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx"
+      ],
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "Architecture",
+      "Order": 40,
+      "DataForgeQualification": true
+    },
+    "dataforge": {
+      "Coverage": false,
+      "Project": "src/devops/dataforge/Rowles.DataForge.Tests/Rowles.DataForge.Tests.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx",
+        "HangDump",
+        "CrashDump"
+      ],
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "DataForge",
+      "DataForgeQualification": true
+    },
+    "server-orchard-functional": {
+      "Coverage": false,
+      "DefaultFilter": "FullyQualifiedName!~Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.ProviderPerformanceTests.",
+      "IncludeInAll": false,
+      "Project": "src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj",
+      "Runner": "Mtp",
+      "RequiresBrowser": true,
+      "Capabilities": [
+        "Trx",
+        "HangDump",
+        "CrashDump"
+      ],
+      "DefaultFramework": "net11.0",
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "Orchard Provider Functional"
+    },
+    "server-core": {
+      "Coverage": false,
+      "Project": "src/server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx",
+        "HangDump",
+        "CrashDump"
+      ],
+      "DefaultFramework": "net11.0",
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "Server Core",
+      "Order": 60
+    },
+    "text": {
+      "Coverage": false,
+      "Project": "src/devops/tests/Rowles.Text.Tests/Rowles.Text.Tests.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx",
+        "HangDump",
+        "CrashDump"
+      ],
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "Text",
+      "Order": 20
+    },
+    "aot": {
+      "Coverage": false,
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj",
+      "Runner": "AotNative",
+      "Capabilities": [],
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "ExpandFrameworksByDefault": true,
+      "Name": "AOT",
+      "Order": 80
+    },
+    "core": {
+      "Coverage": true,
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx",
+        "HangDump",
+        "CrashDump"
+      ],
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "Core",
+      "Order": 10
+    },
+    "docs-site": {
+      "Coverage": false,
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx"
+      ],
+      "IncludeInAll": false,
+      "RequiresBrowser": true,
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "Documentation Site"
+    },
+    "sourcegen": {
+      "Coverage": true,
+      "Project": "src/devops/tests/Rowles.LeanCorpus.Tests.SourceGen/Rowles.LeanCorpus.Tests.SourceGen.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx",
+        "HangDump",
+        "CrashDump"
+      ],
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "SourceGen",
+      "Order": 30
+    },
+    "server-orchard": {
+      "Coverage": false,
+      "Project": "src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.Tests/Rowles.LeanCorpus.OrchardCore.Search.Tests.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx",
+        "HangDump",
+        "CrashDump"
+      ],
+      "DefaultFramework": "net11.0",
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "Orchard Provider"
+    },
+    "server-abstractions": {
+      "Coverage": false,
+      "Project": "src/server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx",
+        "HangDump",
+        "CrashDump"
+      ],
+      "DefaultFramework": "net11.0",
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "Server Abstractions",
+      "Order": 50
+    },
+    "server-integration": {
+      "Coverage": false,
+      "Project": "src/server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj",
+      "Runner": "Mtp",
+      "Capabilities": [
+        "Trx",
+        "HangDump",
+        "CrashDump"
+      ],
+      "DefaultFramework": "net11.0",
+      "Frameworks": [
+        "net10.0",
+        "net11.0"
+      ],
+      "Name": "Server Integration",
+      "Order": 70,
+      "DataForgeQualification": true
+    }
+  }
+}

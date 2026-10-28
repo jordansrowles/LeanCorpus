@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 using Rowles.LeanCorpus.Index.Segment;
-using Rowles.LeanCorpus.Serialization;
+using Rowles.LeanCorpus.Serialisation;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Util;
 

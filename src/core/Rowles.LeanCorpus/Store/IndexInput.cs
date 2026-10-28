@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using System.Runtime.ExceptionServices;
 using System.IO.MemoryMappedFiles;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -29,8 +30,13 @@ public sealed unsafe class IndexInput : IDisposable
     private readonly object _mappingIdentity;
     private readonly long _length;
     private long _position;
-    private bool _disposed;
-    private int _disposeStarted;
+    private volatile bool _disposed;
+    private int _resourcesReleased;
+    private int _pointerReleased;
+    private int _accessorDisposed;
+    private int _memoryMappedFileDisposed;
+    private int _ownerLeaseReleased;
+    private int _fileLeaseReleased;
     private byte* _ptr;
 
     /// <summary>
@@ -119,6 +125,9 @@ public sealed unsafe class IndexInput : IDisposable
     }
 
     internal object MappingIdentity => _mappingIdentity;
+    internal bool ResourcesReleased => Volatile.Read(ref _resourcesReleased) != 0;
+    internal bool OwnsMappedView => _accessor is not null && Volatile.Read(ref _accessorDisposed) == 0;
+    internal Action<IndexInputCleanupStage>? CleanupStageTestHook { get; set; }
 
     /// <summary>Total input length in bytes.</summary>
     public long Length => _length;
@@ -772,14 +781,26 @@ public sealed unsafe class IndexInput : IDisposable
     /// <summary>Releases the memory-mapped file view and underlying file resources.</summary>
     public void Dispose()
     {
-        if (Interlocked.CompareExchange(ref _disposeStarted, 1, 0) != 0)
-            return;
-
         _disposed = true;
-        using (Diagnostics.FileSystemMeasurement.Start("input.drain"))
-            _operations.BeginDisposeAndWait();
-        ReleaseResources(fromFinaliser: false);
-        GC.SuppressFinalize(this);
+        OperationDrain.DisposalAttempt? attempt = _operations.BeginDisposeAndWaitForCompletion();
+        if (attempt is null)
+        {
+            GC.SuppressFinalize(this);
+            return;
+        }
+
+        try
+        {
+            using (Diagnostics.FileSystemMeasurement.Start("input.drain"))
+                ReleaseResources(fromFinaliser: false);
+            _operations.CompleteDisposalSuccessfully(attempt);
+            GC.SuppressFinalize(this);
+        }
+        catch (Exception exception)
+        {
+            _operations.CompleteDisposalWithFailure(attempt, exception);
+            ExceptionDispatchInfo.Capture(exception).Throw();
+        }
     }
 
     private void ReleaseResources(bool fromFinaliser)
@@ -788,18 +809,102 @@ public sealed unsafe class IndexInput : IDisposable
             ? Diagnostics.FileSystemMeasurement.Start("input.finaliser_release", _measurementContext) : null;
         using var measurement = _mmf is null ? null : Diagnostics.FileSystemMeasurement.Start(
             fromFinaliser ? "mmap.finaliser_close" : "mmap.close", _measurementContext);
-        if (_accessor is not null)
+
+        List<Exception>? failures = null;
+        bool pointerReleased = _accessor is null || Volatile.Read(ref _pointerReleased) != 0;
+        if (!pointerReleased)
         {
-            _accessor.SafeMemoryMappedViewHandle.ReleasePointer();
-            _ptr = null;
-            _accessor.Dispose();
+            try
+            {
+                CleanupStageTestHook?.Invoke(IndexInputCleanupStage.ReleasePointer);
+                _accessor!.SafeMemoryMappedViewHandle.ReleasePointer();
+                _ptr = null;
+                Volatile.Write(ref _pointerReleased, 1);
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
         }
-        _mmf?.Dispose();
-        _ownerLease?.Dispose();
-        if (fromFinaliser)
-            _fileLease?.ReleaseFromFinaliser(_measurementContext);
-        else
-            _fileLease?.Dispose();
+
+        pointerReleased = _accessor is null || Volatile.Read(ref _pointerReleased) != 0;
+        bool accessorDisposed = _accessor is null || Volatile.Read(ref _accessorDisposed) != 0;
+        if (pointerReleased && !accessorDisposed)
+        {
+            try
+            {
+                CleanupStageTestHook?.Invoke(IndexInputCleanupStage.DisposeAccessor);
+                _accessor!.Dispose();
+                Volatile.Write(ref _accessorDisposed, 1);
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+        }
+
+        accessorDisposed = _accessor is null || Volatile.Read(ref _accessorDisposed) != 0;
+        bool memoryMappedFileDisposed = _mmf is null || Volatile.Read(ref _memoryMappedFileDisposed) != 0;
+        if (accessorDisposed && !memoryMappedFileDisposed)
+        {
+            try
+            {
+                CleanupStageTestHook?.Invoke(IndexInputCleanupStage.DisposeMemoryMappedFile);
+                _mmf!.Dispose();
+                Volatile.Write(ref _memoryMappedFileDisposed, 1);
+            }
+            catch (Exception exception)
+            {
+                (failures ??= []).Add(exception);
+            }
+        }
+
+        accessorDisposed = _accessor is null || Volatile.Read(ref _accessorDisposed) != 0;
+        memoryMappedFileDisposed = _mmf is null || Volatile.Read(ref _memoryMappedFileDisposed) != 0;
+        bool nativeResourcesReleased = pointerReleased && accessorDisposed && memoryMappedFileDisposed;
+        if (nativeResourcesReleased)
+        {
+            if (_ownerLease.HasValue && Volatile.Read(ref _ownerLeaseReleased) == 0)
+            {
+                try
+                {
+                    CleanupStageTestHook?.Invoke(IndexInputCleanupStage.ReleaseOwnerLease);
+                    _ownerLease.Value.Dispose();
+                    Volatile.Write(ref _ownerLeaseReleased, 1);
+                }
+                catch (Exception exception)
+                {
+                    (failures ??= []).Add(exception);
+                }
+            }
+
+            if (_fileLease is not null && Volatile.Read(ref _fileLeaseReleased) == 0)
+            {
+                try
+                {
+                    CleanupStageTestHook?.Invoke(IndexInputCleanupStage.ReleaseFileLease);
+                    if (fromFinaliser)
+                        _fileLease.ReleaseFromFinaliser(_measurementContext);
+                    else
+                        _fileLease.Dispose();
+                    Volatile.Write(ref _fileLeaseReleased, 1);
+                }
+                catch (Exception exception)
+                {
+                    (failures ??= []).Add(exception);
+                }
+            }
+        }
+
+        bool ownerLeaseReleased = !_ownerLease.HasValue || Volatile.Read(ref _ownerLeaseReleased) != 0;
+        bool fileLeaseReleased = _fileLease is null || Volatile.Read(ref _fileLeaseReleased) != 0;
+        if (nativeResourcesReleased && ownerLeaseReleased && fileLeaseReleased)
+            Volatile.Write(ref _resourcesReleased, 1);
+
+        if (failures is { Count: 1 })
+            ExceptionDispatchInfo.Capture(failures[0]).Throw();
+        if (failures is { Count: > 1 })
+            throw new AggregateException("Mapped input cleanup failed at multiple stages.", failures);
     }
 
     /// <summary>
@@ -808,11 +913,24 @@ public sealed unsafe class IndexInput : IDisposable
     /// </summary>
     ~IndexInput()
     {
-        if (Interlocked.CompareExchange(ref _disposeStarted, 1, 0) != 0)
-            return;
+        OperationDrain.DisposalAttempt? attempt = null;
+        try
+        {
+            attempt = _operations.BeginDisposeAndWaitForCompletion();
+            if (attempt is null)
+                return;
 
-        _disposed = true;
-        ReleaseResources(fromFinaliser: true);
+            _disposed = true;
+            ReleaseResources(fromFinaliser: true);
+            _operations.CompleteDisposalSuccessfully(attempt);
+        }
+        catch (Exception exception)
+        {
+            // A finaliser which joined another caller's attempt only observes its
+            // outcome. It must not publish that failure as its own cleanup result.
+            if (attempt is not null)
+                _operations.CompleteDisposalWithFailure(attempt, exception);
+        }
     }
 
     private ReadScope EnterReadScope() => new(this);
@@ -962,4 +1080,13 @@ public sealed unsafe class IndexInput : IDisposable
     [DoesNotReturn]
     private static void ThrowArrayTooLarge()
         => throw new ArgumentOutOfRangeException("count", "The requested array is too large for a byte span.");
+}
+
+internal enum IndexInputCleanupStage : byte
+{
+    ReleasePointer,
+    DisposeAccessor,
+    DisposeMemoryMappedFile,
+    ReleaseOwnerLease,
+    ReleaseFileLease
 }

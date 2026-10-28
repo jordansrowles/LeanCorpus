@@ -1,0 +1,572 @@
+{
+  "schemaVersion": 1,
+  "data": {
+    "vector-first-touch": "VectorFirstTouchBenchmarks -- serial and parallel cold vector/HNSW first touch",
+    "hnsw": "HnswSearchBenchmarks",
+    "analysis-parity": "AnalyserParityBenchmarks",
+    "all": "All primary benchmark suites",
+    "segment-reader-cache": "SegmentReaderCacheBenchmarks",
+    "docvalues-read": "DocValuesReadBenchmarks",
+    "all-with-explicit": "All primary plus all explicit-only suites",
+    "windows-filesystem": "WindowsFileSystemBenchmarks",
+    "similarity": "SimilarityBenchmarks",
+    "numeric-aggregator": "NumericAggregatorSimdBenchmarks",
+    "approximation": "ApproximationBenchmarks -- scalar references and bounded approximate statistics",
+    "codec-frame": "CodecFrameBenchmarks",
+    "parser": "QueryParserBenchmarks -- valid query parsing and bounded input rejection as separate operations",
+    "docvalues-write": "BinaryDocValuesWriteBenchmarks -- binary payload-offset accounting and block write",
+    "hybrid": "HybridSearchBenchmarks",
+    "diagnostics": "DiagnosticsBenchmarks",
+    "tv-highlighter": "TermVectorHighlighterBenchmarks",
+    "searcher-mgr": "SearcherManagerBenchmarks",
+    "aggregation": "AggregationBenchmarks and spatial aggregation benchmarks",
+    "fuzzy-parity": "Fuzzy query parity workloads",
+    "fuzzy-cache": "Fuzzy expansion-cache workloads",
+    "bounded-lru-cache": "BoundedLruCacheFailureBenchmarks -- acquisition after unrelated eviction disposal failure",
+    "blockjoin-search": "BlockJoinSearchBenchmarks",
+    "async-index": "AsyncIndexingBenchmarks",
+    "span": "SpanQueryBenchmarks",
+    "nearest": "SpatialNearestBenchmarks",
+    "codec-migration": "CodecMigrationBenchmarks",
+    "vq": "VectorQuantisationBenchmarks",
+    "indexsort": "IndexSortIndex/Search",
+    "function-score": "FunctionScoreQueryBenchmarks",
+    "highlighter": "HighlighterBenchmarks",
+    "fst-lookup": "FstLookupBenchmarks",
+    "fst-build": "FstBuildBenchmarks",
+    "codec-frame-read": "CodecFrameReadBenchmarks",
+    "windows-storage": "WindowsStoragePathBenchmarks",
+    "gutenberg-search": "GutenbergSearch",
+    "geo": "GeoQueryBenchmarks",
+    "indexsort-index": "IndexSortIndexBenchmarks",
+    "index": "IndexingBenchmarks and LanguageAnalysisIndexingBenchmarks",
+    "schemajson": "SchemaAndJsonBenchmarks",
+    "term-caches": "QualifiedTermCacheBenchmarks -- qualified-term interning and collection-frequency cache workload",
+    "query": "TermQueryBenchmarks",
+    "index-writer": "IndexWriterContentionBenchmarks",
+    "deletion-queue": "DeletionQueueBenchmarks",
+    "explicit": "All explicit-only suites",
+    "wildcard": "WildcardQueryBenchmarks",
+    "regexp": "RegexpQueryBenchmarks",
+    "prefix": "PrefixQueryBenchmarks",
+    "bkd": "BKDTreeBenchmarks",
+    "merge": "MergeBenchmarks and MergeDeletionHeavyBenchmarks",
+    "parallel": "ParallelSearchBenchmarks",
+    "segment-reader-resource-cache": "SegmentReaderResourceCacheBenchmarks -- retained-byte budget under large DocValues reads",
+    "deletion-commit": "DeletionCommitBenchmarks",
+    "multiphrase": "MultiPhraseQueryBenchmarks",
+    "concurrent-write": "ConcurrentVsSequentialBenchmarks",
+    "boolean": "BooleanQueryBenchmarks",
+    "packed-bkd": "PackedBkdBenchmarks -- post-build size metadata and warm-page-cache reader traversal",
+    "terminset": "TermInSetQueryBenchmarks",
+    "range": "RangeQueryBenchmarks",
+    "indexsort-search": "IndexSortSearchBenchmarks",
+    "deletion": "Deletion queue and commit",
+    "deletion-replacement-refresh": "Deletion replacement and refresh lifecycle",
+    "gutenberg-index": "GutenbergIndex",
+    "blockjoin": "BlockJoinIndex/Search",
+    "combined": "CombinedFieldsQueryBenchmarks",
+    "shape": "Shape indexing/relations, Shape DocValues serialisation/read/traversal/merge-copy, and WKT/simplification",
+    "collapse-facet": "CollapseAndFacetBenchmarks",
+    "compound-file": "CompoundFileBenchmarks",
+    "analysis-filters": "TokenFilterBenchmarks",
+    "phrase": "PhraseQueryBenchmarks",
+    "dismax": "DisjunctionMaxQueryBenchmarks",
+    "postings-arena": "PostingsArenaBenchmarks",
+    "merge-payload": "MergePayloadBenchmarks -- wide sparse per-field payload remapping",
+    "suggester": "SuggesterBenchmarks",
+    "blockjoin-index": "BlockJoinIndexBenchmarks",
+    "mmap-io": "MMapDirectoryIOBenchmarks",
+    "query-cache": "QueryCacheBenchmarks",
+    "packed-int-codec": "PackedIntCodecBenchmarks",
+    "stored-fields": "StoredFieldsReadBenchmarks, StoredFieldsWriteBenchmarks, and StoredFieldsByteBoundedBenchmarks -- reads and wide-document flush encoding",
+    "mlt": "MoreLikeThisBenchmarks + MoreLikeThisSingleSegmentBenchmarks",
+    "flush": "FlushBenchmarks",
+    "flush-term-cardinality": "FlushTermCardinalityBenchmarks -- unique-term cardinality and flush concurrency",
+    "tokenbudget": "TokenBudgetBenchmarks same-work enforcement comparison plus TokenBudgetPolicyVariantBenchmarks fixed-budget policies (explicit only)",
+    "incremental-backup": "IncrementalBackupBenchmarks -- incremental backup workload (explicit only)",
+    "multi-reader": "MultiReaderBenchmarks -- multi-reader search workload (explicit only)",
+    "ordinal-map": "OrdinalMapBenchmarks -- ordinal mapping workload (explicit only)",
+    "ranking-evaluation": "RankingEvaluationBenchmarks -- ranking evaluation workload (explicit only)",
+    "ranking-pipeline": "RankingPipelineBenchmarks -- ranking pipeline workload (explicit only)",
+    "reader-manager": "ReaderManagerLifecycleBenchmarks -- reader manager lifecycle workload (explicit only)",
+    "search-session": "SearchSessionBenchmarks -- search session workload (explicit only)"
+  },
+  "suiteMetadata": {
+    "vector-first-touch": {
+      "Aliases": [
+        "vectorfirsttouch"
+      ],
+      "ExplicitOnly": true
+    },
+    "hnsw": {
+      "Aliases": [
+        "hnsw-search"
+      ],
+      "IncludeWithExplicit": true
+    },
+    "analysis-parity": {
+      "DisplayName": "Analysis parity",
+      "Project": "text",
+      "BenchmarkClasses": [
+        "AnalyserParityBenchmarks"
+      ]
+    },
+    "all": {
+      "IsSelector": true
+    },
+    "segment-reader-cache": {
+      "DisplayName": "Segment reader cache",
+      "Aliases": [
+        "segmentreadercache"
+      ],
+      "ExplicitOnly": true
+    },
+    "docvalues-read": {
+      "Aliases": [
+        "docvaluesread"
+      ],
+      "ExplicitOnly": true
+    },
+    "all-with-explicit": {
+      "Aliases": [
+        "allwithexplicit"
+      ],
+      "IsSelector": true
+    },
+    "windows-filesystem": {
+      "Aliases": [
+        "windowsfilesystem"
+      ],
+      "ExplicitOnly": true,
+      "ControlledCorpusOnly": false
+    },
+    "similarity": {
+      "DisplayName": "Similarity"
+    },
+    "numeric-aggregator": {
+      "Aliases": [
+        "numericaggregator"
+      ],
+      "ExplicitOnly": true
+    },
+    "approximation": {
+      "DisplayName": "Approximation algorithms",
+      "Project": "core",
+      "ExplicitOnly": true,
+      "ControlledCorpusOnly": false
+    },
+    "codec-frame": {
+      "Aliases": [
+        "codecframe"
+      ],
+      "ExplicitOnly": true,
+      "ControlledCorpusOnly": false
+    },
+    "parser": {},
+    "docvalues-write": {
+      "Aliases": [
+        "docvalueswrite"
+      ],
+      "ExplicitOnly": true
+    },
+    "hybrid": {},
+    "diagnostics": {
+      "ExplicitOnly": true
+    },
+    "tv-highlighter": {
+      "DisplayName": "Term-vector highlighter",
+      "Aliases": [
+        "tvhighlighter"
+      ]
+    },
+    "searcher-mgr": {
+      "DisplayName": "Searcher manager",
+      "Aliases": [
+        "searchermgr"
+      ]
+    },
+    "aggregation": {
+      "DisplayName": "Aggregation"
+    },
+    "fuzzy-parity": {
+      "DisplayName": "Fuzzy parity",
+      "Aliases": [
+        "fuzzy"
+      ],
+      "BenchmarkClasses": [
+        "FuzzyQueryBenchmarks"
+      ]
+    },
+    "fuzzy-cache": {
+      "DisplayName": "Fuzzy expansion cache",
+      "BenchmarkClasses": [
+        "FuzzyExpansionCacheBenchmarks"
+      ]
+    },
+    "bounded-lru-cache": {
+      "Aliases": [
+        "boundedlrucache"
+      ],
+      "ExplicitOnly": true
+    },
+    "blockjoin-search": {
+      "DisplayName": "Block-Join (search)",
+      "Aliases": [
+        "blockjoinsearch"
+      ]
+    },
+    "async-index": {
+      "DisplayName": "Async index",
+      "Aliases": [
+        "asyncindex"
+      ]
+    },
+    "span": {
+      "DisplayName": "Span queries"
+    },
+    "nearest": {
+      "Aliases": [
+        "spatial-nearest"
+      ],
+      "ExplicitOnly": true
+    },
+    "codec-migration": {
+      "Aliases": [
+        "codecmigration"
+      ],
+      "ExplicitOnly": true,
+      "ControlledCorpusOnly": false
+    },
+    "vq": {
+      "DisplayName": "Vector queries",
+      "Aliases": [
+        "vectorquantisation"
+      ],
+      "IncludeWithExplicit": true
+    },
+    "indexsort": {},
+    "function-score": {
+      "DisplayName": "Function score",
+      "Aliases": [
+        "functionscore"
+      ]
+    },
+    "highlighter": {
+      "DisplayName": "Highlighter"
+    },
+    "fst-lookup": {
+      "Aliases": [
+        "fstlookup"
+      ],
+      "ExplicitOnly": true
+    },
+    "fst-build": {
+      "Aliases": [
+        "fstbuild"
+      ],
+      "ExplicitOnly": true
+    },
+    "codec-frame-read": {
+      "Aliases": [
+        "codecframeread"
+      ],
+      "ExplicitOnly": true,
+      "ControlledCorpusOnly": false
+    },
+    "windows-storage": {
+      "Aliases": [
+        "windowsstorage"
+      ],
+      "ExplicitOnly": true,
+      "ControlledCorpusOnly": false
+    },
+    "gutenberg-search": {
+      "DisplayName": "Gutenberg search",
+      "Aliases": [
+        "gutenbergsearch"
+      ],
+      "RequiresGutenbergData": true
+    },
+    "geo": {
+      "DisplayName": "Geo queries"
+    },
+    "indexsort-index": {
+      "DisplayName": "Index-sort (index)",
+      "Aliases": [
+        "indexsortindex"
+      ]
+    },
+    "index": {
+      "DisplayName": "Indexing"
+    },
+    "schemajson": {
+      "DisplayName": "Schema and JSON"
+    },
+    "term-caches": {
+      "Aliases": [
+        "termcaches"
+      ],
+      "ExplicitOnly": true
+    },
+    "query": {
+      "DisplayName": "Term queries"
+    },
+    "index-writer": {
+      "Aliases": [
+        "indexwriter"
+      ],
+      "ExplicitOnly": true
+    },
+    "deletion-queue": {
+      "DisplayName": "Deletion (queue)",
+      "Aliases": [
+        "deletionqueue"
+      ]
+    },
+    "explicit": {
+      "IsSelector": true
+    },
+    "wildcard": {
+      "DisplayName": "Wildcard queries"
+    },
+    "regexp": {
+      "DisplayName": "Regexp queries"
+    },
+    "prefix": {
+      "DisplayName": "Prefix queries"
+    },
+    "bkd": {
+      "Aliases": [
+        "bkd-tree"
+      ],
+      "ExplicitOnly": true
+    },
+    "merge": {
+      "ExplicitOnly": true
+    },
+    "parallel": {
+      "DisplayName": "Parallel search"
+    },
+    "segment-reader-resource-cache": {
+      "Aliases": [
+        "segmentreaderresourcecache"
+      ],
+      "ExplicitOnly": true
+    },
+    "deletion-commit": {
+      "DisplayName": "Deletion (commit)",
+      "Aliases": [
+        "deletioncommit"
+      ]
+    },
+    "multiphrase": {
+      "DisplayName": "Multi-phrase"
+    },
+    "concurrent-write": {
+      "Aliases": [
+        "concurrentwrite"
+      ],
+      "ExplicitOnly": true
+    },
+    "boolean": {
+      "DisplayName": "Boolean queries"
+    },
+    "packed-bkd": {
+      "Aliases": [
+        "packedbkd"
+      ],
+      "ExplicitOnly": true
+    },
+    "terminset": {
+      "DisplayName": "Term in set",
+      "Aliases": [
+        "term-in-set"
+      ]
+    },
+    "range": {
+      "DisplayName": "Range queries"
+    },
+    "indexsort-search": {
+      "DisplayName": "Index-sort (search)",
+      "Aliases": [
+        "indexsortsearch"
+      ]
+    },
+    "deletion": {
+      "DisplayName": "Deletion"
+    },
+    "deletion-replacement-refresh": {
+      "DisplayName": "Deletion replacement and refresh",
+      "ExplicitOnly": true
+    },
+    "gutenberg-index": {
+      "DisplayName": "Gutenberg index",
+      "Aliases": [
+        "gutenbergindex"
+      ],
+      "RequiresGutenbergData": true
+    },
+    "blockjoin": {
+      "DisplayName": "Block-Join"
+    },
+    "combined": {
+      "DisplayName": "Combined queries"
+    },
+    "shape": {
+      "Aliases": [
+        "shapes"
+      ],
+      "ExplicitOnly": true
+    },
+    "collapse-facet": {
+      "DisplayName": "Collapse and facet",
+      "Aliases": [
+        "collapsefacet"
+      ]
+    },
+    "compound-file": {
+      "Aliases": [
+        "compoundfile"
+      ],
+      "ExplicitOnly": true,
+      "ControlledCorpusOnly": false
+    },
+    "analysis-filters": {
+      "DisplayName": "Analysis filters",
+      "Project": "text",
+      "BenchmarkClasses": [
+        "TokenFilterBenchmarks",
+        "SynonymBenchmarks"
+      ]
+    },
+    "phrase": {
+      "DisplayName": "Phrase queries"
+    },
+    "dismax": {
+      "DisplayName": "Disjunction max"
+    },
+    "postings-arena": {
+      "Aliases": [
+        "postingsarena"
+      ],
+      "ExplicitOnly": true
+    },
+    "merge-payload": {
+      "Aliases": [
+        "mergepayload"
+      ],
+      "ExplicitOnly": true
+    },
+    "suggester": {
+      "DisplayName": "Suggester"
+    },
+    "blockjoin-index": {
+      "DisplayName": "Block-Join (index)",
+      "Aliases": [
+        "blockjoinindex"
+      ]
+    },
+    "mmap-io": {
+      "Aliases": [
+        "mmapio"
+      ],
+      "ExplicitOnly": true
+    },
+    "query-cache": {
+      "DisplayName": "Query cache",
+      "Aliases": [
+        "querycache"
+      ]
+    },
+    "packed-int-codec": {
+      "Aliases": [
+        "packedintcodec"
+      ],
+      "ExplicitOnly": true
+    },
+    "stored-fields": {
+      "Aliases": [
+        "storedfields"
+      ]
+    },
+    "mlt": {
+      "DisplayName": "More like this"
+    },
+    "flush": {
+      "ExplicitOnly": true
+    },
+    "flush-term-cardinality": {
+      "DisplayName": "Flush term cardinality",
+      "Project": "core",
+      "ExplicitOnly": true,
+      "ControlledCorpusOnly": false
+    },
+    "tokenbudget": {
+      "ExplicitOnly": true
+    },
+    "incremental-backup": {
+      "DisplayName": "Incremental backup",
+      "Aliases": [
+        "incrementalbackup"
+      ],
+      "ExplicitOnly": true
+    },
+    "multi-reader": {
+      "DisplayName": "Multi-reader",
+      "Aliases": [
+        "multireader"
+      ],
+      "ExplicitOnly": true
+    },
+    "ordinal-map": {
+      "DisplayName": "Ordinal map",
+      "Aliases": [
+        "ordinalmap"
+      ],
+      "ExplicitOnly": true
+    },
+    "ranking-evaluation": {
+      "DisplayName": "Ranking evaluation",
+      "Aliases": [
+        "rankingevaluation"
+      ],
+      "ExplicitOnly": true
+    },
+    "ranking-pipeline": {
+      "DisplayName": "Ranking pipeline",
+      "Aliases": [
+        "rankingpipeline"
+      ],
+      "ExplicitOnly": true
+    },
+    "reader-manager": {
+      "DisplayName": "Reader manager",
+      "Aliases": [
+        "readermanager"
+      ],
+      "ExplicitOnly": true
+    },
+    "search-session": {
+      "DisplayName": "Search session",
+      "Aliases": [
+        "searchsession"
+      ],
+      "ExplicitOnly": true
+    }
+  },
+  "historicalLabels": {
+    "analysis": "Analysis",
+    "analysis-filters-v2": "Analysis filters v2",
+    "compound-index": "Compound file (index)",
+    "compound-search": "Compound file (search)",
+    "gutenberg-analysis": "Gutenberg analysis",
+    "hunspell": "Hunspell",
+    "kstemmer": "KStemmer",
+    "lightenglish": "Light English stemmer",
+    "ngram": "N-gram",
+    "pattern-tokeniser": "Pattern tokeniser",
+    "stemmer": "Stemmer",
+    "synonym": "Synonym"
+  }
+}

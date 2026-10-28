@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main, '[0-9]*', 'stabilise/**']
+    branches: [main, '[0-9]*', 'stabilise/**', 'issue-97']
   pull_request: {}
   workflow_dispatch:
 
@@ -10,10 +10,99 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Use the source branch for both push and pull-request events.
+  group: build-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
+  managed-devops-foundation:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+          - platform: osx-arm64
+            runner: macos-15
+          - platform: win-x64
+            runner: windows-2025
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Bootstrap and qualify managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Validate solution project inventory
+        shell: pwsh
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost config validate --solution-inventory
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify promoted host, direct build and PowerShell forwarding
+        shell: pwsh
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $managedHost --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $project = 'src/devops/tooling/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj'
+          & $managedHost build --project $project --framework net10.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $managedHost build --project $project --framework net10.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run report all through the promoted host
+        shell: pwsh
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          $reportOutputPath = Join-Path $env:RUNNER_TEMP 'managed-report-all.stdout.json'
+          & $managedHost report all --json > $reportOutputPath
+          $reportExitCode = $LASTEXITCODE
+          if ($reportExitCode -ne 0) {
+            Get-Content -LiteralPath $reportOutputPath
+            exit $reportExitCode
+          }
+          $report = Get-Content -LiteralPath $reportOutputPath -Raw | ConvertFrom-Json -Depth 100
+          if ($report.contractVersion -ne 1 -or
+              $report.command -cne 'report' -or
+              $report.requestSummary.group -cne 'all' -or
+              $report.state -cne 'succeeded' -or
+              $report.outcome -cne 'Success' -or
+              [string]::IsNullOrWhiteSpace($report.runId) -or
+              @($report.childAttempts).Count -eq 0) {
+            throw 'Managed report all returned an incomplete or unsuccessful JSON contract.'
+          }
+          $reportArtifactPath = Join-Path $PWD "artifacts/report/runs/$($report.runId)/report.json"
+          if (-not (Test-Path -LiteralPath $reportArtifactPath -PathType Leaf)) {
+            throw "Managed report run artifact is missing: $reportArtifactPath"
+          }
+          Write-Host "Managed report run $($report.runId) succeeded with $(@($report.childAttempts).Count) child commands."
+      - name: Upload managed report evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: managed-report-${{ matrix.platform }}
+          path: artifacts/report/runs
+          if-no-files-found: warn
+      - name: Upload managed DevOps diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: managed-devops-${{ matrix.platform }}-diagnostics
+          path: |
+            artifacts/devops
+            artifacts/build/runs
+          if-no-files-found: warn
+
   linux-tests:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
@@ -30,40 +119,26 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Build solution
         shell: pwsh
-        run: ./devops.ps1 build
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload build diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.framework }}-build-diagnostics
           path: artifacts/build/runs
-          if-no-files-found: error
-      - name: Install Playwright Chromium
-        if: matrix.framework == 'net11.0'
-        shell: pwsh
-        run: |
-          $projectOutputRoot = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests'
-          $playwrightScripts = @(Get-ChildItem -LiteralPath $projectOutputRoot -Filter 'playwright.ps1' -File -Recurse -ErrorAction SilentlyContinue)
-          if ($playwrightScripts.Count -ne 1) { throw "Expected exactly one generated playwright.ps1 under '$projectOutputRoot'; found $($playwrightScripts.Count)." }
-          pwsh $playwrightScripts[0].FullName install --with-deps chromium
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Validate DevOps artefact infrastructure
-        if: matrix.framework == 'net10.0'
-        shell: pwsh
-        run: |
-          pwsh ./scripts/devops/validation/artifacts-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh ./scripts/devops/validation/runtime-identifier-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh ./scripts/devops/validation/test-progress-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pwsh ./scripts/devops/validation/affected-selection-smoke.ps1
+          if-no-files-found: warn
       - name: Test deterministic suites
         shell: pwsh
         env: { CHAOS_ITERATIONS: 25 }
-        run: ./devops.ps1 test all --ci --framework '${{ matrix.framework }}' --HangTimeout 100s
+        run: ./devops test all --ci --framework '${{ matrix.framework }}' --hang-timeout 100s
       - name: Upload test run artefacts
         if: always()
         uses: actions/upload-artifact@v7
@@ -72,8 +147,65 @@ jobs:
           path: artifacts/test/runs
           if-no-files-found: warn
 
+  orchard-browser-linux:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright/dotnet:v1.63.0-noble
+      # Browser tests exercise only the local, same-commit test site.
+      options: --ipc=host --init
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [net10.0, net11.0]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Verify Playwright container toolchain
+        shell: bash
+        run: |
+          command -v git
+          command -v pwsh
+          command -v dotnet
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git -c "safe.directory=$GITHUB_WORKSPACE" -C "$GITHUB_WORKSPACE" rev-parse --show-toplevel
+          test -w "$GITHUB_WORKSPACE"
+          mkdir -p artifacts
+          test -w artifacts
+          dotnet --list-sdks
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Build Orchard browser test target
+        shell: pwsh
+        run: ./devops build --project src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj --framework '${{ matrix.framework }}'
+      - name: Run Orchard browser tests
+        shell: pwsh
+        env: { CHAOS_ITERATIONS: 25 }
+        run: ./devops test server-orchard-functional --ci --framework '${{ matrix.framework }}' --hang-timeout 100s
+      - name: Upload Orchard build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-orchard-${{ matrix.framework }}-build-diagnostics
+          path: artifacts/build/runs
+          if-no-files-found: warn
+      - name: Upload Orchard browser test artefacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-orchard-${{ matrix.framework }}-test-results
+          path: artifacts/test/runs
+          if-no-files-found: warn
+
   coverage:
-    needs: linux-tests
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -84,14 +216,26 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Collect MTP coverage
         shell: pwsh
-        run: ./devops.ps1 coverage -Framework net10.0 -Clean
-      - uses: actions/upload-artifact@v7
+        run: ./devops coverage --framework net10.0 --clean
+      - name: Upload coverage run evidence
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-runs
           path: artifacts/coverage/runs
-          if-no-files-found: error
+          if-no-files-found: warn
+      - name: Upload linked coverage test-run evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-test-runs
+          path: artifacts/test/runs
+          if-no-files-found: warn
 
   windows-tests:
     runs-on: windows-2025
@@ -104,37 +248,82 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Build solution
         shell: pwsh
-        run: ./devops.ps1 build
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload build diagnostics
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: windows-build-diagnostics
           path: artifacts/build/runs
-          if-no-files-found: error
-      - name: Install Playwright Chromium
-        shell: pwsh
-        run: |
-          $projectOutputRoot = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests'
-          $playwrightScripts = @(Get-ChildItem -LiteralPath $projectOutputRoot -Filter 'playwright.ps1' -File -Recurse -ErrorAction SilentlyContinue)
-          if ($playwrightScripts.Count -ne 1) { throw "Expected exactly one generated playwright.ps1 under '$projectOutputRoot'; found $($playwrightScripts.Count)." }
-          pwsh $playwrightScripts[0].FullName install chromium
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if-no-files-found: warn
       - name: Run complete Windows test suite
         shell: pwsh
         env:
           CHAOS_ITERATIONS: 25
         run: |
-          pwsh ./scripts/devops/validation/test-progress-smoke.ps1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./devops.ps1 test all --ci --HangTimeout 100s
+          ./devops.exe test all --ci --hang-timeout 100s
       - name: Upload test run artefacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: windows-test-results
+          path: artifacts/test/runs
+          if-no-files-found: warn
+
+  orchard-browser-windows:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [net10.0, net11.0]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '11.0.x'
+          dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Build Orchard browser test target
+        shell: pwsh
+        run: ./devops.exe build --project src/server/devops/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.csproj --framework '${{ matrix.framework }}'
+      - name: Install Playwright Chromium
+        shell: pwsh
+        run: |
+          $projectOutputRoot = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests'
+          $projectOutputDirectory = Join-Path $projectOutputRoot 'release_${{ matrix.framework }}'
+          $playwrightScript = Join-Path $projectOutputDirectory 'playwright.ps1'
+          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) { throw "Generated Playwright installer is missing: $playwrightScript" }
+          pwsh $playwrightScript install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run Orchard browser tests
+        shell: pwsh
+        env: { CHAOS_ITERATIONS: 25 }
+        run: ./devops.exe test server-orchard-functional --ci --framework '${{ matrix.framework }}' --hang-timeout 100s
+      - name: Upload Orchard build diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-orchard-${{ matrix.framework }}-build-diagnostics
+          path: artifacts/build/runs
+          if-no-files-found: warn
+      - name: Upload Orchard browser test artefacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-orchard-${{ matrix.framework }}-test-results
           path: artifacts/test/runs
           if-no-files-found: warn
 
@@ -149,9 +338,15 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Validate shipping package APIs and archives
         shell: pwsh
-        run: ./devops.ps1 pack -Clean
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost pack --clean
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload package validation artefacts
         if: failure()
         uses: actions/upload-artifact@v7
@@ -171,9 +366,15 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Validate generated package consumers
         shell: pwsh
-        run: ./devops.ps1 pack -Clean -ValidatePackages
+        run: |
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost pack --clean --validate-packages
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload package consumer artefacts
         if: failure()
         uses: actions/upload-artifact@v7
@@ -211,14 +412,18 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - name: Run platform smoke and Native AOT
         shell: pwsh
         run: |
-          ./devops.ps1 test architecture --framework net10.0
+          $managedHost = if ($IsWindows) { './devops.exe' } else { './devops' }
+          & $managedHost test architecture --framework net10.0
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./devops.ps1 test core --framework net10.0 --Filter 'Scope=PlatformSmoke' --HangTimeout 100s
+          & $managedHost test core --framework net10.0 --filter 'Scope=PlatformSmoke' --hang-timeout 100s
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ./devops.ps1 aot --ci --framework net10.0 --RuntimeIdentifier '${{ matrix.rid }}'
+          & $managedHost aot --ci --framework net10.0 --rid '${{ matrix.rid }}'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload test run artefacts
         if: always()
@@ -228,11 +433,10 @@ jobs:
           path: artifacts/test/runs
           if-no-files-found: warn
 
-  deploy:
-    needs: [linux-tests, coverage, windows-tests, platform-smoke]
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, '[deploy]')
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+  docs-site:
+    needs: coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
@@ -241,14 +445,74 @@ jobs:
         with:
           dotnet-version: '11.0.x'
           dotnet-quality: preview
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.23.3'
+          cache: npm
+          cache-dependency-path: docs/site-config/diagrams/package-lock.json
+      - name: Verify docs host toolchain
+        shell: bash
+        run: |
+          command -v git
+          command -v pwsh
+          command -v node
+          command -v dotnet
+          test -w "$GITHUB_WORKSPACE"
+          mkdir -p artifacts
+          test -w artifacts
+          test "$(node --version)" = 'v22.23.3'
+          dotnet --list-sdks
+      - name: Validate docs deployment admission rules
+        run: node --test .github/scripts/docs/resolve-docs-deployment-run.test.mjs
+      - name: Restore repository tools
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
       - uses: actions/download-artifact@v7
         with:
           name: coverage-runs
           path: artifacts/coverage/runs
-      - name: Build docs
+      - name: Build docs test target
         shell: pwsh
-        run: ./devops docs build -SkipBenchmarks
+        run: ./devops build --project src/devops/tests/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj --framework net10.0
+      - name: Install Playwright Chromium
+        shell: pwsh
+        run: |
+          $projectOutputDirectory = Join-Path $PWD 'artifacts/bin/Rowles.LeanCorpus.Tests.Docs/release_net10.0'
+          $playwrightScript = Join-Path $projectOutputDirectory 'playwright.ps1'
+          if (-not (Test-Path -LiteralPath $playwrightScript -PathType Leaf)) {
+            throw "Generated Playwright installer is missing: $playwrightScript"
+          }
+          pwsh $playwrightScript install --with-deps chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build documentation site
+        shell: pwsh
+        run: ./devops docs build
+      - name: Validate documentation site
+        shell: pwsh
+        run: ./devops docs test --framework net10.0 --no-restore
       - uses: actions/upload-artifact@v7
         with:
           name: leancorpus-docs-site
-          path: artifacts/docs/site
+          path: |
+            artifacts/docs/site
+            artifacts/docs/generated/provenance.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload documentation diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-site-diagnostics
+          path: artifacts/docs/diagnostics
+          if-no-files-found: warn
+      - name: Upload documentation validation evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-site-validation
+          path: |
+            artifacts/docs/runs
+            artifacts/test/runs
+            artifacts/build/runs
+          if-no-files-found: warn
+          retention-days: 30

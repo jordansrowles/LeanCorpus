@@ -40,8 +40,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Added
 
+- Compose first-party physical indexes under an internal runtime with terminal close, operation and search leases, definitive health, and correlated resource diagnostics.
 - Add trace-correlated backup/restore filesystem measurements and a fixed-seed DevOps matrix; honour configured FsCheck iterations without reducing default coverage. Publish the completed diagnostic results and distinguish read-open timings from deletion.
-
 - Add a Spectre.Console CLI Workbench for interactive index browsing, search, analysis, Core-backed inspection, deterministic index creation, fingerprints and workload replay. ([49cfcd898](https://github.com/jordansrowles/LeanCorpus/commit/49cfcd8980793b428469c1df503196637cf1d834))
 - Add public read-only `IndexInspector` and typed inspection models for committed-index overviews, segments, fields, terms and postings, documents, vector and spatial metadata, and format and size inspection. ([49cfcd898](https://github.com/jordansrowles/LeanCorpus/commit/49cfcd8980793b428469c1df503196637cf1d834))
 - Expose ordered multi-document replacement through `IndexWriter.UpdateDocuments`, applying one delete pass before ordered replacements in a batch. ([d158f0507](https://github.com/jordansrowles/LeanCorpus/commit/d158f0507c56a38ac149dd043215359c8d6d1d70))
@@ -69,6 +69,30 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Update the standalone Rowles.Text README's benchmark commands to the managed DevOps CLI and clarify this branch's unreleased package target.
+- Clarify unreleased package versions and API-reference coverage in the documentation preview, and direct first-time users to the canonical installation guide.
+- Rename the internal Core JSON metadata namespace and source area to British `Serialisation`; preserve Core JSON payload shapes and property names, with Server wire-contract types untouched.
+- Pin DocFX 2.78.5 in the repository-local .NET tool manifest and add root bootstrap checks for PowerShell 7, Git and the `global.json` SDK family.
+- Move canonical documentation and site configuration into `docs/content/` and `docs/site-config/`; stage generated API, import, ADR, changelog, benchmark and site outputs under `artifacts/docs/`.
+- Add an isolated managed DevOps host for `build`, `clean` and foreground `server start`; bootstrap it with `pwsh ./devops.ps1 bootstrap` and keep unmigrated commands on the PowerShell dispatcher.
+- Extend the managed DevOps host with package archive and isolated-consumer validation, plus Gutenberg downloads that record SHA-256 identities and atomically promote completed files.
+- Add managed DataForge dataset generation and reproducible migration-fixture archive generation to the DevOps CLI.
+- Add managed DataForge qualification with recorded build, test and benchmark runs, synthetic dataset identities, and frozen Wikipedia reference validation.
+- Route standalone .NET diagnostics through the managed apphost with pinned local tools, run manifests, capture timeouts and retained child logs.
+- Route coverage through the managed test pipeline, preserve suite eligibility and performance exclusions, and retain Cobertura and optional HTML reports under coverage run artefacts using pinned ReportGenerator 5.5.11.
+- Add managed repository, tracked-file and code-health reports with JSON run evidence, child-process logs, strict checks and explicit shallow-history and rename-analysis warnings.
+- Add managed local BenchmarkDotNet runs with suite, strategy, dataset and group selection, run provenance, bounded cancellation, result validation and scoped child-process environment overrides.
+- Route local, affected-source and remote SSH/tmux benchmark commands through the managed host; bootstrap that host in the manual benchmark workflow, record affected paths and remote session state, and leave cancellation unconfirmed until remote status is terminal.
+- Add shared managed test request planning, target selection and preparation, separate Microsoft.Testing.Platform and Native AOT runner adapters, strict TRX evidence parsing, legacy argument parity, repeated-run aggregation, target discovery and checkpoint events, and durable attempt and unscheduled-target reporting. Record the requested and selected SDK plus `global.json` roll-forward policy before preparation, and fail when SDK provenance cannot be resolved. When TRX omits an explicit skip reason, match the per-test MTP console reason by exact test name and leave missing or conflicting matches unset; keep the `test` and `aot` routes gated on platform parity.
+- Generate a Markdown summary and quoted timing CSV alongside managed test JSON reports, including preparation durations and fail-fast unscheduled targets.
+- Include bounded telemetry counters, stream truncation state, retained test summaries and telemetry read errors in managed test JSON and Markdown reports.
+- Link the managed DevOps lab-runner implementation specification from the contributor guide.
+- Write managed run envelopes to `run.json`, retain historical manifest readers, display managed evidence in the existing runs UI, and protect active runs in every supported artefact category.
+- Disable MSBuild build servers during managed DevOps locked restores to avoid stale server or named-pipe delays during bootstrap.
+- Bundle native dependencies in the managed single-file host so packages such as LibGit2Sharp do not leave root-level sidecars.
+- Retire tracked benchmark and changelog copies after verifying their staged replacements, and load the pinned Chart.js bundle locally.
+- Add provenance and link validation plus docs-site Playwright coverage with six visual baselines; make CI produce the site artefact that deployment publishes without rebuilding.
+- Restore the withdrawn field-length decision as ADR040 and assign the physical-index lifecycle decision ADR041, preserving history and correcting references.
 - Bring standalone Rowles.Text up to the graph-aware token API already included in LeanCorpus 3.1.1: `Token`, span sinks and span filters carry positive position lengths so shingles, synonyms and quoted analysis retain complete graph edges, and graph-producing indexing pipelines must flatten non-unit edges before postings. This adds `Token.PositionLength` and the corresponding constructor/API surface to the standalone package. ([6b702a035](https://github.com/jordansrowles/LeanCorpus/commit/6b702a035c035d587f81c161a8d6dd0aff81cb15))
 - Advance the LZ4, Snappy and Zstandard optional packages to 2.0.0, require LeanCorpus `[4.0.0,5.0.0)`, and publish matching symbol packages. ([7f7427d93](https://github.com/jordansrowles/LeanCorpus/commit/7f7427d93c9fc0210cbf11b423a3ab4e102b6993), [5608a1859](https://github.com/jordansrowles/LeanCorpus/commit/5608a18593c55f8c902f31bbfe0c66b9687f3505))
 - Define `ComplexPhraseQueryParser.InOrder` as controlling ordering only for multi-slot flat-alternative phrases; ordinary analysed phrases remain graph-aware and ordered. ([e93bc0e66](https://github.com/jordansrowles/LeanCorpus/commit/e93bc0e663c1761033dd79ddf01f695aaaa798c8))
@@ -113,6 +137,18 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- Bind overlapping mapped-input disposers to the cleanup attempt active at entry, preserve each attempt's outcome across retries, retain ownership after cleanup faults without asserting successful-cleanup invariants, and retry only unfinished pointer, accessor, mapping and owner-lease release stages.
+- Keep shared physical-index teardown independent of writer caller cancellation so async disposal completes or reports its own cleanup outcome.
+- Correct the analysis guide to identify the standalone Rowles.Text 2.0 release.
+- Resolve coverage source paths from the repository root and limit generated HTML to first-party assemblies, keeping coverage links valid in the documentation site.
+- Keep benchmark-run discovery as an array when documentation generation skips the scan or finds no runs.
+- Include linked DevOps migration-ledger JSON files in the generated documentation site.
+- Close managed run-manifest read handles before recording interrupted runs, so Windows can atomically replace the manifest; normalise the server project path before forwarding it to `dotnet`.
+- Reclaim idle file-lifetime registry states after directory owners, file leases and deferred-delete callbacks have settled; preserve failed deletes for recovery.
+- Report the definitive fatal writer failure after an earlier recoverable error, preserving terminal close failure provenance.
+- Retain failed deferred deletions for observable cleanup and require unleased pending cleanup to finish before composed physical close succeeds.
+- Keep copied reader leases safe to dispose repeatedly, and count outstanding leases on retired reader generations correctly.
+- Compose Orchard functional-test exclusions with explicit and affected test filters without mixing incompatible xUnit filter modes.
 - Publish the `LowercaseFilter` non-ASCII uppercase correction in standalone Rowles.Text; this fix was already included in LeanCorpus 3.1.1. ([a717abcce](https://github.com/jordansrowles/LeanCorpus/commit/a717abccea6c726c0862400c6f21aee35d52d36b))
 - Publish recoverable per-call token-budget accounting in standalone Rowles.Text so a rejected input does not poison later reuse of the same tokeniser; this fix was already included in LeanCorpus 3.1.1. ([2783e3720](https://github.com/jordansrowles/LeanCorpus/commit/2783e3720084117a2b283794159afe93f75f288f))
 - Preserve deletion snapshots across repeated uncommitted updates and rollback, and isolate background merges from concurrent segment-state changes. ([793d1b49f](https://github.com/jordansrowles/LeanCorpus/commit/793d1b49f1bacf00c2bbc47d8998a7edf70d3b5a))

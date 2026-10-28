@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Fixtures/Indexes/*.fixture.b64" />
+    <EmbeddedResource Include="Fixtures/Indexes/*.manifest.json" />
+    <Compile Remove="Diagnostics/*.cs" />
+  </ItemGroup>
+
+</Project>

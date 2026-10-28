@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Server.Core.Storage;
+﻿using Rowles.LeanCorpus.Server.Core.Storage;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
 using Rowles.LeanCorpus.Server.Core.Configuration;
 using Rowles.LeanCorpus.Server.Core.Execution;
@@ -16,31 +16,50 @@ internal sealed class LocalIndexRegistry : IDisposable
     private readonly Dictionary<string, IndexRuntimeEntry> _entries = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    private LocalIndexRegistry(string dataRoot, TimeSpan commitInterval, TimeSpan refreshInterval, ILocalCommitObserver? observer)
+    private LocalIndexRegistry(
+        string dataRoot,
+        TimeSpan commitInterval,
+        TimeSpan refreshInterval,
+        ILocalCommitObserver? observer,
+        Func<string, LocalIndexStore>? physicalStoreFactory)
     {
         _indicesPath = Path.Combine(dataRoot, "indices");
         _store = new RegistryStore(dataRoot);
-        _physicalStore = new LocalIndexStore(_indicesPath, commitInterval, refreshInterval, observer);
+        _physicalStore = physicalStoreFactory?.Invoke(_indicesPath)
+            ?? new LocalIndexStore(_indicesPath, commitInterval, refreshInterval, observer);
         _commitInterval = commitInterval;
         _refreshInterval = refreshInterval;
     }
 
-    internal static async ValueTask<LocalIndexRegistry> OpenAsync(string dataRoot, ServerCoreOptions options, CancellationToken cancellationToken)
+    internal static async ValueTask<LocalIndexRegistry> OpenAsync(
+        string dataRoot,
+        ServerCoreOptions options,
+        CancellationToken cancellationToken,
+        Func<string, LocalIndexStore>? physicalStoreFactory = null)
     {
         Directory.CreateDirectory(dataRoot);
-        LocalIndexRegistry registry = new(dataRoot, options.CommitInterval, options.RefreshInterval, options.CommitObserver);
+        LocalIndexRegistry registry = new(dataRoot, options.CommitInterval, options.RefreshInterval, options.CommitObserver, physicalStoreFactory);
         Directory.CreateDirectory(registry._indicesPath);
 
-        ServerRegistry persisted = await registry._store.LoadAsync(cancellationToken).ConfigureAwait(false);
-        ValidatePersistedRegistrations(persisted.Indices, registry._indicesPath);
-        foreach (IndexRegistration registration in persisted.Indices)
+        try
         {
-            LocalIndexDescriptor descriptor = ToDescriptor(registration);
-            LocalIndexHandle handle = await registry._physicalStore.OpenAsync(descriptor, LocalIndexOpenMode.ReadWrite, cancellationToken).ConfigureAwait(false);
-            registry._entries.Add(registration.Name, new IndexRuntimeEntry(registration, handle));
+            ServerRegistry persisted = await registry._store.LoadAsync(cancellationToken).ConfigureAwait(false);
+            ValidatePersistedRegistrations(persisted.Indices, registry._indicesPath);
+            foreach (IndexRegistration registration in persisted.Indices)
+            {
+                LocalIndexDescriptor descriptor = ToDescriptor(registration);
+                LocalIndexHandle handle = await registry._physicalStore.OpenAsync(descriptor, LocalIndexOpenMode.ReadWrite, cancellationToken).ConfigureAwait(false);
+                registry._entries.Add(registration.Name, new IndexRuntimeEntry(registration, handle));
+            }
+            return registry;
         }
-
-        return registry;
+        catch (Exception openFailure)
+        {
+            try { await registry._physicalStore.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception cleanupFailure) { throw new AggregateException("Server registry open and cleanup failed.", openFailure, cleanupFailure); }
+            finally { registry._gate.Dispose(); }
+            throw;
+        }
     }
 
     internal IReadOnlyList<IndexRuntimeEntry> List()
@@ -76,11 +95,19 @@ internal sealed class LocalIndexRegistry : IDisposable
                 await PersistAsync(cancellationToken).ConfigureAwait(false);
                 return entry;
             }
-            catch
+            catch (Exception persistenceFailure)
             {
                 lock (_entries)
                     _entries.Remove(registration.Name);
-                await _physicalStore.DeleteAsync(new PhysicalIndexId(registration.Id), CancellationToken.None).ConfigureAwait(false);
+                try
+                {
+                    await _physicalStore.DeleteAsync(new PhysicalIndexId(registration.Id), CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception rollbackFailure)
+                {
+                    throw new AggregateException("Server registry persistence and physical rollback failed; the index directory was retained for recovery.",
+                        persistenceFailure, rollbackFailure);
+                }
                 throw;
             }
         }
@@ -170,12 +197,8 @@ internal sealed class LocalIndexRegistry : IDisposable
 
     public void Dispose()
     {
-        IndexRuntimeEntry[] entries;
-        lock (_entries)
-            entries = _entries.Values.ToArray();
-        foreach (IndexRuntimeEntry entry in entries)
-            entry.Handle.Dispose();
-
+        // The physical store owns all handles and continues cleanup after an
+        // individual failure. Registry entries retain their logical identity.
         _physicalStore.DisposeAsync().AsTask().GetAwaiter().GetResult();
 
         _gate.Dispose();

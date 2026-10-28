@@ -1,0 +1,28 @@
+<Project>
+  <PropertyGroup>
+    <IsManagedDevOpsProject Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus.DevOps' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.DevOps.Tests' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.DevOps.ProcessTestChild'">true</IsManagedDevOpsProject>
+  </PropertyGroup>
+
+  <Import Project="../../Directory.Packages.props" Condition="'$(IsManagedDevOpsProject)' != 'true'" />
+
+  <PropertyGroup Condition="'$(IsManagedDevOpsProject)' == 'true'">
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(IsManagedDevOpsProject)' == 'true'">
+    <PackageVersion Include="Bullseye" Version="6.2.0" />
+    <PackageVersion Include="CliWrap" Version="3.10.5" />
+    <PackageVersion Include="LibGit2Sharp" Version="0.32.0" />
+    <PackageVersion Include="Microsoft.Build" Version="17.14.28" />
+    <PackageVersion Include="Microsoft.Build.Locator" Version="1.11.2" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageVersion Include="Microsoft.Extensions.FileSystemGlobbing" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.GitHubActionsReport" Version="2.4.0" />
+    <PackageVersion Include="Microsoft.Testing.Extensions.TrxReport" Version="2.3.3" />
+    <PackageVersion Include="Microsoft.VisualStudio.SolutionPersistence" Version="1.0.52" />
+    <PackageVersion Include="Spectre.Console" Version="0.57.2" />
+    <PackageVersion Include="Spectre.Console.Testing" Version="0.57.2" />
+    <PackageVersion Include="System.CommandLine" Version="3.0.0-preview.3.26207.106" />
+    <PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.0" />
+  </ItemGroup>
+</Project>

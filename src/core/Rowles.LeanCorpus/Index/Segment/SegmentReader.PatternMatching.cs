@@ -73,7 +73,13 @@ internal sealed partial class SegmentReaderState
     /// <summary>Returns terms within Levenshtein distance of queryTerm, with edit distances.</summary>
     public List<(string Term, long Offset, int Distance)> GetFuzzyMatches(string fieldPrefix, ReadOnlySpan<char> queryTerm, int maxEdits, int maxExpansions = 64)
     {
-        return DictionaryReader.GetFuzzyMatches(fieldPrefix, queryTerm, maxEdits, maxExpansions);
+        return GetFuzzyMatches(fieldPrefix, queryTerm, maxEdits, maxExpansions, useCache: true);
+    }
+
+    internal List<(string Term, long Offset, int Distance)> GetFuzzyMatches(
+        string fieldPrefix, ReadOnlySpan<char> queryTerm, int maxEdits, int maxExpansions, bool useCache)
+    {
+        return DictionaryReader.GetFuzzyMatches(fieldPrefix, queryTerm, maxEdits, maxExpansions, useCache);
     }
 
     /// <summary>Returns terms in lexicographic range [lower, upper] for a field.</summary>

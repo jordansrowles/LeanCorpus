@@ -553,7 +553,7 @@ public sealed partial class IndexSearcher
                 spans.AddRange(CollectSpans(masking.MaskedQuery, reader));
                 break;
             case SpanMultiTermQueryWrapper multiTerm:
-                CollectMultiTermSpans(multiTerm, reader, spans);
+                CollectMultiTermSpans(multiTerm, reader, spans, _config.UseFuzzyExpansionCache);
                 break;
         }
         return spans;
@@ -645,7 +645,8 @@ public sealed partial class IndexSearcher
     private static void CollectMultiTermSpans(
         SpanMultiTermQueryWrapper query,
         SegmentReader reader,
-        List<Span> spans)
+        List<Span> spans,
+        bool useFuzzyExpansionCache)
     {
         string fieldPrefix = string.Concat(query.Field, "\0");
         switch (query.Match)
@@ -666,7 +667,8 @@ public sealed partial class IndexSearcher
                     fieldPrefix,
                     fuzzy.Term,
                     fuzzy.MaxEdits,
-                    fuzzy.MaxExpansions))
+                    fuzzy.MaxExpansions,
+                    useFuzzyExpansionCache))
                 {
                     CollectTermSpans(reader, match.Term, spans);
                 }

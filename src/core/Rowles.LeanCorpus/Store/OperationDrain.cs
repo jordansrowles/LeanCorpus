@@ -1,3 +1,6 @@
+using System.Runtime.ExceptionServices;
+using System.Threading.Tasks;
+
 namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
@@ -12,7 +15,14 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
 
     private readonly object _waitLock = new();
     private int _state;
+    private DisposalAttempt? _currentDisposalAttempt;
+    private bool _disposalSucceeded;
     internal int ActiveCount => Volatile.Read(ref _state) & int.MaxValue;
+
+    // Lets lifecycle tests hold a joiner after it has captured its attempt. The
+    // callback runs outside _waitLock and is null in normal operation.
+    internal Action? BeforeDisposalAttemptWaitTestHook { get; set; }
+    internal Action? BeforeDisposalAttemptSelectionTestHook { get; set; }
 
     internal Scope Enter(object owner)
     {
@@ -57,6 +67,102 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
     internal bool BeginDisposeAndWait(TimeSpan timeout)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(timeout, Timeout.InfiniteTimeSpan);
+        RequestDispose();
+
+        return WaitForActiveOperations(timeout);
+    }
+
+    /// <summary>
+    /// Closes admission, drains active operations and grants exactly one caller the
+    /// cleanup work. Calls that overlap a failed cleanup receive its same failure;
+    /// a later call may retry the unfinished cleanup.
+    /// </summary>
+    internal DisposalAttempt? BeginDisposeAndWaitForCompletion()
+    {
+        // This snapshot is the admission point for joining a cleanup already in
+        // progress. Capture it before taking _waitLock so a caller delayed before
+        // selection cannot accidentally join a later retry instead.
+        DisposalAttempt? admittedAttempt = Volatile.Read(ref _currentDisposalAttempt);
+        if (admittedAttempt?.IsCompleted != false)
+            admittedAttempt = null;
+
+        RequestDispose();
+        BeforeDisposalAttemptSelectionTestHook?.Invoke();
+        bool waited = false;
+        DisposalAttempt? joinedAttempt;
+
+        lock (_waitLock)
+        {
+            if (admittedAttempt is not null)
+            {
+                joinedAttempt = admittedAttempt;
+            }
+            else
+            {
+                while (Volatile.Read(ref _state) != DisposeRequested)
+                {
+                    waited = true;
+                    Monitor.Wait(_waitLock);
+                }
+
+                if (_disposalSucceeded)
+                    return null;
+
+                if (_currentDisposalAttempt is { IsCompleted: false } currentAttempt)
+                {
+                    joinedAttempt = currentAttempt;
+                }
+                else if (waited && _currentDisposalAttempt is { IsCompleted: true } completedAttempt)
+                {
+                    joinedAttempt = completedAttempt;
+                }
+                else
+                {
+                    var attempt = new DisposalAttempt();
+                    Volatile.Write(ref _currentDisposalAttempt, attempt);
+                    return attempt;
+                }
+            }
+        }
+
+        BeforeDisposalAttemptWaitTestHook?.Invoke();
+        joinedAttempt.WaitForCompletion();
+        return null;
+    }
+
+    internal void CompleteDisposalSuccessfully(DisposalAttempt attempt)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        lock (_waitLock)
+        {
+            EnsureCurrentAttempt(attempt);
+            attempt.CompleteSuccessfully();
+            _disposalSucceeded = true;
+            Monitor.PulseAll(_waitLock);
+        }
+    }
+
+    internal void CompleteDisposalWithFailure(DisposalAttempt attempt, Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        ArgumentNullException.ThrowIfNull(exception);
+        ExceptionDispatchInfo failure = ExceptionDispatchInfo.Capture(exception);
+        lock (_waitLock)
+        {
+            EnsureCurrentAttempt(attempt);
+            attempt.CompleteWithFailure(failure);
+            Monitor.PulseAll(_waitLock);
+        }
+    }
+
+    private void EnsureCurrentAttempt(DisposalAttempt attempt)
+    {
+        if (!ReferenceEquals(_currentDisposalAttempt, attempt) || attempt.IsCompleted)
+            throw new InvalidOperationException("Only the owner of the active disposal attempt can complete it.");
+    }
+
+    private void RequestDispose()
+    {
         while (true)
         {
             int state = Volatile.Read(ref _state);
@@ -65,7 +171,10 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
             if (Interlocked.CompareExchange(ref _state, state | DisposeRequested, state) == state)
                 break;
         }
+    }
 
+    private bool WaitForActiveOperations(TimeSpan timeout)
+    {
         if (Volatile.Read(ref _state) == DisposeRequested)
             return true;
 
@@ -115,6 +224,32 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
         internal Scope(OperationDrain owner) => _owner = owner;
 
         public void Dispose() => Interlocked.Exchange(ref _owner, null)?.Exit();
+    }
+
+    internal sealed class DisposalAttempt
+    {
+        private readonly TaskCompletionSource<ExceptionDispatchInfo?> _completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal bool IsCompleted => _completion.Task.IsCompleted;
+
+        internal void WaitForCompletion()
+        {
+            ExceptionDispatchInfo? failure = _completion.Task.GetAwaiter().GetResult();
+            failure?.Throw();
+        }
+
+        internal void CompleteSuccessfully()
+        {
+            if (!_completion.TrySetResult(null))
+                throw new InvalidOperationException("The disposal attempt has already completed.");
+        }
+
+        internal void CompleteWithFailure(ExceptionDispatchInfo failure)
+        {
+            if (!_completion.TrySetResult(failure))
+                throw new InvalidOperationException("The disposal attempt has already completed.");
+        }
     }
 }
 

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\BenchmarkParameterSelectionFilter.cs" Link="Infrastructure\BenchmarkParameterSelectionFilter.cs" />
+    <ProjectReference Include="..\..\..\core\Rowles.Text\Rowles.Text.csproj" />
+    <ProjectReference Include="..\..\dataforge\Rowles.DataForge.Workloads\Rowles.DataForge.Workloads.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="BenchmarkDotNet.Annotations" ExcludeAssets="buildTransitive" />
+
+    <PackageReference Include="Lucene.Net" />
+    <PackageReference Include="Lucene.Net.Analysis.Common" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+</Project>

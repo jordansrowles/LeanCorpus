@@ -13,8 +13,10 @@ Rowles.Text is the standalone text-analysis package from LeanCorpus. Use it when
 Install the package:
 
 ```bash
-dotnet add package Rowles.Text
+dotnet add package Rowles.Text --version 2.0.0
 ```
+
+This repository branch targets Rowles.Text 2.0.0. Check the NuGet badge above for the published package version; this documentation preview may describe APIs that are not in that package yet.
 
 Create an analyser and receive its tokens:
 
@@ -44,8 +46,6 @@ file sealed class ConsoleTokenSink : ISpanTokenSink
 
 The sink receives each analysed token together with its source offsets and position increment.
 
-A runnable version lives in [Rowles.Text.Example.Tokenise](../../examples/Rowles.Text.Example.Tokenise/).
-
 ## Choose an analysis path
 
 | I need to... | Start with |
@@ -57,7 +57,7 @@ A runnable version lives in [Rowles.Text.Example.Tokenise](../../examples/Rowles
 | Segment Chinese, Japanese or Thai text | The relevant language tokeniser and lexicon |
 | Preserve phrases, synonyms or graphs | Token positions, position lengths and graph-aware filters |
 
-The [analysis documentation](../../../docs/analysis/index.md) describes the available components and language support.
+The [analysis documentation](../../../docs/content/analysis/index.md) describes the available components and language support.
 
 ## Use a lexicon-backed component
 
@@ -86,13 +86,12 @@ The pipeline favours streaming and span-based APIs to avoid per-token allocation
 Performance-sensitive changes should be checked with the registered analysis benchmark suites:
 
 ```bash
-./devops benchmark -List
-./devops benchmark -Suite analysis-filters -Strat fast
+./devops benchmark --list
+./devops benchmark --suite analysis-filters --strat fast
 ```
 
 ## Next steps
 
-- Run the [tokenisation example](../../examples/Rowles.Text.Example.Tokenise/).
-- Browse the [analysis guides](../../../docs/analysis/index.md).
+- Browse the [analysis guides](../../../docs/content/analysis/index.md).
 - Learn how lexicon files are used in the [lexicons README](../../../lexicons/README.md).
 - Contribute an analyser, filter, stemmer or tokeniser using [CONTRIBUTING.md](CONTRIBUTING.md).

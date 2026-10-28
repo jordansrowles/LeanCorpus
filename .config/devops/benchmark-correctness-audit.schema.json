@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://leancorpus.dev/schemas/benchmark-correctness-audit.schema.json",
+  "title": "LeanCorpus benchmark correctness audit",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "specRevision", "auditedBranch", "auditedCommit", "auditedTreeDirty", "auditState", "gates"],
+  "properties": {
+    "$schema": { "const": "benchmark-correctness-audit.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "specRevision": { "const": 3 },
+    "auditedBranch": { "type": "string", "minLength": 1 },
+    "auditedCommit": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "auditedTreeDirty": { "type": "boolean" },
+    "auditState": { "const": "PreRemediation" },
+    "gates": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": { "$ref": "#/$defs/gate" }
+    }
+  },
+  "$defs": {
+    "gateId": { "type": "string", "pattern": "^BVAL-(0[1-9]|1[0-5])$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "priority", "status", "claimClass", "competitiveClaimAllowed", "sourceFile", "symbol", "defect", "requiredProof", "fixtureId", "fixturePath", "fixtureSha256", "fixtureState"],
+      "properties": {
+        "id": { "$ref": "#/$defs/gateId" },
+        "priority": { "enum": ["P0", "P1"] },
+        "status": { "enum": ["Failing", "Quarantined"] },
+        "claimClass": { "enum": ["Directional", "Unqualified"] },
+        "competitiveClaimAllowed": { "const": false },
+        "sourceFile": { "type": "string", "pattern": "^src/devops/benchmarks/Rowles\\.LeanCorpus\\.Benchmarks/[^\\s]+\\.cs$" },
+        "symbol": { "type": "string", "minLength": 1 },
+        "defect": { "type": "string", "minLength": 1 },
+        "requiredProof": { "type": "string", "minLength": 1 },
+        "fixtureId": { "type": "string", "pattern": "^bval-(0[1-9]|1[0-5])-[a-z0-9-]+$" },
+        "fixturePath": { "type": "string", "pattern": "^\\.config/devops/benchmark-correctness-fixtures/bval-(0[1-9]|1[0-5])-[a-z0-9-]+\\.json$" },
+        "fixtureSha256": { "$ref": "#/$defs/sha256" },
+        "fixtureState": { "enum": ["Defined", "ExecutedFailing", "ExecutedPassing"] }
+      }
+    }
+  }
+}

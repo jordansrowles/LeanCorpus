@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.RequestDecompression;
 using Microsoft.AspNetCore.ResponseCompression;
@@ -61,7 +61,14 @@ builder.Services
 builder.Services.AddGrpc();
 builder.Services.AddRequestDecompression();
 builder.Services.AddResponseCompression(options =>
-    options.Providers.Add<ZstandardCompressionProvider>());
+{
+#if NET11_0_OR_GREATER
+    options.Providers.Add<ZstandardCompressionProvider>();
+#else
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+#endif
+});
 
 WebApplication application = builder.Build();
 string[] effectiveListeners = builder.Configuration["urls"]?

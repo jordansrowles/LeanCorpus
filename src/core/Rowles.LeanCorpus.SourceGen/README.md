@@ -4,13 +4,16 @@
 
 `LeanCorpus.SourceGen` generates typed, reflection-free document maps, schemas and materialisers at build time.
 
+> [!IMPORTANT]
+> This repository preview targets `LeanCorpus` 4.0.0 and `LeanCorpus.SourceGen` 1.1.0. Core 4.0.0 is unreleased, so the installation commands cannot resolve from public NuGet until it is published. The badge above shows the latest published SourceGen version; its version is independent of Core.
+
 ## Generate your first document map
 
 Install the core package and generator:
 
 ```bash
-dotnet add package LeanCorpus
-dotnet add package LeanCorpus.SourceGen
+dotnet add package LeanCorpus --version 4.0.0
+dotnet add package LeanCorpus.SourceGen --version 1.1.0
 ```
 
 Define a partial model:
@@ -130,5 +133,5 @@ The generated map uses concrete code rather than runtime reflection. This makes 
 ## Next steps
 
 - Return to [generating your first document map](#generate-your-first-document-map).
-- Use generated fields with [LINQ queries](../../../docs/searching/07-linq-queries.md).
-- Learn about [stored round-tripping](../../../docs/index-management/05-stored-round-tripping.md).
+- Use generated fields with [LINQ queries](../../../docs/content/searching/07-linq-queries.md).
+- Learn about [stored round-tripping](../../../docs/content/index-management/05-stored-round-tripping.md).

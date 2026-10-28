@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "defaultDataset": "synthetic",
+  "data": {
+    "wikipedia": [
+      "index",
+      "query",
+      "boolean",
+      "phrase",
+      "prefix",
+      "fuzzy-parity",
+      "fuzzy-cache",
+      "wildcard",
+      "regexp",
+      "mlt",
+      "highlighter",
+      "combined",
+      "terminset",
+      "parallel",
+      "similarity",
+      "async-index",
+      "merge",
+      "flush"
+    ]
+  }
+}

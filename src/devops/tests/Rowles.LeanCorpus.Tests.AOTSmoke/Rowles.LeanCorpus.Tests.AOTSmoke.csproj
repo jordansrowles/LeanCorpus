@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.aot" />
+    <PackageReference Include="xunit.v3.aot.mtp-v2" />
+    <PackageReference Include="xunit.v3.assert.aot" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\core\Rowles.LeanCorpus.SourceGen\Rowles.LeanCorpus.SourceGen.csproj"
+                      OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
+    <ProjectReference Include="..\..\..\core\Rowles.LeanCorpus.Compression.LZ4\Rowles.LeanCorpus.Compression.LZ4.csproj" />
+    <ProjectReference Include="..\..\..\core\Rowles.LeanCorpus.Compression.Snappy\Rowles.LeanCorpus.Compression.Snappy.csproj" />
+    <ProjectReference Include="..\..\..\core\Rowles.LeanCorpus.Compression.Zstandard\Rowles.LeanCorpus.Compression.Zstandard.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\..\..\lexicons\japanese.jlc"
+             Link="lexicons\japanese.jlc"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

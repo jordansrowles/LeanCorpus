@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "data": {
+    "quick-compare": {
+      "DocCount": 1000,
+      "Description": "1000 docs, --job short (quick comparison)",
+      "Job": [
+        "--job",
+        "short"
+      ]
+    },
+    "exhaustive": {
+      "DocCount": 100000,
+      "Description": "100K docs, default BDN job (official reference)",
+      "Job": [
+        "--job",
+        "default"
+      ]
+    },
+    "intense": {
+      "DocCount": 10000,
+      "Description": "10K docs, default BDN job",
+      "Job": [
+        "--job",
+        "default"
+      ]
+    },
+    "fast": {
+      "DocCount": 500,
+      "Description": "500 docs, --job dry (minimal smoke-test)",
+      "Job": [
+        "--job",
+        "dry"
+      ]
+    },
+    "stress": {
+      "DocCount": 50000,
+      "Description": "50K docs, default BDN job",
+      "Job": [
+        "--job",
+        "default"
+      ]
+    },
+    "default": {
+      "DocCount": 0,
+      "Description": "20K docs, --job short (development baseline)",
+      "Job": [
+        "--job",
+        "short"
+      ]
+    }
+  }
+}

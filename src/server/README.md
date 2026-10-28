@@ -11,7 +11,7 @@ From the repository root:
 ./devops server start
 ```
 
-The reference host runs in the foreground on .NET 11 and binds to `127.0.0.1:5080` and `[::1]:5080`. It stores the registry and physical index data below `data/` by default. Use `LeanCorpus:DataRoot` in configuration or `--LeanCorpus:DataRoot=/path/to/data` to select another root.
+The reference host targets .NET 10 and .NET 11 and runs in the foreground and binds to `127.0.0.1:5080` and `[::1]:5080`. It stores the registry and physical index data below `data/` by default. Use `LeanCorpus:DataRoot` in configuration or `--LeanCorpus:DataRoot=/path/to/data` to select another root.
 
 For a trusted network only, use `./devops server start -External`. This binds `0.0.0.0:5080`, does not add TLS or authentication, and must be protected by the hosting environment.
 
@@ -42,7 +42,7 @@ curl -X PUT http://127.0.0.1:5080/v1/indices/books \
 
 Bulk writes accept `Memory` or `LocalFsync` independently of `refresh`. `Memory` acknowledges an accepted local writer operation; `LocalFsync` waits for a local durable commit. `refresh: true` makes committed data visible before the response. Successful writes return a versioned `writeToken`; send that token with `consistency: "ReadYourWrites"` when a search must wait for the write.
 
-The complete alpha guide is in [`docs/server`](../../docs/server/index.md), including schema rules, cursor paging, REST/gRPC examples, Studio and persistence details.
+The complete alpha guide is in [`docs/server`](../../docs/content/server/index.md), including schema rules, cursor paging, REST/gRPC examples, Studio and persistence details.
 
 ## Package boundaries
 

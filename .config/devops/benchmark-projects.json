@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "data": {
+    "core": {
+      "DisplayName": "Core",
+      "Project": "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj",
+      "Frameworks": ["net10.0", "net11.0"],
+      "Capabilities": ["Groups", "Wikipedia", "Gutenberg"],
+      "IncludeInAll": true,
+      "IncludeWithExplicit": true
+    },
+    "text": {
+      "DisplayName": "Rowles.Text",
+      "Project": "src/devops/benchmarks/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj",
+      "Frameworks": ["net10.0", "net11.0"],
+      "Capabilities": ["Groups", "Gutenberg"],
+      "IncludeInAll": true,
+      "IncludeWithExplicit": false
+    },
+    "compression": {
+      "DisplayName": "Compression",
+      "Project": "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks.Compression/Rowles.LeanCorpus.Benchmarks.Compression.csproj",
+      "Frameworks": ["net10.0", "net11.0"],
+      "Capabilities": ["Independent"],
+      "IncludeInAll": true,
+      "IncludeWithExplicit": false
+    }
+  }
+}

@@ -9,9 +9,9 @@ Most contributions affect one part of the monorepo. You do not need to understan
 | Indexing, search, codecs, storage, mapping or diagnostics | Continue with this guide |
 | Analysers, tokenisers, filters, stemmers or languages | [Contributing to Rowles.Text](src/core/Rowles.Text/CONTRIBUTING.md) |
 | Tests, benchmarks, profiling or repository tooling | [Contributing to DevOps and tests](src/devops/CONTRIBUTING.md) |
-| Documentation | [Documentation contributor guide](docs/contributors/documentation.md) |
+| Documentation | [Documentation contributor guide](docs/content/contributors/documentation.md) |
 | A runnable example | [Examples guide](src/examples/README.md) |
-| Internal architecture | [Contributor documentation](docs/contributors/index.md) |
+| Internal architecture | [Contributor documentation](docs/content/contributors/index.md) |
 
 ## Make your first change
 
@@ -20,18 +20,18 @@ Most contributions affect one part of the monorepo. You do not need to understan
 From the repository root:
 
 ```bash
-./devops setup
+pwsh -NoProfile -File ./devops.ps1 bootstrap
 ./devops build
 ```
 
 On Windows PowerShell:
 
 ```powershell
-./devops.ps1 setup
+pwsh -NoProfile -File ./devops.ps1 bootstrap
 ./devops.ps1 build
 ```
 
-`setup` checks the development environment and required directories. `build` confirms that the normal Release configuration compiles.
+`devops.ps1 bootstrap` restores the pinned tools, builds and tests the managed host, then publishes and validates the current-RID apphost. `build` confirms that the normal Release configuration compiles.
 
 > [!TIP]
 > Run `./devops --help` for the current command contract. Use the repository entry point instead of assembling an undocumented sequence of `dotnet` commands.
@@ -42,12 +42,12 @@ Production code and its normal test area are paired:
 
 | Production work | Implementation | Tests |
 | --- | --- | --- |
-| Search | `src/core/Rowles.LeanCorpus/Search/` | `src/devops/Rowles.LeanCorpus.Tests.Core/Search/` |
-| Indexing and lifecycle | `src/core/Rowles.LeanCorpus/Index/` | `src/devops/Rowles.LeanCorpus.Tests.Core/Index/` |
-| Storage and files | `src/core/Rowles.LeanCorpus/Store/` | `src/devops/Rowles.LeanCorpus.Tests.Core/Store/` |
-| Binary codecs | `src/core/Rowles.LeanCorpus/Codecs/` | `src/devops/Rowles.LeanCorpus.Tests.Core/CodecKit/` |
-| Document mapping | `src/core/Rowles.LeanCorpus/Mapping/` | `src/devops/Rowles.LeanCorpus.Tests.Core/Mapping/` |
-| Text analysis | `src/core/Rowles.Text/Analysis/` | `src/devops/Rowles.Text.Tests/` |
+| Search | `src/core/Rowles.LeanCorpus/Search/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/Search/` |
+| Indexing and lifecycle | `src/core/Rowles.LeanCorpus/Index/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/Index/` |
+| Storage and files | `src/core/Rowles.LeanCorpus/Store/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/Store/` |
+| Binary codecs | `src/core/Rowles.LeanCorpus/Codecs/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/CodecKit/` |
+| Document mapping | `src/core/Rowles.LeanCorpus/Mapping/` | `src/devops/tests/Rowles.LeanCorpus.Tests.Core/Mapping/` |
+| Text analysis | `src/core/Rowles.Text/Analysis/` | `src/devops/tests/Rowles.Text.Tests/` |
 
 When a change crosses boundaries, put the implementation with the subsystem that owns the behaviour and give the test every accurate `Area` trait.
 
@@ -56,19 +56,19 @@ When a change crosses boundaries, put the implementation with the subsystem that
 For a search change:
 
 ```bash
-./devops test -Suite core -Area Search
+pwsh ./devops.ps1 test -Suite core -Area Search
 ```
 
 For an indexing change:
 
 ```bash
-./devops test -Suite core -Area Index
+pwsh ./devops.ps1 test -Suite core -Area Index
 ```
 
 For a Rowles.Text filter:
 
 ```bash
-./devops test -Suite text -Area Filters
+pwsh ./devops.ps1 test -Suite text -Area Filters
 ```
 
 A focused selection should fail for the behaviour you are changing before it passes with the implementation.
@@ -91,10 +91,10 @@ Keep the change coherent:
 Before handing the change over:
 
 ```bash
-./devops test affected
-./devops test affected -Commit HEAD
-./devops test affected -Commit caf4bd5
-./devops test affected -Range HEAD~3..HEAD
+pwsh ./devops.ps1 test affected
+pwsh ./devops.ps1 test affected -Commit HEAD
+pwsh ./devops.ps1 test affected -Commit caf4bd5
+pwsh ./devops.ps1 test affected -Range HEAD~3..HEAD
 ```
 
 Plain `affected` uses only modified, staged and untracked non-ignored files.
@@ -103,26 +103,26 @@ commit); `-Range` uses only the explicit range. Both ignore unrelated dirty stat
 The options are mutually exclusive. Invalid revisions, unmapped paths and zero
 targets remain hard failures.
 
-Affected selection maps changed production paths through `scripts/devops/config/code-areas.psd1` and runs tests carrying the matching `Area` traits.
+Affected selection maps changed production paths through `.config/devops/code-areas.json` and runs tests carrying the matching `Area` traits.
 
-If a new source path or subsystem is not mapped, update `code-areas.psd1` as part of the same change.
+If a new source path or subsystem is not mapped, update `code-areas.json` as part of the same change.
 
 ### 6. Add the extra validation your claim needs
 
 | Change | Additional validation |
 | --- | --- |
 | Public API or normal implementation | `./devops build` |
-| Native AOT-sensitive path | `./devops aot` |
-| Package or dependency boundary | `./devops test -Suite architecture` |
+| Native AOT-sensitive path | `pwsh ./devops.ps1 aot` |
+| Package or dependency boundary | `pwsh ./devops.ps1 test -Suite architecture` |
 | Both target frameworks | Build with `-Framework net10.0` and `-Framework net11.0` |
 | Performance claim | Relevant BenchmarkDotNet suite with controlled provenance |
-| Documentation or examples | `./devops docs build -SkipBenchmarks` |
+| Documentation or examples | `./devops docs build --skip-benchmarks` |
 | Windows-specific behaviour | Validate on Windows and state the environment |
 
 For a quick benchmark smoke run:
 
 ```bash
-./devops benchmark -Suite query -Strat fast
+pwsh ./devops.ps1 benchmark -Suite query -Strat fast
 ```
 
 Use `-Controlled` when comparing a repeatable, bounded workload. Do not make performance claims from a Debug build or one noisy sample.
@@ -160,7 +160,7 @@ The detailed rules live in the [DevOps and tests guide](src/devops/CONTRIBUTING.
 
 - [ ] The change solves one coherent problem.
 - [ ] Tests protect observable behaviour.
-- [ ] `./devops test affected` has been run.
+- [ ] `pwsh ./devops.ps1 test affected` has been run.
 - [ ] Compatibility and platform claims have matching evidence.
 - [ ] Public documentation and examples remain accurate.
 - [ ] The changelog was updated when users should know.

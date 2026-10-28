@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "fixtureId": "bval-12-packed-bkd-metric-and-warm-reader",
+  "deterministic": true,
+  "seed": 9712,
+  "domain": "packed-bkd-metric-and-reader-warmth",
+  "input": {
+    "completedIndex": { "path": "points.idx", "bytes": 10240, "pointCount": 1000 },
+    "readerProfile": { "name": "NewReaderWarmPageCache", "readerInstanceNew": true, "osPageCacheProvenCold": false },
+    "timedOperations": ["reader-open", "point-query"]
+  },
+  "expected": {
+    "bytesPerPoint": 10.24,
+    "bytesPerPointMeasurementRegion": "post-build-report-metric",
+    "fileInfoLengthLookupInTimedMethod": false,
+    "readerProfileLabel": "NewReaderWarmPageCache",
+    "diskColdClaimAllowed": false
+  }
+}

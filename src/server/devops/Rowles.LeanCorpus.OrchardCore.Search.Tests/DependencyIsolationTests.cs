@@ -31,7 +31,9 @@ public sealed class DependencyIsolationTests
     {
         for (DirectoryInfo? directory = new(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "Rowles.LeanCorpus.slnx")))
+            if (File.Exists(Path.Combine(directory.FullName, "global.json")) &&
+                File.Exists(Path.Combine(directory.FullName, "Directory.Build.props")) &&
+                File.Exists(Path.Combine(directory.FullName, "src", "Rowles.LeanCorpus.slnx")))
                 return directory.FullName;
         }
 

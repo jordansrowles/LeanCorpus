@@ -1,12 +1,14 @@
+﻿using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>Provides the reader captured by a <see cref="ReaderLease{TReader}"/>.</summary>
 public struct ReaderLease<TReader> : IDisposable
     where TReader : class, IDisposable
 {
-    private Action? _release;
+    private readonly LifetimeLease _release;
 
-    internal ReaderLease(TReader reader, Action release)
+    internal ReaderLease(TReader reader, LifetimeLease release)
     {
         Reader = reader;
         _release = release;
@@ -16,7 +18,7 @@ public struct ReaderLease<TReader> : IDisposable
     public TReader Reader { get; }
 
     /// <summary>Releases the lease and allows the reader to be retired.</summary>
-    public void Dispose() => Interlocked.Exchange(ref _release, null)?.Invoke();
+    public void Dispose() => _release.Dispose();
 }
 
 /// <summary>Reports the state of a generic reader manager.</summary>

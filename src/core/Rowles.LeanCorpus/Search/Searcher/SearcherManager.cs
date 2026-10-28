@@ -108,6 +108,8 @@ public sealed class SearcherManager : IDisposable
 
     /// <summary>Gets generic lifecycle diagnostics for the managed searchers.</summary>
     public ReaderManagerDiagnostics GetDiagnostics() => _readerManager.GetDiagnostics();
+    internal (int Generation, int Retired) GetLifecycleSnapshot() =>
+        _readerManager.GetLifecycleSnapshot(searcher => GetMetadata(searcher).Generation);
 
     /// <summary>Stops refreshes and disposes retained searchers after their leases end.</summary>
     public void Dispose()
@@ -136,6 +138,7 @@ public sealed class SearcherManager : IDisposable
 
     private IndexSearcher? RefreshSearcher(IndexSearcher current)
     {
+        _config.RefreshStarting?.Invoke();
         IndexOpenGuard.EnsureNoBlockingMigration(_directory, _config.CompatibilityMode);
         var latestCommit = Index.IndexRecovery.RecoverLatestCommit(
             _directory.DirectoryPath,

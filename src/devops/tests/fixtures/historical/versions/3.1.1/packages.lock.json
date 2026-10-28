@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "LeanCorpus": {
+        "type": "Direct",
+        "requested": "[3.1.1, 3.1.1]",
+        "resolved": "3.1.1",
+        "contentHash": "8ZcLu1L8mu62JFluM6iqWRQeVsKP8/J7EIPb6BNLuAp1im9xez+WcgkYc8pIImHFszgP19kbcenF6fJK4LO9CQ=="
+      }
+    }
+  }
+}

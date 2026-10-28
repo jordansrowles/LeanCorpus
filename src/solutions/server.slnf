@@ -1,0 +1,16 @@
+{
+  "solution": {
+    "path": "../Rowles.LeanCorpus.slnx",
+    "projects": [
+      "server/Rowles.LeanCorpus.Server.Abstractions/Rowles.LeanCorpus.Server.Abstractions.csproj",
+      "server/Rowles.LeanCorpus.Server.Core/Rowles.LeanCorpus.Server.Core.csproj",
+      "server/Rowles.LeanCorpus.Server.AspNetCore/Rowles.LeanCorpus.Server.AspNetCore.csproj",
+      "server/Rowles.LeanCorpus.Server.Grpc/Rowles.LeanCorpus.Server.Grpc.csproj",
+      "server/Rowles.LeanCorpus.Server.Local/Rowles.LeanCorpus.Server.Local.csproj",
+      "server/Rowles.LeanCorpus.Studio/Rowles.LeanCorpus.Studio.csproj",
+      "server/devops/Rowles.LeanCorpus.Server.Abstractions.Tests/Rowles.LeanCorpus.Server.Abstractions.Tests.csproj",
+      "server/devops/Rowles.LeanCorpus.Server.Core.Tests/Rowles.LeanCorpus.Server.Core.Tests.csproj",
+      "server/devops/Rowles.LeanCorpus.Server.Integration.Tests/Rowles.LeanCorpus.Server.Integration.Tests.csproj"
+    ]
+  }
+}

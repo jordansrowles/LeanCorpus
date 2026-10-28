@@ -1,10 +1,11 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Common;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Documents;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Indexing;
 using Rowles.LeanCorpus.Server.Abstractions.Contracts.Search;
 using Rowles.LeanCorpus.Server.Core.Configuration;
 using Rowles.LeanCorpus.Server.Core.Execution;
+using Rowles.LeanCorpus.Server.Core.Runtime;
 
 namespace Rowles.LeanCorpus.Server.Core.Tests;
 
@@ -19,12 +20,35 @@ public sealed class LocalIndexExecutorTests
     public async Task MemoryBackedPayloadUsesReadOnlyStreamWithoutAnIntermediateCopy()
     {
         byte[] payload = "snapshot-manifest"u8.ToArray();
-        await using Stream stream = LocalStreamAdapters.ReadOnly(payload);
-        byte[] read = new byte[payload.Length];
-        int count = await stream.ReadAsync(read);
-        Assert.Equal(payload.Length, count);
-        Assert.Equal(payload, read);
+        await using Stream stream = LocalStreamAdapters.ReadOnly(payload.AsMemory(1, payload.Length - 2));
+        payload[1] = (byte)'X';
+        byte[] read = new byte[payload.Length - 2];
+        int count = await stream.ReadAsync(read, TestContext.Current.CancellationToken);
+        Assert.Equal(payload.Length - 2, count);
+        Assert.Equal(payload[1..^1], read);
         Assert.False(stream.CanWrite);
+    }
+
+    [Fact]
+    public async Task MemoryBackedPayloadPreservesSeekingCancellationAndDisposal()
+    {
+        Stream stream = LocalStreamAdapters.ReadOnly("payload"u8.ToArray());
+        Assert.Equal(7, stream.Length);
+        Assert.Equal(5, stream.Seek(-2, SeekOrigin.End));
+        Assert.Equal((byte)'a', stream.ReadByte());
+        stream.Position = 100;
+        Assert.Equal(-1, stream.ReadByte());
+        stream.Position = 0;
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await stream.ReadAsync(new byte[1], cancelled.Token));
+        Assert.Equal(0, stream.Position);
+        Assert.Throws<NotSupportedException>(() => stream.WriteByte(1));
+        await stream.DisposeAsync();
+        Assert.False(stream.CanRead);
+        Assert.False(stream.CanSeek);
+        Assert.Throws<ObjectDisposedException>(() => stream.ReadByte());
     }
 
     [Fact]
@@ -103,6 +127,85 @@ public sealed class LocalIndexExecutorTests
     }
 
     [Fact]
+    public async Task LaterPhysicalCommitCannotPublishAheadOfAnEarlierReceipt()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-commit-order-{Guid.NewGuid():N}");
+        TaskCompletionSource firstAtPublication = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource releaseFirst = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource secondAtPublication = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
+            LocalIndexDescriptor descriptor = new(PhysicalIndexId.New(),
+                new IndexSchema([new IndexFieldDefinition("content", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
+                "commit-order-schema", new MutableIndexSettings(null, null, "content", null), new IndexTopologySettings(1, 0));
+            await using LocalIndexHandle handle = await store.CreateAsync(descriptor);
+            LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root });
+            var commits = handle.Runtime.Commits;
+            commits.BeforeReceiptPublicationForTesting = receipt =>
+            {
+                if (receipt.LastSequenceNumber == 1)
+                {
+                    firstAtPublication.TrySetResult();
+                    releaseFirst.Task.GetAwaiter().GetResult();
+                }
+                else if (receipt.LastSequenceNumber == 2)
+                {
+                    secondAtPublication.TrySetResult();
+                }
+            };
+
+            using JsonDocument first = JsonDocument.Parse("{\"content\":\"first ordered commit\"}");
+            LocalWriteResult firstWrite = await executor.WriteAsync(
+                new OperationContext("commit-order-1", OperationKind.WriteDocuments, CallerIdentity.Anonymous, DateTimeOffset.UtcNow),
+                handle,
+                new BulkDocumentsRequest("index", [new BulkDocumentOperation(DocumentOperationKind.Index, "one", first.RootElement.Clone())]));
+            Task<CommitResult> firstCommit = Task.Run(() => commits.Commit(refresh: true));
+            await firstAtPublication.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            using JsonDocument second = JsonDocument.Parse("{\"content\":\"second ordered commit\"}");
+            Task<LocalWriteResult> secondWriteTask = Task.Run(async () => await executor.WriteAsync(
+                new OperationContext("commit-order-2", OperationKind.WriteDocuments, CallerIdentity.Anonymous, DateTimeOffset.UtcNow),
+                handle,
+                new BulkDocumentsRequest("index", [new BulkDocumentOperation(DocumentOperationKind.Index, "two", second.RootElement.Clone())], Refresh: true)));
+
+            bool overtook = await Task.WhenAny(secondAtPublication.Task, Task.Delay(TimeSpan.FromSeconds(2))) == secondAtPublication.Task;
+            releaseFirst.TrySetResult();
+            CommitResult firstResult = await firstCommit;
+            LocalWriteResult secondWrite = await secondWriteTask;
+            CommitPublished firstPublished = firstResult switch
+            {
+                CommitPublished published => published,
+                CommitFailed failed => throw new Xunit.Sdk.XunitException($"The first commit failed: {failed.Message}"),
+                NothingToCommit => throw new Xunit.Sdk.XunitException("The first commit unexpectedly had no pending writes.")
+            };
+
+            LocalCommitReceipt? waiter = null;
+            try
+            {
+                waiter = await commits.WaitUntilCommittedAsync(secondWrite.SequenceNumber)
+                    .AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch (TimeoutException)
+            {
+                // A later receipt must remain observable after every commit returns.
+            }
+
+            Assert.False(overtook, "The later receipt was published before the earlier receipt.");
+            Assert.Equal(firstWrite.SequenceNumber, firstPublished.Receipt.LastSequenceNumber);
+            Assert.NotNull(secondWrite.Receipt);
+            Assert.Equal(secondWrite.SequenceNumber, commits.LastReceipt?.LastSequenceNumber);
+            Assert.NotNull(waiter);
+            Assert.Equal(secondWrite.SequenceNumber, waiter.LastSequenceNumber);
+        }
+        finally
+        {
+            releaseFirst.TrySetResult();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public async Task CommitObserverRunsAfterPublicationAndDoesNotChangeTheReceipt()
     {
         string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-observer-{Guid.NewGuid():N}");
@@ -114,6 +217,7 @@ public sealed class LocalIndexExecutorTests
                 new IndexSchema([new IndexFieldDefinition("content", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
                 "observer-schema", new MutableIndexSettings(null, null, "content", null), new IndexTopologySettings(1, 0));
             await using LocalIndexHandle handle = await store.CreateAsync(descriptor);
+            observer.WriteLock = handle.Runtime.WriteLock;
             LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root });
             using JsonDocument document = JsonDocument.Parse("{\"content\":\"observed\"}");
             LocalWriteResult write = await executor.WriteAsync(new OperationContext("request-3", OperationKind.WriteDocuments, CallerIdentity.Anonymous, DateTimeOffset.UtcNow), handle,
@@ -121,6 +225,7 @@ public sealed class LocalIndexExecutorTests
             Assert.NotNull(write.Receipt);
             Assert.Same(write.Receipt, observer.Receipt);
             Assert.Equal(descriptor.Id, observer.Index?.Id);
+            Assert.False(observer.WasWriteLockHeld);
         }
         finally
         {
@@ -146,7 +251,77 @@ public sealed class LocalIndexExecutorTests
 
             Assert.True(write.Committed);
             Assert.NotNull(write.Receipt);
-            Assert.Equal(1, handle.Health.ConsecutiveCommitFailures);
+            Assert.Equal(0, handle.Health.ConsecutiveCommitFailures);
+            Assert.Null(handle.Runtime.Commits.LastFailure);
+            Assert.Equal("observer failure", handle.Runtime.Commits.LastObserverFailure?.Message);
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task BlockedObserverDoesNotHoldUpLaterDurablePublication()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-observer-block-{Guid.NewGuid():N}");
+        BlockingAsyncObserver observer = new();
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1), observer);
+            LocalIndexDescriptor descriptor = CreateDescriptor("blocked-observer-schema");
+            await using LocalIndexHandle handle = await store.CreateAsync(descriptor);
+            LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root });
+            OperationContext context = CreateContext("blocked-observer");
+            using JsonDocument first = JsonDocument.Parse("{\"content\":\"first observer receipt\"}");
+            LocalWriteResult firstWrite = await executor.WriteAsync(context, handle,
+                new BulkDocumentsRequest("index", [new BulkDocumentOperation(DocumentOperationKind.Index, "one", first.RootElement.Clone())]));
+
+            Task<CommitResult> firstCommit = Task.Run(() => handle.Runtime.Commits.Commit(refresh: true));
+            await observer.FirstNotificationEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            using JsonDocument second = JsonDocument.Parse("{\"content\":\"second observer receipt\"}");
+            LocalWriteResult secondWrite = await executor.WriteAsync(context,
+                handle,
+                new BulkDocumentsRequest("index", [new BulkDocumentOperation(DocumentOperationKind.Index, "two", second.RootElement.Clone())], Refresh: true))
+                .AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            CommitResult firstResult = await firstCommit.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.NotNull(secondWrite.Receipt);
+            Assert.Equal(firstWrite.SequenceNumber + 1, secondWrite.Receipt!.LastSequenceNumber);
+            Assert.Equal(secondWrite.SequenceNumber, handle.Runtime.Commits.LastReceipt?.LastSequenceNumber);
+            Assert.Equal(2, observer.NotificationCount);
+            Assert.True(firstResult is CommitPublished);
+        }
+        finally
+        {
+            observer.ReleaseFirstNotification.TrySetResult();
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
+    public async Task ObserverCanReenterCoordinatorAfterReceiptPublication()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-observer-reentry-{Guid.NewGuid():N}");
+        ReentrantObserver observer = new();
+        try
+        {
+            await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1), observer);
+            LocalIndexDescriptor descriptor = CreateDescriptor("observer-reentry-schema");
+            await using LocalIndexHandle handle = await store.CreateAsync(descriptor);
+            observer.Coordinator = handle.Runtime.Commits;
+            observer.WriteLock = handle.Runtime.WriteLock;
+            LocalIndexExecutor executor = new(new ServerCoreOptions { DataRoot = root });
+            using JsonDocument document = JsonDocument.Parse("{\"content\":\"reentrant observer\"}");
+
+            LocalWriteResult write = await executor.WriteAsync(CreateContext("observer-reentry"), handle,
+                new BulkDocumentsRequest("index", [new BulkDocumentOperation(DocumentOperationKind.Index, "one", document.RootElement.Clone())], Refresh: true))
+                .AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.True(write.Committed);
+            Assert.False(observer.WasWriteLockHeld);
+            Assert.True(observer.ReentrantResult is NothingToCommit);
         }
         finally
         {
@@ -526,13 +701,48 @@ public sealed class LocalIndexExecutorTests
 
     private sealed class RecordingObserver : ILocalCommitObserver
     {
+        internal object? WriteLock { get; set; }
         internal LocalIndexDescriptor? Index { get; private set; }
         internal LocalCommitReceipt? Receipt { get; private set; }
+        internal bool WasWriteLockHeld { get; private set; }
 
         public ValueTask OnCommittedAsync(LocalIndexDescriptor index, LocalCommitReceipt receipt, CancellationToken cancellationToken = default)
         {
+            WasWriteLockHeld = WriteLock is not null && Monitor.IsEntered(WriteLock);
             Index = index;
             Receipt = receipt;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class BlockingAsyncObserver : ILocalCommitObserver
+    {
+        private int _notificationCount;
+        internal TaskCompletionSource FirstNotificationEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource ReleaseFirstNotification { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal int NotificationCount => Volatile.Read(ref _notificationCount);
+
+        public async ValueTask OnCommittedAsync(LocalIndexDescriptor index, LocalCommitReceipt receipt, CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _notificationCount) == 1)
+            {
+                FirstNotificationEntered.TrySetResult();
+                await ReleaseFirstNotification.Task.ConfigureAwait(false);
+            }
+        }
+    }
+
+    private sealed class ReentrantObserver : ILocalCommitObserver
+    {
+        internal LocalCommitCoordinator? Coordinator { get; set; }
+        internal object? WriteLock { get; set; }
+        internal CommitResult? ReentrantResult { get; private set; }
+        internal bool WasWriteLockHeld { get; private set; }
+
+        public ValueTask OnCommittedAsync(LocalIndexDescriptor index, LocalCommitReceipt receipt, CancellationToken cancellationToken = default)
+        {
+            WasWriteLockHeld = WriteLock is not null && Monitor.IsEntered(WriteLock);
+            ReentrantResult = Coordinator!.Commit();
             return ValueTask.CompletedTask;
         }
     }
