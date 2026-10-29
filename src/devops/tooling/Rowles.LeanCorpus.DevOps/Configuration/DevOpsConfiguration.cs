@@ -26,7 +26,13 @@ internal sealed record CodeAreaConfiguration(
 internal sealed record BenchmarkStrategyConfiguration(
     string Description,
     int DocCount,
-    ImmutableArray<string> Job);
+    ImmutableArray<string> Job,
+    int AggregateTimeoutMinutes = 360,
+    int BuildTimeoutMinutes = 30,
+    int ProjectTimeoutMinutes = 360)
+{
+    public const int MaximumTimeoutMinutes = 40_000;
+}
 
 internal sealed record BenchmarkProjectConfiguration(
     string DisplayName,

@@ -399,7 +399,12 @@ internal sealed record BenchmarkExecutionSummary(
     int FailedCaseCount,
     int IntermediateCaseCount,
     int MissingCaseCount,
-    int RawResultFileCount);
+    int RawResultFileCount,
+    int UnenumeratedCaseCount,
+    bool PlannedCaseCountKnown,
+    int UnenumeratedInvocationCount,
+    BenchmarkTimeoutBudget TimeoutBudget,
+    string? TimeoutSource);
 
 internal static class BenchmarkRunIdentityValidator
 {

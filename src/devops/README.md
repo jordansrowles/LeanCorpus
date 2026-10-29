@@ -237,6 +237,28 @@ Run a bounded smoke workload:
 ./devops benchmark --suite query --strat fast
 ```
 
+Each strategy sets separate aggregate, build and benchmark-child deadlines.
+`exhaustive` allows 1,440 minutes (24 hours) for the full selection. An
+exceptional run can override only the aggregate deadline, in minutes:
+
+```bash
+./devops benchmark --suite core --strat exhaustive --timeout-minutes 1800 --dry
+```
+
+The dry run prints the resolved aggregate, build and project deadlines before
+the commands it would execute. The selected values and aggregate timeout
+source are retained in the benchmark run manifest.
+
+The normal `async-index` suite uses four producer loops and a 20,000-document
+admission limit. The one-slot eager-caller case is explicit-only and has a
+separate 1,000-document budget; the deep 100,000-document case has its own
+24-hour strategy:
+
+```bash
+./devops benchmark --suite async-index-stress --strat async-stress --dry
+./devops benchmark --suite async-index-stress --strat async-stress-deep --dry
+```
+
 Run the controlled preset:
 
 ```bash

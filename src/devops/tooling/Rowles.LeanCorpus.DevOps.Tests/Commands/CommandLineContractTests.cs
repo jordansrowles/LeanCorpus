@@ -317,6 +317,18 @@ public sealed class CommandLineContractTests
     }
 
     [Fact]
+    public void BenchmarkParsesAggregateTimeoutOverride()
+    {
+        var handler = new RecordingCommandHandler();
+
+        Assert.Equal(0, Invoke(["benchmark", "--suite", "core", "--timeout-minutes", "90", "--dry"], handler));
+
+        var options = Assert.IsType<BenchmarkCommandOptions>(Assert.Single(handler.Calls));
+        Assert.Equal(90, options.TimeoutMinutes);
+        Assert.True(options.Dry);
+    }
+
+    [Fact]
     public void BenchmarkParsesTypedBoundedCaseSelectors()
     {
         var handler = new RecordingCommandHandler();

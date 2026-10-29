@@ -417,16 +417,22 @@ internal sealed class ConfigurationLoader
     private BenchmarkStrategyConfiguration ReadBenchmarkStrategy(JsonElement value, string propertyPath)
     {
         var path = Path.Combine(_configurationRoot, "benchmark-strategies.json");
-        RequireObjectProperties(value, path, propertyPath, ["Description", "DocCount", "Job"], ["Description", "DocCount", "Job"]);
+        RequireObjectProperties(value, path, propertyPath,
+            ["Description", "DocCount", "Job", "AggregateTimeoutMinutes", "BuildTimeoutMinutes", "ProjectTimeoutMinutes"],
+            ["Description", "DocCount", "Job", "AggregateTimeoutMinutes", "BuildTimeoutMinutes", "ProjectTimeoutMinutes"]);
         var description = ReadString(value.GetProperty("Description"), path, propertyPath + ".Description");
         var docCount = ReadInt(value.GetProperty("DocCount"), path, propertyPath + ".DocCount");
         var job = ReadStringArray(value.GetProperty("Job"), path, propertyPath + ".Job");
+        var aggregateTimeoutMinutes = ReadInt(value.GetProperty("AggregateTimeoutMinutes"), path, propertyPath + ".AggregateTimeoutMinutes");
+        var buildTimeoutMinutes = ReadInt(value.GetProperty("BuildTimeoutMinutes"), path, propertyPath + ".BuildTimeoutMinutes");
+        var projectTimeoutMinutes = ReadInt(value.GetProperty("ProjectTimeoutMinutes"), path, propertyPath + ".ProjectTimeoutMinutes");
         if (docCount < 0 || job.IsDefaultOrEmpty)
         {
             throw Error(path, propertyPath, "DocCount must be non-negative and Job must not be empty");
         }
 
-        return new BenchmarkStrategyConfiguration(description, docCount, job);
+        return new BenchmarkStrategyConfiguration(description, docCount, job,
+            aggregateTimeoutMinutes, buildTimeoutMinutes, projectTimeoutMinutes);
     }
 
     private BenchmarkGroupConfiguration ReadBenchmarkGroup(JsonElement value, string propertyPath)

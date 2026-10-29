@@ -54,6 +54,27 @@ public sealed class ConfigurationLoaderTests
     }
 
     [Fact]
+    public void CapacityOneAsyncStressIsExplicitAndHasIndependentDocumentBudgets()
+    {
+        var checkout = RepositoryPaths.Resolve(explicitRepositoryPath: null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var suite = configuration.BenchmarkSuites["async-index-stress"];
+        Assert.True(suite.ExplicitOnly);
+        Assert.Equal(["AsyncIndexingCapacityOneStressBenchmarks"], suite.BenchmarkClasses);
+
+        var bounded = configuration.BenchmarkStrategies["async-stress"];
+        Assert.Equal(1_000, bounded.DocCount);
+        Assert.Equal(30, bounded.AggregateTimeoutMinutes);
+        Assert.Equal(30, bounded.ProjectTimeoutMinutes);
+
+        var deep = configuration.BenchmarkStrategies["async-stress-deep"];
+        Assert.Equal(100_000, deep.DocCount);
+        Assert.Equal(1_440, deep.AggregateTimeoutMinutes);
+        Assert.Equal(1_440, deep.ProjectTimeoutMinutes);
+    }
+
+    [Fact]
     public void LoadsVersionedManagedConfigurationSetsAndResolvesReferences()
     {
         var checkout = RepositoryPaths.Resolve(explicitRepositoryPath: null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
@@ -104,6 +125,39 @@ public sealed class ConfigurationLoaderTests
             exclusion => Assert.True(exclusion.ExpiresOn >= DateOnly.FromDateTime(DateTime.UtcNow)));
         Assert.Equal("synthetic", configuration.DefaultBenchmarkDataset);
         Assert.Contains("core", configuration.TestSuites.Keys);
+    }
+
+    [Fact]
+    public void BenchmarkStrategiesDeclareIndependentAggregateBuildAndProjectBudgets()
+    {
+        var checkout = RepositoryPaths.Resolve(explicitRepositoryPath: null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var strategiesPath = Path.Combine(checkout.RepositoryRoot, ".config", "devops", "benchmark-strategies.json");
+        using var document = JsonDocument.Parse(File.ReadAllBytes(strategiesPath));
+        var strategies = document.RootElement.GetProperty("data");
+        var exhaustive = strategies.GetProperty("exhaustive");
+
+        Assert.Equal(1440, exhaustive.GetProperty("AggregateTimeoutMinutes").GetInt32());
+        Assert.InRange(exhaustive.GetProperty("BuildTimeoutMinutes").GetInt32(), 1, 40_000);
+        Assert.InRange(exhaustive.GetProperty("ProjectTimeoutMinutes").GetInt32(), 1, 40_000);
+        Assert.True(strategies.GetProperty("quick-compare").GetProperty("AggregateTimeoutMinutes").GetInt32() < 1440);
+
+        var loaded = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+        Assert.Equal(1440, loaded.BenchmarkStrategies["exhaustive"].AggregateTimeoutMinutes);
+    }
+
+    [Fact]
+    public void RejectsBenchmarkStrategyTimeoutOutsideSupportedTimerRange()
+    {
+        using var root = TemporaryConfiguration.Create();
+        var path = root.ConfigPath("benchmark-strategies.json");
+        var document = JsonNode.Parse(File.ReadAllText(path))!;
+        document["data"]!["exhaustive"]!["AggregateTimeoutMinutes"] = 0;
+        File.WriteAllText(path, document.ToJsonString());
+
+        var error = Assert.Throws<InvalidDataException>(() => root.Load());
+
+        Assert.Contains("AggregateTimeoutMinutes", error.Message, StringComparison.Ordinal);
+        Assert.Contains("between 1 and 40000", error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

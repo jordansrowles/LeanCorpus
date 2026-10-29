@@ -889,6 +889,10 @@ internal static class Program
         {
             Description = "Override the strategy document count."
         };
+        var timeoutMinutes = new Option<int?>("--timeout-minutes")
+        {
+            Description = "Override the configured aggregate benchmark timeout in minutes."
+        };
         var dataset = new Option<string>("--dataset", ["-Dataset"])
         {
             Description = "Benchmark dataset ID (default: configured in benchmark-datasets.json).",
@@ -936,6 +940,7 @@ internal static class Program
         command.Add(strategy);
         command.Add(framework);
         command.Add(documentCount);
+        command.Add(timeoutMinutes);
         command.Add(dataset);
         command.Add(referencePath);
         command.Add(area);
@@ -982,7 +987,8 @@ internal static class Program
             Case = result.GetValue(selectedCase),
             Engine = result.GetValue(engine),
             WorkloadId = result.GetValue(workloadId),
-            MaxCases = result.GetValue(maxCases)
+            MaxCases = result.GetValue(maxCases),
+            TimeoutMinutes = result.GetValue(timeoutMinutes)
         }));
         return command;
     }

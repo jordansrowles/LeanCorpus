@@ -24,6 +24,14 @@ internal sealed record BenchmarkInvocation(
     public int? DocumentCount { get; init; }
 }
 
+internal sealed record BenchmarkExcludedWorkload(
+    string SuiteId,
+    string ProjectKey,
+    IReadOnlyList<string> BenchmarkClasses,
+    string State,
+    string Reason,
+    string RerunSuite);
+
 internal sealed record BenchmarkExecutionPlan(
     string Suite,
     string Strategy,
@@ -36,14 +44,34 @@ internal sealed record BenchmarkExecutionPlan(
     IReadOnlyList<string> AffectedPaths,
     IReadOnlyList<string> AffectedGroups)
 {
+    public BenchmarkTimeoutBudget TimeoutBudget { get; init; } = new(360, 30, 360, "strategy");
+
+    public IReadOnlyList<string> BenchmarkDotNetArguments { get; init; } = [];
+
     public IReadOnlyList<string> SelectedCaseIds { get; init; } = [];
 
     public int SelectedCaseCount { get; init; }
 
     public int CaseBudget { get; init; }
+
+    public IReadOnlyList<BenchmarkExcludedWorkload> ExcludedWorkloads { get; init; } = [];
 }
 
-internal sealed record BenchmarkProjectResult(string Project, string Status, int? ExitCode, string Path, string? Failure);
+internal sealed record BenchmarkTimeoutBudget(
+    int AggregateTimeoutMinutes,
+    int BuildTimeoutMinutes,
+    int ProjectTimeoutMinutes,
+    string AggregateTimeoutSource);
+
+internal sealed record BenchmarkProjectResult(
+    string Project,
+    string Status,
+    int? ExitCode,
+    string Path,
+    string? Failure,
+    TimeSpan? BuildDuration = null,
+    TimeSpan? RunDuration = null,
+    string? TimeoutSource = null);
 
 internal sealed record BenchmarkCommandResult(CommandResult CommandResult, Guid? RunId, string? RunDirectory);
 
@@ -82,6 +110,16 @@ internal static class BenchmarkCommandPlanner
             throw new InvalidOperationException($"Unknown benchmark suite '{suite}'. Use --list to see available suites.");
         if (!configuration.BenchmarkStrategies.TryGetValue(strategyName, out var strategy))
             throw new InvalidOperationException($"Unknown benchmark strategy '{strategyName}'. Use --list to see available strategies.");
+        if (options.TimeoutMinutes is int timeoutMinutes && timeoutMinutes is < 1 or > BenchmarkStrategyConfiguration.MaximumTimeoutMinutes)
+        {
+            throw new InvalidOperationException(
+                $"Timeout must be between 1 and {BenchmarkStrategyConfiguration.MaximumTimeoutMinutes} minutes.");
+        }
+        var timeoutBudget = new BenchmarkTimeoutBudget(
+            options.TimeoutMinutes ?? strategy.AggregateTimeoutMinutes,
+            strategy.BuildTimeoutMinutes,
+            strategy.ProjectTimeoutMinutes,
+            options.TimeoutMinutes is null ? "strategy" : "command-line");
         if (options.DocumentCount < 0)
             throw new InvalidOperationException("Document count cannot be negative.");
         if (options.BookCount < 1)
@@ -184,10 +222,13 @@ internal static class BenchmarkCommandPlanner
             return new BenchmarkExecutionPlan(suite, strategyName, options.Framework, dataset, plannedDocumentCount,
                 corpusOnly, referencePath, selectedInvocations, [], [])
             {
+                TimeoutBudget = timeoutBudget,
+                BenchmarkDotNetArguments = RemoveFilterArguments(options.Arguments).ToArray(),
                 SelectedCaseIds = selection.Methods.Select(static method => method.Family.Id)
                     .Distinct(StringComparer.Ordinal).OrderBy(static id => id, StringComparer.Ordinal).ToArray(),
                 SelectedCaseCount = selection.CaseCount,
-                CaseBudget = options.MaxCases
+                CaseBudget = options.MaxCases,
+                ExcludedWorkloads = ResolveExcludedWorkloads(configuration, suite, selectedProjects)
             };
         }
 
@@ -224,7 +265,50 @@ internal static class BenchmarkCommandPlanner
         }
 
         return new BenchmarkExecutionPlan(suite, strategyName, options.Framework, dataset, documentCount, corpusOnly, referencePath,
-            invocations.ToImmutableArray(), [], []);
+            invocations.ToImmutableArray(), [], [])
+        {
+            TimeoutBudget = timeoutBudget,
+            BenchmarkDotNetArguments = RemoveFilterArguments(options.Arguments).ToArray(),
+            ExcludedWorkloads = ResolveExcludedWorkloads(configuration, suite, selectedProjects)
+        };
+    }
+
+    private static IReadOnlyList<BenchmarkExcludedWorkload> ResolveExcludedWorkloads(
+        DevOpsConfiguration configuration,
+        string suite,
+        IReadOnlyList<string> selectedProjects)
+    {
+        bool includePrimary = suite is "all" or "all-with-explicit";
+        bool includeExplicit = suite is "explicit" or "all-with-explicit";
+        if (!includePrimary && !includeExplicit)
+            return [];
+
+        var selectedProjectSet = selectedProjects.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return configuration.BenchmarkSuites
+            .Where(pair => !pair.Value.IsSelector && selectedProjectSet.Contains(pair.Value.Project))
+            .OrderBy(static pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair =>
+            {
+                var descriptor = pair.Value;
+                bool includeInAll = descriptor.IncludeInAll ?? (!descriptor.ExplicitOnly && !descriptor.RequiresGutenbergData);
+                bool includeWithExplicit = descriptor.IncludeWithExplicit ?? descriptor.ExplicitOnly;
+                bool selected = (includePrimary && includeInAll) || (includeExplicit && includeWithExplicit);
+                var reason = descriptor.ExplicitOnly || (!includeInAll && includeWithExplicit)
+                    ? "explicit-only"
+                    : descriptor.RequiresGutenbergData
+                        ? "requires-gutenberg-data"
+                        : "outside-selector";
+                return (pair.Key, descriptor.Project, descriptor.BenchmarkClasses, Selected: selected, Reason: reason);
+            })
+            .Where(static item => !item.Selected)
+            .Select(static item => new BenchmarkExcludedWorkload(
+                item.Key,
+                item.Project,
+                item.BenchmarkClasses,
+                "excluded",
+                item.Reason,
+                item.Key))
+            .ToArray();
     }
 
     private static bool HasCaseSelectors(BenchmarkCommandOptions options)
@@ -428,7 +512,8 @@ internal static class BenchmarkCommandPlanner
             Suite = "affected",
             Invocations = invocations,
             AffectedPaths = selection.ChangedPaths,
-            AffectedGroups = selection.MatchedGroups
+            AffectedGroups = selection.MatchedGroups,
+            ExcludedWorkloads = []
         };
     }
 
@@ -586,7 +671,6 @@ internal sealed class BenchmarkCommandService(
     string dotnetExecutable = "dotnet")
 {
     internal static readonly string BenchmarkHostLeaseRoot = Path.Combine(Path.GetTempPath(), "LeanCorpus.DevOps.BenchmarkHost");
-    private static readonly TimeSpan BenchmarkRunLimit = TimeSpan.FromMinutes(360);
     private static readonly TimeSpan BenchmarkLeaseWait = TimeSpan.FromMinutes(5);
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -652,6 +736,7 @@ internal sealed class BenchmarkCommandService(
 
         if (request.Options.Dry)
         {
+            progress?.Invoke(FormatTimeoutBudget(plan.TimeoutBudget));
             if (plan.SelectedCaseCount > 0)
                 progress?.Invoke($"Bounded manifest selection: {plan.SelectedCaseCount} cases across {plan.SelectedCaseIds.Count} families; budget {plan.CaseBudget}. Cases: {string.Join(", ", plan.SelectedCaseIds)}.");
             foreach (var invocation in plan.Invocations)
@@ -666,6 +751,7 @@ internal sealed class BenchmarkCommandService(
 
         if (plan.SelectedCaseCount > 0)
             progress?.Invoke($"Bounded manifest selection: {plan.SelectedCaseCount} cases across {plan.SelectedCaseIds.Count} families; budget {plan.CaseBudget}. Cases: {string.Join(", ", plan.SelectedCaseIds)}.");
+        progress?.Invoke(FormatTimeoutBudget(plan.TimeoutBudget));
 
         if (request.Options.SourceManifest is { } sourceManifest && !File.Exists(ResolvePath(sourceManifest, artifactPaths.RepositoryRoot)))
             return new BenchmarkCommandResult(new CommandResult(OutcomeKind.ValidationFailure, $"Source manifest '{sourceManifest}' does not exist."), null, null);
@@ -681,6 +767,10 @@ internal sealed class BenchmarkCommandService(
             ["dataset"] = plan.Dataset,
             ["documentCount"] = plan.DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["projectKeys"] = string.Join(",", plan.Invocations.Select(static invocation => invocation.ProjectKey).Distinct(StringComparer.Ordinal)),
+            ["aggregateTimeoutMinutes"] = plan.TimeoutBudget.AggregateTimeoutMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["aggregateTimeoutSource"] = plan.TimeoutBudget.AggregateTimeoutSource,
+            ["buildTimeoutMinutes"] = plan.TimeoutBudget.BuildTimeoutMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["projectTimeoutMinutes"] = plan.TimeoutBudget.ProjectTimeoutMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["selectedCaseIds"] = JsonSerializer.Serialize(plan.SelectedCaseIds),
             ["selectedCaseInvocations"] = JsonSerializer.Serialize(plan.Invocations
                 .Where(static invocation => invocation.ParameterValues is not null)
@@ -721,9 +811,11 @@ internal sealed class BenchmarkCommandService(
         var results = new List<BenchmarkProjectResult>();
         var failure = (OutcomeKind?)null;
         string? failureDetails = null;
-        using var runTimeout = new CancellationTokenSource(BenchmarkRunLimit);
+        using var runTimeout = new CancellationTokenSource(TimeSpan.FromMinutes(plan.TimeoutBudget.AggregateTimeoutMinutes));
         using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, runTimeout.Token);
         var runToken = runCancellation.Token;
+        var runStartedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
+        string? timeoutSource = null;
 
         try
         {
@@ -772,7 +864,7 @@ internal sealed class BenchmarkCommandService(
                     ? invocation.ProjectKey
                     : $"{invocation.ProjectKey}/{invocation.BenchmarkClass}" +
                       (invocation.BenchmarkFilter is null ? string.Empty : $" {invocation.BenchmarkFilter}");
-                progress?.Invoke($"Building benchmark target {invocationName} ({index + 1}/{plan.Invocations.Count}).");
+                progress?.Invoke($"Building benchmark target {invocationName} ({index + 1}/{plan.Invocations.Count}; build deadline {plan.TimeoutBudget.BuildTimeoutMinutes} min; aggregate remaining {RemainingMinutes(plan.TimeoutBudget.AggregateTimeoutMinutes, runStartedTimestamp)} min).");
                 var build = await processRunner.RunAsync(new ProcessRequest
                 {
                     ExecutablePath = dotnetExecutable,
@@ -781,11 +873,12 @@ internal sealed class BenchmarkCommandService(
                     StandardOutputLogPath = buildStdout,
                     StandardErrorLogPath = buildStderr,
                     EnvironmentVariables = BuildEnvironment(manifest, projectDirectory, request.Options, plan, invocation),
-                    Timeout = BenchmarkRunLimit,
+                    Timeout = TimeSpan.FromMinutes(plan.TimeoutBudget.BuildTimeoutMinutes),
                     ProgressInterval = TimeSpan.FromSeconds(60),
                     Progress = value => progress?.Invoke(
                         $"Benchmark build target {invocationName} is still running " +
-                        $"({value.Elapsed:hh\\:mm\\:ss}; {value.StandardOutputLineCount} stdout and {value.StandardErrorLineCount} stderr lines; " +
+                        $"({value.Elapsed:hh\\:mm\\:ss} elapsed; {RemainingMinutes(plan.TimeoutBudget.BuildTimeoutMinutes, value.Elapsed)} min build budget and {RemainingMinutes(plan.TimeoutBudget.AggregateTimeoutMinutes, runStartedTimestamp)} min aggregate budget remain; {index}/{plan.Invocations.Count} invocations completed; " +
+                        $"{value.StandardOutputLineCount} stdout and {value.StandardErrorLineCount} stderr lines; " +
                         $"last stdout: {value.LastStandardOutputLine ?? "<none>"}; " +
                         $"last stderr: {value.LastStandardErrorLine ?? "<none>"}).")
                 }, runToken).ConfigureAwait(false);
@@ -801,14 +894,26 @@ internal sealed class BenchmarkCommandService(
                 if (build.Outcome != OutcomeKind.Success)
                 {
                     if (build.Outcome == OutcomeKind.Cancelled && runToken.IsCancellationRequested)
+                    {
+                        timeoutSource = runTimeout.IsCancellationRequested ? "aggregate" : "external-cancellation";
+                        results.Add(new BenchmarkProjectResult(invocationName, "Interrupted", build.RawExitCode,
+                            Relative(runDirectory, projectDirectory), build.Failure, BuildDuration: build.Duration,
+                            TimeoutSource: timeoutSource));
                         runToken.ThrowIfCancellationRequested();
-                    results.Add(new BenchmarkProjectResult(invocationName, "Failed", build.RawExitCode, Relative(runDirectory, projectDirectory), build.Failure));
+                    }
+                    var buildTimeoutSource = build.Outcome == OutcomeKind.Timeout ? "build" : null;
+                    if (buildTimeoutSource is not null)
+                        timeoutSource = buildTimeoutSource;
+                    results.Add(new BenchmarkProjectResult(invocationName,
+                        build.Outcome == OutcomeKind.Timeout ? "Interrupted" : "Failed", build.RawExitCode,
+                        Relative(runDirectory, projectDirectory), build.Failure, BuildDuration: build.Duration,
+                        TimeoutSource: buildTimeoutSource));
                     failure = build.Outcome;
                     failureDetails = build.Failure ?? $"Building benchmark target '{invocationName}' exited with code {build.RawExitCode}.";
                     break;
                 }
 
-                progress?.Invoke($"Running benchmark target {invocationName} ({index + 1}/{plan.Invocations.Count}).");
+                progress?.Invoke($"Running benchmark target {invocationName} ({index + 1}/{plan.Invocations.Count}; project deadline {plan.TimeoutBudget.ProjectTimeoutMinutes} min; aggregate remaining {RemainingMinutes(plan.TimeoutBudget.AggregateTimeoutMinutes, runStartedTimestamp)} min).");
                 var process = await processRunner.RunAsync(new ProcessRequest
                 {
                     ExecutablePath = dotnetExecutable,
@@ -817,11 +922,12 @@ internal sealed class BenchmarkCommandService(
                     StandardOutputLogPath = stdout,
                     StandardErrorLogPath = stderr,
                     EnvironmentVariables = BuildEnvironment(manifest, projectDirectory, request.Options, plan, invocation),
-                    Timeout = BenchmarkRunLimit,
+                    Timeout = TimeSpan.FromMinutes(plan.TimeoutBudget.ProjectTimeoutMinutes),
                     ProgressInterval = TimeSpan.FromSeconds(60),
                     Progress = value => progress?.Invoke(
                         $"Benchmark target {invocationName} is still running " +
-                        $"({value.Elapsed:hh\\:mm\\:ss}; {value.StandardOutputLineCount} stdout and {value.StandardErrorLineCount} stderr lines; " +
+                        $"({value.Elapsed:hh\\:mm\\:ss} elapsed; {RemainingMinutes(plan.TimeoutBudget.ProjectTimeoutMinutes, value.Elapsed)} min project budget and {RemainingMinutes(plan.TimeoutBudget.AggregateTimeoutMinutes, runStartedTimestamp)} min aggregate budget remain; {index}/{plan.Invocations.Count} invocations completed; " +
+                        $"{value.StandardOutputLineCount} stdout and {value.StandardErrorLineCount} stderr lines; " +
                         $"last stdout: {value.LastStandardOutputLine ?? "<none>"}; " +
                         $"last stderr: {value.LastStandardErrorLine ?? "<none>"}).")
                 }, runToken).ConfigureAwait(false);
@@ -837,8 +943,20 @@ internal sealed class BenchmarkCommandService(
                 if (process.Outcome != OutcomeKind.Success)
                 {
                     if (process.Outcome == OutcomeKind.Cancelled && runToken.IsCancellationRequested)
+                    {
+                        timeoutSource = runTimeout.IsCancellationRequested ? "aggregate" : "external-cancellation";
+                        results.Add(new BenchmarkProjectResult(invocationName, "Interrupted", process.RawExitCode,
+                            Relative(runDirectory, projectDirectory), process.Failure, BuildDuration: build.Duration,
+                            RunDuration: process.Duration, TimeoutSource: timeoutSource));
                         runToken.ThrowIfCancellationRequested();
-                    results.Add(new BenchmarkProjectResult(invocationName, "Failed", process.RawExitCode, Relative(runDirectory, projectDirectory), process.Failure));
+                    }
+                    var projectTimeoutSource = process.Outcome == OutcomeKind.Timeout ? "project" : null;
+                    if (projectTimeoutSource is not null)
+                        timeoutSource = projectTimeoutSource;
+                    results.Add(new BenchmarkProjectResult(invocationName,
+                        process.Outcome == OutcomeKind.Timeout ? "Interrupted" : "Failed", process.RawExitCode,
+                        Relative(runDirectory, projectDirectory), process.Failure, BuildDuration: build.Duration,
+                        RunDuration: process.Duration, TimeoutSource: projectTimeoutSource));
                     failure = process.Outcome;
                     failureDetails = process.Failure ?? $"Benchmark target '{invocationName}' exited with code {process.RawExitCode}.";
                     break;
@@ -847,16 +965,20 @@ internal sealed class BenchmarkCommandService(
                 var resultError = ValidateResults(invocation.ProjectKey, projectDirectory);
                 if (resultError is not null)
                 {
-                    results.Add(new BenchmarkProjectResult(invocationName, "Incomplete", process.RawExitCode, Relative(runDirectory, projectDirectory), resultError));
+                    results.Add(new BenchmarkProjectResult(invocationName, "Incomplete", process.RawExitCode,
+                        Relative(runDirectory, projectDirectory), resultError, BuildDuration: build.Duration,
+                        RunDuration: process.Duration));
                     failure = OutcomeKind.InfrastructureFailure;
                     failureDetails = resultError;
                     break;
                 }
-                results.Add(new BenchmarkProjectResult(invocationName, "Passed", process.RawExitCode, Relative(runDirectory, projectDirectory), null));
+                results.Add(new BenchmarkProjectResult(invocationName, "Passed", process.RawExitCode,
+                    Relative(runDirectory, projectDirectory), null, BuildDuration: build.Duration,
+                    RunDuration: process.Duration));
             }
 
             var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
-                failure ?? OutcomeKind.Success, referenceIdentity, artifacts, runToken).ConfigureAwait(false);
+                failure ?? OutcomeKind.Success, referenceIdentity, artifacts, runToken, timeoutSource).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.Add("run-report.json");
             artifacts.Add("report.md");
@@ -866,25 +988,28 @@ internal sealed class BenchmarkCommandService(
         }
         catch (OperationCanceledException exception) when (runTimeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
+            timeoutSource = "aggregate";
             var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
-                OutcomeKind.Timeout, null, artifacts, CancellationToken.None).ConfigureAwait(false);
+                OutcomeKind.Timeout, null, artifacts, CancellationToken.None, timeoutSource).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.Timeout,
-                $"Benchmark run exceeded its {BenchmarkRunLimit.TotalMinutes:0}-minute budget. {exception.Message}", childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
+                $"Benchmark run exceeded its {plan.TimeoutBudget.AggregateTimeoutMinutes}-minute aggregate budget. {exception.Message}", childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
         }
         catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
         {
+            timeoutSource = "external-cancellation";
             var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
-                OutcomeKind.Cancelled, null, artifacts, CancellationToken.None).ConfigureAwait(false);
+                OutcomeKind.Cancelled, null, artifacts, CancellationToken.None, timeoutSource).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.Cancelled, exception.Message, childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
         }
         catch (TimeoutException exception)
         {
+            timeoutSource = "lease";
             var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
-                OutcomeKind.Timeout, null, artifacts, CancellationToken.None).ConfigureAwait(false);
+                OutcomeKind.Timeout, null, artifacts, CancellationToken.None, timeoutSource).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.Timeout,
@@ -893,7 +1018,7 @@ internal sealed class BenchmarkCommandService(
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or System.ComponentModel.Win32Exception)
         {
             var identityEvidence = await WriteReportsAsync(runDirectory, manifest, hostIdentity, plan, configuration.BenchmarkCases, results,
-                OutcomeKind.InfrastructureFailure, null, artifacts, CancellationToken.None).ConfigureAwait(false);
+                OutcomeKind.InfrastructureFailure, null, artifacts, CancellationToken.None, timeoutSource).ConfigureAwait(false);
             AddCoreReportArtifacts(runDirectory, identityEvidence, artifacts);
             artifacts.AddRange(["run-report.json", "report.md"]);
             return await FinishAsync(manifest, runDirectory, OutcomeKind.InfrastructureFailure, exception.Message, childExitCodes, artifacts, results, identityEvidence).ConfigureAwait(false);
@@ -1070,9 +1195,15 @@ internal sealed class BenchmarkCommandService(
         OutcomeKind terminalOutcome,
         IReadOnlyDictionary<string, object?>? datasetIdentity,
         ICollection<string> artifacts,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? timeoutSource)
     {
         CollectRawBenchmarkResults(runDirectory, plan, artifacts);
+        var coverage = BenchmarkCaseCoverage.Create(runDirectory, plan, results, terminalOutcome, timeoutSource);
+        var coveragePath = Path.Combine(runDirectory, "coverage.json");
+        await WriteAtomicAsync(coveragePath, JsonSerializer.Serialize(coverage, JsonOptions), cancellationToken).ConfigureAwait(false);
+        if (!artifacts.Contains("coverage.json", StringComparer.Ordinal))
+            artifacts.Add("coverage.json");
         var coreReports = ReadCoreReportIdentities(runDirectory, plan);
         var expectedCoreReportCount = plan.Invocations.Count(static invocation => invocation.ProjectKey == "core");
         var assessment = BenchmarkRunIdentityValidator.Assess(new BenchmarkRunIdentityInput(
@@ -1087,7 +1218,7 @@ internal sealed class BenchmarkCommandService(
             hostIdentity,
             caseFamilies,
             coreReports.Select(static report => BenchmarkComparisonSourceReport.Read(report.ReportPath)).ToArray()));
-        var execution = BuildExecutionSummary(runDirectory, plan, results, terminalOutcome);
+        var execution = BuildExecutionSummary(runDirectory, plan, results, terminalOutcome, timeoutSource, coverage);
         var report = new
         {
             schemaVersion = 1,
@@ -1123,6 +1254,15 @@ internal sealed class BenchmarkCommandService(
                 eligibleForRatio = assessment.EligibleForRatio,
                 comparable = assessment.Comparable,
                 reasonCodes = assessment.ReasonCodes
+            },
+            selectionScope = coverage.SelectionScope,
+            coverage = new
+            {
+                path = "coverage.json",
+                completeInventoryKnown = coverage.CompleteInventoryKnown,
+                selectionScope = coverage.SelectionScope,
+                projects = coverage.Projects,
+                excludedWorkloadCount = coverage.ExcludedWorkloads.Count
             },
             comparisonAssessment,
             execution,
@@ -1160,16 +1300,63 @@ internal sealed class BenchmarkCommandService(
                 " (", comparisonAssessment.Comparisons.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), " pairs; ratio eligible: ",
                 comparisonAssessment.EligibleForRatio.ToString(), ")"),
             string.Concat("Comparable: ", assessment.Comparable.ToString()),
-            string.Concat("Execution: ", execution.Classification, "; cases terminal/failed/intermediate/missing: ",
+            string.Concat("Execution: ", execution.Classification, "; cases completed/interrupted/failed/never-started/unidentified: ",
                 execution.TerminalCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
-                execution.FailedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
                 execution.IntermediateCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
-                execution.MissingCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                execution.FailedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
+                execution.MissingCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
+                execution.UnenumeratedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            string.Concat("Planned case count known: ", execution.PlannedCaseCountKnown.ToString(),
+                "; invocations with unknown case inventory: ", execution.UnenumeratedInvocationCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            string.Concat("Selection scope: ", coverage.SelectionScope),
+            "Case-by-case coverage: coverage.json",
             string.Empty,
-            "| Project | Status | Path |",
-            "| --- | --- | --- |"
+            "## Project case coverage",
+            string.Empty,
+            "| Project | State | Inventory | Planned | Identified | Completed | Interrupted | Failed | Never started | Unenumerated | Build | Run |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
         };
-        markdown.AddRange(results.Select(result => string.Concat("| ", result.Project, " | ", result.Status, " | ", result.Path, " |")));
+        markdown.AddRange(coverage.Projects.Select(project => string.Concat(
+            "| ", FormatBenchmarkProjectName(project.ProjectKey),
+            " | ", project.State,
+            " | ", project.CompleteInventoryKnown ? "known" : "incomplete",
+            " | ", FormatNullableCount(project.PlannedCaseCount),
+            " | ", project.IdentifiedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            " | ", project.CompletedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            " | ", project.InterruptedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            " | ", project.FailedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            " | ", project.NeverStartedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            " | ", project.UnenumeratedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            " | ", FormatDuration(project.BuildDuration),
+            " | ", FormatDuration(project.RunDuration), " |")));
+        markdown.Add(string.Empty);
+        markdown.Add("## Excluded workload suites");
+        markdown.Add(string.Empty);
+        if (coverage.ExcludedWorkloads.Count == 0)
+        {
+            markdown.Add("No workload suites are excluded by this selector.");
+        }
+        else
+        {
+            markdown.Add("| Suite | Project | State | Reason | Benchmark classes | Rerun selector |");
+            markdown.Add("| --- | --- | --- | --- | --- | --- |");
+            markdown.AddRange(coverage.ExcludedWorkloads.Select(workload => string.Concat(
+                "| ", workload.SuiteId,
+                " | ", FormatBenchmarkProjectName(workload.ProjectKey),
+                " | ", workload.State,
+                " | ", workload.Reason,
+                " | ", workload.BenchmarkClasses.Count == 0 ? "unknown" : string.Join(", ", workload.BenchmarkClasses),
+                " | `--suite ", workload.RerunSuite, "` |")));
+        }
+        markdown.Add(string.Empty);
+        markdown.Add("| Project invocation | Status | Path | Build | Run |");
+        markdown.Add("| --- | --- | --- | ---: | ---: |");
+        markdown.AddRange(results.Select(result => string.Concat(
+            "| ", result.Project,
+            " | ", result.Status,
+            " | ", result.Path,
+            " | ", FormatDuration(result.BuildDuration),
+            " | ", FormatDuration(result.RunDuration), " |")));
         await WriteAtomicAsync(Path.Combine(runDirectory, "report.md"), string.Join(Environment.NewLine, markdown) + Environment.NewLine, cancellationToken).ConfigureAwait(false);
         return new BenchmarkRunIdentityEvidence(hostIdentity, coreReports, assessment, comparisonAssessment, execution);
     }
@@ -1225,7 +1412,9 @@ internal sealed class BenchmarkCommandService(
         string runDirectory,
         BenchmarkExecutionPlan plan,
         IReadOnlyList<BenchmarkProjectResult> results,
-        OutcomeKind terminalOutcome)
+        OutcomeKind terminalOutcome,
+        string? timeoutSource,
+        BenchmarkCaseCoverageReport coverage)
     {
         int discoveredCaseCount = 0;
         int terminalCaseCount = 0;
@@ -1276,6 +1465,21 @@ internal sealed class BenchmarkCommandService(
         bool noOutput = results.Any(static result => result.Failure is { } failure &&
             (failure.Contains("did not create a results directory", StringComparison.OrdinalIgnoreCase) ||
              failure.Contains("no non-empty result files", StringComparison.OrdinalIgnoreCase)));
+        if (coverage.PlannedCaseCount > 0 || coverage.CompleteInventoryKnown)
+        {
+            discoveredCaseCount = coverage.PlannedCaseCount;
+            terminalCaseCount = coverage.CompletedCaseCount;
+            failedCaseCount = coverage.FailedCaseCount;
+            intermediateCaseCount = coverage.InterruptedCaseCount;
+            missingCaseCount = coverage.NeverStartedCaseCount;
+        }
+        int plannedCaseCount = coverage.PlannedCaseCount > 0 || coverage.CompleteInventoryKnown
+            ? coverage.PlannedCaseCount
+            : plan.SelectedCaseCount > 0
+                ? plan.SelectedCaseCount
+                : discoveredCaseCount > 0
+                    ? discoveredCaseCount
+                    : terminalCaseCount + failedCaseCount + intermediateCaseCount + missingCaseCount;
         bool failedPair = failedCaseCount > 0 || results.Any(static result => result.Failure is { } failure &&
             failure.Contains("contains failed, intermediate or missing benchmark results", StringComparison.OrdinalIgnoreCase));
         string classification = terminalOutcome switch
@@ -1286,19 +1490,40 @@ internal sealed class BenchmarkCommandService(
             _ when failedPair => "FailedPair",
             _ when terminalOutcome != OutcomeKind.Success => "Failed",
             _ when terminalInvocations == plan.Invocations.Count && results.Count == plan.Invocations.Count => "Completed",
-            _ when results.Any(static result => result.Status == "Incomplete") || results.Count < plan.Invocations.Count => "Partial",
+            _ when results.Any(static result => result.Status is "Incomplete" or "Interrupted") || results.Count < plan.Invocations.Count => "Partial",
             _ => "Failed"
         };
-        int plannedCaseCount = plan.SelectedCaseCount > 0
-            ? plan.SelectedCaseCount
-            : discoveredCaseCount > 0
-                ? discoveredCaseCount
-                : terminalCaseCount + failedCaseCount + intermediateCaseCount + missingCaseCount;
 
         return new BenchmarkExecutionSummary(classification, plan.Invocations.Count, terminalInvocations,
             partialInvocations, plannedCaseCount, terminalCaseCount, failedCaseCount, intermediateCaseCount,
-            missingCaseCount, rawResultFileCount);
+            missingCaseCount, rawResultFileCount, coverage.UnenumeratedCaseCount, coverage.CompleteInventoryKnown,
+            coverage.UnenumeratedInvocationCount, plan.TimeoutBudget, timeoutSource);
     }
+
+    private static string FormatTimeoutBudget(BenchmarkTimeoutBudget budget)
+        => $"Resolved timeouts: aggregate {budget.AggregateTimeoutMinutes} minutes ({budget.AggregateTimeoutSource}); " +
+           $"build {budget.BuildTimeoutMinutes} minutes per build; project {budget.ProjectTimeoutMinutes} minutes per benchmark child.";
+
+    private static string FormatBenchmarkProjectName(string projectKey)
+        => projectKey switch
+        {
+            "compression" => "Compression",
+            "core" => "Core",
+            "text" => "Text",
+            _ => projectKey
+        };
+
+    private static string FormatNullableCount(int? count)
+        => count?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown";
+
+    private static string FormatDuration(TimeSpan? duration)
+        => duration?.ToString("c", System.Globalization.CultureInfo.InvariantCulture) ?? "unknown";
+
+    private static int RemainingMinutes(int timeoutMinutes, long startedTimestamp)
+        => RemainingMinutes(timeoutMinutes, System.Diagnostics.Stopwatch.GetElapsedTime(startedTimestamp));
+
+    private static int RemainingMinutes(int timeoutMinutes, TimeSpan elapsed)
+        => Math.Max(0, (int)Math.Ceiling(timeoutMinutes - elapsed.TotalMinutes));
 
     private static int? ReadInt32(JsonElement value, string propertyName)
         => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(propertyName, out JsonElement property) &&
@@ -1343,6 +1568,7 @@ internal sealed class BenchmarkCommandService(
             ["eligibleForRatio"] = evidence.Assessment.EligibleForRatio.ToString().ToLowerInvariant(),
             ["comparable"] = evidence.Assessment.Comparable.ToString().ToLowerInvariant(),
             ["qualificationReasonCodes"] = JsonSerializer.Serialize(evidence.Assessment.ReasonCodes),
+            ["timeoutSource"] = evidence.Execution.TimeoutSource ?? "none",
             ["comparisonQualificationState"] = evidence.ComparisonAssessment.QualificationState,
             ["comparisonEligibleForRatio"] = evidence.ComparisonAssessment.EligibleForRatio.ToString().ToLowerInvariant(),
             ["comparisonReasonCodes"] = JsonSerializer.Serialize(evidence.ComparisonAssessment.ReasonCodes),

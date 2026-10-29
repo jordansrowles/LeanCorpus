@@ -197,12 +197,25 @@ Do not bypass the central map with a second list in another script.
 
 The managed `benchmark` command uses the repository's benchmark suite,
 strategy, dataset and group configuration. It accepts `--suite`, `--strat`,
-`--framework`, `--dataset`, `--area`, `--group`, `--dry` and `--list`; legacy
-PowerShell option aliases are accepted by the apphost. Dataset selection is
-limited to synthetic and the frozen Wikipedia reference, whose supported
-suites and 20,000-document ceiling are checked before execution. Local
-BenchmarkDotNet arguments follow `--`. Remote SSH/tmux and affected-source workflows also use the managed host;
-release qualification remains separate from implementation.
+`--framework`, `--dataset`, `--area`, `--group`, `--timeout-minutes`, `--dry`
+and `--list`; legacy PowerShell option aliases are accepted by the apphost.
+Each strategy configures its aggregate run, build and project-child deadlines.
+The `exhaustive` strategy currently allows 1,440 minutes for its aggregate run.
+`--timeout-minutes` overrides only that aggregate deadline; non-positive values
+and values above 40,000 minutes are rejected. Dry runs show the resolved
+budgets, and executed runs retain them in their manifests and reports. Dataset
+selection is limited to synthetic and the frozen Wikipedia reference, whose
+supported suites and 20,000-document ceiling are checked before execution.
+Local BenchmarkDotNet arguments follow `--`. Remote SSH/tmux and affected-source
+workflows also use the managed host; release qualification remains separate
+from implementation.
+
+`all` excludes explicit-only workloads. The capacity-one async stress case is
+available as `async-index-stress` with its own `async-stress` (1,000-document,
+30-minute) strategy. The 100,000-document deep case uses
+`async-stress-deep`, with a separate 1,440-minute aggregate and project budget.
+Both are explicit selections and are recorded as outside the routine `all`
+scope.
 
 ```mermaid
 flowchart LR
@@ -220,6 +233,11 @@ flowchart LR
 
 `--dry` prints the resolved managed command plan. Use it when changing routing
 or investigating a local invocation.
+
+```bash
+./devops benchmark --suite async-index-stress --strat async-stress --dry
+./devops benchmark --suite async-index-stress --strat async-stress-deep --dry
+```
 
 The bounded manual benchmark workflow collects run reports and shard exits,
 then calls `benchmark qualification-summary`. Pass the expected report count

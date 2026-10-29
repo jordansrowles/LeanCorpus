@@ -12,6 +12,7 @@
 - Add an interactive Spectre.Console workbench for managed tests, benchmark suites and area/group selectors, DataForge qualification and recent run inspection.
 - Exercise managed DevOps bootstrap and `report all` on Linux ARM64 and macOS ARM64 in Build CI.
 - Add a managed, bounded sustained-workload command with versioned input and terminal evidence for ingestion, read-only search and mixed ingest/search refresh scenarios.
+- Add a separate explicit-only capacity-one async indexing benchmark and independently budgeted 1,000-document and 100,000-document stress strategies.
 - Verify exact committed document ID sets for concurrent and sequential indexing benchmark cases.
 - Add a directional FST build benchmark for sorted UTF-8 terms with setup-time serialized-index and exact-output verification.
 - Add exact survivor checks to queued and committed deletion benchmarks, and a directional ten-per-cent replacement/commit/refresh case with published-generation verification.
@@ -30,6 +31,7 @@
 ## Changed
 
 - Expand the managed workbench with typed clean/build/pack/distribute and test/coverage/AOT/report flows; benchmark suite, workload, remote, qualification-summary and catalogue routes; and DataForge profile, generation, reference, inspection, verification and reproduction routes. All selections use the managed parser and handlers, with recent-run elapsed time and lazy repository metadata.
+- Replace the universal benchmark timeout with validated strategy budgets, separate build/project deadlines and an aggregate CLI override; retain budget provenance and recoverable case coverage for interrupted runs.
 - Add local wrapper help for DataForge commands, including wrapper-only qualification guidance, and add canonical `fixtures` and `corpus` routes while retaining deprecated `data` aliases.
 - Move the complete solution inventory and 11 focused build filters under `src/`, group DevOps projects by purpose, validate tracked solution/filter membership in managed DevOps, and resolve solution entries relative to the relocated master.
 
@@ -85,6 +87,8 @@
 
 ## Fixed
 
+- Sum BenchmarkDotNet discovery counts across all emitted class groups so multi-project coverage inventories include every discovered case.
+- Remove misleading BenchmarkDotNet ratio baselines between BM25F and Boolean queries, and between TermInSet and Boolean OR algorithms.
 - Pass operation cancellation through managed clean and configuration validation, including benchmark-host and solution-inventory checks.
 - Bound DevOps validation and workflow regular-expression matching to one second so pathological input fails promptly; resolve macOS hardware identity through `/usr/sbin/sysctl`.
 - Render repository-relative paths in the managed configuration summary with forward slashes on every operating system.
