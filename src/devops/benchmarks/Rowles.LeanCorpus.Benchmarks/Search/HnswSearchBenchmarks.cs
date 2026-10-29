@@ -1,7 +1,12 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using Rowles.DataForge.Workloads;
 using Rowles.LeanCorpus.Codecs.Hnsw;
+using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -53,7 +58,7 @@ public class HnswSearchBenchmarks
     public int EfSearch { get; set; }
 
     private static readonly System.Threading.Lock s_gate = new();
-    private static (int docCount, int dim) s_lastKey;
+    private static string s_lastKey = string.Empty;
     private static bool s_built;
     private static string s_hnswPath = string.Empty;
     private static string s_flatPath = string.Empty;
@@ -71,37 +76,38 @@ public class HnswSearchBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        var setupStopwatch = Stopwatch.StartNew();
         BenchmarkVectorQuality.ValidateFixture();
-        var key = (DocCount, Dimension);
-        if (!s_built || s_lastKey != key)
+        _dataset = BenchmarkVectorData.Get(DocCount, Dimension);
+        var fixtureKey = CreateFixtureIdentity(_dataset);
+        FixturePreparation fixture = default;
+        if (!s_built || !s_lastKey.Equals(fixtureKey.Key, StringComparison.Ordinal))
         {
             lock (s_gate)
             {
-                if (!s_built || s_lastKey != key)
+                if (!s_built || !s_lastKey.Equals(fixtureKey.Key, StringComparison.Ordinal))
                 {
                     DisposeStaticResources();
-                    s_hnswPath = Path.Combine(BenchmarkHelpers.TempRoot,
-                        "ll-hnsw-bench-" + Guid.NewGuid().ToString("N"));
-                    s_flatPath = Path.Combine(BenchmarkHelpers.TempRoot,
-                        "ll-flat-bench-" + Guid.NewGuid().ToString("N"));
-                    IODirectory.CreateDirectory(s_hnswPath);
-                    IODirectory.CreateDirectory(s_flatPath);
-
-                    var dataset = BenchmarkVectorData.Get(DocCount, Dimension);
-                    var vectors = dataset.Records.Select(static record => record.Vector).ToArray();
-
-                    BuildIndex(s_hnswPath, vectors, hnsw: true);
-                    BuildIndex(s_flatPath, vectors, hnsw: false);
+                    fixture = EnsureSearchFixture(_dataset, fixtureKey);
+                    s_hnswPath = fixture.HnswPath;
+                    s_flatPath = fixture.FlatPath;
                     s_hnswSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_hnswPath));
                     s_flatSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_flatPath));
-                    s_referenceRecords = dataset.Records;
-                    s_lastKey = key;
+                    s_referenceRecords = _dataset.Records;
+                    s_lastKey = fixtureKey.Key;
                     s_built = true;
                 }
             }
         }
+        else
+        {
+            fixture = new FixturePreparation(s_hnswPath, s_flatPath, fixtureKey.Key,
+                FixtureReused: true, BuildEvidencePath: null);
+        }
 
-        _dataset = BenchmarkVectorData.Get(DocCount, Dimension);
+        if (string.IsNullOrWhiteSpace(fixture.Key))
+            fixture = new FixturePreparation(s_hnswPath, s_flatPath, fixtureKey.Key,
+                FixtureReused: true, BuildEvidencePath: null);
         _queryCase = _dataset.Query;
         _query = _queryCase.Vector;
 
@@ -120,6 +126,7 @@ public class HnswSearchBenchmarks
         }
         _scalarChecksum = ResultChecksum(scalarTopDocumentIds);
 
+        var qualityStopwatch = Stopwatch.StartNew();
         var qualityMeasurements = BenchmarkVectorQuality.Measure(
             _dataset,
             topK => s_hnswSearcher.Search(
@@ -138,24 +145,133 @@ public class HnswSearchBenchmarks
         BenchmarkVectorQuality.RequireMinimumRecall(
             qualityMeasurements,
             $"HNSW docCount={DocCount}, dimension={Dimension}, efSearch={EfSearch}");
+        qualityStopwatch.Stop();
 
         var hnsw = s_hnswSearcher.Search(
             new LeanVectorQuery("emb", _query, topK: 10, efSearch: EfSearch), 10);
         if (hnsw.ScoreDocs.Length != 10)
             throw new InvalidOperationException($"Expected ten HNSW results, got {hnsw.ScoreDocs.Length}.");
         _hnswChecksum = ResultChecksum(hnsw);
+
+        setupStopwatch.Stop();
+        WriteCaseSetupEvidence(_dataset, fixture, setupStopwatch.Elapsed, qualityStopwatch.Elapsed,
+            qualityMeasurements);
     }
 
-    private static void BuildIndex(string path, float[][] vectors, bool hnsw)
+    private static FixturePreparation EnsureSearchFixture(
+        BenchmarkVectorDataset dataset,
+        FixtureIdentity identity)
     {
+        var fixtureRoot = Path.Combine(BenchmarkHelpers.TempRoot, "ll-hnsw-search-" + identity.Key);
+        var hnswPath = Path.Combine(fixtureRoot, "hnsw");
+        var flatPath = Path.Combine(fixtureRoot, "flat");
+        var markerPath = Path.Combine(fixtureRoot, "fixture.identity");
+        var lockPath = fixtureRoot + ".lock";
+
+        using var fixtureLock = AcquireFixtureLock(lockPath);
+        if (IsFixtureReady(markerPath, identity.Value, hnswPath, flatPath))
+        {
+            return new FixturePreparation(hnswPath, flatPath, identity.Key,
+                FixtureReused: true,
+                BuildEvidencePath: RelativeToArtifactDirectory(identity.BuildEvidencePath));
+        }
+
+        BenchmarkHelpers.DeleteDirectory(fixtureRoot);
+        IODirectory.CreateDirectory(hnswPath);
+        IODirectory.CreateDirectory(flatPath);
+
+        var vectorMaterialisationStopwatch = Stopwatch.StartNew();
+        var vectors = dataset.Records.Select(static record => record.Vector).ToArray();
+        vectorMaterialisationStopwatch.Stop();
+
+        var hnswBuild = BuildIndex(hnswPath, vectors, hnsw: true);
+        var flatBuild = BuildIndex(flatPath, vectors, hnsw: false);
+        var evidencePath = WriteFixtureBuildEvidence(dataset, identity, vectorMaterialisationStopwatch.Elapsed,
+            hnswBuild, flatBuild, DirectorySize(hnswPath), DirectorySize(flatPath));
+        var markerTemporaryPath = markerPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var marker = new FileStream(markerTemporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(marker, Encoding.UTF8, leaveOpen: false))
+            {
+                writer.Write(identity.Value);
+            }
+            File.Move(markerTemporaryPath, markerPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(markerTemporaryPath))
+                File.Delete(markerTemporaryPath);
+        }
+
+        return new FixturePreparation(hnswPath, flatPath, identity.Key,
+            FixtureReused: false, BuildEvidencePath: RelativeToArtifactDirectory(evidencePath));
+    }
+
+    private FixtureIdentity CreateFixtureIdentity(BenchmarkVectorDataset dataset)
+    {
+        var assemblyId = typeof(HnswSearchBenchmarks).Assembly.ManifestModule.ModuleVersionId;
+        var identity = string.Join('|',
+            "hnsw-search-fixture-v1",
+            dataset.Identity.ContentSha256,
+            DocCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Dimension.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            GraphM.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            GraphM0.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            GraphEfConstruction.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            GraphSeed.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            assemblyId.ToString("N"));
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
+        var key = Convert.ToHexString(hash).ToLowerInvariant()[..20];
+        var artifactRoot = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
+        var evidencePath = string.IsNullOrWhiteSpace(artifactRoot)
+            ? string.Empty
+            : Path.Combine(Path.GetFullPath(artifactRoot), "hnsw-setup", "fixture-" + key + ".json");
+        return new FixtureIdentity(key, identity, evidencePath);
+    }
+
+    private static bool IsFixtureReady(string markerPath, string identity, string hnswPath, string flatPath)
+    {
+        return File.Exists(markerPath)
+            && Directory.Exists(hnswPath)
+            && Directory.Exists(flatPath)
+            && File.ReadAllText(markerPath).TrimStart('\uFEFF').Equals(identity, StringComparison.Ordinal);
+    }
+
+    private static FileStream AcquireFixtureLock(string path)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromMinutes(30))
+        {
+            try
+            {
+                return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException)
+            {
+                Thread.Sleep(TimeSpan.FromMilliseconds(100));
+            }
+        }
+
+        throw new TimeoutException($"Timed out waiting for HNSW benchmark fixture lock '{path}'.");
+    }
+
+    private static IndexBuildEvidence BuildIndex(string path, float[][] vectors, bool hnsw)
+    {
+        var metrics = new DefaultMetricsCollector();
         var config = new LeanIndexWriterConfig
         {
             BuildHnswOnFlush = hnsw,
             NormaliseVectors = true,
             HnswBuildConfig = CreateGraphBuildConfig(),
             HnswSeed = GraphSeed,
+            Metrics = metrics,
         };
 
+        var totalStopwatch = Stopwatch.StartNew();
+        var addDocumentsStopwatch = Stopwatch.StartNew();
+        TimeSpan addDocumentsElapsed;
+        TimeSpan commitElapsed;
         using var writer = new LeanIndexWriter(new LeanMMapDirectory(path), config);
         for (int i = 0; i < vectors.Length; i++)
         {
@@ -163,7 +279,137 @@ public class HnswSearchBenchmarks
             document.Add(new VectorField("emb", new ReadOnlyMemory<float>(vectors[i])));
             writer.AddDocument(document);
         }
+        addDocumentsStopwatch.Stop();
+        addDocumentsElapsed = addDocumentsStopwatch.Elapsed;
+        var commitStopwatch = Stopwatch.StartNew();
         writer.Commit();
+        commitStopwatch.Stop();
+        commitElapsed = commitStopwatch.Elapsed;
+        totalStopwatch.Stop();
+
+        var snapshot = metrics.GetSnapshot();
+        return new IndexBuildEvidence(totalStopwatch.Elapsed, addDocumentsElapsed, commitElapsed,
+            snapshot.HnswBuildCount, snapshot.HnswBuildTotalMs);
+    }
+
+    private static string WriteFixtureBuildEvidence(
+        BenchmarkVectorDataset dataset,
+        FixtureIdentity identity,
+        TimeSpan vectorMaterialisationElapsed,
+        IndexBuildEvidence hnswBuild,
+        IndexBuildEvidence flatBuild,
+        long hnswIndexBytes,
+        long flatIndexBytes)
+    {
+        var path = identity.BuildEvidencePath;
+        if (string.IsNullOrWhiteSpace(path))
+            return string.Empty;
+
+        WriteJsonAtomically(path, new
+        {
+            schemaVersion = 1,
+            fixtureKey = identity.Key,
+            fixtureIdentity = identity.Value,
+            dataset = new
+            {
+                profileId = dataset.Identity.ProfileId,
+                profileVersion = dataset.Identity.ProfileVersion,
+                seed = dataset.Identity.Seed,
+                recordCount = dataset.Identity.RecordCount,
+                contentSha256 = dataset.Identity.ContentSha256,
+                dimension = dataset.Query.Vector.Length,
+            },
+            graph = new { m = GraphM, m0 = GraphM0, efConstruction = GraphEfConstruction, seed = GraphSeed },
+            vectorMaterialisationMilliseconds = vectorMaterialisationElapsed.TotalMilliseconds,
+            hnswIndexBuild = new
+            {
+                totalMilliseconds = hnswBuild.TotalElapsed.TotalMilliseconds,
+                documentAdditionMilliseconds = hnswBuild.AddDocumentsElapsed.TotalMilliseconds,
+                commitMilliseconds = hnswBuild.CommitElapsed.TotalMilliseconds,
+                graphBuildCount = hnswBuild.HnswBuildCount,
+                graphBuildMilliseconds = hnswBuild.HnswBuildMilliseconds,
+                indexBytes = hnswIndexBytes,
+            },
+            flatIndexBuild = new
+            {
+                totalMilliseconds = flatBuild.TotalElapsed.TotalMilliseconds,
+                documentAdditionMilliseconds = flatBuild.AddDocumentsElapsed.TotalMilliseconds,
+                commitMilliseconds = flatBuild.CommitElapsed.TotalMilliseconds,
+                indexBytes = flatIndexBytes,
+            },
+            fixtureBuildUtc = DateTimeOffset.UtcNow,
+        });
+        return path;
+    }
+
+    private void WriteCaseSetupEvidence(
+        BenchmarkVectorDataset dataset,
+        FixturePreparation fixture,
+        TimeSpan setupElapsed,
+        TimeSpan qualityElapsed,
+        IReadOnlyList<VectorQualityMeasurement> qualityMeasurements)
+    {
+        var artifactRoot = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
+        if (string.IsNullOrWhiteSpace(artifactRoot))
+            return;
+
+        var path = Path.Combine(Path.GetFullPath(artifactRoot), "hnsw-setup", "cases",
+            $"process-{Environment.ProcessId}-doc{DocCount}-dim{Dimension}-ef{EfSearch}.json");
+        WriteJsonAtomically(path, new
+        {
+            schemaVersion = 1,
+            processId = Environment.ProcessId,
+            fixtureKey = fixture.Key,
+            fixtureReused = fixture.FixtureReused,
+            fixtureBuildEvidencePath = fixture.BuildEvidencePath,
+            documentCount = DocCount,
+            dimension = Dimension,
+            efSearch = EfSearch,
+            graph = new { m = GraphM, m0 = GraphM0, efConstruction = GraphEfConstruction, seed = GraphSeed },
+            dataset = new
+            {
+                profileId = dataset.Identity.ProfileId,
+                profileVersion = dataset.Identity.ProfileVersion,
+                recordCount = dataset.Identity.RecordCount,
+                contentSha256 = dataset.Identity.ContentSha256,
+            },
+            setupMilliseconds = setupElapsed.TotalMilliseconds,
+            qualityPreflightMilliseconds = qualityElapsed.TotalMilliseconds,
+            qualityMeasurements,
+        });
+    }
+
+    private static void WriteJsonAtomically(string path, object value)
+    {
+        IODirectory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var content = JsonSerializer.SerializeToUtf8Bytes(value);
+        var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var stream = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                stream.Write(content);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+    }
+
+    private static long DirectorySize(string path)
+        => IODirectory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+            .Sum(static filePath => new FileInfo(filePath).Length);
+
+    private static string? RelativeToArtifactDirectory(string path)
+    {
+        var artifactRoot = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
+        return string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(artifactRoot)
+            ? null
+            : Path.GetRelativePath(Path.GetFullPath(artifactRoot), path).Replace('\\', '/');
     }
 
     [Benchmark(Baseline = true, Description = "Exact flat scan")]
@@ -237,14 +483,28 @@ public class HnswSearchBenchmarks
         {
             s_hnswSearcher.Dispose();
             s_flatSearcher.Dispose();
-            BenchmarkHelpers.DeleteDirectory(s_hnswPath);
-            BenchmarkHelpers.DeleteDirectory(s_flatPath);
         }
 
         s_built = false;
-        s_lastKey = default;
+        s_lastKey = string.Empty;
         s_hnswPath = string.Empty;
         s_flatPath = string.Empty;
         s_referenceRecords = [];
     }
+
+    private readonly record struct FixtureIdentity(string Key, string Value, string BuildEvidencePath);
+
+    private readonly record struct FixturePreparation(
+        string HnswPath,
+        string FlatPath,
+        string Key,
+        bool FixtureReused,
+        string? BuildEvidencePath);
+
+    private readonly record struct IndexBuildEvidence(
+        TimeSpan TotalElapsed,
+        TimeSpan AddDocumentsElapsed,
+        TimeSpan CommitElapsed,
+        long HnswBuildCount,
+        long HnswBuildMilliseconds);
 }

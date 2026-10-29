@@ -33,13 +33,12 @@ internal static class BBQDistanceComputer
         ReadOnlySpan<byte> storedBits,
         int dimension)
     {
-        int packedBytes = (dimension + 7) / 8;
         int matching = 0;
         int j = 0;
 
         // Process 64 dimensions at a time (8 bytes, 8 bits each)
         ref byte storedRef = ref MemoryMarshal.GetReference(storedBits);
-        int fullChunks = packedBytes / 8;
+        int fullChunks = dimension / 64;
         for (int chunk = 0; chunk < fullChunks; chunk++)
         {
             // Build query bitmask: 64 bits from 64 float comparisons
@@ -99,12 +98,11 @@ internal static class BBQDistanceComputer
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static float Distance(ReadOnlySpan<byte> bitsA, ReadOnlySpan<byte> bitsB, int dimension)
     {
-        int packedBytes = (dimension + 7) / 8;
         int matching = 0;
 
         ref byte aRef = ref MemoryMarshal.GetReference(bitsA);
         ref byte bRef = ref MemoryMarshal.GetReference(bitsB);
-        int fullChunks = packedBytes / 8;
+        int fullChunks = dimension / 64;
 
         for (int chunk = 0; chunk < fullChunks; chunk++)
         {

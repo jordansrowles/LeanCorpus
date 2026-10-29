@@ -9,6 +9,7 @@ using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Simd;
 using Rowles.LeanCorpus.Search.Parsing;
 using Rowles.LeanCorpus.Search.Highlighting;
+using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 
@@ -185,6 +186,86 @@ public sealed class HnswGraphTests
         Assert.Equal(n, visited.Count);
     }
 
+    [Fact(DisplayName = "HNSW new maximum-level entry point is present before and after persistence")]
+    public void NewMaximumLevelEntryPoint_IsPresentAcrossLayersAndPersistence()
+    {
+        const int initialCount = 96;
+        const int totalCount = 192;
+        const int dimension = 8;
+        var random = new Random(1234);
+        var vectors = Enumerable.Range(0, totalCount)
+            .ToDictionary(static id => id, _ => Normalise(RandomVector(random, dimension)));
+        var source = MakeSource(vectors, dimension);
+        var config = new HnswBuildConfig { M = 4, EfConstruction = 12 };
+        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hnsw-entry-" + Guid.NewGuid().ToString("N") + ".hnsw");
+
+        using var graph = new HnswGraph(source, config, seed: 19);
+        var observedPromotion = false;
+        for (int docId = 0; docId < initialCount; docId++)
+        {
+            int previousMaxLevel = graph.MaxLevel;
+            graph.Insert(docId);
+            observedPromotion |= graph.MaxLevel > previousMaxLevel;
+            AssertEntryPointPresentAtEveryLayer(graph);
+        }
+
+        Assert.True(observedPromotion, "The deterministic fixture must promote the entry point to a new maximum level.");
+        graph.Freeze();
+        HnswWriter.Write(path, graph, dimension, normalised: true);
+
+        try
+        {
+            using var reopened = HnswReader.Read(path, source, expectedNormalised: true);
+            AssertEntryPointPresentAtEveryLayer(reopened);
+
+            reopened.Thaw();
+            for (int docId = initialCount; docId < totalCount; docId++)
+            {
+                reopened.Insert(docId);
+                AssertEntryPointPresentAtEveryLayer(reopened);
+            }
+        }
+        finally
+        {
+            if (System.IO.File.Exists(path))
+                System.IO.File.Delete(path);
+        }
+    }
+
+    [Fact(DisplayName = "HNSW allow-list search traverses an excluded bridge node")]
+    public void AllowListSearch_TraversesExcludedBridgeToEligibleNearestNeighbour()
+    {
+        var vectors = new Dictionary<int, float[]>
+        {
+            [0] = Normalise([0.5f, 0.8660254f, 0, 0]),
+            [1] = Normalise([0.8f, 0.6f, 0, 0]),
+            [2] = Normalise([1, 0, 0, 0]),
+        };
+        var source = MakeSource(vectors, dimension: 4);
+        var level = new HnswGraph.FrozenLevel([0, 1, 2], [[1], [2], []]);
+        using var graph = HnswGraph.FromFrozen(source,
+            new HnswBuildConfig { M = 4, EfConstruction = 10 }, seed: 1, [level], entryPoint: 0,
+            maxLevel: 0, nodeCount: 3);
+        var allowedDocuments = new RoaringBitmap();
+        allowedDocuments.Add(0);
+        allowedDocuments.Add(2);
+
+        var results = graph.Search(Normalise([1, 0, 0, 0]), new HnswTraversalOptions
+        {
+            Ef = 1,
+            TopK = 1,
+            AllowList = new RoaringBitmapBitSet(allowedDocuments),
+        });
+
+        Assert.Equal(2, Assert.Single(results).DocId);
+    }
+
+    private static void AssertEntryPointPresentAtEveryLayer(HnswGraph graph)
+    {
+        for (int level = 0; level <= graph.MaxLevel; level++)
+            Assert.Contains(graph.EntryPoint, graph.GetNodesAtLevel(level));
+    }
+
     private static InMemoryVectorSource MakeSource(Dictionary<int, float[]> vectors, int dimension)
     {
         var dict = new Dictionary<int, ReadOnlyMemory<float>>(vectors.Count);
@@ -217,6 +298,67 @@ public sealed class HnswGraphTests
 [Area(TestArea.CodecKit)]
 public sealed class BBQDistanceComputerTests
 {
+    [Theory]
+    [InlineData(1)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(63)]
+    [InlineData(64)]
+    [InlineData(65)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(129)]
+    public void QueryDistance_MatchesScalarReferenceAtChunkBoundaries(int dim)
+    {
+        var query = new float[dim];
+        var centroid = new float[dim];
+        var bits = Enumerable.Range(0, (dim + 7) / 8)
+            .Select(static index => (byte)(0xA5 ^ index))
+            .ToArray();
+        for (int index = 0; index < dim; index++)
+        {
+            query[index] = ((index % 5) - 2) * 0.25f;
+            centroid[index] = ((index % 3) - 1) * 0.125f;
+        }
+
+        int matching = 0;
+        for (int index = 0; index < dim; index++)
+        {
+            bool queryBit = query[index] - centroid[index] > 0f;
+            bool storedBit = ((bits[index / 8] >> (index % 8)) & 1) != 0;
+            if (queryBit == storedBit)
+                matching++;
+        }
+
+        float expected = -(2f * matching - dim);
+        Assert.Equal(expected, BBQDistanceComputer.Distance(query, centroid, bits, dim));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(63)]
+    [InlineData(64)]
+    [InlineData(65)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(129)]
+    public void StoredDistance_IgnoresUnusedPaddingBits(int dim)
+    {
+        int packedBytes = (dim + 7) / 8;
+        var bitsA = Enumerable.Repeat((byte)0xFF, packedBytes).ToArray();
+        var bitsB = Enumerable.Repeat((byte)0xFF, packedBytes).ToArray();
+        int usedBitsInLastByte = dim % 8;
+        if (usedBitsInLastByte != 0)
+            bitsB[^1] = (byte)((1 << usedBitsInLastByte) - 1);
+
+        Assert.Equal(-dim, BBQDistanceComputer.Distance(bitsA, bitsA, dim));
+        Assert.Equal(-dim, BBQDistanceComputer.Distance(bitsA, bitsB, dim));
+    }
+
     [Fact(DisplayName = "BBQ stored-vs-stored: identical vectors have distance = -dim")]
     public void StoredVsStored_IdenticalVectors_DistanceNegDim()
     {

@@ -262,6 +262,13 @@ internal sealed class HnswGraph : IDisposable
 
         if (newLevel > MaxLevel)
         {
+            // Ensure the new entry point exists in every layer it claims to lead.
+            // EnsureLevels has created these maps, but no existing node can belong
+            // to a layer above the previous maximum and the connection loop above
+            // only visits levels through that previous maximum.
+            for (int level = MaxLevel + 1; level <= newLevel; level++)
+                _mutableLevels[level][docId] = new List<int>(LevelDegree(level));
+
             MaxLevel = newLevel;
             EntryPoint = docId;
         }
@@ -459,9 +466,13 @@ internal sealed class HnswGraph : IDisposable
                 float d = QueryDistance(query, neighbour);
                 bool resultsFull = results.Count >= ef;
                 bool eligibleForResults = allowList is null || allowList.Contains(neighbour);
+                bool insideSearchWindow = !resultsFull ||
+                    (results.TryPeek(out _, out float currentWorst) && d < currentWorst);
 
-                if (!resultsFull || (eligibleForResults && results.TryPeek(out _, out float currentWorst) && d < currentWorst))
+                if (insideSearchWindow)
                 {
+                    // Eligibility controls whether a node may be returned, not whether
+                    // it can connect the entry point to better eligible neighbours.
                     frontier.Enqueue(neighbour, d);
                     if (eligibleForResults)
                     {
