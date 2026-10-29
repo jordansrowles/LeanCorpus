@@ -10,6 +10,156 @@ namespace Rowles.LeanCorpus.DevOps.Tests.Benchmarks;
 public sealed class BenchmarkCaseCoverageTests
 {
     [Fact]
+    public void UsesBenchmarkDotNetDeclaringTypeAndMethodForQuotedDottedDescriptions()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var invocationDirectory = Path.Combine(directory.Path, "core", "000");
+        var resultsDirectory = Path.Combine(invocationDirectory, "_runner", "results");
+        Directory.CreateDirectory(resultsDirectory);
+        const string displayInfo = "VectorQuantisationBenchmarks.'Lucene.NET flat scan': Dry(Arguments=-m:1) [Dimension=64, Quantisation=BBQ]";
+        File.WriteAllLines(Path.Combine(invocationDirectory, "process.stdout.log"),
+        [
+            "// Found 1 benchmarks:",
+            "//   " + displayInfo,
+            "// **************************",
+            "// Benchmark: " + displayInfo,
+            "// Benchmark Process 100 has exited with code 255."
+        ]);
+        File.WriteAllText(Path.Combine(resultsDirectory, "VectorQuantisationBenchmarks-report-full.json"),
+            JsonSerializer.Serialize(new
+            {
+                Benchmarks = new[]
+                {
+                    new
+                    {
+                        DisplayInfo = displayInfo,
+                        Namespace = "Rowles.LeanCorpus.Benchmarks",
+                        Type = "VectorQuantisationBenchmarks",
+                        Method = "LuceneNet_Baseline",
+                        MethodTitle = "'Lucene.NET flat scan'",
+                        FullName = "Rowles.LeanCorpus.Benchmarks.VectorQuantisationBenchmarks.LuceneNet_Baseline(Dimension: 64, Quantisation: BBQ)",
+                        Statistics = (object?)null,
+                        Result = (object?)null
+                    }
+                }
+            }));
+
+        var plan = new BenchmarkExecutionPlan("core", "fast", "net10.0", "synthetic", 500, false, null,
+            [new BenchmarkInvocation("core", "benchmarks.csproj", [], null)], [], []);
+        var result = new BenchmarkProjectResult("core", "Failed", 1, "core/000", "recall floor");
+        var coverage = BenchmarkCaseCoverage.Create(directory.Path, plan, [result], OutcomeKind.CommandFailure, null);
+
+        var benchmarkCase = Assert.Single(coverage.Cases);
+        Assert.Equal("Rowles.LeanCorpus.Benchmarks.VectorQuantisationBenchmarks", benchmarkCase.BenchmarkClass);
+        Assert.Equal("LuceneNet_Baseline", typeof(BenchmarkCaseCoverageRecord)
+            .GetProperty("BenchmarkMethod")?.GetValue(benchmarkCase));
+        Assert.Equal("*Rowles.LeanCorpus.Benchmarks.VectorQuantisationBenchmarks*",
+            Assert.Single(coverage.TargetedRerunArguments)[^1]);
+    }
+
+    [Fact]
+    public void KeepsDuplicateDescriptionsSeparateByQualifiedBenchmarkIdentity()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var invocationDirectory = Path.Combine(directory.Path, "core", "000");
+        var resultsDirectory = Path.Combine(invocationDirectory, "_runner", "results");
+        Directory.CreateDirectory(resultsDirectory);
+        const string displayInfo = "SharedBenchmarks.'Lucene.NET: quoted scan': Dry(Arguments=-m:1) [Count=1]";
+        File.WriteAllLines(Path.Combine(invocationDirectory, "process.stdout.log"),
+        [
+            "// Found 2 benchmarks:",
+            "//   " + displayInfo,
+            "//   " + displayInfo,
+            "// **************************",
+            "// Benchmark: " + displayInfo,
+            "// Execute: dotnet Runner.dll --benchmarkName \"First.Namespace.SharedBenchmarks.RunFirst(Count: 1)\" --job Dry",
+            "// Benchmark Process 100 has exited with code 255.",
+            "// Benchmark: " + displayInfo,
+            "// Execute: dotnet Runner.dll --benchmarkName \"Second.Namespace.SharedBenchmarks.RunSecond(Count: 1)\" --job Dry",
+            "// Benchmark Process 101 has exited with code 255."
+        ]);
+        File.WriteAllText(Path.Combine(resultsDirectory, "SharedBenchmarks-report-full.json"),
+            JsonSerializer.Serialize(new
+            {
+                Benchmarks = new[]
+                {
+                    new
+                    {
+                        DisplayInfo = displayInfo,
+                        Namespace = "First.Namespace",
+                        Type = "SharedBenchmarks",
+                        Method = "RunFirst",
+                        FullName = "First.Namespace.SharedBenchmarks.RunFirst(Count: 1)",
+                        Statistics = (object?)null,
+                        Result = (object?)null
+                    },
+                    new
+                    {
+                        DisplayInfo = displayInfo,
+                        Namespace = "Second.Namespace",
+                        Type = "SharedBenchmarks",
+                        Method = "RunSecond",
+                        FullName = "Second.Namespace.SharedBenchmarks.RunSecond(Count: 1)",
+                        Statistics = (object?)null,
+                        Result = (object?)null
+                    }
+                }
+            }));
+
+        var result = new BenchmarkProjectResult("core", "Failed", 1, "core/000", "child failed");
+        var coverage = BenchmarkCaseCoverage.Create(directory.Path, CreateUnfilteredPlan(), [result], OutcomeKind.CommandFailure, null);
+
+        Assert.Equal(2, coverage.PlannedCaseCount);
+        Assert.Equal(2, coverage.FailedCaseCount);
+        Assert.Collection(coverage.Cases.OrderBy(item => item.BenchmarkClass, StringComparer.Ordinal),
+            first =>
+            {
+                Assert.Equal("First.Namespace.SharedBenchmarks", first.BenchmarkClass);
+                Assert.Equal("RunFirst", typeof(BenchmarkCaseCoverageRecord).GetProperty("BenchmarkMethod")?.GetValue(first));
+            },
+            second =>
+            {
+                Assert.Equal("Second.Namespace.SharedBenchmarks", second.BenchmarkClass);
+                Assert.Equal("RunSecond", typeof(BenchmarkCaseCoverageRecord).GetProperty("BenchmarkMethod")?.GetValue(second));
+            });
+        Assert.Equal(
+            ["*First.Namespace.SharedBenchmarks*", "*Second.Namespace.SharedBenchmarks*"],
+            coverage.TargetedRerunArguments.Select(arguments => arguments[^1]).ToArray());
+    }
+
+    [Fact]
+    public void DoesNotCountAFormerBenchmarkSummaryMeanAsTheLastFailedCase()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var invocationDirectory = Path.Combine(directory.Path, "core", "000");
+        Directory.CreateDirectory(invocationDirectory);
+        File.WriteAllLines(Path.Combine(invocationDirectory, "process.stdout.log"),
+        [
+            "// Found 2 benchmarks:",
+            "//   ExampleBenchmarks.Passed: Job-1 [Count=1]",
+            "//   ExampleBenchmarks.Failed: Job-1 [Count=2]",
+            "// **************************",
+            "// Benchmark: ExampleBenchmarks.Passed: Job-1 [Count=1]",
+            "// Benchmark Process 100 has exited with code 0.",
+            "Mean = 12.0 ns, StdErr = 0.1 ns, N = 5",
+            "// Benchmark: ExampleBenchmarks.Failed: Job-1 [Count=2]",
+            "// Benchmark Process 101 has exited with code 255.",
+            "// * Detailed results *",
+            "ExampleBenchmarks.Passed: Job-1 [Count=1]",
+            "Mean = 12.0 ns, StdErr = 0.1 ns, N = 5",
+            "ExampleBenchmarks.Failed: Job-1 [Count=2]",
+            "There are not any results runs"
+        ]);
+
+        var result = new BenchmarkProjectResult("core", "Failed", 1, "core/000", "child failed");
+        var coverage = BenchmarkCaseCoverage.Create(directory.Path, CreateUnfilteredPlan(), [result], OutcomeKind.CommandFailure, null);
+
+        Assert.Equal(1, coverage.CompletedCaseCount);
+        Assert.Equal(1, coverage.FailedCaseCount);
+        Assert.Equal("failed", Assert.Single(coverage.Cases, item => item.DisplayInfo.Contains("Failed:", StringComparison.Ordinal)).State);
+    }
+
+    [Fact]
     public void AggregatesDiscoveryInventoriesAcrossMultipleBenchmarkDotNetGroups()
     {
         using var directory = TemporaryDirectory.Create();
@@ -236,6 +386,10 @@ public sealed class BenchmarkCaseCoverageTests
     private static BenchmarkExecutionPlan CreatePlan()
         => new("core", "exhaustive", "net11.0", "synthetic", 100_000, false, null,
             [new BenchmarkInvocation("core", "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj", [], "ExampleBenchmarks")], [], []);
+
+    private static BenchmarkExecutionPlan CreateUnfilteredPlan()
+        => new("core", "fast", "net10.0", "synthetic", 500, false, null,
+            [new BenchmarkInvocation("core", "src/devops/benchmarks/Rowles.LeanCorpus.Benchmarks/Rowles.LeanCorpus.Benchmarks.csproj", [], null)], [], []);
 
     private sealed class TemporaryDirectory : IDisposable
     {

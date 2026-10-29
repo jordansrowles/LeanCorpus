@@ -10,6 +10,7 @@ internal sealed record BenchmarkCaseCoverageRecord(
     string ProjectKey,
     string Invocation,
     string BenchmarkClass,
+    string? BenchmarkMethod,
     string DisplayInfo,
     string State,
     int? DiscoveredAtLine,
@@ -124,7 +125,7 @@ internal static class BenchmarkCaseCoverage
                 .ToArray();
             if (invocation.BenchmarkClass is not null && (unfinishedCases.Length > 0 || projectResult?.Status != "Passed"))
                 rerunClasses = [invocation.BenchmarkClass];
-            if (rerunClasses.Length == 0 && projectResult?.Status != "Passed" && unfinishedCases.Length == 0)
+            if (rerunClasses.Length == 0 && (unfinishedCases.Length > 0 || projectResult?.Status != "Passed"))
                 reruns.Add(BuildRerunArguments(plan, invocation, null));
             else
                 foreach (var benchmarkClass in rerunClasses)
@@ -137,7 +138,7 @@ internal static class BenchmarkCaseCoverage
         var neverStarted = cases.Count(static item => item.State == "never-started");
         var projectSummaries = BuildProjectSummaries(invocationCoverage, cases);
         return new BenchmarkCaseCoverageReport(
-            SchemaVersion: 1,
+            SchemaVersion: 2,
             Outcome: outcome.ToString(),
             SelectionScope: plan.Suite,
             TimeoutSource: timeoutSource,
@@ -238,15 +239,13 @@ internal static class BenchmarkCaseCoverage
         BenchmarkProjectResult? projectResult)
     {
         var planned = new List<PlannedCase>();
-        var startedAt = new Dictionary<string, int>(StringComparer.Ordinal);
-        var completedAt = new Dictionary<string, int>(StringComparer.Ordinal);
-        var failed = new HashSet<string>(StringComparer.Ordinal);
         var diagnostics = new List<string>();
         var inventoryKnown = false;
         var collectingInventory = false;
+        var inDetailedResults = false;
         int? expectedInventoryCount = null;
         bool inventoryCountParsingFailed = false;
-        string? currentBenchmark = null;
+        PlannedCase? currentBenchmark = null;
         int lineNumber = 0;
 
         if (File.Exists(stdoutPath))
@@ -254,6 +253,17 @@ internal static class BenchmarkCaseCoverage
             foreach (var line in File.ReadLines(stdoutPath))
             {
                 lineNumber++;
+                if (line.StartsWith("// * Detailed results *", StringComparison.Ordinal))
+                {
+                    currentBenchmark = null;
+                    collectingInventory = false;
+                    inDetailedResults = true;
+                    continue;
+                }
+
+                if (inDetailedResults)
+                    continue;
+
                 if (line.StartsWith("// Found ", StringComparison.Ordinal) && line.Contains(" benchmarks:", StringComparison.Ordinal))
                 {
                     inventoryKnown = true;
@@ -273,7 +283,7 @@ internal static class BenchmarkCaseCoverage
                     {
                         var displayInfo = line[5..].TrimEnd();
                         if (displayInfo.Length > 0)
-                            AddPlanned(planned, displayInfo, lineNumber);
+                            AddPlanned(planned, displayInfo, lineNumber, allowDuplicate: true);
                         continue;
                     }
                     if (line.StartsWith("//", StringComparison.Ordinal))
@@ -283,15 +293,16 @@ internal static class BenchmarkCaseCoverage
                 const string benchmarkPrefix = "// Benchmark: ";
                 if (line.StartsWith(benchmarkPrefix, StringComparison.Ordinal))
                 {
-                    currentBenchmark = line[benchmarkPrefix.Length..].TrimEnd();
-                    AddPlanned(planned, currentBenchmark);
-                    startedAt.TryAdd(currentBenchmark, lineNumber);
+                    var displayInfo = line[benchmarkPrefix.Length..].TrimEnd();
+                    currentBenchmark = planned.FirstOrDefault(item => item.DisplayInfo.Equals(displayInfo, StringComparison.Ordinal) &&
+                        item.StartedAtLine is null) ?? AddPlanned(planned, displayInfo, allowDuplicate: true);
+                    currentBenchmark.StartedAtLine = lineNumber;
                     continue;
                 }
 
-                if (currentBenchmark is not null && line.StartsWith("Mean = ", StringComparison.Ordinal))
+                if (currentBenchmark is not null && line.StartsWith("// Execute: ", StringComparison.Ordinal))
                 {
-                    completedAt[currentBenchmark] = lineNumber;
+                    currentBenchmark.SetIdentity(ParseBenchmarkFullName(ExtractBenchmarkName(line)));
                     continue;
                 }
 
@@ -302,14 +313,36 @@ internal static class BenchmarkCaseCoverage
                     var codeText = line[(exitMarkerIndex + exitMarker.Length)..].TrimEnd('.');
                     if (int.TryParse(codeText, System.Globalization.NumberStyles.Integer,
                             System.Globalization.CultureInfo.InvariantCulture, out var exitCode) && exitCode != 0)
-                        failed.Add(currentBenchmark);
+                        currentBenchmark.Failed = true;
+                    continue;
                 }
+
+                if (currentBenchmark is not null && line.StartsWith("Mean = ", StringComparison.Ordinal))
+                    currentBenchmark.CompletedAtLine = lineNumber;
             }
         }
 
         var rawResults = ReadRawResults(runDirectory, resultsDirectory, diagnostics);
-        foreach (var result in rawResults.Values)
-            AddPlanned(planned, result.DisplayInfo);
+        foreach (var result in rawResults)
+        {
+            var matchingCase = result.FullName is null
+                ? null
+                : planned.FirstOrDefault(item => item.DisplayInfo.Equals(result.DisplayInfo, StringComparison.Ordinal) &&
+                    item.FullName?.Equals(result.FullName, StringComparison.Ordinal) == true);
+            matchingCase ??= planned.FirstOrDefault(item => item.DisplayInfo.Equals(result.DisplayInfo, StringComparison.Ordinal) &&
+                item.FullName is null && !item.HasRawResult);
+            matchingCase ??= result.FullName is null
+                ? planned.FirstOrDefault(item => item.DisplayInfo.Equals(result.DisplayInfo, StringComparison.Ordinal) && item.HasRawResult)
+                : null;
+            matchingCase ??= AddPlanned(planned, result.DisplayInfo, identity: new BenchmarkIdentity(
+                result.BenchmarkClass, result.BenchmarkMethod, result.FullName), allowDuplicate: true);
+            matchingCase.SetIdentity(new BenchmarkIdentity(result.BenchmarkClass, result.BenchmarkMethod, result.FullName));
+            matchingCase.RawCompleted |= result.Completed;
+            matchingCase.RawFailed |= result.Failed;
+            matchingCase.HasRawResult = true;
+            matchingCase.ResultLocations.AddRange(result.ResultLocations);
+        }
+
         if (inventoryCountParsingFailed)
         {
             inventoryKnown = false;
@@ -326,17 +359,15 @@ internal static class BenchmarkCaseCoverage
         var parsedCases = new List<BenchmarkCaseCoverageRecord>(planned.Count);
         var runWasInterrupted = outcome is OutcomeKind.Timeout or OutcomeKind.Cancelled ||
             timeoutSource is "aggregate" or "project" or "external-cancellation";
-        foreach (var item in planned)
+        foreach (var (item, occurrence) in planned.Select(static (item, occurrence) => (item, occurrence)))
         {
-            rawResults.TryGetValue(item.DisplayInfo, out var rawResult);
-            var hasCompletedOutput = completedAt.TryGetValue(item.DisplayInfo, out var completionLine);
-            var hasStarted = startedAt.TryGetValue(item.DisplayInfo, out var startLine);
-            var isFailed = failed.Contains(item.DisplayInfo) || rawResult?.Failed == true;
-            var isCompleted = hasCompletedOutput || rawResult?.Completed == true;
-            var state = isCompleted
-                ? "completed"
-                : isFailed
-                    ? "failed"
+            var hasStarted = item.StartedAtLine is not null;
+            var isFailed = item.Failed || item.RawFailed;
+            var isCompleted = !isFailed && (item.CompletedAtLine is not null || item.RawCompleted);
+            var state = isFailed
+                ? "failed"
+                : isCompleted
+                    ? "completed"
                     : hasStarted
                         ? runWasInterrupted
                             ? "interrupted"
@@ -345,22 +376,23 @@ internal static class BenchmarkCaseCoverage
             var locations = new List<string>();
             if (item.ListedAtLine is int discoveredLine)
                 locations.Add($"{Relative(runDirectory, stdoutPath)}#L{discoveredLine}");
-            if (hasStarted)
+            if (item.StartedAtLine is int startLine)
                 locations.Add($"{Relative(runDirectory, stdoutPath)}#L{startLine}");
-            if (hasCompletedOutput)
+            if (item.CompletedAtLine is int completionLine)
                 locations.Add($"{Relative(runDirectory, stdoutPath)}#L{completionLine}");
-            if (rawResult is not null)
-                locations.AddRange(rawResult.Paths);
+            locations.AddRange(item.ResultLocations);
             parsedCases.Add(new BenchmarkCaseCoverageRecord(
-                CreateCaseId(projectKey, item.DisplayInfo),
+                CreateCaseId(projectKey, item.DisplayInfo + "\0" + (item.FullName ?? string.Empty) + "\0" +
+                    occurrence.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                 projectKey,
                 invocationName,
-                GetBenchmarkClass(item.DisplayInfo),
+                item.BenchmarkClass ?? string.Empty,
+                item.BenchmarkMethod,
                 item.DisplayInfo,
                 state,
                 item.ListedAtLine,
-                hasStarted ? startLine : null,
-                hasCompletedOutput ? completionLine : null,
+                item.StartedAtLine,
+                item.CompletedAtLine,
                 locations.Distinct(StringComparer.Ordinal).ToArray()));
         }
 
@@ -373,12 +405,12 @@ internal static class BenchmarkCaseCoverage
             unenumeratedCaseCount, parsedCases, diagnostics);
     }
 
-    private static Dictionary<string, RawResult> ReadRawResults(
+    private static IReadOnlyList<RawResult> ReadRawResults(
         string runDirectory,
         string resultsDirectory,
         ICollection<string> diagnostics)
     {
-        var results = new Dictionary<string, RawResult>(StringComparer.Ordinal);
+        var results = new List<RawResult>();
         if (!Directory.Exists(resultsDirectory))
             return results;
 
@@ -397,20 +429,14 @@ internal static class BenchmarkCaseCoverage
                     var displayInfo = displayInfoElement.GetString();
                     if (string.IsNullOrWhiteSpace(displayInfo))
                         continue;
+                    var identity = ReadBenchmarkIdentity(benchmark, displayInfo);
                     var completed = benchmark.TryGetProperty("Statistics", out var statistics) &&
                         statistics.ValueKind == JsonValueKind.Object &&
                         statistics.TryGetProperty("N", out var count) && count.TryGetInt32(out var samples) && samples > 0;
                     var failed = benchmark.TryGetProperty("Result", out var resultElement) && resultElement.ValueKind is not JsonValueKind.Null and not JsonValueKind.Undefined;
                     var location = Relative(runDirectory, path);
-                    if (results.TryGetValue(displayInfo, out var existing))
-                        results[displayInfo] = existing with
-                        {
-                            Completed = existing.Completed || completed,
-                            Failed = existing.Failed || failed,
-                            Paths = existing.Paths.Append(location).Distinct(StringComparer.Ordinal).ToArray()
-                        };
-                    else
-                        results.Add(displayInfo, new RawResult(displayInfo, completed, failed, [location]));
+                    results.Add(new RawResult(displayInfo, identity.BenchmarkClass, identity.BenchmarkMethod,
+                        identity.FullName, completed, failed, [location]));
                 }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
@@ -459,13 +485,30 @@ internal static class BenchmarkCaseCoverage
         return arguments;
     }
 
-    private static void AddPlanned(List<PlannedCase> planned, string displayInfo, int? listedAtLine = null)
+    private static PlannedCase AddPlanned(
+        List<PlannedCase> planned,
+        string displayInfo,
+        int? listedAtLine = null,
+        BenchmarkIdentity? identity = null,
+        bool allowDuplicate = false)
     {
-        var existingIndex = planned.FindIndex(item => item.DisplayInfo.Equals(displayInfo, StringComparison.Ordinal));
-        if (existingIndex < 0)
-            planned.Add(new PlannedCase(displayInfo, listedAtLine));
-        else if (listedAtLine is not null && planned[existingIndex].ListedAtLine is null)
-            planned[existingIndex] = planned[existingIndex] with { ListedAtLine = listedAtLine };
+        if (!allowDuplicate)
+        {
+            var existing = planned.FirstOrDefault(item => item.DisplayInfo.Equals(displayInfo, StringComparison.Ordinal));
+            if (existing is not null)
+            {
+                if (existing.ListedAtLine is null)
+                    existing.ListedAtLine = listedAtLine;
+                if (identity is not null)
+                    existing.SetIdentity(identity);
+                return existing;
+            }
+        }
+
+        var item = new PlannedCase(displayInfo, listedAtLine);
+        item.SetIdentity(identity ?? ParseDisplayInfoIdentity(displayInfo));
+        planned.Add(item);
+        return item;
     }
 
     private static string CreateCaseId(string projectKey, string displayInfo)
@@ -474,11 +517,119 @@ internal static class BenchmarkCaseCoverage
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
-    private static string GetBenchmarkClass(string displayInfo)
+    private static string ExtractBenchmarkName(string executeLine)
     {
-        var methodName = displayInfo.Split(':', 2)[0];
-        var separator = methodName.LastIndexOf('.');
-        return separator > 0 ? methodName[..separator] : methodName;
+        const string marker = "--benchmarkName ";
+        var markerIndex = executeLine.IndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+            return string.Empty;
+
+        var value = executeLine[(markerIndex + marker.Length)..].TrimStart();
+        if (value.Length == 0)
+            return string.Empty;
+        var quote = value[0];
+        if (quote is not ('"' or '\''))
+            return value.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries)[0];
+
+        var builder = new StringBuilder(value.Length);
+        for (var index = 1; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (character == quote)
+                return builder.ToString();
+            if (character == '\\' && index + 1 < value.Length && value[index + 1] == quote)
+            {
+                builder.Append(quote);
+                index++;
+                continue;
+            }
+            builder.Append(character);
+        }
+
+        return string.Empty;
+    }
+
+    private static BenchmarkIdentity ParseBenchmarkFullName(string fullName)
+    {
+        if (string.IsNullOrWhiteSpace(fullName))
+            return new BenchmarkIdentity(null, null, null);
+
+        var openParenthesis = fullName.IndexOf('(');
+        var qualifiedMethod = openParenthesis >= 0 ? fullName[..openParenthesis] : fullName;
+        var separator = qualifiedMethod.LastIndexOf('.');
+        if (separator <= 0 || separator == qualifiedMethod.Length - 1)
+            return new BenchmarkIdentity(null, null, fullName);
+
+        var method = qualifiedMethod[(separator + 1)..];
+        return IsIdentifier(method)
+            ? new BenchmarkIdentity(qualifiedMethod[..separator], method, fullName)
+            : new BenchmarkIdentity(null, null, fullName);
+    }
+
+    private static BenchmarkIdentity ParseDisplayInfoIdentity(string displayInfo)
+    {
+        // BenchmarkDotNet wraps a friendly method title in quotes for custom names.
+        // The class prefix remains useful for a safe class filter, while the title
+        // must not be mistaken for a method or appended to the class name.
+        var quotedTitleSeparator = displayInfo.IndexOf(".'", StringComparison.Ordinal);
+        if (quotedTitleSeparator >= 0)
+        {
+            var className = displayInfo[..quotedTitleSeparator];
+            return new BenchmarkIdentity(className.Length > 0 ? className : null, null, null);
+        }
+
+        var colon = displayInfo.IndexOf(':');
+        var qualifiedMethod = colon >= 0 ? displayInfo[..colon] : displayInfo;
+        var separator = qualifiedMethod.LastIndexOf('.');
+        if (separator <= 0 || separator == qualifiedMethod.Length - 1)
+            return new BenchmarkIdentity(null, null, null);
+
+        var method = qualifiedMethod[(separator + 1)..];
+        return IsIdentifier(method)
+            ? new BenchmarkIdentity(qualifiedMethod[..separator], method, null)
+            : new BenchmarkIdentity(null, null, null);
+    }
+
+    private static BenchmarkIdentity ReadBenchmarkIdentity(JsonElement benchmark, string displayInfo)
+    {
+        var fullName = ReadStringProperty(benchmark, "FullName");
+        var parsedFullName = ParseBenchmarkFullName(fullName ?? string.Empty);
+        var benchmarkNamespace = ReadStringProperty(benchmark, "Namespace");
+        var benchmarkType = ReadStringProperty(benchmark, "Type");
+        var benchmarkClass = !string.IsNullOrWhiteSpace(benchmarkType)
+            ? string.IsNullOrWhiteSpace(benchmarkNamespace)
+                ? benchmarkType
+                : $"{benchmarkNamespace}.{benchmarkType}"
+            : parsedFullName.BenchmarkClass;
+        var benchmarkMethod = ReadStringProperty(benchmark, "Method") ?? parsedFullName.BenchmarkMethod;
+
+        if (benchmarkClass is null || benchmarkMethod is null)
+        {
+            var displayIdentity = ParseDisplayInfoIdentity(displayInfo);
+            benchmarkClass ??= displayIdentity.BenchmarkClass;
+            benchmarkMethod ??= displayIdentity.BenchmarkMethod;
+        }
+
+        return new BenchmarkIdentity(benchmarkClass, benchmarkMethod, fullName ?? parsedFullName.FullName);
+    }
+
+    private static string? ReadStringProperty(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
+    }
+
+    private static bool IsIdentifier(string value)
+    {
+        if (value.Length == 0 || !(char.IsLetter(value[0]) || value[0] == '_'))
+            return false;
+        for (var index = 1; index < value.Length; index++)
+        {
+            if (!(char.IsLetterOrDigit(value[index]) || value[index] == '_'))
+                return false;
+        }
+        return true;
     }
 
     private static void AddExistingLocation(string runDirectory, string path, ICollection<string> locations)
@@ -490,9 +641,44 @@ internal static class BenchmarkCaseCoverage
     private static string Relative(string root, string path)
         => Path.GetRelativePath(root, path).Replace('\\', '/');
 
-    private sealed record PlannedCase(string DisplayInfo, int? ListedAtLine);
+    private sealed class PlannedCase(string displayInfo, int? listedAtLine)
+    {
+        public string DisplayInfo { get; } = displayInfo;
+        public int? ListedAtLine { get; set; } = listedAtLine;
+        public string? BenchmarkClass { get; private set; }
+        public string? BenchmarkMethod { get; private set; }
+        public string? FullName { get; private set; }
+        public int? StartedAtLine { get; set; }
+        public int? CompletedAtLine { get; set; }
+        public bool Failed { get; set; }
+        public bool RawFailed { get; set; }
+        public bool RawCompleted { get; set; }
+        public bool HasRawResult { get; set; }
+        public List<string> ResultLocations { get; } = [];
 
-    private sealed record RawResult(string DisplayInfo, bool Completed, bool Failed, IReadOnlyList<string> Paths);
+        public void SetIdentity(BenchmarkIdentity? identity)
+        {
+            if (identity is null)
+                return;
+            if (!string.IsNullOrWhiteSpace(identity.BenchmarkClass))
+                BenchmarkClass = identity.BenchmarkClass;
+            if (!string.IsNullOrWhiteSpace(identity.BenchmarkMethod))
+                BenchmarkMethod = identity.BenchmarkMethod;
+            if (!string.IsNullOrWhiteSpace(identity.FullName))
+                FullName = identity.FullName;
+        }
+    }
+
+    private sealed record BenchmarkIdentity(string? BenchmarkClass, string? BenchmarkMethod, string? FullName);
+
+    private sealed record RawResult(
+        string DisplayInfo,
+        string? BenchmarkClass,
+        string? BenchmarkMethod,
+        string? FullName,
+        bool Completed,
+        bool Failed,
+        IReadOnlyList<string> ResultLocations);
 
     private sealed record ParsedInvocation(
         bool InventoryKnown,
