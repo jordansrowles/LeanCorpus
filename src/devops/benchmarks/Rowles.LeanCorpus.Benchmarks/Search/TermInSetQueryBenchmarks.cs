@@ -9,8 +9,8 @@ using TermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Compares <see cref="TermInSetQuery"/> throughput against an equivalent
-/// multi-clause <see cref="BooleanQuery"/> at different set sizes.
+/// Measures <see cref="TermInSetQuery"/> and multi-clause Boolean OR
+/// implementations at different set sizes. The methods are distinct algorithms.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -79,7 +79,7 @@ public class TermInSetQueryBenchmarks
         // Resources are owned by SharedStandardIndex; do not dispose.
     }
 
-    [Benchmark(Baseline = true)]
+    [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_TermInSetQuery()
         => _leanSearcher!.Search(new TermInSetQuery("body", _terms), TopN).TotalHits;
