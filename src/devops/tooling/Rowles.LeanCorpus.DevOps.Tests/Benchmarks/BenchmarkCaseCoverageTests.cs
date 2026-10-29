@@ -196,6 +196,47 @@ public sealed class BenchmarkCaseCoverageTests
     }
 
     [Fact]
+    public void ResumesDiscoveryAfterABenchmarkDotNetDetailedResultsBlock()
+    {
+        using var directory = TemporaryDirectory.Create();
+        var invocationDirectory = Path.Combine(directory.Path, "text", "000");
+        Directory.CreateDirectory(invocationDirectory);
+        File.WriteAllLines(Path.Combine(invocationDirectory, "process.stdout.log"),
+        [
+            "// Found 1 benchmarks:",
+            "//   FirstBenchmarks.One: Job-1 [Count=1]",
+            "// **************************",
+            "// Benchmark: FirstBenchmarks.One: Job-1 [Count=1]",
+            "// Execute: dotnet Runner.dll --benchmarkName \"First.Namespace.FirstBenchmarks.One()\" --job Dry",
+            "Mean = 12.0 ns, StdErr = 0.1 ns, N = 5",
+            "// * Detailed results *",
+            "FirstBenchmarks.One: Job-1 [Count=1]",
+            "Mean = 12.0 ns, StdErr = 0.1 ns, N = 5",
+            "// Found 1 benchmarks:",
+            "//   SecondBenchmarks.Two: Job-1 [Count=2]",
+            "// **************************",
+            "// Benchmark: SecondBenchmarks.Two: Job-1 [Count=2]",
+            "// Execute: dotnet Runner.dll --benchmarkName \"Second.Namespace.SecondBenchmarks.Two()\" --job Dry",
+            "Mean = 14.0 ns, StdErr = 0.1 ns, N = 5",
+            "// * Detailed results *",
+            "SecondBenchmarks.Two: Job-1 [Count=2]",
+            "Mean = 14.0 ns, StdErr = 0.1 ns, N = 5"
+        ]);
+
+        var result = new BenchmarkProjectResult("text", "Passed", 0, "text/000", null);
+        var plan = new BenchmarkExecutionPlan("text", "fast", "net10.0", "synthetic", 500, false, null,
+            [new BenchmarkInvocation("text", "src/devops/benchmarks/Rowles.Text.Benchmarks/Rowles.Text.Benchmarks.csproj", [], null)], [], []);
+        var coverage = BenchmarkCaseCoverage.Create(directory.Path, plan, [result], OutcomeKind.Success, null);
+
+        Assert.True(coverage.CompleteInventoryKnown);
+        Assert.Equal(2, coverage.PlannedCaseCount);
+        Assert.Equal(2, coverage.CompletedCaseCount);
+        Assert.Equal(
+            ["First.Namespace.FirstBenchmarks", "Second.Namespace.SecondBenchmarks"],
+            coverage.Cases.Select(static item => item.BenchmarkClass).ToArray());
+    }
+
+    [Fact]
     public void AccountsForCompletedFailedAndNeverStartedCasesAndBuildsClassRerunPlan()
     {
         using var directory = TemporaryDirectory.Create();

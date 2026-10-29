@@ -253,19 +253,10 @@ internal static class BenchmarkCaseCoverage
             foreach (var line in File.ReadLines(stdoutPath))
             {
                 lineNumber++;
-                if (line.StartsWith("// * Detailed results *", StringComparison.Ordinal))
-                {
-                    currentBenchmark = null;
-                    collectingInventory = false;
-                    inDetailedResults = true;
-                    continue;
-                }
-
-                if (inDetailedResults)
-                    continue;
-
                 if (line.StartsWith("// Found ", StringComparison.Ordinal) && line.Contains(" benchmarks:", StringComparison.Ordinal))
                 {
+                    inDetailedResults = false;
+                    currentBenchmark = null;
                     inventoryKnown = true;
                     collectingInventory = true;
                     var countText = line[9..line.IndexOf(" benchmarks:", StringComparison.Ordinal)];
@@ -276,6 +267,17 @@ internal static class BenchmarkCaseCoverage
                         inventoryCountParsingFailed = true;
                     continue;
                 }
+
+                if (line.StartsWith("// * Detailed results *", StringComparison.Ordinal))
+                {
+                    currentBenchmark = null;
+                    collectingInventory = false;
+                    inDetailedResults = true;
+                    continue;
+                }
+
+                if (inDetailedResults)
+                    continue;
 
                 if (collectingInventory)
                 {
