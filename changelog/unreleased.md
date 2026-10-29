@@ -69,6 +69,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Reduce cold compilation time and allocation for small fuzzy automata with a bounded compact state representation; retain the existing compiler for larger automata.
 - Update the standalone Rowles.Text README's benchmark commands to the managed DevOps CLI and clarify this branch's unreleased package target.
 - Clarify unreleased package versions and API-reference coverage in the documentation preview, and direct first-time users to the canonical installation guide.
 - Rename the internal Core JSON metadata namespace and source area to British `Serialisation`; preserve Core JSON payload shapes and property names, with Server wire-contract types untouched.
