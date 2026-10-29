@@ -2,6 +2,7 @@ using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
+using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
@@ -79,6 +80,182 @@ public sealed class FuzzySearcherCacheIntegrationTests : IClassFixture<TestDirec
 
         Assert.All(observed, ids => Assert.Equal(expected, ids));
         Assert.Equal(0, bypassedSearcher.Search(noHitQuery, 10, TestContext.Current.CancellationToken).TotalHits);
+    }
+
+    [Fact]
+    public void FuzzyMaxExpansionsAreSelectedGloballyAcrossSegmentsWithUtf8Ties()
+    {
+        var indexPath = Path.Combine(_fixture.Path, "fuzzy-searcher-global-expansion-cap");
+        using var directory = new MMapDirectory(indexPath);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            DefaultAnalyser = new KeywordAnalyser(),
+            MergePolicy = NoMergePolicy.Instance
+        }))
+        {
+            foreach (string body in new[] { "hat", "bat", "bat", "mat" })
+            {
+                AddBody(writer, body);
+                writer.Commit();
+            }
+        }
+
+        using var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            EnableQueryCache = false,
+            UseFuzzyExpansionCache = false
+        });
+        Assert.Equal(4, searcher.GetSegmentReaders().Count);
+
+        var query = new FuzzyQuery("body", "cat", maxEdits: 1, maxExpansions: 1);
+        var context = new FuzzyQueryExecutionContext(searcher.GetSegmentReaders(), useExpansionCache: false);
+        Parallel.ForEach(searcher.GetSegmentReaders(), reader => context.GetMatches(query, reader));
+
+        Assert.Equal(1, context.AutomatonCompilationCount);
+        Assert.Equal(new[] { "body\0bat" }, context.GetSelectedTerms(query));
+
+        var results = searcher.Search(query, 10,
+            TestContext.Current.CancellationToken);
+        var bodies = results.ScoreDocs
+            .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["body"][0])
+            .ToArray();
+
+        Assert.Equal(2, results.TotalHits);
+        Assert.All(bodies, static body => Assert.Equal("bat", body));
+
+        Query[] nestedQueries =
+        [
+            new BooleanQuery.Builder().Add(query, Occur.Must).Build(),
+            new SpanMultiTermQueryWrapper(query)
+        ];
+        foreach (var nestedQuery in nestedQueries)
+        {
+            var nestedResults = searcher.Search(nestedQuery, 10, TestContext.Current.CancellationToken);
+            var nestedBodies = nestedResults.ScoreDocs
+                .Select(scoreDoc => searcher.GetStoredFields(scoreDoc.DocId)["body"][0])
+                .ToArray();
+
+            Assert.Equal(2, nestedResults.TotalHits);
+            Assert.All(nestedBodies, static body => Assert.Equal("bat", body));
+        }
+    }
+
+    [Fact]
+    public void WarmSegmentExpansionCacheSkipsAutomatonCompilationAcrossSegments()
+    {
+        var indexPath = Path.Combine(_fixture.Path, "fuzzy-searcher-warm-expansion-cache");
+        using var directory = new MMapDirectory(indexPath);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            DefaultAnalyser = new KeywordAnalyser(),
+            MergePolicy = NoMergePolicy.Instance
+        }))
+        {
+            foreach (string body in new[] { "cat", "bat", "hat" })
+            {
+                AddBody(writer, body);
+                writer.Commit();
+            }
+        }
+
+        using var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            EnableQueryCache = false,
+            UseFuzzyExpansionCache = true
+        });
+        var readers = searcher.GetSegmentReaders();
+        var query = new FuzzyQuery("body", "cat", maxEdits: 1, maxExpansions: 10);
+        foreach (var reader in readers)
+            reader.GetFuzzyMatches("body\0", query.Term.AsSpan(), query.MaxEdits, query.MaxExpansions, useCache: true);
+
+        var context = new FuzzyQueryExecutionContext(readers, useExpansionCache: true);
+        Parallel.ForEach(readers, reader => context.GetMatches(query, reader));
+
+        Assert.Equal(0, context.AutomatonCompilationCount);
+        Assert.Equal(new[] { "body\0cat", "body\0bat", "body\0hat" }, context.GetSelectedTerms(query));
+    }
+
+    [Fact]
+    public void WarmCachedEmptyExpansionPlanSharesOneImmutableNoMatchResultAcrossSegments()
+    {
+        const string fieldPrefix = "body\0";
+        var indexPath = Path.Combine(_fixture.Path, "fuzzy-searcher-warm-empty-expansion");
+        using var directory = new MMapDirectory(indexPath);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            DefaultAnalyser = new KeywordAnalyser(),
+            MergePolicy = NoMergePolicy.Instance
+        }))
+        {
+            foreach (string body in new[] { "government", "market", "policy" })
+            {
+                AddBody(writer, body);
+                writer.Commit();
+            }
+        }
+
+        using var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            EnableQueryCache = false,
+            UseFuzzyExpansionCache = true
+        });
+        var readers = searcher.GetSegmentReaders();
+        Assert.True(readers.Count >= 2);
+
+        var query = new FuzzyQuery("body", "zzzznomatch", maxEdits: 2, maxExpansions: 50);
+        foreach (var reader in readers)
+            reader.GetFuzzyMatches(fieldPrefix, query.Term.AsSpan(), query.MaxEdits, query.MaxExpansions, useCache: true);
+
+        var context = new FuzzyQueryExecutionContext(readers, useExpansionCache: true);
+        var matchesByReader = readers.Select(reader => context.GetMatches(query, reader)).ToArray();
+
+        Assert.All(matchesByReader, Assert.Empty);
+        Assert.All(matchesByReader, matches => Assert.Same(matchesByReader[0], matches));
+        Assert.Empty(context.GetSelectedTerms(query));
+        Assert.Equal(0, context.AutomatonCompilationCount);
+    }
+
+    [Fact]
+    public void FuzzyExpansionCacheProbeReturnsOnlyExistingEntries()
+    {
+        const string fieldPrefix = "body\0";
+        var indexPath = Path.Combine(_fixture.Path, "fuzzy-searcher-cache-probe");
+        using var directory = new MMapDirectory(indexPath);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            DefaultAnalyser = new KeywordAnalyser(),
+            MergePolicy = NoMergePolicy.Instance
+        }))
+        {
+            foreach (string body in new[] { "government", "market", "policy" })
+            {
+                AddBody(writer, body);
+                writer.Commit();
+            }
+        }
+
+        using var searcher = new IndexSearcher(directory, new IndexSearcherConfig
+        {
+            EnableQueryCache = false,
+            UseFuzzyExpansionCache = true
+        });
+        var readers = searcher.GetSegmentReaders();
+        var query = new FuzzyQuery("body", "zzzznomatch", maxEdits: 2, maxExpansions: 50);
+        var reader = readers[0];
+
+        Assert.False(reader.TryGetCachedFuzzyMatches(
+            fieldPrefix, query.Term, query.MaxEdits, query.MaxExpansions, out _));
+
+        var expanded = reader.GetFuzzyMatches(
+            fieldPrefix, query.Term.AsSpan(), query.MaxEdits, query.MaxExpansions, useCache: true);
+        Assert.Empty(expanded);
+        Assert.True(reader.TryGetCachedFuzzyMatches(
+            fieldPrefix, query.Term, query.MaxEdits, query.MaxExpansions, out var cached));
+        Assert.Same(expanded, cached);
     }
 
     [Fact]

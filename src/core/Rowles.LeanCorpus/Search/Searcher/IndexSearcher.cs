@@ -24,6 +24,7 @@ public sealed partial class IndexSearcher : IDisposable
     private readonly int _totalDocCount;
     private IndexStats? _stats;
     private readonly Lock _statsLock = new();
+    private readonly AsyncLocal<FuzzyQueryExecutionContext?> _fuzzyQueryExecutionContext = new();
     private readonly ISimilarity _similarity;
     private readonly IndexSearcherConfig _config;
     private readonly bool _useLmScoring;
@@ -44,6 +45,31 @@ public sealed partial class IndexSearcher : IDisposable
     private ConcurrentDictionary<MltCacheKey, (string Field, string Term, float Score)[]>? _mltCache;
     private int _mltCacheCount;
     private const int MltCacheSoftCap = 64;
+
+    private FuzzyQueryExecutionContext? CurrentFuzzyQueryExecutionContext
+        => _fuzzyQueryExecutionContext.Value;
+
+    private IDisposable PushFuzzyQueryExecutionContext()
+    {
+        var previous = _fuzzyQueryExecutionContext.Value;
+        _fuzzyQueryExecutionContext.Value = new FuzzyQueryExecutionContext(
+            _readers,
+            _config.UseFuzzyExpansionCache);
+        return new FuzzyQueryExecutionContextScope(this, previous);
+    }
+
+    private sealed class FuzzyQueryExecutionContextScope(
+        IndexSearcher searcher,
+        FuzzyQueryExecutionContext? previous) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                searcher._fuzzyQueryExecutionContext.Value = previous;
+        }
+    }
 
     private int ResolvedSearchConcurrency => _config.MaxConcurrency > 0
         ? _config.MaxConcurrency
@@ -519,6 +545,10 @@ public sealed partial class IndexSearcher : IDisposable
     private TopDocs SearchCore(Query query, int topN, ISideCollector? sideCollector = null)
     {
         query = RewriteQuery(query);
+        if (query is FuzzyQuery fuzzyQuery && HasCachedFuzzyNoMatches(fuzzyQuery))
+            return TopDocs.Empty;
+
+        using var fuzzyExecutionScope = PushFuzzyQueryExecutionContext();
 
         if (query.CreateWeight(this) is { } weight)
             return ExecuteWeight(query, weight, topN, sideCollector);
@@ -581,12 +611,36 @@ public sealed partial class IndexSearcher : IDisposable
         return collector.ToTopDocs();
     }
 
+    private bool HasCachedFuzzyNoMatches(FuzzyQuery query)
+    {
+        if (!_config.UseFuzzyExpansionCache)
+            return false;
+
+        string fieldPrefix = string.Concat(query.Field, "\0");
+        foreach (var reader in _readers)
+        {
+            if (!reader.TryGetCachedFuzzyMatches(
+                    fieldPrefix,
+                    query.Term,
+                    query.MaxEdits,
+                    query.MaxExpansions,
+                    out var matches)
+                || matches.Count != 0)
+            {
+                return false;
+            }
+        }
+
+        return _readers.Count != 0;
+    }
+
     internal TopDocs SearchWithCollectorStrategy(Query query, ITopNCollectorStrategy strategy)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(strategy);
 
         query = RewriteQuery(query);
+        using var fuzzyExecutionScope = PushFuzzyQueryExecutionContext();
         var collector = new TopNCollector(strategy);
         if (_readers.Count == 0)
             return collector.ToTopDocs();
@@ -744,6 +798,8 @@ public sealed partial class IndexSearcher : IDisposable
     /// </summary>
     private int CountCore(Query query)
     {
+        using var fuzzyExecutionScope = PushFuzzyQueryExecutionContext();
+
         // Fast path: TermQuery — count from postings directly when possible.
         if (query is TermQuery tq)
         {
@@ -857,6 +913,8 @@ public sealed partial class IndexSearcher : IDisposable
 
     private TopDocs SearchCancellableCore(Query query, int topN, CancellationToken cancellationToken)
     {
+        using var fuzzyExecutionScope = PushFuzzyQueryExecutionContext();
+
         // Cross-segment / composite queries: dispatch before the generic ExecuteQuery path
         if (query is MoreLikeThisQuery mlt)
             return ExecuteMoreLikeThis(mlt, topN);
@@ -945,6 +1003,8 @@ public sealed partial class IndexSearcher : IDisposable
     private TopDocs SearchCoreBudgeted(Query query, int topN, SearchOptions options,
         long? deadlineTicks, System.Diagnostics.Stopwatch sw)
     {
+        using var fuzzyExecutionScope = PushFuzzyQueryExecutionContext();
+
         // Cross-segment / composite queries: dispatch before the generic ExecuteQuery path
         if (query is MoreLikeThisQuery mlt)
             return ExecuteMoreLikeThis(mlt, topN);
@@ -998,6 +1058,8 @@ public sealed partial class IndexSearcher : IDisposable
         if (perSegmentTopN <= 0 || _readers.Count == 0)
             yield break;
 
+        using var fuzzyExecutionScope = PushFuzzyQueryExecutionContext();
+
         options ??= SearchOptions.Default;
         var sw = System.Diagnostics.Stopwatch.StartNew();
         long? deadlineTicks = options.Timeout.HasValue
@@ -1040,6 +1102,8 @@ public sealed partial class IndexSearcher : IDisposable
 
         if (_readers.Count == 0)
             yield break;
+
+        using var fuzzyExecutionScope = PushFuzzyQueryExecutionContext();
 
         if (options.StreamResults)
         {

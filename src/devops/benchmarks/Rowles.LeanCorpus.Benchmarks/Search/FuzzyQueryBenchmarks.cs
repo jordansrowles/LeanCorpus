@@ -1,7 +1,10 @@
 using BenchmarkDotNet.Attributes;
+using Rowles.LeanCorpus.Codecs.Fst;
 using Lucene.Net.Index;
+using LeanSegmentReader = Rowles.LeanCorpus.Index.Segment.SegmentReader;
 using LeanIndexSearcher = Rowles.LeanCorpus.Search.Searcher.IndexSearcher;
 using LeanIndexSearcherConfig = Rowles.LeanCorpus.Search.Searcher.IndexSearcherConfig;
+using LeanFuzzyExecutionContext = Rowles.LeanCorpus.Search.Searcher.FuzzyQueryExecutionContext;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 
 namespace Rowles.LeanCorpus.Benchmarks;
@@ -37,9 +40,12 @@ public class FuzzyQueryBenchmarks
 
     private LeanMMapDirectory? _leanDirectory;
     private LeanIndexSearcher? _leanSearcher;
+    private IReadOnlyList<LeanSegmentReader>? _leanReaders;
+    private LevenshteinAutomaton? _stageAutomaton;
     private Lucene.Net.Search.IndexSearcher? _luceneSearcher;
     private Rowles.LeanCorpus.Search.Queries.FuzzyQuery? _leanQuery;
     private Lucene.Net.Search.FuzzyQuery? _luceneQuery;
+    private (string QueryTerm, int MaxEdits) _scenario;
 
     [GlobalSetup]
     public void Setup()
@@ -51,9 +57,10 @@ public class FuzzyQueryBenchmarks
             EnableQueryCache = false,
             UseFuzzyExpansionCache = false
         });
+        _leanReaders = _leanSearcher.GetSegmentReaders();
         _luceneSearcher = SharedStandardIndex.LuceneSearcher;
 
-        var scenario = ResolveScenario(Scenario);
+        var scenario = _scenario = ResolveScenario(Scenario);
         _leanQuery = new Rowles.LeanCorpus.Search.Queries.FuzzyQuery(
             "body", scenario.QueryTerm, scenario.MaxEdits, MaxExpansions);
         _luceneQuery = new Lucene.Net.Search.FuzzyQuery(
@@ -63,11 +70,10 @@ public class FuzzyQueryBenchmarks
             maxExpansions: MaxExpansions,
             transpositions: false);
 
-        var leanTerms = _leanSearcher.GetSegmentReaders()
-            .SelectMany(reader => reader.GetFuzzyMatches(FieldPrefix, scenario.QueryTerm.AsSpan(), scenario.MaxEdits,
-                MaxExpansions, useCache: false))
-            .Select(static match => match.Term[FieldPrefix.Length..])
-            .Distinct(StringComparer.Ordinal)
+        _stageAutomaton = new LevenshteinAutomaton(scenario.QueryTerm, scenario.MaxEdits);
+        var fuzzyContext = new LeanFuzzyExecutionContext(_leanReaders, useExpansionCache: false);
+        var leanTerms = fuzzyContext.GetSelectedTerms(_leanQuery)
+            .Select(static term => term[FieldPrefix.Length..])
             .Order(StringComparer.Ordinal)
             .ToArray();
         var luceneTerms = GetLuceneFuzzyExpansionTerms(_luceneSearcher, _luceneQuery);
@@ -118,6 +124,24 @@ public class FuzzyQueryBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_FuzzyQuery()
         => _luceneSearcher!.Search(_luceneQuery!, TopN).TotalHits;
+
+    [Benchmark(Description = "Compile Levenshtein automaton only")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int CompileLevenshteinAutomaton()
+    {
+        var automaton = new LevenshteinAutomaton(_scenario.QueryTerm, _scenario.MaxEdits);
+        return automaton.MinDistance(automaton.Start);
+    }
+
+    [Benchmark(Description = "FST intersection only")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int IntersectLevenshteinAutomaton()
+    {
+        int matchCount = 0;
+        foreach (var reader in _leanReaders!)
+            matchCount += reader.IntersectAutomaton(FieldPrefix, _stageAutomaton!).Count;
+        return matchCount;
+    }
 
     private static string[] GetLuceneFuzzyExpansionTerms(
         Lucene.Net.Search.IndexSearcher searcher,

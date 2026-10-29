@@ -43,6 +43,8 @@ var hits = searcher.Search(query, topN: 10);
 
 Score is cosine similarity, range `[-1, 1]` (typically `[0, 1]` for normalised vectors).
 
+For HNSW, the effective candidate pool is at least `topK * oversamplingFactor`, even when an explicit `efSearch` is smaller. LeanCorpus then reranks that shortlist with the original vectors.
+
 ## Build settings
 
 ```csharp

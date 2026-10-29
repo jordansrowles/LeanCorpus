@@ -29,6 +29,18 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [IterationCount(5)]
 public class HnswSearchBenchmarks
 {
+    internal const int GraphM = 32;
+    internal const int GraphM0 = 64;
+    internal const int GraphEfConstruction = 400;
+    internal const long GraphSeed = 1L;
+
+    internal static HnswBuildConfig CreateGraphBuildConfig() => new()
+    {
+        M = GraphM,
+        M0 = GraphM0,
+        EfConstruction = GraphEfConstruction,
+    };
+
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(1_000, 10_000);
 
     [ParamsSource(nameof(DocCounts))]
@@ -117,7 +129,11 @@ public class HnswSearchBenchmarks
             _dataset,
             "hnsw",
             $"ef{EfSearch}",
-            new { efSearch = EfSearch },
+            new
+            {
+                efSearch = EfSearch,
+                graphBuild = new { m = GraphM, m0 = GraphM0, efConstruction = GraphEfConstruction, seed = GraphSeed },
+            },
             qualityMeasurements);
         BenchmarkVectorQuality.RequireMinimumRecall(
             qualityMeasurements,
@@ -136,8 +152,8 @@ public class HnswSearchBenchmarks
         {
             BuildHnswOnFlush = hnsw,
             NormaliseVectors = true,
-            HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
-            HnswSeed = 1L,
+            HnswBuildConfig = CreateGraphBuildConfig(),
+            HnswSeed = GraphSeed,
         };
 
         using var writer = new LeanIndexWriter(new LeanMMapDirectory(path), config);

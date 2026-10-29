@@ -642,7 +642,7 @@ public sealed partial class IndexSearcher
             && big.Start <= little.Start
             && big.End >= little.End;
 
-    private static void CollectMultiTermSpans(
+    private void CollectMultiTermSpans(
         SpanMultiTermQueryWrapper query,
         SegmentReader reader,
         List<Span> spans,
@@ -663,12 +663,14 @@ public sealed partial class IndexSearcher
                     CollectTermSpans(reader, match.Term, spans);
                 break;
             case FuzzyQuery fuzzy:
-                foreach (var match in reader.GetFuzzyMatches(
-                    fieldPrefix,
-                    fuzzy.Term,
-                    fuzzy.MaxEdits,
-                    fuzzy.MaxExpansions,
-                    useFuzzyExpansionCache))
+                var fuzzyMatches = CurrentFuzzyQueryExecutionContext?.GetMatches(fuzzy, reader)
+                    ?? reader.GetFuzzyMatches(
+                        fieldPrefix,
+                        fuzzy.Term,
+                        fuzzy.MaxEdits,
+                        fuzzy.MaxExpansions,
+                        useFuzzyExpansionCache);
+                foreach (var match in fuzzyMatches)
                 {
                     CollectTermSpans(reader, match.Term, spans);
                 }
