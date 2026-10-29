@@ -23,6 +23,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [InvocationCount(1)]
 public class AsyncIndexingBenchmarks
 {
+    private const int RoutineProducerCount = 4;
+
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
 
     [ParamsSource(nameof(DocCounts))]
@@ -127,9 +129,95 @@ public class AsyncIndexingBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public async Task<int> LeanCorpus_AddDocumentAsync_ConcurrentCallers()
+    public async Task<int> LeanCorpus_AddDocumentAsync_BoundedConcurrentCallers()
     {
-        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-callers-{Guid.NewGuid():N}");
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-bounded-callers-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(path);
+        _iterationPaths.Add(path);
+        using var dir = new LeanMMapDirectory(path);
+        using var writer = new IndexWriter(
+            dir,
+            new IndexWriterConfig
+            {
+                MaxQueuedDocs = 20_000,
+                MaxBufferedDocs = 10_000,
+                RamBufferSizeMB = 256,
+            });
+        int nextDocument = -1;
+        var producers = new Task[RoutineProducerCount];
+        for (int i = 0; i < producers.Length; i++)
+            producers[i] = AddDocumentsAsync();
+
+        await Task.WhenAll(producers);
+        writer.Commit();
+        return _documents.Length;
+
+        async Task AddDocumentsAsync()
+        {
+            while (true)
+            {
+                int index = Interlocked.Increment(ref nextDocument);
+                if (index >= _documents.Length)
+                    return;
+
+                await writer.AddDocumentAsync(_documents[index]);
+            }
+        }
+    }
+}
+
+[MemoryDiagnoser]
+[HtmlExporter]
+[JsonExporterAttribute.Full]
+[MarkdownExporterAttribute.GitHub]
+[RPlotExporter]
+[KeepBenchmarkFiles]
+[WarmupCount(2)]
+[IterationCount(5)]
+[InvocationCount(1)]
+public class AsyncIndexingCapacityOneStressBenchmarks
+{
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(1_000);
+
+    [ParamsSource(nameof(DocCounts))]
+    public int DocumentCount { get; set; }
+
+    private LeanDocument[] _documents = [];
+    private readonly List<string> _iterationPaths = [];
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        var bodies = BenchmarkData.BuildDocuments(DocumentCount);
+        _documents = new LeanDocument[bodies.Length];
+        for (int i = 0; i < bodies.Length; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            doc.Add(new LeanTextField("body", bodies[i]));
+            _documents[i] = doc;
+        }
+    }
+
+    [GlobalCleanup]
+    public void Cleanup() => CleanupIterationPaths();
+
+    [IterationCleanup]
+    public void CleanupIterationPaths()
+    {
+        foreach (var path in _iterationPaths)
+        {
+            if (IODirectory.Exists(path))
+                IODirectory.Delete(path, recursive: true);
+        }
+        _iterationPaths.Clear();
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public async Task<int> LeanCorpus_AddDocumentAsync_CapacityOneEagerCallers()
+    {
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-capacity-one-{Guid.NewGuid():N}");
         IODirectory.CreateDirectory(path);
         _iterationPaths.Add(path);
         using var dir = new LeanMMapDirectory(path);

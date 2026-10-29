@@ -32,7 +32,7 @@ await writer.AddDocumentsAsync(
     cancellationToken);
 ```
 
-The effective batch size is the smaller of the requested size and `MaxQueuedDocs` when that limit is enabled. The writer consumes the `IAsyncEnumerable` with cancellation and sends each full batch through the same asynchronous channel.
+The effective batch size is the smaller of the requested size and `MaxQueuedDocs` when that limit is enabled. The writer consumes the `IAsyncEnumerable` with cancellation and sends each full batch through the same asynchronous channel. A positive `MaxQueuedDocs` sets the channel's command capacity and limits documents admitted into DWPT buffers; a full admission limit triggers a flush snapshot so producers can proceed. When the document limit is disabled, the async command channel uses its default capacity of 4,096.
 
 This method does not commit each batch. Call `CommitAsync` according to the application's durability and visibility policy.
 
