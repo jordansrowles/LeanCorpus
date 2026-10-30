@@ -15,6 +15,8 @@ public sealed class LegacyHnswV1CompatibilityTests
     private const int LegacyMaximumLevel = 4;
     private const string FixtureResourceName =
         "Rowles.LeanCorpus.Tests.Core.Fixtures.Hnsw.hnsw-v1-legacy-missing-entrypoint.hnsw";
+    private const string ValidFixtureResourceName =
+        "Rowles.LeanCorpus.Tests.Core.Fixtures.Hnsw.hnsw-v1-legacy-valid-entrypoint.hnsw";
 
     [Fact(DisplayName = "Legacy HNSW v1 with missing upper entry point remains readable and searchable")]
     public void ReadLegacyGraph_RetainsAndSearchesMissingUpperEntryPoint()
@@ -36,6 +38,38 @@ public sealed class LegacyHnswV1CompatibilityTests
             Assert.Contains(graph.EntryPoint, graph.GetNodesAtLevel(0));
             Assert.DoesNotContain(graph.EntryPoint, graph.GetNodesAtLevel(3));
             Assert.DoesNotContain(graph.EntryPoint, graph.GetNodesAtLevel(4));
+            Assert.Equal(PersistedNodeCount, CountReachableBaseNodes(graph));
+            AssertValidNeighbourReferences(graph);
+
+            var results = graph.Search(BuildQuery(), new HnswTraversalOptions { Ef = 32, TopK = 10 });
+            Assert.Equal([26, 60, 41, 24, 33, 88, 44, 56, 50, 19],
+                results.Select(static result => result.DocId).ToArray());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact(DisplayName = "Valid legacy HNSW v1 retains its topology and search results")]
+    public void ReadLegacyGraphWithValidEntryPoint_RetainsTopologyAndSearches()
+    {
+        var vectors = BuildVectors();
+        var source = CreateSource(vectors);
+        string path = CopyFixture(ValidFixtureResourceName);
+
+        try
+        {
+            using var graph = HnswReader.Read(path, source, expectedNormalised: true);
+
+            Assert.Equal(PersistedNodeCount, graph.NodeCount);
+            Assert.Equal(43, graph.EntryPoint);
+            Assert.Equal(2, graph.MaxLevel);
+            Assert.Equal([96, 17, 3], Enumerable.Range(0, graph.LevelCount)
+                .Select(level => graph.GetNodesAtLevel(level).Count())
+                .ToArray());
+            Assert.All(Enumerable.Range(0, graph.LevelCount), level =>
+                Assert.Contains(graph.EntryPoint, graph.GetNodesAtLevel(level)));
             Assert.Equal(PersistedNodeCount, CountReachableBaseNodes(graph));
             AssertValidNeighbourReferences(graph);
 
@@ -209,10 +243,13 @@ public sealed class LegacyHnswV1CompatibilityTests
     }
 
     private static string CopyFixture()
+        => CopyFixture(FixtureResourceName);
+
+    private static string CopyFixture(string resourceName)
     {
         var stream = typeof(LegacyHnswV1CompatibilityTests).Assembly
-            .GetManifestResourceStream(FixtureResourceName)
-            ?? throw new InvalidOperationException($"Embedded legacy fixture '{FixtureResourceName}' was not found.");
+            .GetManifestResourceStream(resourceName)
+            ?? throw new InvalidOperationException($"Embedded legacy fixture '{resourceName}' was not found.");
         string path = NewTemporaryPath();
         using (stream)
         using (var output = File.Create(path))

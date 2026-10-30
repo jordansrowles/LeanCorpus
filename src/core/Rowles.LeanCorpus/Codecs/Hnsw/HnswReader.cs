@@ -74,9 +74,9 @@ internal static class HnswReader
                 throw new InvalidDataException($"HNSW file at '{filePath}' has negative maxLevel ({maxLevel}).");
             if (nodeCount < 0)
                 throw new InvalidDataException($"HNSW file at '{filePath}' has negative nodeCount ({nodeCount}).");
-            if (levelCount < 0 || levelCount > maxLevel + 1)
+            if (levelCount < 0 || levelCount > maxLevel + 1 || (nodeCount > 0 && levelCount != maxLevel + 1))
                 throw new InvalidDataException(
-                    $"HNSW file at '{filePath}' has levelCount {levelCount} but maxLevel is {maxLevel} (valid range 0..{maxLevel + 1}).");
+                    $"HNSW file at '{filePath}' has levelCount {levelCount} but maxLevel is {maxLevel} (valid range 0..{maxLevel + 1}, with exactly maxLevel + 1 levels for a non-empty graph).");
 
             var config = new HnswBuildConfig { M = m, M0 = m0, EfConstruction = efConstruction };
             if (docIdRemap is null)
