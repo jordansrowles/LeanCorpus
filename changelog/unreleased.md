@@ -141,6 +141,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- Allow DevOps lease-marker readers to share delete on Windows so marker owners can release files during concurrent scans.
 - Bind overlapping mapped-input disposers to the cleanup attempt active at entry, preserve each attempt's outcome across retries, retain ownership after cleanup faults without asserting successful-cleanup invariants, and retry only unfinished pointer, accessor, mapping and owner-lease release stages.
 - Keep shared physical-index teardown independent of writer caller cancellation so async disposal completes or reports its own cleanup outcome.
 - Correct the analysis guide to identify the standalone Rowles.Text 2.0 release.

@@ -40,12 +40,16 @@ public sealed class SegmentReaderVectorFirstTouchTests : IDisposable
         bool completedWhileOtherFieldWasInitialising = false;
         try
         {
-            loadTask = Task.Run(() =>
-            {
-                started.Set();
-                return state.GetHnswGraph(FieldName(1));
-            }, cancellationToken);
-            startedInTime = started.Wait(TimeSpan.FromSeconds(5), cancellationToken);
+            loadTask = Task.Factory.StartNew(
+                () =>
+                {
+                    started.Set();
+                    return state.GetHnswGraph(FieldName(1));
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            startedInTime = started.Wait(TimeSpan.FromSeconds(5));
             if (startedInTime)
             {
                 completedWhileOtherFieldWasInitialising = WaitForCompletion(loadTask, TimeSpan.FromSeconds(1));
@@ -59,7 +63,8 @@ public sealed class SegmentReaderVectorFirstTouchTests : IDisposable
 
         HnswGraph? graph = loadTask is null
             ? null
-            : await loadTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+            : await loadTask.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellationToken.ThrowIfCancellationRequested();
         Assert.True(startedInTime, "The independent field load did not start.");
         Assert.True(completedWhileOtherFieldWasInitialising,
             "First-touch for one vector field waited on the segment-wide lock used by other fields.");
