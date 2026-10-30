@@ -21,10 +21,12 @@
     "searcher-mgr": "SearcherManagerBenchmarks",
     "aggregation": "AggregationBenchmarks and spatial aggregation benchmarks",
     "fuzzy-parity": "Fuzzy query parity workloads",
+    "fuzzy-multisegment": "Fuzzy expansion reuse and exact lookup across a fixed 100-segment index",
     "fuzzy-cache": "Fuzzy expansion-cache workloads",
     "bounded-lru-cache": "BoundedLruCacheFailureBenchmarks -- acquisition after unrelated eviction disposal failure",
     "blockjoin-search": "BlockJoinSearchBenchmarks",
     "async-index": "AsyncIndexingBenchmarks",
+    "async-index-stress": "AsyncIndexingCapacityOneStressBenchmarks -- explicit MaxQueuedDocs=1 eager-call stress",
     "span": "SpanQueryBenchmarks",
     "nearest": "SpatialNearestBenchmarks",
     "codec-migration": "CodecMigrationBenchmarks",
@@ -198,6 +200,12 @@
         "FuzzyQueryBenchmarks"
       ]
     },
+    "fuzzy-multisegment": {
+      "DisplayName": "Fuzzy multi-segment expansion",
+      "BenchmarkClasses": [
+        "FuzzyMultiSegmentBenchmarks"
+      ]
+    },
     "fuzzy-cache": {
       "DisplayName": "Fuzzy expansion cache",
       "BenchmarkClasses": [
@@ -220,6 +228,16 @@
       "DisplayName": "Async index",
       "Aliases": [
         "asyncindex"
+      ]
+    },
+    "async-index-stress": {
+      "DisplayName": "Async indexing capacity-one stress",
+      "Aliases": [
+        "asyncindexstress"
+      ],
+      "ExplicitOnly": true,
+      "BenchmarkClasses": [
+        "AsyncIndexingCapacityOneStressBenchmarks"
       ]
     },
     "span": {

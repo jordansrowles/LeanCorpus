@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -49,6 +50,27 @@ switch (args[0])
         {
             await Task.Delay(10);
         }
+        return 0;
+    }
+    case "spawn-descendant":
+    {
+        var executablePath = Environment.ProcessPath ?? throw new InvalidOperationException("The child executable path is unavailable.");
+        var startInfo = new ProcessStartInfo(executablePath)
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.ArgumentList.Add("sleep");
+        startInfo.ArgumentList.Add("10000");
+        using var descendant = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start the descendant process.");
+        var pidPath = args[1];
+        var temporaryPidPath = pidPath + ".tmp";
+        await File.WriteAllTextAsync(temporaryPidPath, descendant.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        File.Move(temporaryPidPath, pidPath, overwrite: true);
+        await Console.Out.WriteLineAsync("descendant-ready");
+        await Console.Out.FlushAsync();
+        await Task.Delay(10_000);
         return 0;
     }
     case "long-line":

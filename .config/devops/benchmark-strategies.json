@@ -3,6 +3,9 @@
   "data": {
     "quick-compare": {
       "DocCount": 1000,
+      "AggregateTimeoutMinutes": 120,
+      "BuildTimeoutMinutes": 30,
+      "ProjectTimeoutMinutes": 120,
       "Description": "1000 docs, --job short (quick comparison)",
       "Job": [
         "--job",
@@ -11,6 +14,9 @@
     },
     "exhaustive": {
       "DocCount": 100000,
+      "AggregateTimeoutMinutes": 1440,
+      "BuildTimeoutMinutes": 30,
+      "ProjectTimeoutMinutes": 1440,
       "Description": "100K docs, default BDN job (official reference)",
       "Job": [
         "--job",
@@ -19,6 +25,9 @@
     },
     "intense": {
       "DocCount": 10000,
+      "AggregateTimeoutMinutes": 720,
+      "BuildTimeoutMinutes": 30,
+      "ProjectTimeoutMinutes": 720,
       "Description": "10K docs, default BDN job",
       "Job": [
         "--job",
@@ -27,6 +36,9 @@
     },
     "fast": {
       "DocCount": 500,
+      "AggregateTimeoutMinutes": 30,
+      "BuildTimeoutMinutes": 15,
+      "ProjectTimeoutMinutes": 30,
       "Description": "500 docs, --job dry (minimal smoke-test)",
       "Job": [
         "--job",
@@ -35,7 +47,32 @@
     },
     "stress": {
       "DocCount": 50000,
+      "AggregateTimeoutMinutes": 720,
+      "BuildTimeoutMinutes": 30,
+      "ProjectTimeoutMinutes": 720,
       "Description": "50K docs, default BDN job",
+      "Job": [
+        "--job",
+        "default"
+      ]
+    },
+    "async-stress": {
+      "DocCount": 1000,
+      "AggregateTimeoutMinutes": 30,
+      "BuildTimeoutMinutes": 30,
+      "ProjectTimeoutMinutes": 30,
+      "Description": "1,000 docs, default BDN job (explicit capacity-one async stress)",
+      "Job": [
+        "--job",
+        "default"
+      ]
+    },
+    "async-stress-deep": {
+      "DocCount": 100000,
+      "AggregateTimeoutMinutes": 1440,
+      "BuildTimeoutMinutes": 30,
+      "ProjectTimeoutMinutes": 1440,
+      "Description": "100K docs, default BDN job (deep explicit capacity-one async stress)",
       "Job": [
         "--job",
         "default"
@@ -43,6 +80,9 @@
     },
     "default": {
       "DocCount": 0,
+      "AggregateTimeoutMinutes": 360,
+      "BuildTimeoutMinutes": 30,
+      "ProjectTimeoutMinutes": 360,
       "Description": "20K docs, --job short (development baseline)",
       "Job": [
         "--job",

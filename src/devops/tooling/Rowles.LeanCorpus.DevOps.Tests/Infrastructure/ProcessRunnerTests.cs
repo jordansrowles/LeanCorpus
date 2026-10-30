@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text.Json;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Terminal;
@@ -134,6 +135,35 @@ public sealed class ProcessRunnerTests
         Assert.Equal(OutcomeKind.Cancelled, result.Outcome);
         Assert.Null(result.RawExitCode);
         Assert.True(result.Duration < TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task TimeoutTerminatesTheEntireChildProcessTree()
+    {
+        using var directory = TemporaryDirectory.Create("DevOps child tree timeout ");
+        var pidPath = Path.Combine(directory.Path, "descendant.pid");
+        var result = await new ProcessRunner().RunAsync(
+            CreateRequest(directory.Path, "spawn-descendant", pidPath) with { Timeout = TimeSpan.FromSeconds(1) },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(OutcomeKind.Timeout, result.Outcome);
+        await AssertDescendantStoppedAsync(pidPath);
+    }
+
+    [Fact]
+    public async Task CallerCancellationTerminatesTheEntireChildProcessTree()
+    {
+        using var directory = TemporaryDirectory.Create("DevOps child tree cancellation ");
+        var pidPath = Path.Combine(directory.Path, "descendant.pid");
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken, cancellation.Token);
+
+        var result = await new ProcessRunner().RunAsync(
+            CreateRequest(directory.Path, "spawn-descendant", pidPath),
+            linked.Token);
+
+        Assert.Equal(OutcomeKind.Cancelled, result.Outcome);
+        await AssertDescendantStoppedAsync(pidPath);
     }
 
     [Fact]
@@ -279,6 +309,44 @@ public sealed class ProcessRunnerTests
         var executableName = OperatingSystem.IsWindows() ? "devops-process-test-child.exe" : "devops-process-test-child";
         var configuration = Path.GetFileName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory));
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "Rowles.LeanCorpus.DevOps.ProcessTestChild", configuration, executableName));
+    }
+
+    private static async Task AssertDescendantStoppedAsync(string pidPath)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(3);
+        while (!File.Exists(pidPath) && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        Assert.True(File.Exists(pidPath), "The child did not start its descendant before cancellation.");
+
+        var processId = int.Parse(await File.ReadAllTextAsync(pidPath, TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture);
+        try
+        {
+            while (IsProcessAlive(processId) && DateTimeOffset.UtcNow < deadline)
+                await Task.Delay(10, TestContext.Current.CancellationToken);
+            Assert.False(IsProcessAlive(processId), $"Descendant process {processId} survived parent termination.");
+        }
+        finally
+        {
+            if (IsProcessAlive(processId))
+            {
+                using var descendant = Process.GetProcessById(processId);
+                descendant.Kill(entireProcessTree: true);
+                await descendant.WaitForExitAsync(TestContext.Current.CancellationToken);
+            }
+        }
+    }
+
+    private static bool IsProcessAlive(int processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(processId);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     private sealed class TemporaryDirectory : IDisposable

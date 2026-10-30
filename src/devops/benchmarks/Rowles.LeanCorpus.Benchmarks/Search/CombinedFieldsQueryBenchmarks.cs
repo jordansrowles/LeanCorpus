@@ -22,8 +22,8 @@ using TermQuery = Rowles.LeanCorpus.Search.Queries.TermQuery;
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Measures <see cref="CombinedFieldsQuery"/> multi-field BM25F throughput
-/// against an equivalent <see cref="BooleanQuery"/> across title and body fields.
+/// Measures multi-field BM25F and Boolean-query workloads across title and body
+/// fields. The Boolean cases do not implement BM25F-equivalent scoring.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -77,7 +77,7 @@ public class CombinedFieldsQueryBenchmarks
             IODirectory.Delete(_luceneIndexPath, recursive: true);
     }
 
-    [Benchmark(Baseline = true)]
+    [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_CombinedFieldsQuery()
     {

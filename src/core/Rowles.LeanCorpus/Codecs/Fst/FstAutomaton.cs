@@ -324,6 +324,20 @@ public sealed class LevenshteinAutomaton : IAutomaton
     private readonly int[] _minDistance;
     private readonly int _stateCount;
     private readonly int _maxEdits;
+    private readonly bool _usesCompactCompiler;
+    private readonly int[]? _compactDefaultTransitions;
+    private readonly int[]? _compactExceptionOffsets;
+    private readonly byte[]? _compactExceptionBytes;
+    private readonly int[]? _compactExceptionTargets;
+
+    private readonly record struct CompactAutomatonData(
+        int[] DefaultTransitions,
+        int[] ExceptionOffsets,
+        byte[] ExceptionBytes,
+        int[] ExceptionTargets,
+        bool[] Accept,
+        bool[] CanMatch,
+        int[] MinDistance);
 
     /// <summary>
     /// Initialises a new <see cref="LevenshteinAutomaton"/> for the given term and maximum edit distance.
@@ -343,6 +357,25 @@ public sealed class LevenshteinAutomaton : IAutomaton
         _maxEdits = maxEdits;
         byte[] term = termUtf8.ToArray();
         int termLen = term.Length;
+
+        long compactNfaStateCount = ((long)termLen + 1) * ((long)maxEdits + 1);
+        if (maxEdits >= 0 && compactNfaStateCount <= 64)
+        {
+            var compact = CompileCompact(term, maxEdits, (int)compactNfaStateCount);
+            _usesCompactCompiler = true;
+            _transitions = [];
+            _accept = compact.Accept;
+            _canMatch = compact.CanMatch;
+            _minDistance = compact.MinDistance;
+            _stateCount = compact.Accept.Length;
+            _compactDefaultTransitions = compact.DefaultTransitions;
+            _compactExceptionOffsets = compact.ExceptionOffsets;
+            _compactExceptionBytes = compact.ExceptionBytes;
+            _compactExceptionTargets = compact.ExceptionTargets;
+            return;
+        }
+
+        _usesCompactCompiler = false;
         int stateWidth = maxEdits + 1;
         int nfaStateCount = (termLen + 1) * stateWidth;
 
@@ -525,6 +558,16 @@ public sealed class LevenshteinAutomaton : IAutomaton
     public int Step(int state, byte input)
     {
         if (state < 0 || state >= _stateCount) return -1;
+        if (_usesCompactCompiler)
+        {
+            int start = _compactExceptionOffsets![state];
+            int length = _compactExceptionOffsets[state + 1] - start;
+            int transition = Array.BinarySearch(_compactExceptionBytes!, start, length, input);
+            return transition >= 0
+                ? _compactExceptionTargets![transition]
+                : _compactDefaultTransitions![state];
+        }
+
         return _transitions[state * 256 + input];
     }
 
@@ -533,6 +576,9 @@ public sealed class LevenshteinAutomaton : IAutomaton
 
     /// <inheritdoc/>
     public bool CanMatch(int state) => state >= 0 && state < _stateCount && _canMatch[state];
+
+    /// <summary>Indicates whether this instance used the bounded compact subset compiler.</summary>
+    internal bool UsesCompactCompiler => _usesCompactCompiler;
 
     /// <summary>
     /// Returns the minimum edit distance achievable when this state is accepting,
@@ -547,6 +593,196 @@ public sealed class LevenshteinAutomaton : IAutomaton
 
     /// <summary>Maximum edit distance the automaton was constructed with.</summary>
     public int MaxEdits => _maxEdits;
+
+    private static CompactAutomatonData CompileCompact(byte[] term, int maxEdits, int nfaStateCount)
+    {
+        int termLen = term.Length;
+        int stateWidth = maxEdits + 1;
+        Span<bool> literalBytes = stackalloc bool[256];
+        literalBytes.Clear();
+        foreach (byte value in term)
+            literalBytes[value] = true;
+
+        byte defaultByte = 0;
+        while (literalBytes[defaultByte])
+            defaultByte++;
+
+        ulong EpsilonClosure(ulong states)
+        {
+            // Every deletion edge increases the encoded NFA state id, so one
+            // ascending pass also follows transitive deletion closures.
+            for (int state = 0; state < nfaStateCount; state++)
+            {
+                if ((states & (1UL << state)) == 0)
+                    continue;
+
+                int position = state / stateWidth;
+                int edits = state % stateWidth;
+                if (position < termLen && edits < maxEdits)
+                {
+                    int deletionState = (position + 1) * stateWidth + edits + 1;
+                    states |= 1UL << deletionState;
+                }
+            }
+
+            return states;
+        }
+
+        ulong NfaStep(ulong states, byte input)
+        {
+            ulong next = 0;
+            for (int state = 0; state < nfaStateCount; state++)
+            {
+                if ((states & (1UL << state)) == 0)
+                    continue;
+
+                int position = state / stateWidth;
+                int edits = state % stateWidth;
+                if (position < termLen)
+                {
+                    if (term[position] == input)
+                    {
+                        int matchState = (position + 1) * stateWidth + edits;
+                        next |= 1UL << matchState;
+                    }
+                    else if (edits < maxEdits)
+                    {
+                        int substitutionState = (position + 1) * stateWidth + edits + 1;
+                        next |= 1UL << substitutionState;
+                    }
+                }
+
+                if (edits < maxEdits)
+                {
+                    int insertionState = position * stateWidth + edits + 1;
+                    next |= 1UL << insertionState;
+                }
+            }
+
+            return EpsilonClosure(next);
+        }
+
+        bool IsAccepting(ulong states)
+        {
+            for (int state = 0; state < nfaStateCount; state++)
+            {
+                if ((states & (1UL << state)) == 0)
+                    continue;
+
+                int position = state / stateWidth;
+                int edits = state % stateWidth;
+                if (termLen - position + edits <= maxEdits)
+                    return true;
+            }
+
+            return false;
+        }
+
+        int MinimumDistance(ulong states)
+        {
+            int best = int.MaxValue;
+            for (int state = 0; state < nfaStateCount; state++)
+            {
+                if ((states & (1UL << state)) == 0)
+                    continue;
+
+                int position = state / stateWidth;
+                int edits = state % stateWidth;
+                best = Math.Min(best, edits + termLen - position);
+            }
+
+            return best;
+        }
+
+        var subsetToId = new Dictionary<ulong, int>();
+        var subsets = new List<ulong>();
+        var defaultTransitions = new List<int>();
+        var exceptionOffsets = new List<int> { 0 };
+        var exceptionBytes = new List<byte>();
+        var exceptionTargets = new List<int>();
+        var accepts = new List<bool>();
+        var minDistances = new List<int>();
+
+        int GetState(ulong subset)
+        {
+            if (subset == 0)
+                return -1;
+            if (subsetToId.TryGetValue(subset, out int existing))
+                return existing;
+
+            int stateId = subsets.Count;
+            subsetToId.Add(subset, stateId);
+            subsets.Add(subset);
+            accepts.Add(IsAccepting(subset));
+            minDistances.Add(MinimumDistance(subset));
+            return stateId;
+        }
+
+        _ = GetState(EpsilonClosure(1UL));
+        for (int currentDfa = 0; currentDfa < subsets.Count; currentDfa++)
+        {
+            ulong currentSubset = subsets[currentDfa];
+            int defaultTarget = GetState(NfaStep(currentSubset, defaultByte));
+            defaultTransitions.Add(defaultTarget);
+
+            for (int value = 0; value < literalBytes.Length; value++)
+            {
+                if (!literalBytes[value])
+                    continue;
+
+                int target = GetState(NfaStep(currentSubset, (byte)value));
+                if (target == defaultTarget)
+                    continue;
+
+                exceptionBytes.Add((byte)value);
+                exceptionTargets.Add(target);
+            }
+
+            exceptionOffsets.Add(exceptionBytes.Count);
+        }
+
+        bool[] canMatch = accepts.ToArray();
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            for (int state = 0; state < canMatch.Length; state++)
+            {
+                if (canMatch[state])
+                    continue;
+
+                int defaultTarget = defaultTransitions[state];
+                if (defaultTarget >= 0 && canMatch[defaultTarget])
+                {
+                    canMatch[state] = true;
+                    changed = true;
+                    continue;
+                }
+
+                int start = exceptionOffsets[state];
+                int end = exceptionOffsets[state + 1];
+                for (int transition = start; transition < end; transition++)
+                {
+                    int target = exceptionTargets[transition];
+                    if (target >= 0 && canMatch[target])
+                    {
+                        canMatch[state] = true;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return new CompactAutomatonData(
+            defaultTransitions.ToArray(),
+            exceptionOffsets.ToArray(),
+            exceptionBytes.ToArray(),
+            exceptionTargets.ToArray(),
+            accepts.ToArray(),
+            canMatch,
+            minDistances.ToArray());
+    }
 }
 
 /// <summary>

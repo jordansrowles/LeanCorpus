@@ -291,7 +291,19 @@ internal sealed class TermDictionaryReader : IDisposable
 
     internal List<(string Term, long Offset, int Distance)> GetFuzzyMatches(
         string fieldPrefix, ReadOnlySpan<char> queryTerm, int maxEdits, int maxExpansions, bool useCache)
-        => GetFuzzyMatches(fieldPrefix, queryTerm, maxEdits, maxExpansions, useCache, beforeFstIntersection: null);
+        => GetFuzzyMatches(
+            fieldPrefix, queryTerm, maxEdits, maxExpansions, useCache,
+            automatonFactory: null, beforeFstIntersection: null);
+
+    internal bool TryGetCachedFuzzyMatches(
+        string fieldPrefix,
+        string queryTerm,
+        int maxEdits,
+        int maxExpansions,
+        out List<(string Term, long Offset, int Distance)> results)
+        => TryGetFuzzyCache(
+            new FuzzyCacheKey(fieldPrefix, queryTerm, maxEdits, maxExpansions),
+            out results);
 
     internal List<(string Term, long Offset, int Distance)> GetFuzzyMatches(
         string fieldPrefix,
@@ -299,6 +311,18 @@ internal sealed class TermDictionaryReader : IDisposable
         int maxEdits,
         int maxExpansions,
         bool useCache,
+        Action? beforeFstIntersection)
+        => GetFuzzyMatches(
+            fieldPrefix, queryTerm, maxEdits, maxExpansions, useCache,
+            automatonFactory: null, beforeFstIntersection);
+
+    internal List<(string Term, long Offset, int Distance)> GetFuzzyMatches(
+        string fieldPrefix,
+        ReadOnlySpan<char> queryTerm,
+        int maxEdits,
+        int maxExpansions,
+        bool useCache,
+        Func<LevenshteinAutomaton>? automatonFactory,
         Action? beforeFstIntersection)
     {
         var key = default(FuzzyCacheKey);
@@ -308,11 +332,26 @@ internal sealed class TermDictionaryReader : IDisposable
             if (TryGetFuzzyCache(key, out var cached)) return cached;
         }
 
+        if (maxEdits == 0)
+        {
+            string qualifiedTerm = string.Concat(fieldPrefix, queryTerm);
+            var exactResults = new List<(string Term, long Offset, int Distance)>(capacity: 1);
+            if (TryGetPostingsOffset(qualifiedTerm.AsSpan(), out long exactOffset))
+                exactResults.Add((qualifiedTerm, exactOffset, 0));
+
+            if (useCache)
+                StoreFuzzyCache(key, exactResults);
+            return exactResults;
+        }
+
         Span<byte> qualStack = stackalloc byte[256];
         var qualifier = EncodeUtf8(fieldPrefix.AsSpan(), qualStack, out byte[]? rented);
-        var lev = new LevenshteinAutomaton(queryTerm.ToString(), maxEdits);
+        LevenshteinAutomaton lev = automatonFactory is null
+            ? new LevenshteinAutomaton(queryTerm.ToString(), maxEdits)
+            : automatonFactory();
 
-        var results = new List<(string, long, int)>();
+        var bestMatches = new PriorityQueue<FuzzyCandidate, FuzzyCandidatePriority>(FuzzyCandidatePriorityComparer.WorstFirst);
+        int matchingTermCount = 0;
         try
         {
             beforeFstIntersection?.Invoke();
@@ -320,7 +359,25 @@ internal sealed class TermDictionaryReader : IDisposable
             {
                 int distance = lev.MinDistance(finalState);
                 if (distance > maxEdits) continue;
-                results.Add((Encoding.UTF8.GetString(k), output, distance));
+
+                matchingTermCount++;
+                if (maxExpansions <= 0)
+                    continue;
+
+                var candidate = new FuzzyCandidate(k, output, distance);
+                var priority = new FuzzyCandidatePriority(distance, k);
+                if (bestMatches.Count < maxExpansions)
+                {
+                    bestMatches.Enqueue(candidate, priority);
+                    continue;
+                }
+
+                bestMatches.TryPeek(out _, out FuzzyCandidatePriority worstPriority);
+                if (FuzzyCandidatePriorityComparer.BestFirst.Compare(priority, worstPriority) < 0)
+                {
+                    bestMatches.Dequeue();
+                    bestMatches.Enqueue(candidate, priority);
+                }
             }
         }
         finally
@@ -328,16 +385,62 @@ internal sealed class TermDictionaryReader : IDisposable
             if (rented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
         }
 
-        // Cap to maxExpansions closest matches.
-        if (results.Count > maxExpansions)
-        {
-            results.Sort((a, b) => a.Item3.CompareTo(b.Item3));
-            results = results.GetRange(0, maxExpansions);
-        }
+        var candidates = bestMatches.UnorderedItems.Select(static item => item.Element).ToList();
+        candidates.Sort(matchingTermCount > maxExpansions
+            ? FuzzyCandidateComparer.BestFirst
+            : FuzzyCandidateComparer.TermOrder);
+
+        var results = new List<(string Term, long Offset, int Distance)>(candidates.Count);
+        foreach (FuzzyCandidate candidate in candidates)
+            results.Add((Encoding.UTF8.GetString(candidate.QualifiedTermUtf8), candidate.Offset, candidate.Distance));
 
         if (useCache)
             StoreFuzzyCache(key, results);
         return results;
+    }
+
+    private readonly record struct FuzzyCandidate(byte[] QualifiedTermUtf8, long Offset, int Distance);
+
+    private readonly record struct FuzzyCandidatePriority(int Distance, byte[] QualifiedTermUtf8);
+
+    private sealed class FuzzyCandidatePriorityComparer : IComparer<FuzzyCandidatePriority>
+    {
+        public static readonly FuzzyCandidatePriorityComparer WorstFirst = new();
+        public static readonly FuzzyCandidatePriorityComparer BestFirst = new(reverse: false);
+
+        private readonly bool _reverse;
+
+        private FuzzyCandidatePriorityComparer(bool reverse = true) => _reverse = reverse;
+
+        public int Compare(FuzzyCandidatePriority left, FuzzyCandidatePriority right)
+        {
+            int comparison = left.Distance.CompareTo(right.Distance);
+            if (comparison == 0)
+                comparison = left.QualifiedTermUtf8.AsSpan().SequenceCompareTo(right.QualifiedTermUtf8);
+            return _reverse ? -comparison : comparison;
+        }
+    }
+
+    private sealed class FuzzyCandidateComparer : IComparer<FuzzyCandidate>
+    {
+        public static readonly FuzzyCandidateComparer BestFirst = new();
+        public static readonly FuzzyCandidateComparer TermOrder = new(termOnly: true);
+
+        private readonly bool _termOnly;
+
+        private FuzzyCandidateComparer(bool termOnly = false) => _termOnly = termOnly;
+
+        public int Compare(FuzzyCandidate left, FuzzyCandidate right)
+        {
+            if (!_termOnly)
+            {
+                int distanceComparison = left.Distance.CompareTo(right.Distance);
+                if (distanceComparison != 0)
+                    return distanceComparison;
+            }
+
+            return left.QualifiedTermUtf8.AsSpan().SequenceCompareTo(right.QualifiedTermUtf8);
+        }
     }
 
     private bool TryGetFuzzyCache(FuzzyCacheKey key, out List<(string Term, long Offset, int Distance)> results)

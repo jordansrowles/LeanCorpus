@@ -62,4 +62,9 @@
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Fixtures\Hnsw\*.hnsw"
+                      LogicalName="Rowles.LeanCorpus.Tests.Core.Fixtures.Hnsw.%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>

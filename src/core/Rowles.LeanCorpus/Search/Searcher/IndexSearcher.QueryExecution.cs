@@ -844,6 +844,14 @@ public sealed partial class IndexSearcher
                     }
                     break;
                 }
+            case FuzzyQuery fuzzyQuery:
+                {
+                    var fuzzyCollector = new TopNCollector(Math.Max(reader.MaxDoc, 1));
+                    ExecuteFuzzyQuery(fuzzyQuery, reader, globalDFs, ref fuzzyCollector);
+                    foreach (var scoreDoc in fuzzyCollector.ToTopDocs().ScoreDocs)
+                        results.Add(new ScoreDoc(scoreDoc.DocId - reader.DocBase, scoreDoc.Score));
+                    break;
+                }
             case TermQuery tq:
                 {
                     var qt = tq.CachedQualifiedTerm ??= string.Concat(tq.Field, "\x00", tq.Term);

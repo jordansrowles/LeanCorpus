@@ -187,7 +187,11 @@ internal sealed class ExecutionLease : IAsyncDisposable, IDisposable
     {
         try
         {
-            using var stream = File.OpenRead(path);
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read | FileShare.Delete);
             var marker = JsonSerializer.Deserialize<LeaseMarker>(stream);
             if (marker is null)
             {

@@ -24,7 +24,7 @@ var config = new IndexWriterConfig
 |---|---|---|
 | `RamBufferSizeMB` | `512.0` | Memory buffer before flush |
 | `MaxBufferedDocs` | `10_000` | Doc count before flush |
-| `MaxQueuedDocs` | `20_000` | Backpressure cap; `AddDocument` blocks past this |
+| `MaxQueuedDocs` | `20_000` | Caps documents admitted into DWPT buffers; producers trigger a flush snapshot and wait when full |
 | `DefaultAnalyser` | `StandardAnalyser` | Analyser for fields without a mapping |
 | `Similarity` | `Bm25Similarity.Instance` | Scoring model |
 | `DeletionPolicy` | `KeepLatestCommitPolicy` | Which old commits survive |
@@ -117,7 +117,13 @@ needs them.
 
 ## Backpressure and merge throttling
 
-`MaxQueuedDocs` (default 20,000) caps the number of documents waiting to be flushed. When the queue is full, `AddDocument` blocks until a flush frees space. Prevents out-of-memory conditions under sustained write load.
+`MaxQueuedDocs` (default 20,000) caps documents admitted into DWPT buffers.
+When the limit is full, another producer triggers a DWPT flush snapshot and waits
+for an admission slot to be released. Slots are released when snapshots detach,
+before physical flush completion. Async writes also use a command channel sized
+by this value when it is positive; when the document limit is disabled, the
+channel uses its default capacity of 4,096. The separate `RamBufferSizeMB` and `MaxQueuedBytes`
+settings constrain retained memory.
 
 `MergeThrottleSegments` (default 0, disabled) blocks writes when the segment count exceeds the threshold. Set it to force merges to catch up before more documents are accepted, keeping the segment count bounded when indexing faster than merges can consolidate:
 

@@ -211,7 +211,7 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             {
                 try
                 {
-                    writer.Commit();
+                    writer.ThrowIfIndexingFailed();
                     return false;
                 }
                 catch (InvalidOperationException)
@@ -221,6 +221,7 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             },
             TimeSpan.FromSeconds(10));
         Assert.True(admissionClosed, "Fatal concurrent failure did not close new indexing admission.");
+        Assert.Throws<InvalidOperationException>(() => writer.AddDocument(Document("late", "ordinary")));
         Task completed = await Task.WhenAny(fatal, Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken));
         Assert.NotSame(fatal, completed);
 
@@ -258,7 +259,7 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             {
                 try
                 {
-                    writer.Commit();
+                    writer.ThrowIfIndexingFailed();
                     return false;
                 }
                 catch (InvalidOperationException)
@@ -268,6 +269,7 @@ public sealed class Lean9FoundationFixTests : IClassFixture<TestDirectoryFixture
             },
             TimeSpan.FromSeconds(10));
         Assert.True(admissionClosed, "Fatal ordinary failure did not close new indexing admission.");
+        Assert.Throws<InvalidOperationException>(() => writer.AddDocument(Document("late", "ordinary")));
         Task completed = await Task.WhenAny(fatal, Task.Delay(TimeSpan.FromMilliseconds(100), TestContext.Current.CancellationToken));
         Assert.NotSame(fatal, completed);
 

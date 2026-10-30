@@ -32,12 +32,14 @@ public class PhraseQueryBenchmarks
     private static readonly int[] TwoWordPositions = [0, 1];
     private static readonly string[] ThreeWordTerms = ["new", "york", "stock"];
     private static readonly int[] ThreeWordPositions = [0, 1, 2];
+    private static readonly string[] SlopTwoWordTerms = ["said", "government"];
 
     [GlobalSetup]
     public void Setup()
     {
         SharedStandardIndex.EnsureInitialised(DocumentCount);
         _leanSearcher = SharedStandardIndex.LeanSearcher;
+        ValidatePhraseParity();
     }
 
     [GlobalCleanup]
@@ -50,51 +52,65 @@ public class PhraseQueryBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_PhraseQuery()
     {
-        return PhraseType switch
-        {
-            "ExactTwoWord" => _leanSearcher!.Search(
-                new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", "new", "york"), TopN).TotalHits,
-            "ExactThreeWord" => _leanSearcher!.Search(
-                new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", "new", "york", "stock"), TopN).TotalHits,
-            "SlopTwoWord" => _leanSearcher!.Search(
-                new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", slop: 2, "said", "government"), TopN).TotalHits,
-            _ => 0
-        };
+        return _leanSearcher!.Search(BuildLeanPhraseQuery(), TopN).TotalHits;
     }
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_PhraseQueryConstruction()
     {
-        string[] terms = PhraseType == "ExactThreeWord" ? ThreeWordTerms : TwoWordTerms;
-        int[] positions = PhraseType == "ExactThreeWord" ? ThreeWordPositions : TwoWordPositions;
-        int slop = PhraseType == "SlopTwoWord" ? 2 : 0;
-        var query = new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", terms, positions, slop);
-        return query.GetHashCode();
+        return BuildLeanPhraseQuery().GetHashCode();
     }
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_PhraseQuery()
     {
-        var pq = new Lucene.Net.Search.PhraseQuery();
-        switch (PhraseType)
+        return SharedStandardIndex.LuceneSearcher.Search(BuildLucenePhraseQuery(), TopN).TotalHits;
+    }
+
+    private Rowles.LeanCorpus.Search.Queries.PhraseQuery BuildLeanPhraseQuery()
+    {
+        string[] terms = PhraseType switch
         {
-            case "ExactTwoWord":
-                pq.Add(new Term("body", "new"));
-                pq.Add(new Term("body", "york"));
-                break;
-            case "ExactThreeWord":
-                pq.Add(new Term("body", "new"));
-                pq.Add(new Term("body", "york"));
-                pq.Add(new Term("body", "stock"));
-                break;
-            case "SlopTwoWord":
-                pq.Slop = 2;
-                pq.Add(new Term("body", "said"));
-                pq.Add(new Term("body", "government"));
-                break;
+            "ExactTwoWord" => TwoWordTerms,
+            "ExactThreeWord" => ThreeWordTerms,
+            "SlopTwoWord" => SlopTwoWordTerms,
+            _ => throw new InvalidOperationException($"Unknown phrase type '{PhraseType}'.")
+        };
+        int[] positions = PhraseType == "ExactThreeWord" ? ThreeWordPositions : TwoWordPositions;
+        int slop = PhraseType == "SlopTwoWord" ? 2 : 0;
+        return new Rowles.LeanCorpus.Search.Queries.PhraseQuery("body", terms, positions, slop);
+    }
+
+    private Lucene.Net.Search.PhraseQuery BuildLucenePhraseQuery()
+    {
+        string[] terms = PhraseType switch
+        {
+            "ExactTwoWord" => TwoWordTerms,
+            "ExactThreeWord" => ThreeWordTerms,
+            "SlopTwoWord" => SlopTwoWordTerms,
+            _ => throw new InvalidOperationException($"Unknown phrase type '{PhraseType}'.")
+        };
+        var query = new Lucene.Net.Search.PhraseQuery { Slop = PhraseType == "SlopTwoWord" ? 2 : 0 };
+        foreach (string term in terms)
+            query.Add(new Term("body", term));
+        return query;
+    }
+
+    private void ValidatePhraseParity()
+    {
+        var leanResults = _leanSearcher!.Search(BuildLeanPhraseQuery(), DocumentCount);
+        var luceneResults = SharedStandardIndex.LuceneSearcher.Search(BuildLucenePhraseQuery(), DocumentCount);
+        int[] leanDocumentIds = leanResults.ScoreDocs.Select(static hit => hit.DocId).Order().ToArray();
+        int[] luceneDocumentIds = luceneResults.ScoreDocs.Select(static hit => hit.Doc).Order().ToArray();
+        if (leanResults.TotalHits != luceneResults.TotalHits
+            || leanDocumentIds.Length != leanResults.TotalHits
+            || luceneDocumentIds.Length != luceneResults.TotalHits
+            || !leanDocumentIds.SequenceEqual(luceneDocumentIds))
+        {
+            throw new InvalidOperationException(
+                $"Phrase parity failed for {PhraseType}: LeanCorpus returned {leanResults.TotalHits} hits and Lucene.NET returned {luceneResults.TotalHits} hits.");
         }
-        return SharedStandardIndex.LuceneSearcher.Search(pq, TopN).TotalHits;
     }
 }

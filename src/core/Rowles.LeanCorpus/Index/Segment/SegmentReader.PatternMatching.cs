@@ -82,6 +82,28 @@ internal sealed partial class SegmentReaderState
         return DictionaryReader.GetFuzzyMatches(fieldPrefix, queryTerm, maxEdits, maxExpansions, useCache);
     }
 
+    internal bool TryGetCachedFuzzyMatches(
+        string fieldPrefix,
+        string queryTerm,
+        int maxEdits,
+        int maxExpansions,
+        out List<(string Term, long Offset, int Distance)> results)
+        => DictionaryReader.TryGetCachedFuzzyMatches(
+            fieldPrefix, queryTerm, maxEdits, maxExpansions, out results);
+
+    internal List<(string Term, long Offset, int Distance)> GetFuzzyMatches(
+        string fieldPrefix,
+        ReadOnlySpan<char> queryTerm,
+        int maxEdits,
+        int maxExpansions,
+        bool useCache,
+        Func<LevenshteinAutomaton> automatonFactory)
+    {
+        return DictionaryReader.GetFuzzyMatches(
+            fieldPrefix, queryTerm, maxEdits, maxExpansions, useCache,
+            automatonFactory, beforeFstIntersection: null);
+    }
+
     /// <summary>Returns terms in lexicographic range [lower, upper] for a field.</summary>
     public List<(string Term, long Offset)> GetTermsInRange(string fieldPrefix,
         string? lower, string? upper, bool includeLower = true, bool includeUpper = true)

@@ -29,7 +29,7 @@ This page was audited against the checked-out LeanCorpus source on 25 August 202
 | Cancellation-token search | `SearchOptions.CancellationToken` | Uses standard .NET cooperative cancellation throughout segment search. |
 | Per-query memory budget | `SearchOptions.MaxResultBytes` | Caps intermediate result storage. |
 | Explicit partial-result state | `TopDocs.IsPartial` | Records when timeout or budget controls truncate a result. |
-| Indexing queue backpressure | `IndexWriterConfig.MaxQueuedDocs` | Blocks producers when the pending document queue is full. |
+| Indexing queue backpressure | `IndexWriterConfig.MaxQueuedDocs` | Limits documents admitted into DWPT buffers and sizes the async command channel. |
 | Segment-count backpressure | `IndexWriterConfig.MergeThrottleSegments` | Blocks writes until background merging reduces the segment count. |
 | First-class schema validation | `IndexSchema` | Enforces field types and required fields at write time. |
 | Per-field stored compression | `FieldCompressionPolicy` | Chooses stored-field compression for each field rather than for the whole codec or segment. |

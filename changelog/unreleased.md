@@ -69,6 +69,10 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Apply `FuzzyQuery.MaxExpansions` once across all search segments, with deterministic UTF-8 term-byte ordering for equal-distance ties; reuse one lazily compiled edit automaton across segment expansion misses.
+- Resolve edit-zero fuzzy queries through exact term lookup and return warm empty-expansion cache entries before constructing the edit automaton.
+- Reduce cold compilation time and allocation for small fuzzy automata with a bounded compact state representation; retain the existing compiler for larger automata.
+- Clarify that `MaxQueuedDocs` limits document admission into DWPT buffers, triggers flush snapshots at capacity, and also sizes the async command channel.
 - Update the standalone Rowles.Text README's benchmark commands to the managed DevOps CLI and clarify this branch's unreleased package target.
 - Clarify unreleased package versions and API-reference coverage in the documentation preview, and direct first-time users to the canonical installation guide.
 - Rename the internal Core JSON metadata namespace and source area to British `Serialisation`; preserve Core JSON payload shapes and property names, with Server wire-contract types untouched.
@@ -137,6 +141,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- Reject non-empty HNSW files whose declared maximum level has no matching persisted layer.
+- Allow DevOps lease-marker readers to share delete on Windows so marker owners can release files during concurrent scans.
 - Bind overlapping mapped-input disposers to the cleanup attempt active at entry, preserve each attempt's outcome across retries, retain ownership after cleanup faults without asserting successful-cleanup invariants, and retry only unfinished pointer, accessor, mapping and owner-lease release stages.
 - Keep shared physical-index teardown independent of writer caller cancellation so async disposal completes or reports its own cleanup outcome.
 - Correct the analysis guide to identify the standalone Rowles.Text 2.0 release.
@@ -164,6 +170,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Reject corrupt field-length counts, names, values and trailing data before allocating document arrays or exposing a segment reader. ([af6aacfa7](https://github.com/jordansrowles/LeanCorpus/commit/af6aacfa7d1128e0f8876ab1c6d1511cb62f7c25))
 - Make repeated LZ4, Snappy and Zstandard registration calls safe after automatic registration, while retaining duplicate-policy checks for custom codecs. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Exclude missing vectors from flat, filtered and HNSW reranking paths, and preserve sparse vector presence through merge, deletion and index-sort remapping, including explicitly supplied zero vectors. ([2228d0d52](https://github.com/jordansrowles/LeanCorpus/commit/2228d0d5291cade5c00d9de5115a56c6e7658a23))
+- Ensure HNSW keeps at least the requested top-K candidate count when explicit `efSearch` is smaller, including oversampled and filtered vector searches.
+- Build HNSW benchmark indexes with M=32, M0=64 and construction ef=400; the fixed-seed 10,000-vector profile passes the pinned recall floor at EF64 and EF256 for both tested dimensions.
 - Let reader and searcher managers shut down without waiting for a queued background refresh, while still draining active refreshes before retiring readers. ([2e1b1c766](https://github.com/jordansrowles/LeanCorpus/commit/2e1b1c766d546fd70103591998ffab6b1db4bbd6))
 - Keep prepared collection statistics isolated under their pending commit generation and reserve segment IDs above occupied files even when orphan cleanup is deferred. ([162813238](https://github.com/jordansrowles/LeanCorpus/commit/1628132380433f60bcea6e566ff1c6f395becc42))
 - Reject snapshot backups and manifests whose NRT descriptors differ from their selected published commit, preserving NRT search and older committed backups. ([162813238](https://github.com/jordansrowles/LeanCorpus/commit/1628132380433f60bcea6e566ff1c6f395becc42))

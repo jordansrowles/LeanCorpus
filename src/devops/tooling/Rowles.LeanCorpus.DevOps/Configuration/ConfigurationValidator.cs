@@ -25,6 +25,7 @@ internal static class ConfigurationValidator
         var root = Path.GetFullPath(repositoryRoot);
         var projectFileExists = projectExists ?? File.Exists;
         ValidateTestMetadata(configuration.TestAreas, configuration.TestSuites);
+        ValidateBenchmarkStrategies(configuration.BenchmarkStrategies);
         ValidateBenchmarkProjects(configuration.BenchmarkProjects, root, projectFileExists);
         var benchmarkSuites = ValidateBenchmarkSuites(configuration.BenchmarkSuites, configuration.BenchmarkProjects);
         ValidateHistoricalSuiteLabels(configuration.HistoricalBenchmarkSuiteLabels, benchmarkSuites);
@@ -37,6 +38,26 @@ internal static class ConfigurationValidator
         ValidateBenchmarkCases(configuration.BenchmarkCases, configuration.BenchmarkCaseExclusions, configuration.BenchmarkProjects);
 
         return configuration with { BenchmarkSuites = benchmarkSuites };
+    }
+
+    private static void ValidateBenchmarkStrategies(
+        ImmutableDictionary<string, BenchmarkStrategyConfiguration> strategies)
+    {
+        foreach (var (id, strategy) in strategies.OrderBy(static pair => pair.Key, StringComparer.Ordinal))
+        {
+            ValidateTimeout(strategy.AggregateTimeoutMinutes, "AggregateTimeoutMinutes");
+            ValidateTimeout(strategy.BuildTimeoutMinutes, "BuildTimeoutMinutes");
+            ValidateTimeout(strategy.ProjectTimeoutMinutes, "ProjectTimeoutMinutes");
+
+            void ValidateTimeout(int minutes, string propertyName)
+            {
+                if (minutes is < 1 or > BenchmarkStrategyConfiguration.MaximumTimeoutMinutes)
+                {
+                    throw Error("benchmark-strategies.json", $"$.data.{id}.{propertyName}",
+                        $"must be between 1 and {BenchmarkStrategyConfiguration.MaximumTimeoutMinutes} minutes");
+                }
+            }
+        }
     }
 
     private static void ValidateBenchmarkCases(

@@ -836,8 +836,13 @@ public sealed partial class IndexSearcher
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
         var fieldPrefix = $"{query.Field}\x00";
-        var matchingTerms = reader.GetFuzzyMatches(fieldPrefix, query.Term.AsSpan(), query.MaxEdits, query.MaxExpansions,
-            _config.UseFuzzyExpansionCache);
+        var matchingTerms = CurrentFuzzyQueryExecutionContext?.GetMatches(query, reader)
+            ?? reader.GetFuzzyMatches(
+                fieldPrefix,
+                query.Term.AsSpan(),
+                query.MaxEdits,
+                query.MaxExpansions,
+                _config.UseFuzzyExpansionCache);
         if (matchingTerms.Count == 0) return;
 
         float boost = query.Boost;
@@ -1217,6 +1222,8 @@ public sealed partial class IndexSearcher
 
         var graph = reader.GetHnswGraph(query.Field);
         bool hasGraph = graph is not null && graph.NodeCount > 0;
+        int shortlistSize = query.TopK * query.OversamplingFactor;
+        int efSearch = Math.Max(query.EfSearch, shortlistSize);
 
         // Pre-compute query vector (and normalised variant for normalised fields).
         var queryVec = query.QueryVector;
@@ -1250,14 +1257,14 @@ public sealed partial class IndexSearcher
             var options = selectivity < 0.05
                 ? new HnswSearchOptions
                 {
-                    Ef = query.EfSearch,
-                    TopK = query.TopK * query.OversamplingFactor,
+                    Ef = efSearch,
+                    TopK = shortlistSize,
                     AllowList = bitset,
                 }
                 : new HnswSearchOptions
                 {
-                    Ef = query.EfSearch,
-                    TopK = query.TopK * query.OversamplingFactor,
+                    Ef = efSearch,
+                    TopK = shortlistSize,
                     PostFilterMask = bitset,
                 };
 
@@ -1281,10 +1288,9 @@ public sealed partial class IndexSearcher
         // No filter, but HNSW present: two-phase search.
         if (hasGraph)
         {
-            int shortlistSize = query.TopK * query.OversamplingFactor;
             var options = new HnswSearchOptions
             {
-                Ef = query.EfSearch,
+                Ef = efSearch,
                 TopK = shortlistSize,
             };
             var searchVec = normalisedQuery ?? queryVec;

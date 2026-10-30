@@ -107,6 +107,8 @@ internal sealed record BenchmarkCommandOptions(
 
     public int MaxCases { get; init; } = 16;
 
+    public int? TimeoutMinutes { get; init; }
+
     public static BenchmarkCommandOptions ForWorkload(BenchmarkWorkloadOptions workload, string? repositoryPath)
         => new("all", "default", workload.Framework, workload.DocumentCount, workload.Dataset,
             null, null, null, null, null, null, false, false, false, false, 200,

@@ -254,6 +254,8 @@ public sealed partial class IndexSearcher
         ITopNCollectorStrategy strategy,
         SearchExecutionBudget budget)
     {
+        using var fuzzyExecutionScope = PushFuzzyQueryExecutionContext();
+
         if (_readers.Count == 0)
             return TopDocs.Empty;
 

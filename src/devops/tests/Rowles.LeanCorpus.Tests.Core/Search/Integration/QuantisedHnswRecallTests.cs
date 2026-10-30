@@ -138,7 +138,7 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
         var found = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
         int overlap = found.Intersect(truth).Count();
         double recall = overlap / (double)topK;
-        Assert.True(recall >= 0.60, $"BBQ recall {recall:F2} below 0.60 threshold.");
+        Assert.True(recall >= 0.70, $"BBQ recall {recall:F2} below the declared 0.70 integration threshold.");
     }
 
     [Fact(DisplayName = "Default (None): Unquantised vectors behave identically to baseline")]

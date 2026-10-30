@@ -265,11 +265,26 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
         Assert.Contains("levelCount", ex.Message);
     }
 
+    [Fact(DisplayName = "Malformed File: Non-empty graph missing declared upper layers throws")]
+    public void Read_ThrowsWhenNonEmptyGraphHasTooFewLevels()
+    {
+        var path = Path.Combine(_fixture.Path, "malformed_levelcount_lt_maxlevel.hnsw");
+        WriteSyntheticHnswFile(path, nodeCount: 1, maxLevel: 1, levelCount: 1, writeLevelData: bw =>
+        {
+            bw.Write(1); // level 0 node count
+            bw.Write(0); // docId
+            bw.Write(0); // neighbour count
+        });
+        var source = new TrivialVectorSource { Dimension = 16 };
+        var ex = Assert.Throws<InvalidDataException>(() => HnswReader.Read(path, source));
+        Assert.Contains("levelCount", ex.Message);
+    }
+
     [Fact(DisplayName = "Malformed File: Negative nodes per level throws")]
     public void Read_ThrowsOnNegativeNodesPerLevel()
     {
         var path = Path.Combine(_fixture.Path, "malformed_neg_nodes.hnsw");
-        WriteSyntheticHnswFile(path, nodeCount: 10, maxLevel: 1, levelCount: 1, writeLevelData: bw =>
+        WriteSyntheticHnswFile(path, nodeCount: 10, maxLevel: 0, levelCount: 1, writeLevelData: bw =>
         {
             bw.Write(-1); // negative nodes count for level 0
         });
@@ -282,7 +297,7 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
     public void Read_ThrowsOnNegativeNeighCount()
     {
         var path = Path.Combine(_fixture.Path, "malformed_neg_neighcount.hnsw");
-        WriteSyntheticHnswFile(path, nodeCount: 10, maxLevel: 1, levelCount: 1, writeLevelData: bw =>
+        WriteSyntheticHnswFile(path, nodeCount: 10, maxLevel: 0, levelCount: 1, writeLevelData: bw =>
         {
             bw.Write(1);  // one node at level 0
             bw.Write(0);  // docId
@@ -297,7 +312,7 @@ public sealed class HnswPersistenceTests : IClassFixture<TestDirectoryFixture>
     public void Read_ThrowsOnNeighCountExceedsNodeCount()
     {
         var path = Path.Combine(_fixture.Path, "malformed_neighcount_gt_nodecount.hnsw");
-        WriteSyntheticHnswFile(path, nodeCount: 5, maxLevel: 1, levelCount: 1, writeLevelData: bw =>
+        WriteSyntheticHnswFile(path, nodeCount: 5, maxLevel: 0, levelCount: 1, writeLevelData: bw =>
         {
             bw.Write(1); // one node at level 0
             bw.Write(0); // docId

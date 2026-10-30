@@ -119,6 +119,103 @@ public sealed class FuzzyExpansionCachePolicyTests : IClassFixture<TestDirectory
     }
 
     [Fact]
+    public void ZeroEditFuzzyExpansionUsesExactLookupWithoutFstIntersection()
+    {
+        using var reader = OpenDictionary("fuzzy-policy-exact-lookup");
+        int intersections = 0;
+        Action recordIntersection = () => Interlocked.Increment(ref intersections);
+
+        var exact = reader.GetFuzzyMatches(
+            "body\0", "hello".AsSpan(), 0, 50, useCache: false, beforeFstIntersection: recordIntersection);
+        var missing = reader.GetFuzzyMatches(
+            "body\0", "missing".AsSpan(), 0, 50, useCache: false, beforeFstIntersection: recordIntersection);
+
+        var match = Assert.Single(exact);
+        Assert.Equal("body\0hello", match.Term);
+        Assert.Equal(0, match.Distance);
+        Assert.Empty(missing);
+        Assert.Equal(0, Volatile.Read(ref intersections));
+    }
+
+    [Fact]
+    public void CappedEqualDistanceExpansionsUseUtf8TermByteOrder()
+    {
+        const string query = "cat";
+        const string fieldPrefix = "body\0";
+        var terms = new List<string>();
+        for (int position = 0; position < query.Length; position++)
+        {
+            for (char replacement = 'a'; replacement <= 'z'; replacement++)
+            {
+                if (replacement == query[position])
+                    continue;
+
+                var candidate = query.ToCharArray();
+                candidate[position] = replacement;
+                terms.Add(fieldPrefix + new string(candidate));
+            }
+        }
+        terms.Sort(StringComparer.Ordinal);
+
+        var path = Path.Combine(_fixture.Path, "fuzzy-policy-tied-expansions.dic");
+        var offsets = terms.Select((term, index) => (term, index))
+            .ToDictionary(static pair => pair.term, static pair => (long)pair.index, StringComparer.Ordinal);
+        TermDictionaryWriter.Write(path, terms, offsets);
+
+        using var reader = TermDictionaryReader.Open(path);
+        var matches = reader.GetFuzzyMatches(fieldPrefix, query.AsSpan(), 1, maxExpansions: 4, useCache: false);
+
+        Assert.Equal(terms.Take(4), matches.Select(static match => match.Term));
+        Assert.All(matches, static match => Assert.Equal(1, match.Distance));
+    }
+
+    [Fact]
+    public void FuzzyDistanceRemainsUtf8ByteBasedForUnicodeAndTranspositions()
+    {
+        var terms = new[]
+        {
+            "body\0",
+            "body\0ab",
+            "body\0ba",
+            "body\0bat",
+            "body\0cat",
+            "body\0cafe",
+            "body\0café",
+            "body\0\u00E9",
+            "body\0e\u0301",
+            "body\0\U00010000",
+            "body\0\U0001FFFF"
+        }.Order(StringComparer.Ordinal).ToList();
+        var path = Path.Combine(_fixture.Path, "fuzzy-policy-utf8-distance.dic");
+        var offsets = terms.Select((term, index) => (term, index))
+            .ToDictionary(static pair => pair.term, static pair => (long)pair.index, StringComparer.Ordinal);
+        TermDictionaryWriter.Write(path, terms, offsets);
+
+        using var reader = TermDictionaryReader.Open(path);
+
+        var cafeOneEdit = reader.GetFuzzyMatches("body\0", "cafe".AsSpan(), 1, 50, useCache: false);
+        Assert.DoesNotContain(cafeOneEdit, static match => match.Term == "body\0café");
+        var cafeTwoEdits = reader.GetFuzzyMatches("body\0", "cafe".AsSpan(), 2, 50, useCache: false);
+        Assert.Contains(cafeTwoEdits, static match => match.Term == "body\0café" && match.Distance == 2);
+
+        var nfcMatches = reader.GetFuzzyMatches("body\0", "\u00E9".AsSpan(), 2, 50, useCache: false);
+        Assert.DoesNotContain(nfcMatches, static match => match.Term == "body\0e\u0301");
+
+        var supplementaryMatches = reader.GetFuzzyMatches(
+            "body\0", "\U00010000".AsSpan(), 2, 50, useCache: false);
+        Assert.DoesNotContain(supplementaryMatches, static match => match.Term == "body\0\U0001FFFF");
+
+        var transpositionOneEdit = reader.GetFuzzyMatches("body\0", "ab".AsSpan(), 1, 50, useCache: false);
+        Assert.DoesNotContain(transpositionOneEdit, static match => match.Term == "body\0ba");
+        var transpositionTwoEdits = reader.GetFuzzyMatches("body\0", "ab".AsSpan(), 2, 50, useCache: false);
+        Assert.Contains(transpositionTwoEdits, static match => match.Term == "body\0ba" && match.Distance == 2);
+
+        var emptyTerm = Assert.Single(reader.GetFuzzyMatches("body\0", ReadOnlySpan<char>.Empty, 0, 50, useCache: false));
+        Assert.Equal("body\0", emptyTerm.Term);
+        Assert.Equal(0, emptyTerm.Distance);
+    }
+
+    [Fact]
     public void BypassDoesNotClearOrTaintConcurrentDefaultCacheUsers()
     {
         using var reader = OpenDictionary("fuzzy-policy-concurrent");

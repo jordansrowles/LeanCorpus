@@ -40,6 +40,72 @@ public sealed class BenchmarkCommandPlannerTests
     }
 
     [Fact]
+    public void ResolvesStrategyBudgetWithIndependentBuildAndProjectDeadlines()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var exhaustive = BenchmarkCommandPlanner.Create(Options(suite: "core", strategy: "exhaustive"), configuration, checkout.RepositoryRoot);
+        var quick = BenchmarkCommandPlanner.Create(Options(suite: "core", strategy: "quick-compare"), configuration, checkout.RepositoryRoot);
+
+        Assert.Equal(new BenchmarkTimeoutBudget(1440, 30, 1440, "strategy"), exhaustive.TimeoutBudget);
+        Assert.True(quick.TimeoutBudget.AggregateTimeoutMinutes < exhaustive.TimeoutBudget.AggregateTimeoutMinutes);
+        Assert.Equal(30, quick.TimeoutBudget.BuildTimeoutMinutes);
+    }
+
+    [Fact]
+    public void RoutesCapacityOneAsyncStressThroughItsIndependentBudgets()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var bounded = BenchmarkCommandPlanner.Create(
+            Options(suite: "async-index-stress", strategy: "async-stress"), configuration, checkout.RepositoryRoot);
+        var deep = BenchmarkCommandPlanner.Create(
+            Options(suite: "async-index-stress", strategy: "async-stress-deep"), configuration, checkout.RepositoryRoot);
+
+        var boundedInvocation = Assert.Single(bounded.Invocations);
+        Assert.Equal("AsyncIndexingCapacityOneStressBenchmarks", boundedInvocation.BenchmarkClass);
+        Assert.Equal(1_000, bounded.DocumentCount);
+        Assert.Equal(new BenchmarkTimeoutBudget(30, 30, 30, "strategy"), bounded.TimeoutBudget);
+        Assert.Contains("async-index-stress", boundedInvocation.Arguments);
+
+        Assert.Equal(100_000, deep.DocumentCount);
+        Assert.Equal(new BenchmarkTimeoutBudget(1_440, 30, 1_440, "strategy"), deep.TimeoutBudget);
+    }
+
+    [Fact]
+    public void CommandLineTimeoutOverridesOnlyTheAggregateStrategyBudget()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var plan = BenchmarkCommandPlanner.Create(
+            Options(suite: "core", strategy: "exhaustive") with { TimeoutMinutes = 90 },
+            configuration,
+            checkout.RepositoryRoot);
+
+        Assert.Equal(new BenchmarkTimeoutBudget(90, 30, 1440, "command-line"), plan.TimeoutBudget);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(40_001)]
+    public void RejectsInvalidCommandLineTimeout(int timeoutMinutes)
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var error = Assert.Throws<InvalidOperationException>(() => BenchmarkCommandPlanner.Create(
+            Options(suite: "core") with { TimeoutMinutes = timeoutMinutes },
+            configuration,
+            checkout.RepositoryRoot));
+
+        Assert.Contains("Timeout must be between 1 and 40000 minutes", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CreatesTextProjectInvocationForMultilingualBenchmarks()
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
@@ -120,6 +186,22 @@ public sealed class BenchmarkCommandPlannerTests
         Assert.Equal(suite, plan.Suite);
         Assert.Contains("--suite", invocation.Arguments);
         Assert.Contains(suite, invocation.Arguments);
+    }
+
+    [Fact]
+    public void RoutesDedicatedMultiSegmentFuzzyBenchmarkClass()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+
+        var plan = BenchmarkCommandPlanner.Create(
+            Options(suite: "fuzzy-multisegment"), configuration, checkout.RepositoryRoot);
+
+        var invocation = Assert.Single(plan.Invocations);
+        Assert.Equal("core", invocation.ProjectKey);
+        Assert.Equal("FuzzyMultiSegmentBenchmarks", invocation.BenchmarkClass);
+        Assert.Contains("--filter", invocation.Arguments);
+        Assert.Contains("*FuzzyMultiSegmentBenchmarks*", invocation.Arguments);
     }
 
     [Fact]
@@ -324,14 +406,15 @@ public sealed class BenchmarkCommandPlannerTests
             TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
-        Assert.Equal(2, progress.Count);
-        var buildCommand = progress[0];
+        Assert.Equal(3, progress.Count);
+        Assert.Contains("aggregate 30 minutes (strategy)", progress[0], StringComparison.Ordinal);
+        var buildCommand = progress[1];
         Assert.Contains("dotnet build", buildCommand, StringComparison.Ordinal);
         Assert.Contains("--disable-build-servers", buildCommand, StringComparison.Ordinal);
         Assert.Contains("-m:1", buildCommand, StringComparison.Ordinal);
         Assert.Contains("-p:UseSharedCompilation=false", buildCommand, StringComparison.Ordinal);
 
-        var runCommand = progress[1];
+        var runCommand = progress[2];
         Assert.Contains("dotnet run --no-build", runCommand, StringComparison.Ordinal);
         Assert.DoesNotContain("-m:1", runCommand, StringComparison.Ordinal);
     }

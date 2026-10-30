@@ -52,6 +52,42 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         return vectors;
     }
 
+    [Fact(DisplayName = "HNSW: Search returns requested top K when efSearch is smaller")]
+    public void Search_ReturnsRequestedTopK_WhenEfSearchIsSmaller()
+    {
+        const int documentCount = 128;
+        const int dimension = 16;
+        const int topK = 100;
+        var vectors = BuildRandomVectors(documentCount, dimension, seed: 20261029);
+        var directory = new MMapDirectory(SubDir("hnsw_ef_below_top_k"));
+        var config = new IndexWriterConfig
+        {
+            BuildHnswOnFlush = true,
+            NormaliseVectors = true,
+            HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
+            HnswSeed = 1L,
+        };
+
+        using (var writer = new IndexWriter(directory, config))
+        {
+            for (int i = 0; i < vectors.Length; i++)
+            {
+                var document = new LeanDocument();
+                document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vectors[i])));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory);
+        var results = searcher.Search(
+            new VectorQuery("embedding", vectors[0], topK: topK, efSearch: 64),
+            topK,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(topK, results.ScoreDocs.Length);
+    }
+
     /// <summary>
     /// Verifies the HNSW Search: Recall Against Flat Baseline scenario.
     /// </summary>

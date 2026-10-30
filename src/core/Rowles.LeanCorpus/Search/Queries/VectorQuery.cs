@@ -20,7 +20,8 @@ public sealed class VectorQuery : Query
     /// <summary>
     /// HNSW search-time candidate pool size (the <c>ef</c> parameter). Larger values increase recall at
     /// the cost of latency. Uses <see cref="LeanCorpusDefaults"/>'s HNSW search default when one is
-    /// configured; otherwise defaults to <c>max(64, 4 * topK)</c>.
+    /// configured; otherwise defaults to <c>max(64, 4 * topK)</c>. Search raises the effective pool to
+    /// at least <c>topK * OversamplingFactor</c> so a smaller <c>ef</c> cannot cap the requested shortlist.
     /// </summary>
     public int EfSearch { get; }
 

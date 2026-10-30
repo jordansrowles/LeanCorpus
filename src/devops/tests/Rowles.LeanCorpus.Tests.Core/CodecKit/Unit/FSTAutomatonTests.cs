@@ -194,6 +194,96 @@ public sealed class FSTAutomatonTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal("hello", terms[0]);
     }
 
+    [Fact(DisplayName = "Levenshtein Automaton: Compact Compiler Selection Threshold")]
+    public void LevenshteinAutomaton_CompactCompiler_SelectsAt64NfaStates()
+    {
+        Assert.True(new LevenshteinAutomaton("", 2).UsesCompactCompiler);
+        Assert.True(new LevenshteinAutomaton(new string('a', 20), 2).UsesCompactCompiler);
+        Assert.False(new LevenshteinAutomaton(new string('a', 21), 2).UsesCompactCompiler);
+    }
+
+    [Fact(DisplayName = "Levenshtein Automaton: Compact Compiler FST Intersection Matches UTF-8 Byte Distance")]
+    public void LevenshteinAutomaton_CompactCompiler_FstIntersectionMatchesUtf8ByteDistance()
+    {
+        string[] queries = ["", new string('a', 20), new string('a', 21)];
+
+        for (int queryIndex = 0; queryIndex < queries.Length; queryIndex++)
+        {
+            string query = queries[queryIndex];
+            var bareTerms = new HashSet<string>(StringComparer.Ordinal)
+            {
+                query,
+                query + "!",
+                "~" + query,
+                "!!" + query,
+                query + "!!!"
+            };
+
+            if (query.Length > 0)
+            {
+                bareTerms.Add(query[1..]);
+                bareTerms.Add("!" + query[1..]);
+            }
+
+            if (query.Length > 1)
+                bareTerms.Add("!!" + query[2..]);
+
+            using var reader = BuildDictionary($"lev_compact_{queryIndex}", bareTerms.ToArray());
+            var automaton = new LevenshteinAutomaton(query, 2);
+            var actual = FSTAutomaton.Intersect(reader, "body\0", automaton)
+                .Select(result => result.Term.Replace("body\0", "", StringComparison.Ordinal))
+                .ToHashSet(StringComparer.Ordinal);
+            var expected = bareTerms
+                .Where(term => Utf8ByteLevenshteinDistance(query, term) <= 2)
+                .ToHashSet(StringComparer.Ordinal);
+
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    [Fact(DisplayName = "Levenshtein Automaton: Compact Compiler Preserves UTF-8 Byte Semantics")]
+    public void LevenshteinAutomaton_CompactCompiler_PreservesUtf8ByteSemantics()
+    {
+        const string query = "é";
+        var bareTerms = new[] { "é", "ê", "è", "ø", "e" };
+        using var reader = BuildDictionary("lev_compact_unicode", bareTerms);
+        var automaton = new LevenshteinAutomaton(query, 1);
+
+        var actual = FSTAutomaton.Intersect(reader, "body\0", automaton)
+            .Select(result => result.Term.Replace("body\0", "", StringComparison.Ordinal))
+            .ToHashSet(StringComparer.Ordinal);
+        var expected = bareTerms
+            .Where(term => Utf8ByteLevenshteinDistance(query, term) <= 1)
+            .ToHashSet(StringComparer.Ordinal);
+
+        Assert.Equal(expected, actual);
+        Assert.DoesNotContain("e", actual);
+    }
+
+    private static int Utf8ByteLevenshteinDistance(string left, string right)
+    {
+        byte[] leftBytes = System.Text.Encoding.UTF8.GetBytes(left);
+        byte[] rightBytes = System.Text.Encoding.UTF8.GetBytes(right);
+        var distances = new int[leftBytes.Length + 1, rightBytes.Length + 1];
+
+        for (int i = 0; i <= leftBytes.Length; i++)
+            distances[i, 0] = i;
+        for (int j = 0; j <= rightBytes.Length; j++)
+            distances[0, j] = j;
+
+        for (int i = 1; i <= leftBytes.Length; i++)
+        {
+            for (int j = 1; j <= rightBytes.Length; j++)
+            {
+                distances[i, j] = Math.Min(
+                    Math.Min(distances[i - 1, j] + 1, distances[i, j - 1] + 1),
+                    distances[i - 1, j - 1] + (leftBytes[i - 1] == rightBytes[j - 1] ? 0 : 1));
+            }
+        }
+
+        return distances[leftBytes.Length, rightBytes.Length];
+    }
+
     // ── Integration: Large Dictionary ───────────────────────────────────
 
     /// <summary>

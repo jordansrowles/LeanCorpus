@@ -130,8 +130,11 @@ public sealed class IndexWriterConfig
     public int MaxBufferedDocs { get; set; } = 10_000;
 
     /// <summary>
-    /// Maximum number of documents that can be queued for indexing before AddDocument blocks.
-    /// Provides backpressure to prevent unbounded memory growth. Set to 0 to disable (not recommended).
+    /// Maximum number of documents admitted into DWPT buffers before producers apply backpressure.
+    /// A full limit triggers a DWPT flush snapshot to release admission slots; it does not cap
+    /// physical flushes already in progress. A positive value also sets the async command-channel
+    /// capacity; when the document limit is disabled, that channel uses its default capacity of 4096.
+    /// Set to 0 to disable the document admission limit (not recommended).
     /// Default: 2 × MaxBufferedDocs.
     /// </summary>
     public int MaxQueuedDocs { get; set; } = 20_000;

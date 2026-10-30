@@ -19,7 +19,8 @@ public sealed class FuzzyQuery : Query
 
     /// <summary>
     /// Maximum number of matching terms to expand into the scored query.
-    /// When more terms match, only the closest (lowest edit distance) are kept.
+    /// The limit is applied to distinct terms across the complete searcher. The closest
+    /// terms by edit distance are kept, with UTF-8 term-byte order breaking equal-distance ties.
     /// </summary>
     public int MaxExpansions { get; }
 
