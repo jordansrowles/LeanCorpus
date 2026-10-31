@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main, '[0-9]*', 'stabilise/**', 'issue-97']
+    branches: [main, '[0-9]*', 'stabilise/**', 'issue-97', 'fix/bbq-retrieval-quality']
   pull_request: {}
   workflow_dispatch:
 
