@@ -1220,10 +1220,18 @@ public sealed partial class IndexSearcher
             if (filterBitmap.Cardinality == 0) return;
         }
 
+        Util.IBitSet? queryFilterMask = filterBitmap is null
+            ? null
+            : new Util.RoaringBitmapBitSet(filterBitmap);
+        Util.IBitSet? liveAwareMask = reader.HasDeletions
+            ? new LiveDocsPostFilterMask(reader, queryFilterMask)
+            : queryFilterMask;
+
         var graph = reader.GetHnswGraph(query.Field);
         bool hasGraph = graph is not null && graph.NodeCount > 0;
-        int shortlistSize = query.TopK * query.OversamplingFactor;
-        int efSearch = Math.Max(query.EfSearch, shortlistSize);
+        int availableCandidates = hasGraph ? graph!.NodeCount : reader.MaxDoc;
+        int shortlistSize = query.GetShortlistSize(availableCandidates);
+        int efSearch = hasGraph ? query.GetEffectiveEfSearch(graph!.NodeCount) : query.EfSearch;
 
         // Pre-compute query vector (and normalised variant for normalised fields).
         var queryVec = query.QueryVector;
@@ -1253,7 +1261,7 @@ public sealed partial class IndexSearcher
 
             // Moderately selective: pre-filter via allow-list.
             // Loose: post-filter with retry.
-            var bitset = new Util.RoaringBitmapBitSet(filterBitmap);
+            var bitset = liveAwareMask!;
             var options = selectivity < 0.05
                 ? new HnswSearchOptions
                 {
@@ -1292,6 +1300,7 @@ public sealed partial class IndexSearcher
             {
                 Ef = efSearch,
                 TopK = shortlistSize,
+                PostFilterMask = liveAwareMask,
             };
             var searchVec = normalisedQuery ?? queryVec;
             var hnswSw = System.Diagnostics.Stopwatch.StartNew();
@@ -1812,6 +1821,23 @@ public sealed partial class IndexSearcher
             if (matches)
                 collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, field, boost));
         }
+    }
+
+    private sealed class LiveDocsPostFilterMask : Util.IBitSet
+    {
+        private readonly SegmentReader _reader;
+        private readonly Util.IBitSet? _queryFilter;
+
+        public LiveDocsPostFilterMask(SegmentReader reader, Util.IBitSet? queryFilter)
+        {
+            _reader = reader;
+            _queryFilter = queryFilter;
+        }
+
+        public int Cardinality => _queryFilter?.Cardinality ?? _reader.Info.LiveDocCount;
+
+        public bool Contains(int docId)
+            => _reader.IsLive(docId) && (_queryFilter?.Contains(docId) ?? true);
     }
 
     private static bool TryCreateGeoBounds(

@@ -165,6 +165,40 @@ public sealed class QueryFamilyUnitTests
         Assert.True(score > idf);
     }
 
+    [Fact(DisplayName = "QueryCache: Vector query fingerprint includes retrieval options and filter")]
+    public void QueryCache_VectorQueryFingerprint_IncludesRetrievalOptionsAndFilter()
+    {
+        var cache = new QueryCache(10);
+        var original = new VectorQuery(
+            "vector",
+            [1f, 0f],
+            topK: 3,
+            efSearch: 24,
+            oversamplingFactor: 2,
+            filter: new TermQuery("kind", "a"));
+        cache.Put(original, 10, TopDocs.Empty);
+
+        var equivalent = new VectorQuery(
+            "vector",
+            [1f, 0f],
+            topK: 3,
+            efSearch: 24,
+            oversamplingFactor: 2,
+            filter: new TermQuery("kind", "a"));
+
+        Assert.NotNull(cache.TryGet(equivalent, 10));
+        Assert.Null(cache.TryGet(
+            new VectorQuery("vector", [1f, 0f], 3, 25, 2, new TermQuery("kind", "a")), 10));
+        Assert.Null(cache.TryGet(
+            new VectorQuery("vector", [1f, 0f], 3, 24, 3, new TermQuery("kind", "a")), 10));
+        Assert.Null(cache.TryGet(
+            new VectorQuery("vector", [1f, 0f], 3, 24, 2, new TermQuery("kind", "b")), 10));
+        Assert.Null(cache.TryGet(
+            new VectorQuery("vector", [0f, 1f], 3, 24, 2, new TermQuery("kind", "a")), 10));
+        Assert.Null(cache.TryGet(
+            new VectorQuery("vector", [1f, 0f], 4, 24, 2, new TermQuery("kind", "a")), 10));
+    }
+
     [Fact(DisplayName = "QueryCache: TermInSetQuery Fingerprint Is Order Invariant")]
     public void QueryCache_TermInSetQuery_Fingerprint_IsOrderInvariant()
     {

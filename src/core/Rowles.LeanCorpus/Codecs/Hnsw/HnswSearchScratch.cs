@@ -1,7 +1,7 @@
 ﻿namespace Rowles.LeanCorpus.Codecs.Hnsw;
 
 /// <summary>
-/// Reusable scratch buffers for one HNSW <c>SearchLayer</c> traversal. Borrow via
+/// Reusable scratch buffers for HNSW search traversals. Borrow via
 /// <see cref="Borrow"/>, dispose to return. A single instance per thread is held in
 /// <see cref="System.ThreadStaticAttribute"/> storage so steady-state queries avoid
 /// repeated <see cref="HashSet{T}"/> and <see cref="PriorityQueue{TElement, TPriority}"/>
@@ -26,6 +26,9 @@ internal sealed class HnswSearchScratch : IDisposable
 
     /// <summary>Max-heap of result candidates by distance descending, capped at ef.</summary>
     public PriorityQueue<int, float> Results { get; } = new(ResultsComparer);
+
+    /// <summary>Bounded equal-distance candidates considered during upper-layer descent.</summary>
+    public List<int> GreedyTieCandidates { get; } = new();
 
     /// <summary>
     /// Borrow the per-thread scratch. If it is already in use (a nested search on the
@@ -54,6 +57,7 @@ internal sealed class HnswSearchScratch : IDisposable
         Visited.Clear();
         Frontier.Clear();
         Results.Clear();
+        GreedyTieCandidates.Clear();
     }
 
     public void Dispose()

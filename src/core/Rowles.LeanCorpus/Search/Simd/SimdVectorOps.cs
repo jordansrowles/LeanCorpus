@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 namespace Rowles.LeanCorpus.Util;
 
 /// <summary>
-/// SIMD vector primitives used by HNSW graph operations and exact rerank.
+/// SIMD vector primitives used by HNSW graph operations and vector candidate scoring.
 /// Built around <see cref="Vector{T}"/>, which the .NET JIT lowers to AVX2 or AVX-512
 /// instructions automatically on capable hardware.
 /// </summary>
@@ -13,6 +13,8 @@ namespace Rowles.LeanCorpus.Util;
 /// </remarks>
 internal static class VectorMath
 {
+    private const float MinNormalFloat = 1.17549435E-38f;
+
     /// <summary>
     /// Computes cosine similarity between two vectors. Returns zero for empty or
     /// length-mismatched inputs; never throws.
@@ -26,7 +28,7 @@ internal static class VectorMath
         float dot = 0f, normA = 0f, normB = 0f;
         int i = 0;
 
-        if (a.Length >= Vector<float>.Count)
+        if (Vector.IsHardwareAccelerated && a.Length >= Vector<float>.Count)
         {
             var vDot = Vector<float>.Zero;
             var vNormA = Vector<float>.Zero;
@@ -57,6 +59,13 @@ internal static class VectorMath
         }
 
         float denom = MathF.Sqrt(normA) * MathF.Sqrt(normB);
+        if (normA < MinNormalFloat || normB < MinNormalFloat ||
+            (dot != 0f && MathF.Abs(dot) < MinNormalFloat) || denom < MinNormalFloat ||
+            !float.IsFinite(dot) || !float.IsFinite(denom))
+        {
+            return CosineSimilarityScaled(a, b);
+        }
+
         return denom > 0f ? dot / denom : 0f;
     }
 
@@ -130,8 +139,8 @@ internal static class VectorMath
     public static bool NormaliseInPlace(Span<float> vector)
     {
         float sq = SquaredNorm(vector);
-        if (sq <= 0f || float.IsNaN(sq) || float.IsInfinity(sq))
-            return false;
+        if (sq < MinNormalFloat || !float.IsFinite(sq))
+            return NormaliseInPlaceScaled(vector);
 
         float invNorm = 1f / MathF.Sqrt(sq);
         int i = 0;
@@ -146,6 +155,57 @@ internal static class VectorMath
         }
         for (; i < vector.Length; i++)
             vector[i] *= invNorm;
+        return true;
+    }
+
+    private static float CosineSimilarityScaled(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
+    {
+        double dot = 0d;
+        double normA = 0d;
+        double normB = 0d;
+        for (int i = 0; i < a.Length; i++)
+        {
+            double valueA = a[i];
+            double valueB = b[i];
+            if (!double.IsFinite(valueA) || !double.IsFinite(valueB))
+                return 0f;
+
+            dot += valueA * valueB;
+            normA += valueA * valueA;
+            normB += valueB * valueB;
+        }
+
+        if (normA <= 0d || normB <= 0d)
+            return 0f;
+
+        return (float)(dot / (Math.Sqrt(normA) * Math.Sqrt(normB)));
+    }
+
+    private static bool NormaliseInPlaceScaled(Span<float> vector)
+    {
+        double maxMagnitude = 0d;
+        for (int i = 0; i < vector.Length; i++)
+        {
+            float value = vector[i];
+            if (!float.IsFinite(value))
+                return false;
+            maxMagnitude = Math.Max(maxMagnitude, Math.Abs((double)value));
+        }
+
+        if (maxMagnitude == 0d)
+            return false;
+
+        double scaledSquaredNorm = 0d;
+        for (int i = 0; i < vector.Length; i++)
+        {
+            double scaled = vector[i] / maxMagnitude;
+            scaledSquaredNorm += scaled * scaled;
+        }
+
+        double inverseNorm = 1d / Math.Sqrt(scaledSquaredNorm);
+        for (int i = 0; i < vector.Length; i++)
+            vector[i] = (float)((vector[i] / maxMagnitude) * inverseNorm);
+
         return true;
     }
 

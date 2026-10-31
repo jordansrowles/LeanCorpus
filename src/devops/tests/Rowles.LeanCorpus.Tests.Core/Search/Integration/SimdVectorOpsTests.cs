@@ -81,6 +81,52 @@ public sealed class SimdVectorOpsTests
         Assert.Equal(1f, MathF.Sqrt(SimdVectorOps.SquaredNorm(v)), 5);
     }
 
+    [Fact(DisplayName = "Normalise In Place: Very Small Non-Zero Vector Produces Unit Norm")]
+    public void NormaliseInPlace_OnVerySmallNonZeroVector_ProducesUnitNorm()
+    {
+        var v = new float[] { 1e-23f, 1e-23f };
+
+        bool ok = SimdVectorOps.NormaliseInPlace(v);
+
+        Assert.True(ok);
+        Assert.Equal(1f / MathF.Sqrt(2f), v[0], 6);
+        Assert.Equal(1f / MathF.Sqrt(2f), v[1], 6);
+    }
+
+    [Fact(DisplayName = "Normalise In Place: Very Large Finite Vector Produces Unit Norm")]
+    public void NormaliseInPlace_OnVeryLargeFiniteVector_ProducesUnitNorm()
+    {
+        var v = new float[] { 1e23f, 1e23f };
+
+        bool ok = SimdVectorOps.NormaliseInPlace(v);
+
+        Assert.True(ok);
+        Assert.Equal(1f / MathF.Sqrt(2f), v[0], 6);
+        Assert.Equal(1f / MathF.Sqrt(2f), v[1], 6);
+    }
+
+    [Fact(DisplayName = "Cosine: Very Small Non-Zero Vectors Match Expected Similarity")]
+    public void Cosine_OnVerySmallNonZeroVectors_MatchesExpectedSimilarity()
+    {
+        var a = new float[] { 1e-23f, 1e-23f };
+        var b = new float[] { 2e-23f, 0f };
+
+        float similarity = SimdVectorOps.CosineSimilarity(a, b);
+
+        Assert.Equal(1f / MathF.Sqrt(2f), similarity, 6);
+    }
+
+    [Fact(DisplayName = "Cosine: Very Large Finite Vectors Match Expected Similarity")]
+    public void Cosine_OnVeryLargeFiniteVectors_MatchesExpectedSimilarity()
+    {
+        var a = new float[] { 1e23f, 1e23f };
+        var b = new float[] { 2e23f, 0f };
+
+        float similarity = SimdVectorOps.CosineSimilarity(a, b);
+
+        Assert.Equal(1f / MathF.Sqrt(2f), similarity, 6);
+    }
+
     /// <summary>
     /// Verifies the Normalise In Place: On Zero Vector Returns False And Leaves Input Untouched scenario.
     /// </summary>

@@ -310,7 +310,7 @@ internal sealed class HnswGraph : IDisposable
             layersDescended++;
         }
 
-        int ef = Math.Max(1, options.Ef);
+        int ef = Math.Clamp(options.Ef, 1, NodeCount);
         int retriesLeft = options.MaxPostFilterRetries;
         IReadOnlyList<HnswSearchResult> results;
         int totalVisited = 0;
@@ -319,14 +319,46 @@ internal sealed class HnswGraph : IDisposable
         {
             var raw = SearchLayer(query, [currentEntry], ef, level: 0, options.AllowList, out int visitedThisIteration);
             totalVisited += visitedThisIteration;
+            bool graphFullyVisited = visitedThisIteration >= NodeCount;
             var ranked = SortAscByDistance(raw);
             var filtered = options.PostFilterMask is null
                 ? ranked
                 : ranked.Where(r => options.PostFilterMask.Contains(r.DocId)).ToList();
 
             int target = options.TopK > 0 ? options.TopK : filtered.Count;
-            if (filtered.Count >= target || retriesLeft <= 0 || options.PostFilterMask is null)
+            if (filtered.Count >= target || retriesLeft <= 0 || options.PostFilterMask is null || ef >= NodeCount)
             {
+                if (filtered.Count < target && ef >= target && currentEntry != EntryPoint)
+                {
+                    // Greedy descent can land in a directed region that cannot reach enough
+                    // nodes to fill the requested shortlist. Retry from the persisted entry
+                    // point before returning an underfilled result set.
+                    var entryPointResults = SearchLayer(
+                        query, [EntryPoint], ef, level: 0, options.AllowList, out int entryPointVisited);
+                    totalVisited += entryPointVisited;
+                    graphFullyVisited |= entryPointVisited >= NodeCount;
+                    ranked = MergeCandidates(ranked, SortAscByDistance(entryPointResults), ef);
+                    filtered = options.PostFilterMask is null
+                        ? ranked
+                        : ranked.Where(r => options.PostFilterMask.Contains(r.DocId)).ToList();
+                }
+
+                bool exhaustiveCandidatesAlreadyAvailable = graphFullyVisited
+                    && (ef >= NodeCount || options.PostFilterMask is null && ef >= target);
+                if (filtered.Count < target && !exhaustiveCandidatesAlreadyAvailable)
+                {
+                    // Directed HNSW reachability can leave fewer candidates than TopK even
+                    // after the entry-point retry. Complete only this underfilled query with
+                    // an exact scan using the graph's active metric.
+                    filtered = ScanMetricTopK(
+                        query,
+                        target,
+                        options.AllowList,
+                        options.PostFilterMask,
+                        out int scannedNodes);
+                    totalVisited = scannedNodes;
+                }
+
                 results = filtered
                     .Take(options.TopK > 0 ? options.TopK : filtered.Count)
                     .Select(c => new HnswSearchResult(c.DocId, -c.Distance))
@@ -334,7 +366,7 @@ internal sealed class HnswGraph : IDisposable
                 break;
             }
 
-            ef *= 2;
+            ef = ef > NodeCount / 2 ? NodeCount : ef * 2;
             retriesLeft--;
         }
 
@@ -385,23 +417,58 @@ internal sealed class HnswGraph : IDisposable
     {
         int current = entry;
         float currentDist = QueryDistance(query, current);
-        bool improved;
-        do
+        int tieBudget = Math.Min(M, NodeCount - 1);
+        if (tieBudget <= 0)
+            return current;
+
+        using var scratch = HnswSearchScratch.Borrow();
+        var visited = scratch.Visited;
+        var tiedCandidates = scratch.GreedyTieCandidates;
+        int maximumPlateauNodes = tieBudget + 1;
+
+        while (true)
         {
-            improved = false;
-            foreach (var n in NeighboursAt(current, level))
+            visited.Add(current);
+            tiedCandidates.Add(current);
+            int best = current;
+            float bestDist = currentDist;
+
+            for (int candidateIndex = 0; candidateIndex < tiedCandidates.Count; candidateIndex++)
             {
-                if (!_vectors.HasVector(n)) continue;
-                float d = QueryDistance(query, n);
-                if (d < currentDist)
+                int plateauNode = tiedCandidates[candidateIndex];
+                foreach (var neighbour in NeighboursAt(plateauNode, level))
                 {
-                    currentDist = d;
-                    current = n;
-                    improved = true;
+                    if (!_vectors.HasVector(neighbour)) continue;
+
+                    float distance = QueryDistance(query, neighbour);
+                    if (distance < bestDist
+                        || (distance == bestDist && distance < currentDist && neighbour < best))
+                    {
+                        best = neighbour;
+                        bestDist = distance;
+                    }
+
+                    if (distance == currentDist
+                        && visited.Count < maximumPlateauNodes
+                        && visited.Add(neighbour))
+                    {
+                        tiedCandidates.Add(neighbour);
+                    }
                 }
+
+                int firstPending = candidateIndex + 1;
+                if (firstPending < tiedCandidates.Count)
+                    tiedCandidates.Sort(firstPending, tiedCandidates.Count - firstPending, Comparer<int>.Default);
             }
-        } while (improved);
-        return current;
+
+            if (!(bestDist < currentDist))
+                return current;
+
+            current = best;
+            currentDist = bestDist;
+            visited.Clear();
+            tiedCandidates.Clear();
+        }
     }
 
     private ReadOnlySpan<int> NeighboursAt(int docId, int level)
@@ -436,6 +503,8 @@ internal sealed class HnswGraph : IDisposable
         var visited = scratch.Visited;
         var frontier = scratch.Frontier;
         var results = scratch.Results;
+        int boundaryTieBudget = ef;
+        int boundaryTiesQueued = 0;
 
         foreach (var ep in entryPoints)
         {
@@ -466,15 +535,24 @@ internal sealed class HnswGraph : IDisposable
                 float d = QueryDistance(query, neighbour);
                 bool resultsFull = results.Count >= ef;
                 bool eligibleForResults = allowList is null || allowList.Contains(neighbour);
-                bool insideSearchWindow = !resultsFull ||
+                bool strictlyInsideSearchWindow = !resultsFull ||
                     (results.TryPeek(out _, out float currentWorst) && d < currentWorst);
+                bool onSearchBoundary = resultsFull
+                    && results.TryPeek(out _, out float boundaryDistance)
+                    && d == boundaryDistance;
+                bool exploreBoundaryTie = onSearchBoundary && boundaryTiesQueued < boundaryTieBudget;
 
-                if (insideSearchWindow)
+                if (strictlyInsideSearchWindow || exploreBoundaryTie)
                 {
                     // Eligibility controls whether a node may be returned, not whether
                     // it can connect the entry point to better eligible neighbours.
                     frontier.Enqueue(neighbour, d);
-                    if (eligibleForResults)
+                    if (exploreBoundaryTie)
+                        boundaryTiesQueued++;
+
+                    // Keep the returned set to strict improvements. Boundary ties are
+                    // traversal bridges only, so they cannot evict an existing result.
+                    if (eligibleForResults && strictlyInsideSearchWindow)
                     {
                         results.Enqueue(neighbour, d);
                         if (results.Count > ef) results.Dequeue();
@@ -494,6 +572,70 @@ internal sealed class HnswGraph : IDisposable
     {
         list.Sort(static (a, b) => a.Distance.CompareTo(b.Distance));
         return list;
+    }
+
+    private static List<(int DocId, float Distance)> MergeCandidates(
+        IReadOnlyList<(int DocId, float Distance)> first,
+        IReadOnlyList<(int DocId, float Distance)> second,
+        int maximumCount)
+    {
+        int capacity = (int)Math.Min(maximumCount, (long)first.Count + second.Count);
+        var bestByDocument = new Dictionary<int, float>(capacity);
+        AddCandidates(first);
+        AddCandidates(second);
+
+        return bestByDocument
+            .Select(static pair => (DocId: pair.Key, Distance: pair.Value))
+            .OrderBy(static candidate => candidate.Distance)
+            .ThenBy(static candidate => candidate.DocId)
+            .Take(maximumCount)
+            .ToList();
+
+        void AddCandidates(IReadOnlyList<(int DocId, float Distance)> candidates)
+        {
+            foreach (var candidate in candidates)
+            {
+                if (!bestByDocument.TryGetValue(candidate.DocId, out float existingDistance)
+                    || candidate.Distance < existingDistance)
+                {
+                    bestByDocument[candidate.DocId] = candidate.Distance;
+                }
+            }
+        }
+    }
+
+    private List<(int DocId, float Distance)> ScanMetricTopK(
+        ReadOnlySpan<float> query,
+        int topK,
+        IBitSet? allowList,
+        IBitSet? postFilterMask,
+        out int nodesVisited)
+    {
+        var candidates = new List<(int DocId, float Distance)>(Math.Min(NodeCount, topK));
+        nodesVisited = 0;
+        foreach (int docId in GetNodesAtLevel(0))
+        {
+            if (!_vectors.HasVector(docId))
+                continue;
+
+            nodesVisited++;
+            if (allowList is not null && !allowList.Contains(docId)
+                || postFilterMask is not null && !postFilterMask.Contains(docId))
+            {
+                continue;
+            }
+
+            candidates.Add((docId, QueryDistance(query, docId)));
+        }
+
+        candidates.Sort(static (left, right) =>
+        {
+            int distanceOrder = left.Distance.CompareTo(right.Distance);
+            return distanceOrder != 0 ? distanceOrder : left.DocId.CompareTo(right.DocId);
+        });
+        if (candidates.Count > topK)
+            candidates.RemoveRange(topK, candidates.Count - topK);
+        return candidates;
     }
 
     private List<(int DocId, float Distance)> SelectNeighboursHeuristic(

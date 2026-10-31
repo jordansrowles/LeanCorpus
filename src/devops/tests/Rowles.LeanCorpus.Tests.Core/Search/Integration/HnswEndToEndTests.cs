@@ -88,6 +88,91 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(topK, results.ScoreDocs.Length);
     }
 
+    [Fact(DisplayName = "HNSW: Large top K and oversampling do not overflow the shortlist")]
+    public void Search_LargeTopKAndOversampling_DoNotOverflowShortlist()
+    {
+        const int documentCount = 128;
+        const int dimension = 16;
+        var vectors = BuildRandomVectors(documentCount, dimension, seed: 20261030);
+        var directory = new MMapDirectory(SubDir("hnsw_large_oversampling"));
+        var config = new IndexWriterConfig
+        {
+            BuildHnswOnFlush = true,
+            NormaliseVectors = true,
+            HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
+            HnswSeed = 1L,
+        };
+
+        using (var writer = new IndexWriter(directory, config))
+        {
+            foreach (float[] vector in vectors)
+            {
+                var document = new LeanDocument();
+                document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory);
+        var results = searcher.Search(
+            new VectorQuery(
+                "embedding",
+                vectors[0],
+                topK: int.MaxValue / 2 + 1,
+                efSearch: 1,
+                oversamplingFactor: 2),
+            documentCount,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(documentCount, results.ScoreDocs.Length);
+        Assert.Equal(documentCount, results.TotalHits);
+    }
+
+    [Fact(DisplayName = "HNSW: Search refills top K after deleting the nearest vector")]
+    public void Search_DeletedNearestVector_IsSkippedAndTopKIsRefilled()
+    {
+        var directory = new MMapDirectory(SubDir("hnsw_deleted_nearest_vector"));
+        var config = new IndexWriterConfig
+        {
+            BuildHnswOnFlush = true,
+            NormaliseVectors = true,
+            HnswBuildConfig = new HnswBuildConfig { M = 4, M0 = 8, EfConstruction = 16 },
+            HnswSeed = 7L,
+        };
+        float[][] vectors =
+        [
+            [1f, 0f],
+            [0.9f, 0.1f],
+            [0.8f, 0.2f],
+            [0f, 1f],
+        ];
+
+        using (var writer = new IndexWriter(directory, config))
+        {
+            for (int i = 0; i < vectors.Length; i++)
+            {
+                var document = new LeanDocument();
+                document.Add(new StringField("id", $"doc-{i}"));
+                document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vectors[i])));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
+            writer.DeleteDocuments(new TermQuery("id", "doc-0"));
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory);
+        Assert.False(Assert.Single(searcher.GetSegmentReaders()).IsLive(0));
+        var results = searcher.Search(
+            new VectorQuery("embedding", vectors[0], topK: 1, efSearch: 1),
+            1,
+            TestContext.Current.CancellationToken);
+
+        Assert.Single(results.ScoreDocs);
+        Assert.Equal(1, results.ScoreDocs[0].DocId);
+    }
+
     /// <summary>
     /// Verifies the HNSW Search: Recall Against Flat Baseline scenario.
     /// </summary>
@@ -216,5 +301,50 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         Assert.True(results.TotalHits > 0);
         // Doc 0 (exact) should be top, doc 1 (close) second.
         Assert.Equal(0, results.ScoreDocs[0].DocId);
+    }
+
+    [Fact(DisplayName = "Vector Search: Very Small Non-Zero Query Is Normalised and Finds The Closest Document")]
+    public void VectorSearch_NormalisesVerySmallNonZeroQuery()
+    {
+        var dir = new MMapDirectory(SubDir("hnsw_small_nonzero_vector"));
+        var config = new IndexWriterConfig
+        {
+            BuildHnswOnFlush = false,
+            NormaliseVectors = true,
+        };
+
+        using (var writer = new IndexWriter(dir, config))
+        {
+            var closest = new LeanDocument();
+            closest.Add(new VectorField("embedding", new float[] { 1e-23f, 1e-23f }));
+            writer.AddDocument(closest);
+
+            var other = new LeanDocument();
+            other.Add(new VectorField("embedding", new float[] { 1e-23f, 0f }));
+            writer.AddDocument(other);
+
+            var zero = new LeanDocument();
+            zero.Add(new VectorField("embedding", new float[] { 0f, 0f }));
+            writer.AddDocument(zero);
+
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(dir);
+        var stored = Assert.IsType<float[]>(searcher.GetSegmentReaders()[0].GetVector("embedding", 0));
+        Assert.Equal(1f / MathF.Sqrt(2f), stored[0], 6);
+        Assert.Equal(1f / MathF.Sqrt(2f), stored[1], 6);
+        var storedZero = Assert.IsType<float[]>(searcher.GetSegmentReaders()[0].GetVector("embedding", 2));
+        Assert.All(storedZero, static value => Assert.Equal(0f, value));
+
+        var results = searcher.Search(
+            new VectorQuery("embedding", new float[] { 1e-23f, 1e-23f }, topK: 1),
+            1,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, results.TotalHits);
+        Assert.Single(results.ScoreDocs);
+        Assert.Equal(0, results.ScoreDocs[0].DocId);
+        Assert.Equal(1f, results.ScoreDocs[0].Score, 5);
     }
 }

@@ -220,6 +220,83 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
             Assert.True(deq1[d] > centroid[d], $"Expected above centroid, got {deq1[d]} vs {centroid[d]}");
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(63)]
+    [InlineData(64)]
+    [InlineData(65)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(129)]
+    public void BBQ_WriterOverloads_MatchMemorySourceAndMappedReader(int dimension)
+    {
+        const int docCount = 6;
+        int[] vectorDocIds = [0, 2, 5];
+        var vectors = new Dictionary<int, ReadOnlyMemory<float>>
+        {
+            [0] = Enumerable.Range(0, dimension)
+                .Select(static index => index % 2 == 0 ? 1f : -1f)
+                .ToArray(),
+            [2] = new float[dimension],
+            [5] = Enumerable.Repeat(0.5f, dimension).ToArray(),
+        };
+
+        var centroid = new float[dimension];
+        foreach (int docId in vectorDocIds)
+            for (int index = 0; index < dimension; index++)
+                centroid[index] += vectors[docId].Span[index];
+        for (int index = 0; index < dimension; index++)
+        {
+            centroid[index] /= vectorDocIds.Length;
+            double referenceCentroid = vectorDocIds.Sum(docId => (double)vectors[docId].Span[index]) / vectorDocIds.Length;
+            Assert.InRange(Math.Abs(centroid[index] - referenceCentroid), 0d, 1e-7d);
+        }
+
+        string floatPath = TempFile($"bbq_parity_source_{dimension}.vec");
+        string streamingPath = TempFile($"bbq_parity_stream_{dimension}.vq");
+        string dictionaryPath = TempFile($"bbq_parity_dictionary_{dimension}.vq");
+        VectorWriter.WriteField(floatPath, docCount, dimension, vectors);
+        using (var vectorReader = VectorReader.Open(floatPath))
+        {
+            var source = new VectorReaderSource(vectorReader);
+            QuantisedVectorWriter.WriteBBQ(streamingPath, docCount, dimension, source, vectorDocIds);
+        }
+        QuantisedVectorWriter.WriteBBQ(dictionaryPath, docCount, dimension, vectors, centroid);
+
+        Assert.Equal(File.ReadAllBytes(dictionaryPath), File.ReadAllBytes(streamingPath));
+
+        var memorySource = new BBQMemoryVectorSource(vectors, dimension, centroid);
+        using var reader = QuantisedVectorReader.Open(streamingPath);
+        Assert.Equal(centroid, reader.Centroid.ToArray());
+        for (int docId = 0; docId < docCount; docId++)
+        {
+            bool present = vectors.ContainsKey(docId);
+            Assert.Equal(present, memorySource.HasVector(docId));
+            Assert.Equal(present, reader.HasVector(docId));
+            Assert.Equal(memorySource.GetRawVector(docId).ToArray(), reader.GetRawBBQVector(docId).ToArray());
+            Assert.Equal(memorySource.GetVector(docId).ToArray(), reader.ReadVector(docId));
+
+            float correction1 = 0f;
+            float correction2 = 0f;
+            float correction3 = 0f;
+            for (int index = 0; index < dimension; index++)
+            {
+                float value = vectors.TryGetValue(docId, out var vector) ? vector.Span[index] : 0f;
+                float residual = value - centroid[index];
+                correction1 += residual;
+                correction2 += (residual > 0f ? 1f : -1f) * residual;
+                correction3 += residual * residual;
+            }
+            var corrections = reader.GetBBQCorrections(docId);
+            Assert.Equal(correction1, corrections.C1);
+            Assert.Equal(correction2, corrections.C2);
+            Assert.Equal(correction3, corrections.C3);
+        }
+    }
+
     // --------------- Cross-type validation ---------------
 
     [Fact(DisplayName = "Quantisation: Default config writes .vec not .vq")]

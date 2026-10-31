@@ -69,6 +69,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Describe vector oversampling as candidate rescoring with the active field representation, including decoded quantised vectors.
 - Apply `FuzzyQuery.MaxExpansions` once across all search segments, with deterministic UTF-8 term-byte ordering for equal-distance ties; reuse one lazily compiled edit automaton across segment expansion misses.
 - Resolve edit-zero fuzzy queries through exact term lookup and return warm empty-expansion cache entries before constructing the edit automaton.
 - Reduce cold compilation time and allocation for small fuzzy automata with a bounded compact state representation; retain the existing compiler for larger automata.
@@ -142,6 +143,13 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 ## Fixed
 
 - Reject non-empty HNSW files whose declared maximum level has no matching persisted layer.
+- Explore bounded equal-distance HNSW candidates at the level-zero search boundary and during upper-layer descent as bridges to closer results.
+- Read packed BBQ query-comparison words in persisted little-endian bit order, independent of host byte order.
+- Bound vector-query shortlist and HNSW retry arithmetic to available graph nodes, avoiding integer overflow for large topK, oversampling and efSearch values.
+- Apply live-document masks during HNSW candidate selection so deleted hits do not consume the requested top-K shortlist when live graph candidates remain.
+- Retry HNSW traversal from the persisted entry point when greedy descent underfills the requested top-K shortlist.
+- Complete an underfilled HNSW shortlist with candidates ranked by the graph's active distance metric.
+- Use scaled double-precision fallbacks when finite vectors exceed float squared-norm range, preserving cosine scores and normalisation for very small or large vectors.
 - Allow DevOps lease-marker readers to share delete on Windows so marker owners can release files during concurrent scans.
 - Bind overlapping mapped-input disposers to the cleanup attempt active at entry, preserve each attempt's outcome across retries, retain ownership after cleanup faults without asserting successful-cleanup invariants, and retry only unfinished pointer, accessor, mapping and owner-lease release stages.
 - Keep shared physical-index teardown independent of writer caller cancellation so async disposal completes or reports its own cleanup outcome.

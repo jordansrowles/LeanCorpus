@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -37,7 +38,6 @@ internal static class BBQDistanceComputer
         int j = 0;
 
         // Process 64 dimensions at a time (8 bytes, 8 bits each)
-        ref byte storedRef = ref MemoryMarshal.GetReference(storedBits);
         int fullChunks = dimension / 64;
         for (int chunk = 0; chunk < fullChunks; chunk++)
         {
@@ -54,8 +54,8 @@ internal static class BBQDistanceComputer
                 queryBits |= (ulong)qb << (b * 8);
             }
 
-            // Load 8 stored bytes as ulong
-            ulong storedUlong = Unsafe.ReadUnaligned<ulong>(ref Unsafe.AddByteOffset(ref storedRef, chunk * 8));
+            // Persisted BBQ bits are packed low-bit first and little-endian by byte.
+            ulong storedUlong = BinaryPrimitives.ReadUInt64LittleEndian(storedBits.Slice(chunk * sizeof(ulong), sizeof(ulong)));
 
             // XNOR: bits where query and stored agree
             ulong matchBits = ~(queryBits ^ storedUlong);
