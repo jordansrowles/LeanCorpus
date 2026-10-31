@@ -9,7 +9,7 @@ namespace Rowles.LeanCorpus.DevOps.Tests.Commands;
 
 public sealed class BrowserTestWorkflowContractTests
 {
-    private const string LinuxQualificationCondition = "github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')";
+    private const string LinuxQualificationCondition = "github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/bbq-retrieval-quality' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')";
 
     [Theory]
     [InlineData("net10.0")]
@@ -214,6 +214,7 @@ public sealed class BrowserTestWorkflowContractTests
     [InlineData("pull_request", "refs/pull/103/merge", "", true)]
     [InlineData("workflow_dispatch", "refs/heads/issue-97", "", true)]
     [InlineData("push", "refs/heads/main", "ordinary change", true)]
+    [InlineData("push", "refs/heads/fix/bbq-retrieval-quality", "ordinary change", true)]
     [InlineData("push", "refs/heads/stabilise/3.1", "ordinary change", true)]
     [InlineData("push", "refs/heads/issue-97", "[deploy] publish docs", true)]
     [InlineData("push", "refs/heads/issue-97", "ordinary change", false)]
@@ -223,6 +224,7 @@ public sealed class BrowserTestWorkflowContractTests
         bool actual = eventName == "workflow_dispatch" ||
             eventName == "pull_request" ||
             reference == "refs/heads/main" ||
+            reference == "refs/heads/fix/bbq-retrieval-quality" ||
             reference.StartsWith("refs/heads/stabilise/", StringComparison.Ordinal) ||
             message.StartsWith("[deploy]", StringComparison.Ordinal);
 
