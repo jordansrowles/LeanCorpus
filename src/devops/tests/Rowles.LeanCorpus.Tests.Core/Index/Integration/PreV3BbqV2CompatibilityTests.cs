@@ -8,6 +8,7 @@ using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Index.Format;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Index.Migration;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
@@ -132,6 +133,78 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         Assert.Equal(2, migratedBody[commonMetadataLength]); // LegacyBbqSign
         Assert.Equal(originalBody.AsSpan(commonMetadataLength).ToArray(),
             migratedBody.AsSpan(commonMetadataLength + 1).ToArray());
+        Assert.Equal(originalScores, CaptureSearchScores(indexPath));
+    }
+
+    [Fact(DisplayName = "Interrupted BBQ v2 staged migration keeps the source and resumes with legacy bytes intact")]
+    public void InterruptedV2MigrationAfterStagingPreservesSourceAndResumes()
+    {
+        string extracted = HistoricalIndexFixtures.Extract(
+            HistoricalIndexFixture.PreV3BbqV2,
+            Path.Combine(_fixture.Path, $"pre-v3-bbq-staged-recovery-{Guid.NewGuid():N}"));
+        string indexPath = Path.Combine(extracted, "loose");
+        long originalGeneration;
+        string originalSegmentId;
+        byte[] originalBody;
+        ScoreSnapshot[] originalScores = CaptureSearchScores(indexPath);
+        Dictionary<string, string> originalFiles = SnapshotFiles(indexPath);
+        string[] originalFileNames = originalFiles.Keys.ToArray();
+
+        using (var directory = new MMapDirectory(indexPath))
+        {
+            var commit = Assert.Single(IndexFileInspector.FindCommitFiles(indexPath));
+            originalGeneration = commit.Generation;
+            SegmentInfo segment = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
+            originalSegmentId = segment.SegmentId;
+            originalBody = ReadQuantisedBody(directory, segment);
+
+            IndexCodecMigrationPlan plan = IndexCodecMigrator.Plan(directory);
+            IndexCodecMigrationAction action = Assert.Single(plan.Actions,
+                candidate => candidate.FormatId == "leancorpus.vectors.quantised");
+            Assert.Equal((byte)2, action.FromVersion);
+            Assert.Equal((byte)3, action.ToVersion);
+            Assert.Equal(IndexCodecMigrationActionKind.Rewrite, action.Kind);
+
+            string blockedCommit = Path.Combine(indexPath, $"segments_{originalGeneration + 1}");
+            Directory.CreateDirectory(blockedCommit);
+            IndexCodecMigrationResult failed = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = true,
+                ValidateAfterMigration = false,
+            });
+
+            Assert.False(failed.Succeeded);
+            Assert.Equal(IndexMigrationState.Failed, IndexMigrationRecovery.GetState(indexPath).State);
+            Assert.Equal(originalGeneration, IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.Generation);
+            Assert.NotNull(failed.StagingDirectory);
+            Assert.True(Directory.Exists(failed.StagingDirectory));
+            AssertStagedV2MigrationPayload(originalBody, failed.StagingDirectory);
+            Dictionary<string, string> filesAfterFailure = SnapshotFiles(indexPath);
+            foreach (string fileName in originalFileNames)
+                Assert.Equal(originalFiles[fileName], filesAfterFailure[fileName]);
+
+            Directory.Delete(blockedCommit);
+            IndexCodecMigrationResult resumed = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = true,
+            });
+            Assert.True(resumed.Succeeded, string.Join("; ", resumed.Issues.Select(static issue => issue.Message)));
+            Assert.Equal(IndexMigrationState.Published, IndexMigrationRecovery.GetState(indexPath).State);
+        }
+
+        using (var directory = new MMapDirectory(indexPath))
+        {
+            SegmentInfo migrated = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
+            byte[] migratedBody = ReadQuantisedBody(directory, migrated, expectedVersion: 3);
+            AssertV2MigrationBodyPreserved(originalBody, migratedBody);
+            IndexCheckResult health = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true });
+            Assert.True(health.IsHealthy,
+                string.Join("; ", health.DetailedIssues.Select(static issue => $"{issue.Code}: {issue.Message}")));
+        }
+
         Assert.Equal(originalScores, CaptureSearchScores(indexPath));
     }
 
@@ -295,6 +368,34 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         if (expectedVersion is int version)
             Assert.Equal(version, frame.FormatVersion);
         return frame.ReadBody();
+    }
+
+    private static void AssertStagedV2MigrationPayload(byte[] originalBody, string stagingDirectory)
+    {
+        const int commonMetadataLength = sizeof(int) + sizeof(int) + sizeof(byte) + 1;
+        var stagedBodies = new List<byte[]>();
+        foreach (string path in Directory.GetFiles(stagingDirectory, "*.vq", SearchOption.AllDirectories))
+        {
+            using var input = new IndexInput(path);
+            using var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Quantised);
+            if (frame.FormatVersion == 3)
+                stagedBodies.Add(frame.ReadBody());
+        }
+
+        Assert.NotEmpty(stagedBodies);
+        foreach (byte[] body in stagedBodies)
+            AssertV2MigrationBodyPreserved(originalBody, body);
+        Assert.Equal((byte)2, stagedBodies[0][commonMetadataLength]);
+    }
+
+    private static void AssertV2MigrationBodyPreserved(byte[] originalBody, byte[] migratedBody)
+    {
+        const int commonMetadataLength = sizeof(int) + sizeof(int) + sizeof(byte) + 1;
+        Assert.Equal(originalBody.AsSpan(0, commonMetadataLength).ToArray(),
+            migratedBody.AsSpan(0, commonMetadataLength).ToArray());
+        Assert.Equal((byte)2, migratedBody[commonMetadataLength]); // LegacyBbqSign
+        Assert.Equal(originalBody.AsSpan(commonMetadataLength).ToArray(),
+            migratedBody.AsSpan(commonMetadataLength + 1).ToArray());
     }
 
     private static ScoreSnapshot[] CaptureSearchScores(string indexPath)

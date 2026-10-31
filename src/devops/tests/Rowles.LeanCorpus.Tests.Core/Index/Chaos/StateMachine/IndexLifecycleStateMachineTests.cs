@@ -21,6 +21,34 @@ public sealed class IndexLifecycleStateMachineTests
         FsCheckStateMachine.ToProperty(new IndexLifecycleMachine());
 
     [Property(
+        DisplayName = "BBQ v3 index lifecycle preserves logical document canonical hashes",
+        Replay = "14854304604442296793,3998140771831394483",
+        MaxTest = 20,
+        StartSize = 1,
+        EndSize = 30,
+        Parallelism = 1)]
+    public Property BbqV3_lifecycle_operations_match_the_canonical_hash_model() =>
+        FsCheckStateMachine.ToProperty(new IndexLifecycleMachine(useBbqV3Vectors: true));
+
+    [Fact(DisplayName = "BBQ v3 lifecycle force merge preserves present, missing and explicit zero vectors")]
+    public void BbqV3_force_merge_preserves_canonical_hashes_and_presence()
+    {
+        using var harness = new IndexHarness(useBbqV3Vectors: true);
+        var model = IndexModel.BbqV3Empty;
+        var documents = Enumerable.Range(0, 6).Select(ModelDocument.Create).ToArray();
+        harness.AddBatch(documents);
+        model = model.AddBatch(documents).Commit();
+        harness.Commit();
+        harness.AssertCommitted(model);
+
+        harness.ForceMergeAndCommit();
+
+        harness.AssertCommitted(model);
+        Assert.Equal(4, model.CanonicalVectorHashes.Count);
+        Assert.NotEqual(model.CanonicalVectorHashes["doc-0"], model.CanonicalVectorHashes["doc-2"]);
+    }
+
+    [Property(
         DisplayName = "Index lifecycle replays the Windows async shutdown seed",
         Replay = "14854304604442296793,3998140771831394483",
         MaxTest = 30, StartSize = 1, EndSize = 30, Parallelism = 1)]

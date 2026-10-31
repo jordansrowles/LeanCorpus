@@ -1,5 +1,9 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Buffers.Binary;
+using System.Security.Cryptography;
+using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Search.Simd;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index.Chaos.StateMachine;
 
@@ -25,15 +29,47 @@ internal sealed record ModelDocument(string Id, string Category, int Price, stri
         Body = "updated replacement document"
     };
 
-    public LeanDocument ToLeanDocument()
+    public bool HasCanonicalVector => Number % 4 != 1;
+
+    public LeanDocument ToLeanDocument(bool includeBbqV3Vector = false)
     {
         var document = new LeanDocument();
         document.Add(new StringField("id", Id));
         document.Add(new StringField("category", Category));
         document.Add(new NumericField("price", Price));
         document.Add(new TextField("body", Body));
+        if (includeBbqV3Vector && HasCanonicalVector)
+            document.Add(new VectorField("embedding", CreateVector()));
         return document;
     }
+
+    public string CanonicalVectorHash()
+    {
+        float[] vector = CreateVector();
+        _ = VectorMath.NormaliseInPlace(vector);
+        byte[] codes = new byte[vector.Length];
+        CanonicalInt8VectorMetadata metadata = CanonicalInt8VectorWriter.Encode(vector, codes);
+        byte[] record = new byte[CanonicalInt8VectorMetadata.Size + codes.Length];
+        BinaryPrimitives.WriteInt32LittleEndian(record.AsSpan(0, 4), BitConverter.SingleToInt32Bits(metadata.Offset));
+        BinaryPrimitives.WriteInt32LittleEndian(record.AsSpan(4, 4), BitConverter.SingleToInt32Bits(metadata.Scale));
+        BinaryPrimitives.WriteInt32LittleEndian(record.AsSpan(8, 4), metadata.SumOfCodes);
+        BinaryPrimitives.WriteInt32LittleEndian(record.AsSpan(12, 4), BitConverter.SingleToInt32Bits(metadata.DecodedSquaredNorm));
+        codes.CopyTo(record.AsSpan(CanonicalInt8VectorMetadata.Size));
+        return Convert.ToHexString(SHA256.HashData(record));
+    }
+
+    private float[] CreateVector()
+    {
+        var vector = new float[128];
+        if (Number % 4 == 0)
+            return vector; // Present zero vectors remain distinct from absent vectors.
+
+        for (int index = 0; index < vector.Length; index++)
+            vector[index] = ((index * 31 + Number * 17 + Price * 13) % 9) - 4;
+        return vector;
+    }
+
+    private int Number => int.Parse(Id.AsSpan("doc-".Length), NumberStyles.None, CultureInfo.InvariantCulture);
 }
 
 internal enum SearchKind
@@ -104,12 +140,21 @@ internal sealed record SearchSpec(
 internal sealed record IndexModel(
     ImmutableDictionary<string, ModelDocument> Working,
     ImmutableDictionary<string, ModelDocument> Committed,
-    int NextId)
+    int NextId,
+    bool UseBbqV3Vectors = false)
 {
     public static IndexModel Empty { get; } = new(
         CreateDocumentMap(),
         CreateDocumentMap(),
         0);
+
+    public static IndexModel BbqV3Empty { get; } = Empty with { UseBbqV3Vectors = true };
+
+    public ImmutableDictionary<string, string> CanonicalVectorHashes => UseBbqV3Vectors
+        ? Committed.Values
+            .Where(static document => document.HasCanonicalVector)
+            .ToImmutableDictionary(static document => document.Id, static document => document.CanonicalVectorHash(), StringComparer.Ordinal)
+        : ImmutableDictionary.Create<string, string>(StringComparer.Ordinal);
 
     public IndexModel Add(ModelDocument document) => this with
     {
