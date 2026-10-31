@@ -876,6 +876,15 @@ internal sealed partial class SegmentReaderState
         return false;
     }
 
+    internal bool UsesBbqOsq(string fieldName)
+    {
+        if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState)
+            || !EnsureVectorReadersLoaded(fieldName, fieldState))
+            return false;
+
+        return fieldState.QuantisedVector?.StorageKind == QuantisedVectorStorageKind.BbqOsqCanonicalInt8;
+    }
+
     private float[]? ReadVectorFromField(string fieldName, int docId)
     {
         if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState)

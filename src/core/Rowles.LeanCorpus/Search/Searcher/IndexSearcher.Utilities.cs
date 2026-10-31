@@ -157,7 +157,7 @@ public sealed partial class IndexSearcher
         var graph = reader.GetHnswGraph(query.Field);
         bool hasGraph = graph is not null && graph.NodeCount > 0;
         int availableCandidates = hasGraph ? graph!.NodeCount : reader.MaxDoc;
-        int shortlistSize = query.GetShortlistSize(availableCandidates);
+        int shortlistSize = query.GetShortlistSize(availableCandidates, reader.UsesBbqOsq(query.Field));
 
         string strategy;
         var details = new List<Explanation>();

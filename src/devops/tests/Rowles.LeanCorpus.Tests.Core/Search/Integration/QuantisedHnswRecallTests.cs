@@ -132,13 +132,45 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
             .ToHashSet();
 
         using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new VectorQuery("embedding", query, topK: topK, efSearch: 100), topK, TestContext.Current.CancellationToken);
+        var vectorQuery = new VectorQuery("embedding", query, topK: topK, efSearch: 100);
+        var results = searcher.Search(vectorQuery, topK, TestContext.Current.CancellationToken);
 
         Assert.True(results.TotalHits > 0, "BBQ HNSW search returned no hits.");
         var found = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
         int overlap = found.Intersect(truth).Count();
         double recall = overlap / (double)topK;
-        Assert.True(recall >= 0.70, $"BBQ recall {recall:F2} below the declared 0.70 integration threshold.");
+
+        float[] traversalQuery = (float[])query.Clone();
+        Assert.True(SimdVectorOps.NormaliseInPlace(traversalQuery));
+        var segments = searcher.GetSegmentReaders();
+        var graphCandidates = new HashSet<int>();
+        foreach (var segment in segments)
+        {
+            var graph = segment.GetHnswGraph("embedding");
+            Assert.NotNull(graph);
+            foreach (HnswSearchResult candidate in graph!.Search(
+                traversalQuery,
+                new HnswTraversalOptions { Ef = 100, TopK = topK * 3 }))
+                graphCandidates.Add(segment.DocBase + candidate.DocId);
+        }
+
+        double candidateRecall = graphCandidates.Intersect(truth).Count() / (double)topK;
+        int[] canonicalRerank = graphCandidates
+            .Select(docId =>
+            {
+                var segment = segments.Single(segment =>
+                    docId >= segment.DocBase && docId < segment.DocBase + segment.MaxDoc);
+                float[] canonical = Assert.IsType<float[]>(segment.GetVector("embedding", docId - segment.DocBase));
+                return (DocId: docId, Score: VectorQuery.CosineSimilarity(query, canonical));
+            })
+            .OrderByDescending(static item => item.Score)
+            .ThenBy(static item => item.DocId)
+            .Take(topK)
+            .Select(static item => item.DocId)
+            .ToArray();
+        Assert.Equal(canonicalRerank, results.ScoreDocs.Select(static hit => hit.DocId));
+        Assert.True(recall >= 0.70,
+            $"BBQ recall {recall:F2} below the declared 0.70 integration threshold; graph candidate recall was {candidateRecall:F2}.");
     }
 
     [Fact(DisplayName = "Legacy 32D BBQ recall remains a historical diagnostic")]

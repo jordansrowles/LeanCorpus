@@ -339,7 +339,7 @@ public sealed class QueryCache
                     AppendPart(builder, vq.Field);
                     builder.Append("|topK=").Append(vq.TopK)
                         .Append("|ef=").Append(vq.EfSearch)
-                        .Append("|over=").Append(vq.OversamplingFactor)
+                        .Append("|over=").Append(vq.IsOversamplingAutomatic ? "auto" : vq.OversamplingFactor)
                         .Append("|vec=");
                     foreach (float value in vq.QueryVector)
                         builder.Append(value.ToString("R", CultureInfo.InvariantCulture)).Append(',');

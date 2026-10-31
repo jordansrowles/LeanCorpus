@@ -25,10 +25,11 @@ public sealed class VectorQuery : Query
     public int EfSearch { get; }
 
     /// <summary>
-    /// Candidate oversampling factor. The HNSW shortlist returns
-    /// <c>topK * OversamplingFactor</c> candidates which are rescored using the vector field's
-    /// active representation. Quantised fields use decoded values, so their scores can differ from
-    /// cosine similarity over the original Float32 vectors. Default: 1 (no oversampling).
+    /// Effective candidate oversampling factor. The public value remains <c>1</c> when the
+    /// constructor's automatic default is used. BBQ v3 HNSW search resolves that default to a
+    /// three-times shortlist; other representations use one. Explicit values are clamped to at
+    /// least one. Quantised scores use the decoded stored representation and can differ from
+    /// cosine similarity over the original Float32 vectors.
     /// </summary>
     public int OversamplingFactor { get; }
 
@@ -40,14 +41,14 @@ public sealed class VectorQuery : Query
     /// <param name="queryVector">The query vector for similarity comparison.</param>
     /// <param name="topK">Maximum number of nearest neighbours to return. Default: 10.</param>
     /// <param name="efSearch">HNSW <c>ef</c> parameter. <c>0</c> selects an automatic default.</param>
-    /// <param name="oversamplingFactor">Multiplier for the HNSW candidate shortlist before scoring.</param>
+    /// <param name="oversamplingFactor">Multiplier for the HNSW candidate shortlist before scoring. Omit this argument for the automatic policy: BBQ v3 uses three, while other representations use one. Passing the former default literal <c>1</c> explicitly keeps one-times oversampling.</param>
     /// <param name="filter">Optional pre-filter query that constrains the candidate set.</param>
     public VectorQuery(
         string field,
         float[] queryVector,
         int topK = 10,
         int efSearch = 0,
-        int oversamplingFactor = 1,
+        int oversamplingFactor = -1,
         Query? filter = null)
     {
         Field = field;
@@ -56,9 +57,12 @@ public sealed class VectorQuery : Query
         EfSearch = efSearch > 0
             ? efSearch
             : ResolveDefaultEf(topK);
+        IsOversamplingAutomatic = oversamplingFactor == -1;
         OversamplingFactor = Math.Max(1, oversamplingFactor);
         Filter = filter;
     }
+
+    internal bool IsOversamplingAutomatic { get; }
 
     private static int ResolveDefaultEf(int topK)
     {
@@ -68,21 +72,22 @@ public sealed class VectorQuery : Query
             : (int)Math.Min(int.MaxValue, Math.Max(64L, 4L * topK));
     }
 
-    internal int GetShortlistSize(int availableCandidates)
+    internal int GetShortlistSize(int availableCandidates, bool isBbqV3 = false)
     {
         if (availableCandidates <= 0 || TopK <= 0)
             return 0;
 
-        long requested = (long)TopK * OversamplingFactor;
+        int factor = IsOversamplingAutomatic && isBbqV3 ? 3 : OversamplingFactor;
+        long requested = (long)TopK * factor;
         return (int)Math.Min(requested, availableCandidates);
     }
 
-    internal int GetEffectiveEfSearch(int availableCandidates)
+    internal int GetEffectiveEfSearch(int availableCandidates, bool isBbqV3 = false)
     {
         if (availableCandidates <= 0)
             return 0;
 
-        return Math.Min(Math.Max(EfSearch, GetShortlistSize(availableCandidates)), availableCandidates);
+        return Math.Min(Math.Max(EfSearch, GetShortlistSize(availableCandidates, isBbqV3)), availableCandidates);
     }
 
     /// <inheritdoc/>

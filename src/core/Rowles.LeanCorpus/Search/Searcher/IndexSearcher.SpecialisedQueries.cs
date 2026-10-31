@@ -1230,8 +1230,9 @@ public sealed partial class IndexSearcher
         var graph = reader.GetHnswGraph(query.Field);
         bool hasGraph = graph is not null && graph.NodeCount > 0;
         int availableCandidates = hasGraph ? graph!.NodeCount : reader.MaxDoc;
-        int shortlistSize = query.GetShortlistSize(availableCandidates);
-        int efSearch = hasGraph ? query.GetEffectiveEfSearch(graph!.NodeCount) : query.EfSearch;
+        bool isBbqV3 = reader.UsesBbqOsq(query.Field);
+        int shortlistSize = query.GetShortlistSize(availableCandidates, isBbqV3);
+        int efSearch = hasGraph ? query.GetEffectiveEfSearch(graph!.NodeCount, isBbqV3) : query.EfSearch;
 
         // Pre-compute query vector (and normalised variant for normalised fields).
         var queryVec = query.QueryVector;
