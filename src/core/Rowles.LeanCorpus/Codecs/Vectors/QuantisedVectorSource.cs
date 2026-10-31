@@ -35,6 +35,19 @@ internal sealed class QuantisedVectorSource : IBBQVectorSource, IInt8VectorSourc
     /// <summary>Exposes the underlying reader for distance-computer access.</summary>
     internal QuantisedVectorReader Reader => _reader;
 
+    internal bool UsesBbqOsq
+        => _quantisation == VectorQuantisation.BBQ
+            && _reader.StorageKind == QuantisedVectorStorageKind.BbqOsqCanonicalInt8;
+
+    internal PreparedBbqQuery PrepareBbqQuery(ReadOnlySpan<float> query)
+        => _reader.PrepareBbqQuery(query);
+
+    internal PreparedBbqQuery PrepareBbqQuery(int documentId)
+        => _reader.PrepareBbqQuery(documentId);
+
+    internal float ScoreBbqCandidate(PreparedBbqQuery query, int docId)
+        => _reader.ScoreBbqCandidate(query, docId);
+
     /// <inheritdoc cref="IBBQVectorSource.GetRawVector"/>
     ReadOnlySpan<byte> IBBQVectorSource.GetRawVector(int docId) => _reader.GetRawBBQVector(docId);
 

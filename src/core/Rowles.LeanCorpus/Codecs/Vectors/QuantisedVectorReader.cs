@@ -1,6 +1,8 @@
+using System.Buffers;
 using System.Numerics;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
@@ -376,7 +378,42 @@ internal sealed class QuantisedVectorReader : IDisposable
             throw new InvalidOperationException("Prepared OSQ queries are only available for BBQ OSQ canonical storage.");
         if (query.Length != _dimension)
             throw new ArgumentException("Query dimension does not match this segment.", nameof(query));
-        return PreparedBbqQuery.Prepare(query, _centroid!);
+
+        float[] queryBuffer = ArrayPool<float>.Shared.Rent(_dimension);
+        try
+        {
+            Span<float> normalised = queryBuffer.AsSpan(0, _dimension);
+            query.CopyTo(normalised);
+            if (!VectorMath.NormaliseInPlace(normalised))
+                normalised.Clear();
+            return PreparedBbqQuery.Prepare(normalised, _centroid!);
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(queryBuffer, clearArray: true);
+        }
+    }
+
+    internal PreparedBbqQuery PrepareBbqQuery(int documentId)
+    {
+        if (_storageKind != QuantisedVectorStorageKind.BbqOsqCanonicalInt8)
+            throw new InvalidOperationException("Prepared OSQ queries are only available for BBQ OSQ canonical storage.");
+        if (!HasVector(documentId))
+            throw new ArgumentOutOfRangeException(nameof(documentId), "Graph query documents must have a canonical vector.");
+
+        float[] queryBuffer = ArrayPool<float>.Shared.Rent(_dimension);
+        try
+        {
+            Span<float> normalised = queryBuffer.AsSpan(0, _dimension);
+            _canonical!.CopyVectorTo(documentId, normalised);
+            if (!VectorMath.NormaliseInPlace(normalised))
+                normalised.Clear();
+            return PreparedBbqQuery.Prepare(normalised, _centroid!);
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(queryBuffer, clearArray: true);
+        }
     }
 
     internal float ScoreBbqCandidate(PreparedBbqQuery query, int docId)

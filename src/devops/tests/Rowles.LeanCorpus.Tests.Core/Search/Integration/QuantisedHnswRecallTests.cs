@@ -107,7 +107,7 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
         };
 
         const int n = 300;
-        const int dim = 32;
+        const int dim = 128;
         var vectors = BuildRandomVectors(n, dim, seed: 11);
 
         using (var writer = new IndexWriter(dir, config))
@@ -139,6 +139,43 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
         int overlap = found.Intersect(truth).Count();
         double recall = overlap / (double)topK;
         Assert.True(recall >= 0.70, $"BBQ recall {recall:F2} below the declared 0.70 integration threshold.");
+    }
+
+    [Fact(DisplayName = "Legacy 32D BBQ recall remains a historical diagnostic")]
+    public void LegacyBbq32DRecall_RemainsAtTheRecordedDiagnosticValue()
+    {
+        const int n = 300;
+        const int dim = 32;
+        float[][] vectors = BuildRandomVectors(n, dim, seed: 11);
+        var vectorsByDoc = new Dictionary<int, ReadOnlyMemory<float>>(n);
+        for (int docId = 0; docId < n; docId++)
+        {
+            Assert.True(SimdVectorOps.NormaliseInPlace(vectors[docId]));
+            vectorsByDoc.Add(docId, vectors[docId]);
+        }
+
+        float[] centroid = SegmentFlusher.ComputeBBQCentroid(vectorsByDoc, dim);
+        var source = new BBQMemoryVectorSource(vectorsByDoc, dim, centroid);
+        using HnswGraph graph = HnswGraphBuilder.Build(
+            source,
+            Enumerable.Range(0, n).ToArray(),
+            new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
+            seed: 1337L);
+        float[] query = BuildRandomVectors(1, dim, seed: 99)[0];
+        Assert.True(SimdVectorOps.NormaliseInPlace(query));
+        const int topK = 10;
+
+        HashSet<int> truth = Enumerable.Range(0, n)
+            .Select(docId => (DocId: docId, Score: VectorQuery.CosineSimilarity(query, vectors[docId])))
+            .OrderByDescending(static item => item.Score)
+            .Take(topK)
+            .Select(static item => item.DocId)
+            .ToHashSet();
+        IReadOnlyList<HnswSearchResult> candidates = graph.Search(query,
+            new HnswTraversalOptions { Ef = 100, TopK = topK });
+        double recall = candidates.Select(static item => item.DocId).Intersect(truth).Count() / (double)topK;
+
+        Assert.Equal(0.60, recall, precision: 2);
     }
 
     [Fact(DisplayName = "Default (None): Unquantised vectors behave identically to baseline")]

@@ -20,19 +20,20 @@ public sealed class SparseVectorPresenceTests : IDisposable
     public void SearchAndMergeExcludePadding(VectorQuantisation quantisation, bool hnsw)
     {
         using var directory = new MMapDirectory(_path);
+        int dimension = VectorDimension(quantisation);
         var config = Config(quantisation, hnsw);
         using (var writer = new IndexWriter(directory, config))
         {
-            AddSparseDocuments(writer);
+            AddSparseDocuments(writer, dimension);
             writer.Commit();
-            AssertSparseSearch(directory, [0, 2]);
+            AssertSparseSearch(directory, [0, 2], dimension);
             // A second segment ensures ForceMerge actually rewrites the first segment.
-            writer.AddDocument(Document(3, null));
+            writer.AddDocument(Document(3, null, dimension));
             writer.Commit();
             writer.ForceMerge(1);
             writer.Commit();
         }
-        AssertSparseSearch(directory, [0, 2]);
+        AssertSparseSearch(directory, [0, 2], dimension);
         using var searcher = new IndexSearcher(directory);
         var segment = Assert.Single(searcher.GetSegmentReaders());
         Assert.True(segment.HasVector("embedding", 0));
@@ -49,7 +50,6 @@ public sealed class SparseVectorPresenceTests : IDisposable
     [Theory]
     [InlineData(VectorQuantisation.None, false)]
     [InlineData(VectorQuantisation.Int8, false)]
-    [InlineData(VectorQuantisation.BBQ, false)]
     [InlineData(VectorQuantisation.None, true)]
     public void LegacyMigrationPreservesPayloadAndPresence(VectorQuantisation quantisation, bool compound)
     {
@@ -101,7 +101,6 @@ public sealed class SparseVectorPresenceTests : IDisposable
     [Theory]
     [InlineData(VectorQuantisation.None)]
     [InlineData(VectorQuantisation.Int8)]
-    [InlineData(VectorQuantisation.BBQ)]
     public void LegacyWithoutGraphIsNonExecutableAndUnchanged(VectorQuantisation quantisation)
     {
         using var directory = new MMapDirectory(_path);
@@ -147,15 +146,16 @@ public sealed class SparseVectorPresenceTests : IDisposable
     public void MergeRemapsPresenceThroughSortingDeletionAndZeroVectors(VectorQuantisation quantisation, bool deleteZero)
     {
         using var directory = new MMapDirectory(_path);
+        int dimension = VectorDimension(quantisation);
         var config = Config(quantisation, true);
         config.IndexSort = new IndexSort(SortField.String("id", descending: true));
         using (var writer = new IndexWriter(directory, config))
         {
-            writer.AddDocument(Document(0, [0, 0]));
-            writer.AddDocument(Document(1, null));
-            writer.AddDocument(Document(2, [1, 0]));
+            writer.AddDocument(Document(0, [0, 0], dimension));
+            writer.AddDocument(Document(1, null, dimension));
+            writer.AddDocument(Document(2, [1, 0], dimension));
             writer.Commit();
-            writer.AddDocument(Document(3, [0, 1]));
+            writer.AddDocument(Document(3, [0, 1], dimension));
             writer.Commit();
             if (deleteZero) writer.DeleteDocuments(new TermQuery("id", "0"));
             writer.ForceMerge(1);
@@ -169,8 +169,8 @@ public sealed class SparseVectorPresenceTests : IDisposable
         for (int docId = 0; docId < segment.MaxDoc; docId++)
             Assert.Equal(present.Contains(docId), segment.GetVector("embedding", docId) is not null);
         if (!deleteZero && quantisation == VectorQuantisation.None)
-            Assert.Equal(new float[2], segment.GetVector("embedding", 3));
-        var hits = searcher.Search(new VectorQuery("embedding", [1, 0], 10), 10, TestContext.Current.CancellationToken);
+            Assert.Equal(new float[dimension], segment.GetVector("embedding", 3));
+        var hits = searcher.Search(new VectorQuery("embedding", BasisVector(dimension, 0), 10), 10, TestContext.Current.CancellationToken);
         Assert.Equal(present, hits.ScoreDocs.Select(hit => hit.DocId).Order().ToArray());
         byte[] body = ReadBody(directory, segment.Info.SegmentId, VectorName(segment.Info.SegmentId, quantisation), Descriptor(quantisation));
         Assert.Equal(deleteZero ? 3 : 11, body[9]);
@@ -182,6 +182,7 @@ public sealed class SparseVectorPresenceTests : IDisposable
     [InlineData(VectorQuantisation.BBQ)]
     public void AddIndexesPreservesSparsePresenceWhenRewriting(VectorQuantisation destinationQuantisation)
     {
+        int dimension = VectorDimension(destinationQuantisation);
         string sourcePath = Path.Combine(_path, "source");
         string targetPath = Path.Combine(_path, "target");
         Directory.CreateDirectory(sourcePath);
@@ -190,18 +191,18 @@ public sealed class SparseVectorPresenceTests : IDisposable
         using var target = new MMapDirectory(targetPath);
         using (var sourceWriter = new IndexWriter(source, Config(VectorQuantisation.None, true)))
         {
-            AddSparseDocuments(sourceWriter);
+            AddSparseDocuments(sourceWriter, dimension);
             sourceWriter.Commit();
         }
         using (var targetWriter = new IndexWriter(target, Config(destinationQuantisation, true)))
         {
             targetWriter.AddIndexes(source);
-            targetWriter.AddDocument(Document(3, null));
+            targetWriter.AddDocument(Document(3, null, dimension));
             targetWriter.Commit();
             targetWriter.ForceMerge(1);
             targetWriter.Commit();
         }
-        AssertSparseSearch(target, [0, 2]);
+        AssertSparseSearch(target, [0, 2], dimension);
         using var searcher = new IndexSearcher(target);
         Assert.Equal(destinationQuantisation, Assert.Single(searcher.GetSegmentReaders()).Info.VectorFields.Single().Quantisation);
     }
@@ -320,33 +321,49 @@ public sealed class SparseVectorPresenceTests : IDisposable
 
     private static IndexWriterConfig Config(VectorQuantisation quantisation, bool hnsw) => new()
     {
-        NormaliseVectors = false, VectorQuantisation = quantisation, BuildHnswOnFlush = hnsw,
+        NormaliseVectors = quantisation == VectorQuantisation.BBQ, VectorQuantisation = quantisation, BuildHnswOnFlush = hnsw,
         UseCompoundFile = false, HnswSeed = 42, IndexSort = new IndexSort(SortField.String("id"))
     };
 
-    private static LeanDocument Document(int id, float[]? vector)
+    private static LeanDocument Document(int id, float[]? vector, int dimension = 2)
     {
         var document = new LeanDocument();
         document.Add(new StringField("id", id.ToString(), stored: true));
         document.Add(new StringField("filter", "all"));
-        if (vector is not null) document.Add(new VectorField("embedding", vector));
+        if (vector is not null)
+        {
+            if (vector.Length > dimension)
+                throw new ArgumentException("Vector dimension exceeds the selected sparse-test dimension.", nameof(vector));
+            var expanded = new float[dimension];
+            vector.CopyTo(expanded, 0);
+            document.Add(new VectorField("embedding", expanded));
+        }
         return document;
     }
-    private static void AddSparseDocuments(IndexWriter writer)
+    private static void AddSparseDocuments(IndexWriter writer, int dimension = 2)
     {
-        writer.AddDocument(Document(0, [1, 0]));
-        writer.AddDocument(Document(1, null));
-        writer.AddDocument(Document(2, [0, 1]));
+        writer.AddDocument(Document(0, [1, 0], dimension));
+        writer.AddDocument(Document(1, null, dimension));
+        writer.AddDocument(Document(2, [0, 1], dimension));
     }
-    private static void AssertSparseSearch(MMapDirectory directory, int[] expected)
+    private static void AssertSparseSearch(MMapDirectory directory, int[] expected, int dimension = 2)
     {
         using var searcher = new IndexSearcher(directory);
         foreach (Query? filter in new Query?[] { null, new TermQuery("filter", "all") })
         {
-            var query = new VectorQuery("embedding", [1, 0], 10, oversamplingFactor: 2, filter: filter);
+            var query = new VectorQuery("embedding", BasisVector(dimension, 0), 10, oversamplingFactor: 2, filter: filter);
             var hits = searcher.Search(query, 10, TestContext.Current.CancellationToken);
             Assert.Equal(expected, hits.ScoreDocs.Select(hit => hit.DocId).Order().ToArray());
         }
+    }
+    private static int VectorDimension(VectorQuantisation quantisation)
+        => quantisation == VectorQuantisation.BBQ ? 128 : 2;
+
+    private static float[] BasisVector(int dimension, int index)
+    {
+        var vector = new float[dimension];
+        vector[index] = 1f;
+        return vector;
     }
     private string SegmentId() => Assert.Single(IndexRecovery.RecoverLatestCommit(_path, cleanupOrphans: false)!.SegmentIds);
     private static CodecFileDescriptor Descriptor(VectorQuantisation quantisation) => quantisation == VectorQuantisation.None ? VectorCodecFiles.Float32 : VectorCodecFiles.Quantised;

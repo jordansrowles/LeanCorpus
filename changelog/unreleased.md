@@ -69,6 +69,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Use correction-aware 4-bit query versus 1-bit document scores for BBQ v3 HNSW construction and search, building flush-time graphs from persisted canonical Int8 records with deterministic document-ID tie-breaking.
 - Describe vector oversampling as candidate rescoring with the active field representation, including decoded quantised vectors.
 - Apply `FuzzyQuery.MaxExpansions` once across all search segments, with deterministic UTF-8 term-byte ordering for equal-distance ties; reuse one lazily compiled edit automaton across segment expansion misses.
 - Resolve edit-zero fuzzy queries through exact term lookup and return warm empty-expansion cache entries before constructing the edit automaton.

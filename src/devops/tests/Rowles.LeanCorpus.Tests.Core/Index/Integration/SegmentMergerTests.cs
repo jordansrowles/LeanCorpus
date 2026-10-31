@@ -296,9 +296,9 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
     [InlineData(true)]
     public void AddIndexes_UsesDestinationQuantisationAndSkipsIncompatibleHnswSeeds(bool reverseSourceOrder)
     {
-        string sourceNone = CreateVectorSourceIndex("add_indexes_vectors_none", 3, normalised: true,
+        string sourceNone = CreateVectorSourceIndex("add_indexes_vectors_none", 128, normalised: true,
             VectorQuantisation.None, hnswSeed: 321);
-        string sourceInt8 = CreateVectorSourceIndex("add_indexes_vectors_int8", 3, normalised: true,
+        string sourceInt8 = CreateVectorSourceIndex("add_indexes_vectors_int8", 128, normalised: true,
             VectorQuantisation.Int8, hnswSeed: 322);
         long sourceNoneSeed = ReadSingleVectorGraphSeed(sourceNone);
         long sourceInt8Seed = ReadSingleVectorGraphSeed(sourceInt8);
@@ -411,7 +411,7 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         for (int offset = 0; offset < documentCount; offset++)
         {
             int documentId = firstDocumentId + offset;
-            var vector = new float[3];
+            var vector = new float[128];
             vector[documentId % vector.Length] = documentId + 1f;
             var document = new LeanDocument();
             document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
@@ -468,12 +468,13 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         var dir = SubDir($"{nameof(Merge_QuantisedHnswUsesFileBackedVectors)}_{quantisation}");
         using var mmap = new MMapDirectory(dir);
         var hnswConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 };
+        int dimension = quantisation == VectorQuantisation.BBQ ? 128 : 3;
         ReadOnlyMemory<float>[] vectors =
         [
-            new float[] { 1f, 0f, 0f },
-            new float[] { 0.8f, 0.2f, 0f },
-            new float[] { 0f, 1f, 0f },
-            new float[] { 0f, 0.2f, 0.8f },
+            MakeVector(dimension, (0, 1f)),
+            MakeVector(dimension, (0, 0.8f), (1, 0.2f)),
+            MakeVector(dimension, (1, 1f)),
+            MakeVector(dimension, (1, 0.2f), (2, 0.8f)),
         ];
 
         using (var writer = new IndexWriter(mmap, new IndexWriterConfig
@@ -517,9 +518,17 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         for (int docId = 0; docId < documentCount; docId++)
         {
             float[] vector = Assert.IsType<float[]>(reader.GetVector("embedding", docId));
-            Assert.Equal(3, vector.Length);
+            Assert.Equal(dimension, vector.Length);
             Assert.All(vector, static value => Assert.True(float.IsFinite(value)));
         }
+    }
+
+    private static float[] MakeVector(int dimension, params (int Index, float Value)[] components)
+    {
+        var vector = new float[dimension];
+        foreach ((int index, float value) in components)
+            vector[index] = value;
+        return vector;
     }
 
     /// <summary>
