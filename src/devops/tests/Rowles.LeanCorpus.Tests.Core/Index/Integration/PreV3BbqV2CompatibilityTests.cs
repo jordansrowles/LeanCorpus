@@ -75,6 +75,63 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         Assert.Equal(0.09225467f, best.Score, 5);
     }
 
+    [Theory(DisplayName = "BBQ v2 migration wraps its legacy bytes without changing the legacy score")]
+    [InlineData("loose", false)]
+    [InlineData("compound", true)]
+    public void V2MigrationWrapsLegacyPayloadAndPreservesSearchResults(string layout, bool compound)
+    {
+        string extracted = HistoricalIndexFixtures.Extract(
+            HistoricalIndexFixture.PreV3BbqV2,
+            Path.Combine(_fixture.Path, $"pre-v3-bbq-migration-{layout}-{Guid.NewGuid():N}"));
+        string indexPath = Path.Combine(extracted, layout);
+        byte[] originalBody;
+        ScoreSnapshot[] originalScores;
+
+        using (var directory = new MMapDirectory(indexPath))
+        {
+            SegmentInfo segment = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
+            originalBody = ReadQuantisedBody(directory, segment);
+            originalScores = CaptureSearchScores(indexPath);
+
+            IndexCodecMigrationPlan plan = IndexCodecMigrator.Plan(directory);
+            IndexCodecMigrationAction action = Assert.Single(plan.Actions,
+                candidate => candidate.FormatId == "leancorpus.vectors.quantised");
+            Assert.Equal((byte)2, action.FromVersion);
+            Assert.Equal((byte)3, action.ToVersion);
+            Assert.Equal(IndexCodecMigrationActionKind.Rewrite, action.Kind);
+            Assert.True(action.CanExecute, action.ReasonCannotExecute);
+
+            IndexCodecMigrationResult migration = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = true,
+                ValidateAfterMigration = true,
+            });
+            Assert.True(migration.Succeeded, string.Join("; ", migration.Issues.Select(issue => issue.Message)));
+            Assert.NotNull(migration.ValidationResult);
+            Assert.True(migration.ValidationResult.IsHealthy,
+                string.Join("; ", migration.ValidationResult.DetailedIssues.Select(issue => issue.Message)));
+        }
+
+        byte[] migratedBody;
+        using (var directory = new MMapDirectory(indexPath))
+        {
+            SegmentInfo segment = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
+            migratedBody = ReadQuantisedBody(directory, segment, expectedVersion: 3);
+            var validation = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true });
+            Assert.True(validation.IsHealthy,
+                string.Join("; ", validation.DetailedIssues.Select(issue => issue.Message)));
+        }
+
+        const int commonMetadataLength = sizeof(int) + sizeof(int) + sizeof(byte) + 1;
+        Assert.Equal(originalBody.AsSpan(0, commonMetadataLength).ToArray(),
+            migratedBody.AsSpan(0, commonMetadataLength).ToArray());
+        Assert.Equal(2, migratedBody[commonMetadataLength]); // LegacyBbqSign
+        Assert.Equal(originalBody.AsSpan(commonMetadataLength).ToArray(),
+            migratedBody.AsSpan(commonMetadataLength + 1).ToArray());
+        Assert.Equal(originalScores, CaptureSearchScores(indexPath));
+    }
+
     private static JsonElement ReadAndVerifyManifest(string extracted)
     {
         using Stream resource = typeof(PreV3BbqV2CompatibilityTests).Assembly.GetManifestResourceStream(
@@ -154,10 +211,36 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         Assert.Equal(reader.Centroid[1] - 1f, decoded[1]);
     }
 
+    private static byte[] ReadQuantisedBody(MMapDirectory directory, SegmentInfo segment, int? expectedVersion = null)
+    {
+        string name = VectorFilePaths.QuantisedVectorFile(segment.SegmentId, "embedding");
+        using ISegmentFileSource files = segment.IsCompoundFile
+            ? new CompoundSegmentFileSource(directory, segment.SegmentId)
+            : new LooseSegmentFileSource(directory, segment.SegmentId);
+        using var input = files.OpenInput(name);
+        using var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Quantised);
+        if (expectedVersion is int version)
+            Assert.Equal(version, frame.FormatVersion);
+        return frame.ReadBody();
+    }
+
+    private static ScoreSnapshot[] CaptureSearchScores(string indexPath)
+    {
+        using var searcher = new IndexSearcher(new MMapDirectory(indexPath));
+        return searcher.Search(
+                new VectorQuery("embedding", CreateBasisVector(128, 0), topK: 5, efSearch: 128),
+                topN: 5)
+            .ScoreDocs
+            .Select(static hit => new ScoreSnapshot(hit.DocId, hit.Score))
+            .ToArray();
+    }
+
     private static float[] CreateBasisVector(int dimension, int index)
     {
         var vector = new float[dimension];
         vector[index] = 1f;
         return vector;
     }
+
+    private readonly record struct ScoreSnapshot(int DocId, float Score);
 }

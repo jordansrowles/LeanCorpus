@@ -41,16 +41,25 @@ public sealed class VectorPresenceTests
     public void VersionsAndCatalogueRetainReadableV1()
     {
         Assert.Equal(2, CodecConstants.VectorVersion);
-        Assert.Equal(2, CodecConstants.QuantisedVectorVersion);
+        Assert.Equal(3, CodecConstants.QuantisedVectorVersion);
         Assert.Equal(1, CodecConstants.HnswVersion);
-        foreach (var descriptor in new[] { VectorCodecFiles.Float32, VectorCodecFiles.Quantised })
+
+        var legacyFloat32 = Assert.Single(VectorCodecFiles.Float32.SupportedVersions, version => version.Version == 1);
+        Assert.True(legacyFloat32.IsReadable);
+        Assert.False(legacyFloat32.IsWritable);
+        Assert.Equal(CodecMigrationBehaviour.Rewrite, legacyFloat32.MigrationBehaviour);
+        Assert.True(Assert.Single(VectorCodecFiles.Float32.SupportedVersions, version => version.Version == 2).IsWritable);
+
+        foreach (var versionNumber in new[] { 1, 2 })
         {
-            var legacy = Assert.Single(descriptor.SupportedVersions, version => version.Version == 1);
-            Assert.True(legacy.IsReadable);
-            Assert.False(legacy.IsWritable);
-            Assert.Equal(CodecMigrationBehaviour.Rewrite, legacy.MigrationBehaviour);
-            Assert.True(Assert.Single(descriptor.SupportedVersions, version => version.Version == 2).IsWritable);
+            var legacyQuantised = Assert.Single(VectorCodecFiles.Quantised.SupportedVersions,
+                version => version.Version == versionNumber);
+            Assert.True(legacyQuantised.IsReadable);
+            Assert.False(legacyQuantised.IsWritable);
+            Assert.Equal(CodecMigrationBehaviour.Rewrite, legacyQuantised.MigrationBehaviour);
         }
+
+        Assert.True(Assert.Single(VectorCodecFiles.Quantised.SupportedVersions, version => version.Version == 3).IsWritable);
     }
 
     [Theory]
@@ -73,7 +82,19 @@ public sealed class VectorPresenceTests
                 body = frame.ReadBody();
             byte[] badPadding = (byte[])body.Clone();
             badPadding[9] |= 0x80;
-            foreach (var corrupt in new[] { badPadding, body[..9], body[..^1], body.Concat(new byte[1]).ToArray() })
+            byte[] mismatchedStorageKind = (byte[])body.Clone();
+            mismatchedStorageKind[10] = (byte)(quantisation == VectorQuantisation.Int8
+                ? QuantisedVectorStorageKind.LegacyBbqSign
+                : QuantisedVectorStorageKind.LegacyInt8);
+            byte[] unknownStorageKind = (byte[])body.Clone();
+            unknownStorageKind[10] = byte.MaxValue;
+            var corruptions = new List<byte[]> { badPadding, body[..9], body[..^1], body.Concat(new byte[1]).ToArray() };
+            if (quantisation != VectorQuantisation.None)
+            {
+                corruptions.Add(mismatchedStorageKind);
+                corruptions.Add(unknownStorageKind);
+            }
+            foreach (var corrupt in corruptions)
             {
                 CodecFileWriter.WriteAtomically(path, descriptor, false, output => output.WriteBytes(corrupt, 0, corrupt.Length));
                 Assert.ThrowsAny<InvalidDataException>(() =>

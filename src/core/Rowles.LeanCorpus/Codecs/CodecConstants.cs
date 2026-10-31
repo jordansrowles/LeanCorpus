@@ -19,7 +19,7 @@ internal static class CodecConstants
     public const byte PostingsVersion = 4;
     public const byte NormsVersion = 3;
     public const byte VectorVersion = 2;
-    public const byte QuantisedVectorVersion = 2;
+    public const byte QuantisedVectorVersion = 3;
     public const byte HnswVersion = 1;
     public const byte StoredFieldsVersion = 5;
     public const byte TermVectorsVersion = 3;

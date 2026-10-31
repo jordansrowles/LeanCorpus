@@ -12,3 +12,7 @@
 
 # Benchmark correctness audit hashes require LF bytes on every checkout.
 /.config/devops/benchmark-correctness-fixtures/*.json text eol=lf
+
+# Historical fixture generator source hashes are pinned byte-for-byte.
+/src/devops/tests/fixtures/historical/branch-snapshots/pre-v3-bbq/Program.cs text eol=lf
+/src/devops/tests/fixtures/historical/branch-snapshots/pre-v3-bbq/PreV3BbqSnapshotGenerator.csproj text eol=lf

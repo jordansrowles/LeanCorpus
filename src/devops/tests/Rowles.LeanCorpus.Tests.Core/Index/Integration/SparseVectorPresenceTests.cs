@@ -64,16 +64,28 @@ public sealed class SparseVectorPresenceTests : IDisposable
         Assert.True(action.CanExecute, action.ReasonCannotExecute);
         Assert.Equal(IndexCodecMigrationActionKind.Rewrite, action.Kind);
         Assert.Equal((byte)1, action.FromVersion);
-        Assert.Equal((byte)2, action.ToVersion);
+        Assert.Equal(quantisation == VectorQuantisation.None ? (byte)2 : (byte)3, action.ToVersion);
         AssertSparseSearch(directory, [0, 2]);
 
         var result = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions { DryRun = false });
         Assert.True(result.Succeeded, string.Join("; ", result.Issues.Select(item => item.Message)));
         string newSegment = SegmentId();
-        byte[] currentBody = ReadBody(directory, newSegment, VectorName(newSegment, quantisation), descriptor, expectedVersion: 2);
+        byte currentVersion = quantisation == VectorQuantisation.None ? (byte)2 : (byte)3;
+        byte[] currentBody = ReadBody(directory, newSegment, VectorName(newSegment, quantisation), descriptor, expectedVersion: currentVersion);
         Assert.Equal(legacyBody[..9], currentBody[..9]);
         Assert.Equal(5, currentBody[9]);
-        Assert.Equal(legacyBody[9..], currentBody[10..]);
+        if (quantisation == VectorQuantisation.None)
+        {
+            Assert.Equal(legacyBody[9..], currentBody[10..]);
+        }
+        else
+        {
+            byte expectedStorageKind = quantisation == VectorQuantisation.Int8
+                ? (byte)QuantisedVectorStorageKind.LegacyInt8
+                : (byte)QuantisedVectorStorageKind.LegacyBbqSign;
+            Assert.Equal(expectedStorageKind, currentBody[10]);
+            Assert.Equal(legacyBody[9..], currentBody[11..]);
+        }
         Assert.Equal(graphBody, ReadBody(directory, newSegment, VectorFilePaths.HnswFile(newSegment, "embedding"), VectorCodecFiles.Hnsw));
         AssertSparseSearch(directory, [0, 2]);
         using (var writer = new IndexWriter(directory, Config(quantisation, true)))

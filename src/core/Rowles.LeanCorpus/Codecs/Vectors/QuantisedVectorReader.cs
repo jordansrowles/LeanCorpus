@@ -15,6 +15,7 @@ internal sealed class QuantisedVectorReader : IDisposable
     private readonly int _docCount;
     private readonly int _dimension;
     private readonly VectorQuantisation _quantisation;
+    private readonly QuantisedVectorStorageKind _storageKind;
     private readonly long _packedStart;
     private readonly long _correctionStart;
 
@@ -38,6 +39,7 @@ internal sealed class QuantisedVectorReader : IDisposable
         int docCount,
         int dimension,
         VectorQuantisation quantisation,
+        QuantisedVectorStorageKind storageKind,
         long correctionStart,
         long packedStart,
         float min,
@@ -49,6 +51,7 @@ internal sealed class QuantisedVectorReader : IDisposable
         _docCount = docCount;
         _dimension = dimension;
         _quantisation = quantisation;
+        _storageKind = storageKind;
         _correctionStart = correctionStart;
         _packedStart = packedStart;
         _min = min;
@@ -85,6 +88,22 @@ internal sealed class QuantisedVectorReader : IDisposable
 
             byte[]? presence = frame.FormatVersion >= 2
                 ? VectorPresence.Read(input, docCount, ref offset, checked(frame.BodyStart + frame.BodyLength)) : null;
+            QuantisedVectorStorageKind storageKind = frame.FormatVersion >= 3
+                ? (QuantisedVectorStorageKind)reader.ReadByte(ref offset)
+                : quantisation switch
+                {
+                    VectorQuantisation.Int8 => QuantisedVectorStorageKind.LegacyInt8,
+                    VectorQuantisation.BBQ => QuantisedVectorStorageKind.LegacyBbqSign,
+                    _ => throw new InvalidDataException($"Unsupported quantisation type {quantisation} in .vq file.")
+                };
+            if (!Enum.IsDefined(storageKind))
+                throw new InvalidDataException($"Unsupported quantised vector storage kind {(byte)storageKind}.");
+            if ((storageKind == QuantisedVectorStorageKind.LegacyInt8) != (quantisation == VectorQuantisation.Int8) ||
+                (storageKind == QuantisedVectorStorageKind.LegacyBbqSign && quantisation != VectorQuantisation.BBQ) ||
+                (storageKind == QuantisedVectorStorageKind.BbqOsqCanonicalInt8 && quantisation != VectorQuantisation.BBQ))
+                throw new InvalidDataException("Quantised vector storage kind does not match its quantisation type.");
+            if (storageKind == QuantisedVectorStorageKind.BbqOsqCanonicalInt8)
+                throw new InvalidDataException("BBQ OSQ canonical storage is not available in this reader path.");
             float min = 0f, alpha = 0f;
             float[]? centroid = null;
 
@@ -125,7 +144,7 @@ internal sealed class QuantisedVectorReader : IDisposable
                 throw new InvalidDataException("Quantised vector body length does not match its metadata.");
 
             return new QuantisedVectorReader(input, docCount, dimension,
-                quantisation, correctionStart, packedStart, min, alpha, centroid, frame) { _presence = presence };
+                quantisation, storageKind, correctionStart, packedStart, min, alpha, centroid, frame) { _presence = presence };
         }
         catch
         {
@@ -138,6 +157,7 @@ internal sealed class QuantisedVectorReader : IDisposable
     public int DocCount => _docCount;
     public int Dimension => _dimension;
     public VectorQuantisation Quantisation => _quantisation;
+    internal QuantisedVectorStorageKind StorageKind => _storageKind;
 
     /// <summary>Dequantises the vector for the given document into a caller-owned buffer.</summary>
     public void ReadVector(int docId, Span<float> destination)

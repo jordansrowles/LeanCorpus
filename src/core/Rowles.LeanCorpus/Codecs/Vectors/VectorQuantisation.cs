@@ -17,6 +17,14 @@ public enum VectorQuantisation : byte
     BBQ = 2,
 }
 
+/// <summary>Storage representation discriminant for quantised vector body version 3.</summary>
+internal enum QuantisedVectorStorageKind : byte
+{
+    LegacyInt8 = 1,
+    LegacyBbqSign = 2,
+    BbqOsqCanonicalInt8 = 3,
+}
+
 /// <summary>
 /// Per-vector error-correction values stored alongside quantised vectors.
 /// Applied after the initial dequantisation to recover some of the lost precision.

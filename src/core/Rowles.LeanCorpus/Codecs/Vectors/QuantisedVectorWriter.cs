@@ -13,9 +13,9 @@ namespace Rowles.LeanCorpus.Codecs.Vectors;
 /// <remarks>
 /// File format:
 /// <code>
-/// Canonical CodecKit frame, body version 2:
+/// Canonical CodecKit frame, body version 3:
 /// [docCount:int32][dimension:int32]
-/// [quantisation:byte][presenceBitmap:ceil(docCount/8) bytes]
+/// [quantisation:byte][presenceBitmap:ceil(docCount/8) bytes][storageKind:byte]
 /// -- int8 (quantisation=1) --
 /// [min:float32][alpha:float32]
 /// per doc: [correction:float32]
@@ -78,6 +78,7 @@ internal static class QuantisedVectorWriter
                 bodyOutput.WriteInt32(dimension);
                 bodyOutput.WriteByte((byte)VectorQuantisation.Int8);
                 bodyOutput.WriteBytes(presence, 0, presence.Length);
+                bodyOutput.WriteByte((byte)QuantisedVectorStorageKind.LegacyInt8);
                 bodyOutput.WriteSingle(min);
                 bodyOutput.WriteSingle(alpha);
 
@@ -152,6 +153,7 @@ internal static class QuantisedVectorWriter
                 bodyOutput.WriteInt32(dimension);
                 bodyOutput.WriteByte((byte)VectorQuantisation.BBQ);
                 bodyOutput.WriteBytes(presence, 0, presence.Length);
+                bodyOutput.WriteByte((byte)QuantisedVectorStorageKind.LegacyBbqSign);
                 for (int j = 0; j < dimension; j++)
                     bodyOutput.WriteSingle(writtenCentroid[j]);
 
@@ -266,6 +268,7 @@ internal static class QuantisedVectorWriter
         bodyOutput.WriteInt32(dimension);
         bodyOutput.WriteByte((byte)VectorQuantisation.Int8);
         bodyOutput.WriteBytes(presence, 0, presence.Length);
+        bodyOutput.WriteByte((byte)QuantisedVectorStorageKind.LegacyInt8);
         bodyOutput.WriteSingle(min);
         bodyOutput.WriteSingle(alpha);
 
@@ -345,6 +348,7 @@ internal static class QuantisedVectorWriter
         bodyOutput.WriteInt32(dimension);
         bodyOutput.WriteByte((byte)VectorQuantisation.BBQ);
         bodyOutput.WriteBytes(presence, 0, presence.Length);
+        bodyOutput.WriteByte((byte)QuantisedVectorStorageKind.LegacyBbqSign);
 
         // Write centroid
         for (int j = 0; j < dimension; j++)

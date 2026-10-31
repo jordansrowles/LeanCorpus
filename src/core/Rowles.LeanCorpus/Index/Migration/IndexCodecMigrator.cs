@@ -1,6 +1,7 @@
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using System.IO;
 using System.Diagnostics;
+using System.Buffers.Binary;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.Postings;
@@ -33,7 +34,7 @@ public static class IndexCodecMigrator
         new Dictionary<string, BuiltInMigrationWriter>(StringComparer.Ordinal)
         {
             ["leancorpus.vectors.float32"] = static context => RewriteVectorPresence(context),
-            ["leancorpus.vectors.quantised"] = static context => RewriteVectorPresence(context),
+            ["leancorpus.vectors.quantised"] = static context => RewriteQuantisedVector(context),
             ["leancorpus.term-dictionary.data"] = static context => RewriteTermDictionary(context.SourcePath, context.TargetPath),
             ["leancorpus.postings.data"] = static context => RewritePostings(context.TargetDirectory, context.Action, context.SegmentIdMap, context.Catalog),
             ["leancorpus.norms.data"] = static context => RewriteNorms(context.SourcePath, context.TargetPath),
@@ -129,7 +130,11 @@ public static class IndexCodecMigrator
         for (int i = 0; i < actions.Count; i++)
         {
             var action = actions[i];
-            if (action.FromVersion != 1 || action.FormatId is not ("leancorpus.vectors.float32" or "leancorpus.vectors.quantised"))
+            bool requiresLegacyPresenceReconstruction = action.FromVersion == 1 &&
+                action.FormatId is "leancorpus.vectors.float32" or "leancorpus.vectors.quantised";
+            bool requiresQuantisedV2Validation = action.FromVersion == 2 &&
+                action.FormatId == "leancorpus.vectors.quantised";
+            if (!requiresLegacyPresenceReconstruction && !requiresQuantisedV2Validation)
                 continue;
             try
             {
@@ -137,7 +142,10 @@ public static class IndexCodecMigrator
                 using ISegmentFileSource files = action.CompoundFileName is null
                     ? new LooseSegmentFileSource(directory, action.SegmentId ?? throw new InvalidDataException("Vector migration requires owning segment metadata."))
                     : new CompoundSegmentFileSource(directory, action.SegmentId!);
-                _ = ReconstructVectorPresence(inventory.DirectoryPath, action, files.OpenInput);
+                if (requiresLegacyPresenceReconstruction)
+                    _ = ReconstructVectorPresence(inventory.DirectoryPath, action, files.OpenInput);
+                else
+                    ValidateQuantisedVectorV2(inventory.DirectoryPath, action, files.OpenInput);
             }
             catch (Exception exception) when (exception is IOException or InvalidDataException or ArgumentException or OverflowException or InvalidOperationException or JsonException)
             {
@@ -1231,6 +1239,89 @@ public static class IndexCodecMigrator
         {
             output.WriteBytes(header, 0, header.Length);
             output.WriteBytes(presence, 0, presence.Length);
+            byte[] buffer = new byte[64 * 1024];
+            while (body.Position < body.Length)
+            {
+                int length = (int)Math.Min(buffer.Length, body.Length - body.Position);
+                body.ReadBytes(buffer.AsSpan(0, length));
+                output.WriteBytes(buffer, 0, length);
+            }
+        });
+    }
+
+    private static void ValidateQuantisedVectorV2(
+        string directoryPath,
+        IndexCodecMigrationAction action,
+        Func<string, IndexInput> openInput)
+    {
+        string segmentId = action.SegmentId ?? throw new InvalidDataException("Vector migration requires owning segment metadata.");
+        SegmentInfo info = SegmentInfo.ReadFrom(Path.Combine(directoryPath, segmentId + ".seg"));
+        string fileName = Path.GetFileName(action.SourcePath);
+        VectorFieldInfo field = info.VectorFields.SingleOrDefault(candidate =>
+            fileName == Path.GetFileName(VectorFilePaths.QuantisedVectorFile(segmentId, candidate.FieldName)))
+            ?? throw new InvalidDataException("Vector migration cannot resolve owning field metadata.");
+
+        using (var input = openInput(action.SourcePath))
+        using (var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Quantised))
+        {
+            frame.ValidateChecksum();
+            if (frame.FormatVersion != 2)
+                throw new InvalidDataException("Quantised vector v2 migration preflight requires a v2 body.");
+        }
+
+        using var quantised = QuantisedVectorReader.Open(openInput(action.SourcePath));
+        if (!quantised.HasPersistedPresence || quantised.DocCount != info.DocCount ||
+            quantised.Dimension != field.Dimension || quantised.Quantisation != field.Quantisation)
+            throw new InvalidDataException("Quantised vector body does not match owning segment metadata.");
+    }
+
+    private static void RewriteQuantisedVector(MigrationRewriteContext context)
+    {
+        using var input = new IndexInput(context.SourcePath);
+        using var frame = CodecFileReader.OpenSupported(input, context.Descriptor);
+        frame.ValidateChecksum();
+        if (frame.FormatVersion is not (1 or 2) || context.Action.FromVersion != frame.FormatVersion)
+            throw new InvalidDataException("Tagged quantised vector migration requires a v1 or v2 source body.");
+
+        using var body = frame.OpenBodyInput();
+        byte[] header = new byte[9];
+        body.ReadBytes(header);
+        int docCount = BinaryPrimitives.ReadInt32LittleEndian(header);
+        int dimension = BinaryPrimitives.ReadInt32LittleEndian(header.AsSpan(sizeof(int)));
+        var quantisation = (VectorQuantisation)header[8];
+        if (docCount < 0 || dimension <= 0)
+            throw new InvalidDataException("Quantised vector file contains an invalid document count or dimension.");
+        QuantisedVectorStorageKind storageKind = quantisation switch
+        {
+            VectorQuantisation.Int8 => QuantisedVectorStorageKind.LegacyInt8,
+            VectorQuantisation.BBQ => QuantisedVectorStorageKind.LegacyBbqSign,
+            _ => throw new InvalidDataException($"Unsupported quantisation type {quantisation} in .vq file.")
+        };
+
+        byte[] presence;
+        if (frame.FormatVersion == 1)
+        {
+            presence = ReconstructVectorPresence(context.TargetDirectory, context.Action,
+                name => new IndexInput(Path.Combine(context.TargetDirectory, name)));
+        }
+        else
+        {
+            long position = body.Position;
+            presence = VectorPresence.Read(body, docCount, ref position, body.Length);
+            body.Seek(position);
+        }
+
+        using (var quantised = QuantisedVectorReader.Open(new IndexInput(context.SourcePath)))
+        {
+            if (quantised.DocCount != docCount || quantised.Dimension != dimension || quantised.Quantisation != quantisation)
+                throw new InvalidDataException("Quantised vector source body is internally inconsistent.");
+        }
+
+        CodecFileWriter.WriteAtomically(context.TargetPath, context.Descriptor, durable: true, output =>
+        {
+            output.WriteBytes(header, 0, header.Length);
+            output.WriteBytes(presence, 0, presence.Length);
+            output.WriteByte((byte)storageKind);
             byte[] buffer = new byte[64 * 1024];
             while (body.Position < body.Length)
             {

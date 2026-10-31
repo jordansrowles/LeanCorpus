@@ -86,10 +86,11 @@ public sealed class SparseVector311MigrationAcceptanceTests : IDisposable
             .Where(action => action.FileName?.EndsWith(vectorExtension, StringComparison.Ordinal) == true)
             .ToArray();
         Assert.Equal(2, vectorActions.Length);
+        byte currentVersion = quantisation == VectorQuantisation.None ? (byte)2 : (byte)3;
         Assert.All(vectorActions, action =>
         {
             Assert.Equal((byte)1, action.FromVersion);
-            Assert.Equal((byte)2, action.ToVersion);
+            Assert.Equal(currentVersion, action.ToVersion);
             Assert.Equal(IndexCodecMigrationActionKind.Rewrite, action.Kind);
             Assert.True(action.CanExecute, action.ReasonCannotExecute);
         });
@@ -122,7 +123,7 @@ public sealed class SparseVector311MigrationAcceptanceTests : IDisposable
         foreach (SegmentInfo segmentInfo in migratedSegments)
         {
             using var reader = new SegmentReader(directory, segmentInfo);
-            AssertVectorFileVersion(directory, segmentInfo, quantisation, vectorExtension, expectedVersion: 2);
+            AssertVectorFileVersion(directory, segmentInfo, quantisation, vectorExtension, expectedVersion: currentVersion);
             Assert.Equal(new[] { 0, 1 }, reader.GetHnswGraph("embedding")!.GetNodesAtLevel(0).Order().ToArray());
             Assert.False(reader.HasVector("embedding", 2));
         }
@@ -145,7 +146,7 @@ public sealed class SparseVector311MigrationAcceptanceTests : IDisposable
         using (var mergedReader = new SegmentReader(directory, mergedInfo))
         {
             Assert.Equal(new[] { 0, 1, 3, 4 }, mergedReader.GetHnswGraph("embedding")!.GetNodesAtLevel(0).Order().ToArray());
-            AssertVectorFileVersion(directory, mergedInfo, quantisation, vectorExtension, expectedVersion: 2);
+            AssertVectorFileVersion(directory, mergedInfo, quantisation, vectorExtension, expectedVersion: currentVersion);
         }
 
         IndexCheckResult afterMergeValidation = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true });
