@@ -239,7 +239,8 @@ internal static class SegmentFlusher
                     {
                         var bbqSource = new Codecs.Vectors.BBQMemoryVectorSource(perField, dimension, bbqCentroid!);
                         var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                        Codecs.Vectors.QuantisedVectorWriter.WriteBBQ(vqPath, docCount, dimension, perField, bbqCentroid!);
+                        Codecs.Vectors.QuantisedVectorWriter.WriteBBQOsqCanonical(
+                            vqPath, docCount, dimension, new Codecs.Vectors.InMemoryVectorSource(perField, dimension), docIds);
                         graph = Codecs.Hnsw.HnswGraphBuilder.Build(bbqSource, docIds, config.HnswBuildConfig, config.HnswSeed);
                     }
                     else
@@ -263,7 +264,8 @@ internal static class SegmentFlusher
                             Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, docCount, dimension, perField);
                             break;
                         case VectorQuantisation.BBQ:
-                            Codecs.Vectors.QuantisedVectorWriter.WriteBBQ(vqPath, docCount, dimension, perField, bbqCentroid!);
+                            Codecs.Vectors.QuantisedVectorWriter.WriteBBQOsqCanonical(
+                                vqPath, docCount, dimension, new Codecs.Vectors.InMemoryVectorSource(perField, dimension), perField.Keys.ToArray());
                             break;
                     }
                 }

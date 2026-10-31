@@ -336,9 +336,10 @@ public sealed class IndexWriterConfig
 
     /// <summary>
     /// Quantisation strategy for vector fields. <see cref="Codecs.Vectors.VectorQuantisation.None"/> (default)
-    /// stores raw float32 vectors. <see cref="Codecs.Vectors.VectorQuantisation.Int8"/> gives ~4× storage
-    /// reduction with minimal recall loss. <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> gives ~32×
-    /// reduction at some recall cost. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
+    /// stores raw float32 vectors. <see cref="Codecs.Vectors.VectorQuantisation.Int8"/> uses one byte per
+    /// component. New <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> segments use one-bit HNSW codes
+    /// with canonical per-vector Int8 values for approximate-cosine reranking and require normalised
+    /// vectors of at least 128 dimensions. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
     /// </summary>
     public VectorQuantisation VectorQuantisation { get; set; } = VectorQuantisation.None;
 
@@ -388,6 +389,9 @@ public sealed class IndexWriterConfig
     /// <exception cref="ArgumentException">Thrown when a property is invalid.</exception>
     internal void Validate()
     {
+        if (VectorQuantisation == VectorQuantisation.BBQ && !NormaliseVectors)
+            throw new ArgumentException("New BBQ v3 vector fields require NormaliseVectors=true.", nameof(NormaliseVectors));
+
         if (RamBufferSizeMB < 0)
             throw new ArgumentException("RamBufferSizeMB must not be negative.", nameof(RamBufferSizeMB));
 

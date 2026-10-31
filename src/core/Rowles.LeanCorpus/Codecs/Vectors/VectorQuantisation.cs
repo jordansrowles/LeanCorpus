@@ -25,6 +25,12 @@ internal enum QuantisedVectorStorageKind : byte
     BbqOsqCanonicalInt8 = 3,
 }
 
+/// <summary>Canonical vector encoding discriminator used by the v3 OSQ storage kind.</summary>
+internal enum CanonicalVectorEncoding : byte
+{
+    PerVectorUnsigned8 = 1,
+}
+
 /// <summary>
 /// Per-vector error-correction values stored alongside quantised vectors.
 /// Applied after the initial dequantisation to recover some of the lost precision.

@@ -108,10 +108,16 @@ internal static class CanonicalInt8VectorWriter
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
         ArgumentNullException.ThrowIfNull(vectorsByDoc);
         ArgumentNullException.ThrowIfNull(vectorDocIds);
-        if (vectorsByDoc.Dimension != dimension || vectorsByDoc.Count < docCount)
+        if (vectorsByDoc.Dimension != dimension)
             throw new ArgumentException("Vector source dimensions do not match the destination field.", nameof(vectorsByDoc));
 
         byte[] presence = VectorPresence.Create(docCount, vectorDocIds);
+        foreach (int docId in vectorDocIds)
+        {
+            if (docId >= vectorsByDoc.Count)
+                throw new ArgumentOutOfRangeException(nameof(vectorDocIds),
+                    $"Vector source does not address present document {docId}.");
+        }
         long recordSize = checked((long)CanonicalInt8VectorMetadata.Size + dimension);
         long expectedLength = checked(docCount * recordSize);
         float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
@@ -140,13 +146,13 @@ internal static class CanonicalInt8VectorWriter
                 }
             }
 
-            File.Move(temporaryPath, filePath, overwrite: true);
+            FileOpenRetry.Move(temporaryPath, filePath, overwrite: true);
         }
         catch
         {
             try
             {
-                File.Delete(temporaryPath);
+                FileOpenRetry.Delete(temporaryPath);
             }
             catch (IOException)
             {

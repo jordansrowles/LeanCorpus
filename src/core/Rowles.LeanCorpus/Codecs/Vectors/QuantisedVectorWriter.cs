@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Runtime.InteropServices;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
@@ -29,6 +30,150 @@ namespace Rowles.LeanCorpus.Codecs.Vectors;
 internal static class QuantisedVectorWriter
 {
     private const float Epsilon = 1e-8f;
+
+    /// <summary>
+    /// Writes the current BBQ representation. Canonical records are created once from
+    /// the supplied vectors, then decoded and temporarily normalised for OSQ calibration.
+    /// </summary>
+    internal static void WriteBBQOsqCanonical(
+        string filePath,
+        int docCount,
+        int dimension,
+        IVectorSource vectorsByDoc,
+        IReadOnlyList<int> vectorDocIds)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        ValidateSparseSource(docCount, dimension, vectorsByDoc, vectorDocIds);
+        if (dimension < 128)
+            throw new ArgumentOutOfRangeException(nameof(dimension), dimension,
+                "New BBQ v3 fields require at least 128 dimensions.");
+
+        byte[] presence = VectorPresence.Create(docCount, vectorDocIds);
+        int packedBytes = checked((dimension + 7) / 8);
+        string canonicalPath = string.Concat(filePath, ".", Guid.NewGuid().ToString("N"), ".canonical.tmp");
+        string osqCodesPath = string.Concat(filePath, ".", Guid.NewGuid().ToString("N"), ".osq.tmp");
+
+        try
+        {
+            CanonicalInt8VectorWriter.WriteRecords(canonicalPath, docCount, dimension, vectorsByDoc, vectorDocIds);
+            using CanonicalInt8VectorReader canonical = CanonicalInt8VectorReader.OpenRecords(canonicalPath, docCount, dimension, presence);
+
+            float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
+            float[] residualBuffer = ArrayPool<float>.Shared.Rent(dimension);
+            byte[] codeBuffer = ArrayPool<byte>.Shared.Rent(dimension);
+            byte[] packedBuffer = ArrayPool<byte>.Shared.Rent(packedBytes);
+            float[] centroidBuffer = ArrayPool<float>.Shared.Rent(dimension);
+            try
+            {
+                Span<float> vector = vectorBuffer.AsSpan(0, dimension);
+                Span<float> centroid = centroidBuffer.AsSpan(0, dimension);
+                centroid.Clear();
+
+                foreach (int docId in vectorDocIds)
+                {
+                    canonical.CopyVectorTo(docId, vector);
+                    _ = VectorMath.NormaliseInPlace(vector);
+                    for (int index = 0; index < dimension; index++)
+                        centroid[index] += vector[index];
+                }
+
+                if (vectorDocIds.Count > 0)
+                {
+                    float divisor = vectorDocIds.Count;
+                    for (int index = 0; index < dimension; index++)
+                        centroid[index] /= divisor;
+                    _ = VectorMath.NormaliseInPlace(centroid);
+                }
+
+                float centroidSquaredNorm = Dot(centroid, centroid);
+                CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
+                {
+                    Span<float> outputVector = vectorBuffer.AsSpan(0, dimension);
+                    Span<float> outputResiduals = residualBuffer.AsSpan(0, dimension);
+                    Span<byte> outputCodes = codeBuffer.AsSpan(0, dimension);
+                    Span<byte> outputPacked = packedBuffer.AsSpan(0, packedBytes);
+                    Span<float> outputCentroid = centroidBuffer.AsSpan(0, dimension);
+
+                    bodyOutput.WriteInt32(docCount);
+                    bodyOutput.WriteInt32(dimension);
+                    bodyOutput.WriteByte((byte)VectorQuantisation.BBQ);
+                    bodyOutput.WriteBytes(presence, 0, presence.Length);
+                    bodyOutput.WriteByte((byte)QuantisedVectorStorageKind.BbqOsqCanonicalInt8);
+                    bodyOutput.WriteByte((byte)CanonicalVectorEncoding.PerVectorUnsigned8);
+                    for (int index = 0; index < dimension; index++)
+                        bodyOutput.WriteSingle(outputCentroid[index]);
+                    bodyOutput.WriteSingle(centroidSquaredNorm);
+
+                    using (var codeOutput = new IndexOutput(osqCodesPath,
+                               preallocationSize: checked((long)docCount * packedBytes)))
+                    {
+                        for (int docId = 0; docId < docCount; docId++)
+                        {
+                            if (!canonical.HasVector(docId))
+                            {
+                                bodyOutput.WriteSingle(0f);
+                                bodyOutput.WriteSingle(0f);
+                                bodyOutput.WriteSingle(0f);
+                                bodyOutput.WriteInt32(0);
+                                outputPacked.Clear();
+                                codeOutput.WriteBytes(outputPacked);
+                                continue;
+                            }
+
+                            canonical.CopyVectorTo(docId, outputVector);
+                            _ = VectorMath.NormaliseInPlace(outputVector);
+                            BbqOsqCorrections corrections = OptimizedScalarQuantiser.Quantize(
+                                outputVector, outputCentroid, bits: 1, outputResiduals, outputCodes);
+                            OptimizedScalarQuantiser.PackBinary(outputCodes, outputPacked);
+                            bodyOutput.WriteSingle(corrections.LowerInterval);
+                            bodyOutput.WriteSingle(corrections.UpperInterval);
+                            bodyOutput.WriteSingle(corrections.AdditionalCorrection);
+                            bodyOutput.WriteInt32(corrections.CodeSum);
+                            codeOutput.WriteBytes(outputPacked);
+                        }
+                    }
+
+                    using (var codeInput = new IndexInput(osqCodesPath))
+                    {
+                        for (int docId = 0; docId < docCount; docId++)
+                        {
+                            long position = (long)docId * packedBytes;
+                            bodyOutput.WriteBytes(codeInput.BorrowSpan(packedBytes, ref position));
+                        }
+                    }
+
+                    for (int docId = 0; docId < docCount; docId++)
+                        canonical.CopyCanonicalMetadataTo(docId, bodyOutput);
+                    for (int docId = 0; docId < docCount; docId++)
+                        canonical.CopyCanonicalCodesTo(docId, bodyOutput);
+                });
+            }
+            finally
+            {
+                ArrayPool<float>.Shared.Return(centroidBuffer, clearArray: true);
+                ArrayPool<byte>.Shared.Return(packedBuffer, clearArray: true);
+                ArrayPool<byte>.Shared.Return(codeBuffer, clearArray: true);
+                ArrayPool<float>.Shared.Return(residualBuffer, clearArray: true);
+                ArrayPool<float>.Shared.Return(vectorBuffer, clearArray: true);
+            }
+        }
+        finally
+        {
+            TryDeleteTemporary(canonicalPath);
+            TryDeleteTemporary(osqCodesPath);
+        }
+    }
+
+    private static float Dot(ReadOnlySpan<float> left, ReadOnlySpan<float> right)
+    {
+        float dot = 0f;
+        for (int index = 0; index < left.Length; index++)
+            dot += left[index] * right[index];
+        return dot;
+    }
+
+    private static void TryDeleteTemporary(string path)
+        => FileOpenRetry.Delete(path);
 
     /// <summary>Writes Int8 vectors through bounded passes over a file-backed source.</summary>
     internal static void WriteInt8(
@@ -214,6 +359,30 @@ internal static class QuantisedVectorWriter
         {
             if ((uint)docId >= (uint)docCount)
                 throw new ArgumentOutOfRangeException(nameof(vectorDocIds), $"Vector document ID {docId} is outside the destination document range.");
+        }
+    }
+
+    private static void ValidateSparseSource(
+        int docCount,
+        int dimension,
+        IVectorSource vectorsByDoc,
+        IReadOnlyList<int> vectorDocIds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(docCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
+        ArgumentNullException.ThrowIfNull(vectorsByDoc);
+        ArgumentNullException.ThrowIfNull(vectorDocIds);
+        if (vectorsByDoc.Dimension != dimension)
+            throw new ArgumentException("Vector source dimensions do not match the destination field.", nameof(vectorsByDoc));
+
+        foreach (int docId in vectorDocIds)
+        {
+            if ((uint)docId >= (uint)docCount)
+                throw new ArgumentOutOfRangeException(nameof(vectorDocIds),
+                    $"Vector document ID {docId} is outside the destination document range.");
+            if (docId >= vectorsByDoc.Count)
+                throw new ArgumentOutOfRangeException(nameof(vectorDocIds),
+                    $"Vector source does not address present document {docId}.");
         }
     }
 

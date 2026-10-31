@@ -2,6 +2,7 @@
 using System.Runtime.ExceptionServices;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Backup;
@@ -842,6 +843,16 @@ public sealed partial class IndexWriter : IDisposable
 
     private void ValidateIncomingVectorDimensions(Dictionary<string, int> incoming)
     {
+        if (_config.VectorQuantisation == VectorQuantisation.BBQ)
+        {
+            foreach (var (fieldName, dimension) in incoming)
+            {
+                if (dimension < 128)
+                    throw new ArgumentOutOfRangeException(nameof(incoming), dimension,
+                        $"New BBQ v3 vector field '{fieldName}' requires at least 128 dimensions.");
+            }
+        }
+
         lock (_vectorDimensionLock)
         {
             EnsureVectorDimensionsMatch(incoming);
