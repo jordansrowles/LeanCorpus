@@ -43,7 +43,7 @@ A range query skips disjoint cells, accepts cells wholly inside the range, and c
 
 ## Vector values and HNSW
 
-Vectors are stored independently from the optional HNSW graph. This permits exact flat search when no graph exists and exact rescoring of approximate candidates.
+Vectors are stored independently from the optional HNSW graph. This permits flat search when no graph exists. Float32 fields use exact scores over their stored vectors; quantised fields use approximate scores from their decoded representation.
 
 ```mermaid
 flowchart TD
@@ -53,7 +53,7 @@ flowchart TD
     B --> N1[Neighbour]
     B --> N2[Neighbour]
     B --> N3[Neighbour]
-    N1 --> X[Exact cosine rescore]
+    N1 --> X[Stored-representation rescore]
     N2 --> X
     N3 --> X
 ```

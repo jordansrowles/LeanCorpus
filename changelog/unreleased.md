@@ -69,7 +69,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
-- Use correction-aware 4-bit query versus 1-bit document scores for BBQ v3 HNSW construction and search, building flush-time graphs from persisted canonical Int8 records with deterministic document-ID tie-breaking.
+- Restrict new BBQ v3 writes to normalised cosine fields with at least 128 dimensions; use correction-aware 4-bit query versus 1-bit document scores for HNSW construction and search, building flush-time graphs from persisted canonical Int8 records with deterministic document-ID tie-breaking.
 - Use a default three-times HNSW shortlist for BBQ v3 when oversampling is omitted, retain one-times defaults for other representations and explicit factor 1, and rerank v3 candidates with canonical Int8 vectors; quantised scores remain approximate to the original Float32 values.
 - Preserve BBQ v3 canonical Int8 records byte-for-byte through merges, rebuild segment OSQ and HNSW data from canonical vectors, and reject legacy BBQ indexes for writing or import with rebuild guidance.
 - Apply `FuzzyQuery.MaxExpansions` once across all search segments, with deterministic UTF-8 term-byte ordering for equal-distance ties; reuse one lazily compiled edit automaton across segment expansion misses.

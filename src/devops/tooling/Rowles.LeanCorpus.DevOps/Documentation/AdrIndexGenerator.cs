@@ -10,10 +10,10 @@ internal sealed class AdrIndexGenerator
 {
     private static readonly string[] RequiredKeys = ["adr", "title", "date", "status", "version-added", "summary", "areas"];
     private static readonly string[] RelationshipKeys = ["supersedes", "depends-on", "extends", "relates-to", "superseded-by"];
-    private static readonly string[] ValidStatuses = ["Accepted", "Deprecated", "Superseded", "Withdrawn"];
+    private static readonly string[] ValidStatuses = ["Proposed", "Accepted", "Deprecated", "Superseded", "Withdrawn"];
     private static readonly Regex AdrIdPattern = new("^(ADR\\d{3}|ADR-S\\d{3})$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
     private static readonly Regex FrontMatterLinePattern = new("^([A-Za-z][A-Za-z0-9-]*):(?:\\s?(.*))$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
-    private static readonly Regex ChangeRowPattern = new("^\\|\\s*(\\d{4}-\\d{2}-\\d{2})\\s*\\|\\s*(Accepted|Clarified|Amended|Deprecated|Superseded|Withdrawn)\\s*\\|\\s*(.*?)\\s*\\|\\s*(.*?)\\s*\\|$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
+    private static readonly Regex ChangeRowPattern = new("^\\|\\s*(\\d{4}-\\d{2}-\\d{2})\\s*\\|\\s*(Proposed|Accepted|Clarified|Amended|Deprecated|Superseded|Withdrawn)\\s*\\|\\s*(.*?)\\s*\\|\\s*(.*?)\\s*\\|$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
     private static readonly Regex ContextHeadingPattern = new("(?m)^## Context\\s*$", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
     private static readonly Regex RelationshipsBlockPattern = new("(?ms)^## Relationships\\r?\\n.*?(?=^## |\\z)", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeoutPolicy.MatchTimeout);
 
@@ -80,7 +80,8 @@ internal sealed class AdrIndexGenerator
                         {
                             throw new InvalidDataException($"ADR '{adr.Id}' must be later than the ADR it supersedes ('{target}').");
                         }
-                        incomingSupersedes[target].Add(adr.Id);
+                        // A Proposed relationship records intent, but does not retire the target.
+                        if (adr.Status != "Proposed") incomingSupersedes[target].Add(adr.Id);
                     }
                     if ((key is "depends-on" or "extends") && (targetAdr.Status is "Superseded" or "Withdrawn"))
                     {
@@ -102,16 +103,12 @@ internal sealed class AdrIndexGenerator
             {
                 throw new InvalidDataException($"Superseded ADR '{adr.Id}' has no later superseding decision.");
             }
-            if (adr.Status == "Accepted" && incoming.Length > 0)
-            {
-                throw new InvalidDataException($"Accepted ADR '{adr.Id}' is the target of a supersession and must be reviewed.");
-            }
         }
 
         ValidateSupersessionCycles(ordered, byId);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         WriteIndex(destination, Path.GetDirectoryName(destination)!, linkRoot, ordered, incomingSupersedes);
-        WriteToc(Path.Combine(Path.GetDirectoryName(destination)!, "toc.yml"), ordered);
+        WriteToc(Path.Combine(Path.GetDirectoryName(destination)!, "toc.yml"), ordered, incomingSupersedes);
         if (!string.IsNullOrWhiteSpace(stagingAdrDirectory))
         {
             WriteRelationshipSections(Path.GetFullPath(stagingAdrDirectory), ordered, incomingSupersedes);
@@ -217,9 +214,9 @@ internal sealed class AdrIndexGenerator
         {
             throw new InvalidDataException($"ADR '{path}' must contain a Changes table.");
         }
-        if (history[0].Type != "Accepted" || history[0].DateText != dateText)
+        if (history[0].Type is not ("Accepted" or "Proposed") || history[0].DateText != dateText)
         {
-            throw new InvalidDataException($"ADR '{path}' must begin Changes with its original Accepted decision date.");
+            throw new InvalidDataException($"ADR '{path}' must begin Changes with its original Proposed or Accepted decision date.");
         }
         var previousDate = date;
         foreach (var change in history)
@@ -361,7 +358,10 @@ internal sealed class AdrIndexGenerator
             var href = Path.GetRelativePath(indexDirectory, targetPath).Replace('\\', '/');
             var supersedes = FormatAdrLinks(adr.Relationships["supersedes"], indexDirectory, linkRoot, allAdrs);
             var lastUpdated = string.IsNullOrEmpty(adr.LastUpdated) ? string.Empty : Html(adr.LastUpdated);
-            rows.Add($"<tr><td><a href=\"{Html(href)}\">{Html(adr.Id)}</a></td><td>{Html(adr.DateText)}</td><td>{lastUpdated}</td><td>{Html(adr.Status)}</td><td>{supersedes}</td><td>{Html(adr.Title)}</td></tr>");
+            string status = adr.Status == "Accepted" && incomingSupersedes[adr.Id].Count > 0
+                ? "Superseded"
+                : adr.Status;
+            rows.Add($"<tr><td><a href=\"{Html(href)}\">{Html(adr.Id)}</a></td><td>{Html(adr.DateText)}</td><td>{lastUpdated}</td><td>{Html(status)}</td><td>{supersedes}</td><td>{Html(adr.Title)}</td></tr>");
         }
         return string.Join(Environment.NewLine,
         [
@@ -390,7 +390,8 @@ internal sealed class AdrIndexGenerator
         }));
     }
 
-    private static void WriteToc(string path, IReadOnlyList<Adr> adrs)
+    private static void WriteToc(string path, IReadOnlyList<Adr> adrs,
+        IReadOnlyDictionary<string, List<string>> incomingSupersedes)
     {
         var lines = new List<string>
         {
@@ -408,7 +409,10 @@ internal sealed class AdrIndexGenerator
             lines.Add("      items:");
             foreach (var adr in group)
             {
-                lines.Add($"        - name: '{adr.Id}: {adr.Title.Replace("'", "''", StringComparison.Ordinal)} ({adr.Status})'");
+                string status = adr.Status == "Accepted" && incomingSupersedes[adr.Id].Count > 0
+                    ? "Superseded"
+                    : adr.Status;
+                lines.Add($"        - name: '{adr.Id}: {adr.Title.Replace("'", "''", StringComparison.Ordinal)} ({status})'");
                 lines.Add($"          href: {adr.File}");
             }
         }
@@ -417,7 +421,10 @@ internal sealed class AdrIndexGenerator
         lines.Add("      items:");
         foreach (var adr in adrs.Where(static adr => adr.NamespaceOrder == 1))
         {
-            lines.Add($"        - name: '{adr.Id}: {adr.Title.Replace("'", "''", StringComparison.Ordinal)} ({adr.Status})'");
+            string status = adr.Status == "Accepted" && incomingSupersedes[adr.Id].Count > 0
+                ? "Superseded"
+                : adr.Status;
+            lines.Add($"        - name: '{adr.Id}: {adr.Title.Replace("'", "''", StringComparison.Ordinal)} ({status})'");
             lines.Add($"          href: {adr.File}");
         }
         File.WriteAllLines(path, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));

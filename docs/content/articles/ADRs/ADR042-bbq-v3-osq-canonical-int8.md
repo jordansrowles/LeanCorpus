@@ -21,7 +21,7 @@ relates-to: [ADR025, ADR026, ADR039]
 
 New BBQ v3 requires `NormaliseVectors=true` and vector dimensions >=128. Other quantisers remain unchanged. The agent must follow the external handoff document `spec/LOCKED-DECISIONS.md` without adding another candidate algorithm or new public storage configuration. This ADR is a **new** immutable-history decision and supersedes the active forward design of ADR016–ADR020 without altering any previous ADR contents.
 
-## Context and problem
+## Context
 
 LeanCorpus's existing BBQ v2 stores one sign bit per dimension, a per-segment centroid and three aggregate correction statistics. HNSW construction/traversal use a Hamming-style metric; final ranking reconstructs `centroid ± 1`. Under pinned 2026-10-30 attribution, BVAL 64D/128D and integration results fail their release recall requirements even when the source oracle neighbours are in the shortlist. A held-out 10K clustered case visited 10,000 nodes to fill 100 candidates after a graph underfill; that is not acceptable routine HNSW performance. Repeated v2 merges decode and requantise already lost magnitudes, so they accumulate quality degradation. These findings are recorded in the external '4.0 BBQ Engine Correctness' package, with code branch `fix/bbq-retrieval-quality`, commit `3dab5b6`.
 
@@ -70,6 +70,10 @@ This architecture reuses LeanCorpus's random-access and file-backed merge machin
 - Retain old `.vq` v1/v2 reader semantics, expose clear error when attempting to mutate an old BBQ index into v3 without reindexing originals; document a safe operator rebuild procedure.
 - Do not mark this ADR Accepted, or ship BBQ v3, if mandatory quality, compatibility, persistence or CI gates are unqualified.
 
+### Qualification record
+
+On 31 October 2026, the unchanged 300-document, 128D integration recall gate returned `0.60` against its `0.70` floor. The graph returned all 30 documents in the exhaustive OSQ top-30, but that set contained only 6 of the 10 Float32 oracle neighbours; canonical Int8 reranking produced the same `0.60` final recall. An independent harness using the bundled Lucene 10.5.2 OSQ implementation reproduced the C# top-10 and top-30 sets. This identifies a fixed-gate quality failure for the specified one-bit OSQ and 3x shortlist, not a demonstrated HNSW traversal or reranking defect. No threshold or search policy was changed. ADR042 therefore remains Proposed and BBQ v3 release qualification is Unqualified. The required multi-query held-out and performance matrices were not run after this stop condition.
+
 ## Beyond 4.0: prior research revisited deliberately
 
 Earlier ADRs retain their historical outcomes; this decision **supersedes their role as the active forward vector design** but not the factual findings. In 5.0 or later, revisit in order of evidence:
@@ -90,6 +94,6 @@ No current 4.0 acceptance gate can be waived merely because a later roadmap code
 
 ## Changes
 
-| Date | Type | Change |
-|---|---|---|
-| 2026-10-31 | Proposed | Superseding BBQ v3 architecture and migration decision; acceptance pending implementation and qualification. |
+| Date | Type | Change | Reference |
+|---|---|---|---|
+| 2026-10-31 | Proposed | Superseding BBQ v3 architecture and migration decision; acceptance pending implementation and qualification. | `6bba01a` |

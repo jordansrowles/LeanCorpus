@@ -30,3 +30,25 @@ Downgrading an index written or migrated by 4.x to a 3.x reader is unsupported.
 To roll back an application deployment, restore the preserved 3.x backup rather
 than opening the 4.x output with the older writer. Rowles.Text has its own
 package version and release boundary.
+
+## Rebuilding legacy BBQ as BBQ v3
+
+CodecKit migration preserves legacy BBQ v1/v2 payloads and their historical
+scoring. It cannot reconstruct the original per-component magnitudes or create
+the canonical Int8 records required by BBQ v3. After migration, legacy BBQ
+segments remain searchable, but a 4.0 writer rejects mutation and automatic
+merging of an index containing them.
+
+To create a BBQ v3 index, retain a backup of the old index and rebuild from the
+original documents and embeddings. Configure `VectorQuantisation.BBQ` with
+`NormaliseVectors = true`; every BBQ field must have at least 128 dimensions.
+The writer rejects unsupported fields and does not fall back to standalone
+Int8. Imports from Float32 are quantised once into the canonical representation;
+imports from standalone Int8 are a further lossy conversion. Do not use the
+legacy `.vq` files as an input source for this rebuild.
+
+BBQ v3 scores are approximate to the original Float32 cosine. ADR042 remains
+Proposed because the fixed integration recall gate has not passed on the current
+implementation; this branch does not establish release qualification. Validate
+the target workload and wait for the ADR's required quality and performance
+gates before deploying BBQ v3.

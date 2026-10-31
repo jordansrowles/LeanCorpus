@@ -20,7 +20,7 @@ Use this section after ordinary indexing and searching work. Read the result-sha
 | [Vector search](05-vector-search.md) | Approximate nearest neighbour over dense float vectors using HNSW graphs | Semantic search, embeddings, similarity |
 | [Filtered vector search](08-filtered-vector-search.md) | Vector ANN with a pre-filter or post-filter query | Scoped semantic search |
 
-Vectors can be quantised with BBQ (Better Binary Quantisation) for 32x compression with minimal recall loss. The quantised query path operates in int8 for speed.
+BBQ v3 combines one-bit OSQ HNSW traversal codes with canonical per-vector Int8 data for approximate reranking. It supports normalised cosine fields of at least 128 dimensions; total index size and recall depend on the corpus. Its scores are approximate to the source Float32 embeddings, and release qualification remains open. See the [vector search guide](05-vector-search.md) and [ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md).
 
 ## Specialised queries
 

@@ -406,7 +406,7 @@ internal static class QuantisedVectorWriter
     /// <summary>
     /// Writes int8 scalar-quantised vectors. Uses per-segment min/max to compute
     /// a uniform scale factor (alpha), then quantises each float to [0, 255].
-    /// A per-vector correction float is stored for future exact reranking.
+    /// A per-vector correction float is stored for rescoring the quantised values.
     /// </summary>
     internal static void WriteInt8(
         string filePath,

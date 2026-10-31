@@ -18,7 +18,7 @@ areas: [area]
 # ADRnnn: [title]
 
 - **Date:** YYYY-MM-DD
-- **Status:** Accepted | Superseded | Deprecated | Withdrawn
+- **Status:** Proposed | Accepted | Superseded | Deprecated | Withdrawn
 
 ## Context
 
@@ -47,13 +47,18 @@ and follow-up work.
 Keep `date` as the immutable original decision date. Add `last-updated` only
 when a material architectural change is recorded below. Do not add history for
 copy edits, formatting, link repairs or metadata refreshes. The first row must
-record the original acceptance; later rows use `Clarified`, `Amended`,
+record the original proposal or acceptance using the same status as the initial
+front matter. If a proposal is accepted later, append an `Accepted` row, update
+the front matter and set `last-updated`. Later rows use `Clarified`, `Amended`,
 `Deprecated`, `Superseded` or `Withdrawn`. `last-updated` must equal the date of
 the latest material row.
 
 | Date | Type | Change | Reference |
 | --- | --- | --- | --- |
-| YYYY-MM-DD | Accepted | Original decision accepted. | `commit` |
+| YYYY-MM-DD | Proposed | Original proposal recorded. | `reference` |
+
+For a decision that is accepted when written, use `Accepted` and describe the
+original acceptance in the first row.
 
 Core records use the next reserved `ADRnnn` identifier. Community Server
 records use the separate `ADR-Snnn` namespace and the same fields, lifecycle,

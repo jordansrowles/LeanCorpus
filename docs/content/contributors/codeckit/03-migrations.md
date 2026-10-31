@@ -89,20 +89,31 @@ LeanCorpus 3.0 reads supported formats from 2.0 onwards and can migrate supporte
 - [Validation and recovery](../../index-management/03-validation-recovery.md)
 - [Index checker CLI](../../index-management/04-cli-checker.md)
 
-## LeanCorpus 4.0 vector presence migration
+## LeanCorpus 4.0 vector migrations
 
-Float `.vec` and Int8/BBQ `.vq` bodies migrate from v1 to v2 by structural
-rewrite. The owning `.seg` metadata must declare a persisted HNSW graph for the
-field. The migrator validates graph membership, unique document IDs and document
-bounds, and inserts those presence bits into the vector data body. Dense vector
-bytes, quantisation parameters, corrections and packed bytes remain unchanged;
-legacy quantised vectors are never dequantised and requantised by migration.
-The HNSW body stays at v1 and is reassociated with the migrated segment.
+Float `.vec` v1 bodies migrate to v2 by structural rewrite. Their owning
+`.seg` metadata must declare a persisted HNSW graph for the field. The migrator
+validates graph membership, unique document IDs and document bounds, and inserts
+the reconstructed presence bitmap. Dense Float32 bytes remain unchanged.
+
+Quantised `.vq` v1 and v2 bodies migrate to v3 by adding the v3 storage-kind tag
+and preserving the old payload. For v1, the migrator reconstructs authoritative
+presence from the persisted HNSW graph, after validating membership, unique IDs
+and document bounds. For v2, it validates and copies the persisted presence
+bitmap; this path does not require HNSW access or rewrite the bitmap from graph
+membership. In both cases, quantised bytes, parameters and corrections are
+copied without dequantisation or requantisation. Legacy BBQ remains tagged with
+its legacy scorer; this migration does not create BBQ v3 OSQ or canonical Int8
+vectors. The HNSW body stays at v1 and its scorer generation is resolved from
+the associated `.vq` storage kind.
 
 Without persisted HNSW membership, v1 presence cannot be reconstructed. Planning
 reports a non-executable action with `UnsupportedMigrationPath`; migration stops
 before changing source files. Non-zero dense contents are not presence evidence.
-Rebuild such indexes from the original documents instead.
+Rebuild such indexes from the original documents instead. A migrated legacy BBQ
+index remains readable for search, but the 4.0 writer rejects it before mutation
+or background merging because its original vector components are unavailable.
+Create a BBQ v3 index from the original embeddings to make that semantic change.
 
 Compound members use the same staged rewrite and normal repacking protocol.
 Publication failure preserves the last committed source index and supports retry.

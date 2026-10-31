@@ -339,7 +339,9 @@ public sealed class IndexWriterConfig
     /// stores raw float32 vectors. <see cref="Codecs.Vectors.VectorQuantisation.Int8"/> uses one byte per
     /// component. New <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> segments use one-bit HNSW codes
     /// with canonical per-vector Int8 values for approximate-cosine reranking and require normalised
-    /// vectors of at least 128 dimensions. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
+    /// vectors of at least 128 dimensions. When a <see cref="global::Rowles.LeanCorpus.Search.Queries.VectorQuery"/> omits
+    /// <c>oversamplingFactor</c>, BBQ v3 resolves it to a three-times HNSW shortlist; explicit values
+    /// are honoured. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
     /// </summary>
     public VectorQuantisation VectorQuantisation { get; set; } = VectorQuantisation.None;
 

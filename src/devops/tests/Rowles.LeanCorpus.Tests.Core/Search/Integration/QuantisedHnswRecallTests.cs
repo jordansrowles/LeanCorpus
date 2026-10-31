@@ -155,6 +155,29 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
         }
 
         double candidateRecall = graphCandidates.Intersect(truth).Count() / (double)topK;
+        var exhaustiveOsqScores = new List<(int DocId, float Score)>(n);
+        foreach (var segment in segments)
+        {
+            using var vectorsReader = QuantisedVectorReader.Open(
+                segment.OpenInput(VectorFilePaths.QuantisedVectorFile(string.Empty, "embedding")));
+            PreparedBbqQuery preparedQuery = vectorsReader.PrepareBbqQuery(query);
+            for (int docId = 0; docId < segment.MaxDoc; docId++)
+            {
+                if (!segment.IsLive(docId) || !vectorsReader.HasVector(docId))
+                    continue;
+                exhaustiveOsqScores.Add((segment.DocBase + docId,
+                    vectorsReader.ScoreBbqCandidate(preparedQuery, docId)));
+            }
+        }
+        (int DocId, float Score)[] osqRanked = exhaustiveOsqScores
+            .OrderByDescending(static item => item.Score)
+            .ThenBy(static item => item.DocId)
+            .ToArray();
+        int osqTopThirtyCount = Math.Min(topK * 3, osqRanked.Length);
+        HashSet<int> exhaustiveOsqTopK = osqRanked.Take(topK).Select(static item => item.DocId).ToHashSet();
+        HashSet<int> exhaustiveOsqTopThirty = osqRanked.Take(osqTopThirtyCount).Select(static item => item.DocId).ToHashSet();
+        double exhaustiveOsqRecall = exhaustiveOsqTopK.Intersect(truth).Count() / (double)topK;
+        double graphOsqRecall = graphCandidates.Intersect(exhaustiveOsqTopThirty).Count() / osqTopThirtyCount;
         int[] canonicalRerank = graphCandidates
             .Select(docId =>
             {
@@ -170,7 +193,12 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
             .ToArray();
         Assert.Equal(canonicalRerank, results.ScoreDocs.Select(static hit => hit.DocId));
         Assert.True(recall >= 0.70,
-            $"BBQ recall {recall:F2} below the declared 0.70 integration threshold; graph candidate recall was {candidateRecall:F2}.");
+            $"BBQ recall {recall:F2} below the declared 0.70 integration threshold; " +
+            $"graph candidate recall was {candidateRecall:F2}; exhaustive OSQ recall@{topK} was {exhaustiveOsqRecall:F2}; " +
+            $"graph recall against exhaustive OSQ top-{osqTopThirtyCount} was {graphOsqRecall:F2}; " +
+            $"Float32 top-{topK} IDs=[{string.Join(',', truth.Order())}], " +
+            $"OSQ top-{topK} IDs=[{string.Join(',', exhaustiveOsqTopK.Order())}], " +
+            $"graph candidates=[{string.Join(',', graphCandidates.Order())}].");
     }
 
     [Fact(DisplayName = "Legacy 32D BBQ recall remains a historical diagnostic")]

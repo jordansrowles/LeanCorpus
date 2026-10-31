@@ -31,7 +31,7 @@ flowchart TD
     S -->|Fewer than 64 or below 0.5%| B[Exact brute-force scan of matches]
     S -->|Below 5%| P[HNSW with allow-list pre-filter]
     S -->|5% or more| H[HNSW traversal, post-filter, retry]
-    P --> R[Exact cosine rescore]
+    P --> R[Stored-representation rescore]
     H --> R
     B --> C[Collect top-N]
     Flat --> C
@@ -53,24 +53,24 @@ Selectivity is calculated independently for each segment. One query can therefor
 
 Post-filtering may discard too many approximate candidates. Traversal can retry by doubling `ef`, up to three retries by default, until it has enough survivors or exhausts its retry policy.
 
-`topK * oversamplingFactor` determines the requested shortlist. Raising `efSearch` explores more graph nodes. Raising `oversamplingFactor` retains more candidates for exact rescoring. Both can improve recall and latency cost, but they affect different stages.
+`topK * oversamplingFactor` determines the requested shortlist. Raising `efSearch` explores more graph nodes. Raising `oversamplingFactor` retains more candidates for rescoring. Both can improve recall at a latency cost, but they affect different stages.
 
 ## Pre-filter recall
 
 An allow-list can disconnect useful graph routes because disallowed nodes cannot participate in traversal. That is why extremely selective filters use exact brute force and broad filters use post-filtering. Measure recall at the selectivity ranges your tenants or categories actually produce.
 
-## Exact rescoring
+## Rescoring
 
-HNSW produces a shortlist. LeanCorpus reads stored vectors and calculates exact cosine similarity for surviving candidates before collection. Query vectors are normalised for fields recorded as normalised. Invalid zero-length normalisation produces no matches.
+HNSW produces a shortlist. LeanCorpus reads the stored representation and scores surviving candidates before collection. Float32 fields use their stored Float32 vectors; Int8 and BBQ v3 fields use decoded quantised values and return approximate cosine scores. Query vectors are normalised for fields recorded as normalised. Invalid zero-length normalisation produces no matches.
 
-Approximate traversal can still omit a true neighbour before rescoring, so exact scoring of the shortlist does not make the overall search exhaustive.
+Approximate traversal can omit a true neighbour before rescoring. Rescoring the shortlist does not make the overall search exhaustive or restore precision lost by quantisation.
 
 ## Tuning
 
 - Start with the unfiltered vector settings that meet recall requirements.
 - Measure narrow, moderate, and broad filter selectivity separately.
 - Increase `efSearch` when traversal recall is weak.
-- Increase `oversamplingFactor` when filtering or reranking leaves too few competitive candidates.
+- Increase `oversamplingFactor` when filtering or rescoring leaves too few competitive candidates.
 - Use `Explain(VectorQuery, docId)` to confirm the selected strategy for a diagnostic document.
 - Compare latency, nodes visited, and recall, not latency alone.
 
