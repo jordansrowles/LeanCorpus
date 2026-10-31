@@ -1,3 +1,5 @@
+using Rowles.LeanCorpus.Store;
+
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
 /// <summary>Fixed canonical Int8 metadata stored beside each vector's unsigned codes.</summary>
@@ -22,4 +24,10 @@ internal interface ICanonicalVectorSource : IVectorSource
 
     /// <summary>Copies the raw metadata and code bytes into caller-provided record storage.</summary>
     void CopyCanonicalRecordTo(int docId, Span<byte> destination);
+
+    /// <summary>Streams the raw metadata bytes without decoding or re-encoding them.</summary>
+    void CopyCanonicalMetadataTo(int docId, ISequentialIndexOutput destination);
+
+    /// <summary>Streams the raw Int8 code bytes without decoding or re-encoding them.</summary>
+    void CopyCanonicalCodesTo(int docId, ISequentialIndexOutput destination);
 }

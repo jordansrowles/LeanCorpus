@@ -23,6 +23,7 @@ public sealed class SegmentMerger
     private readonly HnswBuildConfig _hnswBuildConfig;
     private readonly bool _useCompoundFile;
     private readonly VectorQuantisation _destinationVectorQuantisation;
+    private readonly long? _hnswSeed;
 
     internal CodecCatalog FileCatalog { get; set; } = CodecCatalog.Default;
 
@@ -64,7 +65,8 @@ public sealed class SegmentMerger
         HnswBuildConfig? hnswBuildConfig,
         Diagnostics.IMetricsCollector? metrics,
         bool useCompoundFile,
-        VectorQuantisation destinationVectorQuantisation)
+        VectorQuantisation destinationVectorQuantisation,
+        long? hnswSeed = null)
     {
         _directory = directory;
         _mergePolicy = mergePolicy ?? new TieredMergePolicy(DefaultMergeThreshold);
@@ -74,6 +76,7 @@ public sealed class SegmentMerger
         _metrics = metrics ?? Diagnostics.NullMetricsCollector.Instance;
         _useCompoundFile = useCompoundFile;
         _destinationVectorQuantisation = destinationVectorQuantisation;
+        _hnswSeed = hnswSeed;
     }
 
     internal SegmentMerger(
@@ -83,11 +86,13 @@ public sealed class SegmentMerger
         double softDeleteRetentionSeconds,
         HnswBuildConfig? hnswBuildConfig,
         bool useCompoundFile,
-        VectorQuantisation destinationVectorQuantisation)
+        VectorQuantisation destinationVectorQuantisation,
+        long? hnswSeed = null)
         : this(directory, mergePolicy, skipInterval, softDeleteRetentionSeconds, hnswBuildConfig,
             metrics: null,
             useCompoundFile: useCompoundFile,
-            destinationVectorQuantisation: destinationVectorQuantisation)
+            destinationVectorQuantisation: destinationVectorQuantisation,
+            hnswSeed: hnswSeed)
     {
     }
 
@@ -114,6 +119,27 @@ public sealed class SegmentMerger
     /// </summary>
     public List<SegmentInfo> MaybeMerge(List<SegmentInfo> segments, ref int nextSegmentOrdinal)
         => MaybeMerge(segments, ref nextSegmentOrdinal, new HashSet<string>(StringComparer.Ordinal), commitGeneration: 0);
+
+    internal static void ValidateMergeSources(
+        MMapDirectory sourceDirectory,
+        IReadOnlyList<SegmentInfo> sourceSegments,
+        CodecCatalog catalog,
+        VectorQuantisation destinationVectorQuantisation)
+    {
+        var readers = new Dictionary<string, SegmentReader>(StringComparer.Ordinal);
+        try
+        {
+            foreach (SegmentInfo segment in sourceSegments)
+                readers[segment.SegmentId] = new SegmentReader(sourceDirectory, segment, catalog);
+            SegmentMergePlanner.ValidateVectorSourceCompatibility(
+                sourceSegments, readers, destinationVectorQuantisation);
+        }
+        finally
+        {
+            foreach (SegmentReader reader in readers.Values)
+                reader.Dispose();
+        }
+    }
 
     /// <summary>
     /// Checks if a merge is needed and performs it, excluding segments protected by held snapshots.
@@ -216,7 +242,7 @@ public sealed class SegmentMerger
             using var spatial = new SegmentMergeSpatialWriter.State(plan.TotalDocs);
             SegmentMergeStoredPayloadWriter.Write(plan, FileCatalog, columns, vectors, spatial);
             SegmentMergeDocValuesWriter.Write(plan, columns);
-            var vectorWriter = new SegmentMergeVectorWriter(_directory, _hnswBuildConfig, _metrics);
+            var vectorWriter = new SegmentMergeVectorWriter(_directory, _hnswBuildConfig, _metrics, _hnswSeed);
             var vectorFields = vectorWriter.Write(plan, vectors);
             SegmentMergeSpatialWriter.Write(plan, columns, spatial);
             return SegmentMergeFinaliser.Finish(plan, vectorFields, _directory, FileCatalog, _useCompoundFile);
@@ -250,6 +276,9 @@ public sealed class SegmentMerger
         {
             foreach (var segInfo in sourceSegments)
                 readers[segInfo.SegmentId] = new SegmentReader(sourceDirectory, segInfo, config.CodecCatalog);
+
+            SegmentMergePlanner.ValidateVectorSourceCompatibility(
+                sourceSegments, readers, config.VectorQuantisation);
 
             var spatialFields = SegmentMergePlanner.ResolveSpatialFieldMetadata(sourceSegments, readers);
             var newSegId = $"seg_{nextSegmentOrdinal++}";

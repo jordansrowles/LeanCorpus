@@ -204,7 +204,10 @@ public sealed class SparseVectorPresenceTests : IDisposable
         }
         AssertSparseSearch(target, [0, 2], dimension);
         using var searcher = new IndexSearcher(target);
-        Assert.Equal(destinationQuantisation, Assert.Single(searcher.GetSegmentReaders()).Info.VectorFields.Single().Quantisation);
+        var mergedField = Assert.Single(searcher.GetSegmentReaders()).Info.VectorFields.Single();
+        Assert.Equal(destinationQuantisation, mergedField.Quantisation);
+        if (destinationQuantisation == VectorQuantisation.BBQ)
+            Assert.True(mergedField.Normalised, "Float32 imports into BBQ v3 must canonicalise normalised values.");
     }
 
     [Theory]

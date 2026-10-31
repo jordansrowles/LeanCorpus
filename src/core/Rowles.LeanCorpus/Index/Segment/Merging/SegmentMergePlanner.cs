@@ -13,6 +13,7 @@ internal static class SegmentMergePlanner
         double softDeleteRetentionSeconds, VectorQuantisation destinationVectorQuantisation,
         List<SpatialFieldInfo> spatialFields)
     {
+        ValidateVectorSourceCompatibility(segments, readers, destinationVectorQuantisation);
         long softDeleteCutoff = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - (long)(softDeleteRetentionSeconds * 1000);
         bool hasCompatibleIndexSort = TryGetCommonIndexSort(segments, out SortField[] sortFields);
         var sortedMaps = new List<SegmentMergeDocumentMap.Source>(segments.Count);
@@ -47,7 +48,8 @@ internal static class SegmentMergePlanner
         }
         if (totalDocs == 0) return null;
 
-        Dictionary<string, VectorFieldContract> vectorContracts = PreflightVectorContracts(segments);
+        Dictionary<string, VectorFieldContract> vectorContracts =
+            PreflightVectorContracts(segments, destinationVectorQuantisation);
 
         var documentMap = new SegmentMergeDocumentMap(perSegmentMaps, totalDocs);
 
@@ -121,8 +123,35 @@ internal static class SegmentMergePlanner
             .ToList();
     }
 
+    internal static void ValidateVectorSourceCompatibility(
+        IReadOnlyList<SegmentInfo> segments,
+        IReadOnlyDictionary<string, SegmentReader> readers,
+        VectorQuantisation destinationVectorQuantisation)
+    {
+        foreach (SegmentInfo segment in segments)
+        {
+            if (!readers.TryGetValue(segment.SegmentId, out SegmentReader? reader))
+                throw new InvalidDataException($"Merge source segment '{segment.SegmentId}' has no open reader.");
+
+            foreach (VectorFieldInfo field in segment.VectorFields)
+            {
+                VectorScoringGeneration scoringGeneration = reader.GetVectorScoringGeneration(field.FieldName);
+                if (scoringGeneration == VectorScoringGeneration.LegacyBbqSign)
+                    throw new InvalidDataException(
+                        $"Cannot merge legacy BBQ vector field '{field.FieldName}' from segment '{segment.SegmentId}': its original vectors are unavailable. Reindex from source documents before writing or importing this index.");
+
+                if (destinationVectorQuantisation == VectorQuantisation.BBQ &&
+                    (field.Dimension < 128 ||
+                     (scoringGeneration == VectorScoringGeneration.BbqOsqV3 && !field.Normalised)))
+                    throw new InvalidDataException(
+                        $"Cannot write BBQ v3 vector field '{field.FieldName}' from segment '{segment.SegmentId}': dimension must be at least 128, and existing BBQ v3 canonical data must declare Normalised=true (actual dimension={field.Dimension}, Normalised={field.Normalised}).");
+            }
+        }
+    }
+
     private static Dictionary<string, VectorFieldContract> PreflightVectorContracts(
-        IReadOnlyList<SegmentInfo> segments)
+        IReadOnlyList<SegmentInfo> segments,
+        VectorQuantisation destinationVectorQuantisation)
     {
         var contracts = new Dictionary<string, VectorFieldContract>(StringComparer.Ordinal);
         var firstSourceSegments = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -130,7 +159,9 @@ internal static class SegmentMergePlanner
         {
             foreach (VectorFieldInfo field in segment.VectorFields)
             {
-                var contract = new VectorFieldContract(field.Dimension, field.Normalised);
+                var contract = new VectorFieldContract(
+                    field.Dimension,
+                    destinationVectorQuantisation == VectorQuantisation.BBQ || field.Normalised);
                 if (!contracts.TryGetValue(field.FieldName, out VectorFieldContract existing))
                 {
                     contracts.Add(field.FieldName, contract);

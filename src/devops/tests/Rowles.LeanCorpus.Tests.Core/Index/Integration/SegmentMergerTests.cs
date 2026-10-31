@@ -92,6 +92,313 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
             IndexSort = sort,
         };
 
+    [Fact(DisplayName = "Merge: BBQ v3 force merge generations preserve canonical records")]
+    public void BBQV3ForceMerge_PreservesCanonicalRecordsAcrossSortedCompoundGenerations()
+    {
+        const int dimension = 128;
+        string dir = SubDir(nameof(BBQV3ForceMerge_PreservesCanonicalRecordsAcrossSortedCompoundGenerations));
+        using var mmap = new MMapDirectory(dir);
+        using var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            BuildHnswOnFlush = true,
+            HnswBuildConfig = new HnswBuildConfig { M = 8, M0 = 16, EfConstruction = 32 },
+            HnswSeed = 1701L,
+            IndexSort = new IndexSort(SortField.Numeric("rank")),
+            MaxBufferedDocs = 2,
+            MergeThreshold = 100,
+            NormaliseVectors = true,
+            UseCompoundFile = true,
+            VectorQuantisation = VectorQuantisation.BBQ,
+        });
+
+        Dictionary<string, string> previous = new(StringComparer.Ordinal);
+        for (int generation = 0; generation < 4; generation++)
+        {
+            if (generation == 1)
+                writer.DeleteDocuments(new TermQuery("id", "g0-b0-d1"));
+
+            for (int batch = 0; batch < 2; batch++)
+            {
+                for (int withinBatch = 0; withinBatch < 2; withinBatch++)
+                {
+                    string id = $"g{generation}-b{batch}-d{withinBatch}";
+                    var document = new LeanDocument();
+                    document.Add(new StringField("id", id));
+                    document.Add(new NumericField("rank", (3 - generation) * 100.0 + batch * 2.0 + withinBatch));
+                    document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(BuildMergeVector(id, dimension))));
+                    writer.AddDocument(document);
+                }
+                writer.Commit();
+            }
+
+            Dictionary<string, string> beforeMerge = ReadCanonicalRecordHashes(mmap, "embedding");
+            Dictionary<string, float[]> beforeVectors = ReadCanonicalVectors(mmap, "embedding");
+            if (previous.Count != 0)
+                Assert.True(beforeMerge.Count > previous.Count, "The generation must add live logical documents before merging.");
+            Assert.True(beforeMerge.ContainsKey("g0-b0-d0"));
+            if (generation >= 1)
+                Assert.False(beforeMerge.ContainsKey("g0-b0-d1"), "The deleted logical document must not enter the merge hash set.");
+
+            writer.ForceMerge(1);
+            writer.Commit();
+
+            Dictionary<string, string> afterMerge = ReadCanonicalRecordHashes(mmap, "embedding");
+            Dictionary<string, float[]> afterVectors = ReadCanonicalVectors(mmap, "embedding");
+            Assert.Equal(beforeMerge.Keys.Order(StringComparer.Ordinal), afterMerge.Keys.Order(StringComparer.Ordinal));
+            foreach (string id in beforeMerge.Keys)
+                Assert.Equal(beforeMerge[id], afterMerge[id]);
+            Assert.Empty(Directory.GetFiles(dir, "*_v_embedding.vec"));
+            if (generation >= 2)
+            {
+                float[][] queries = Enumerable.Range(0, 3)
+                    .Select(index => BuildMergeVector($"merge-recall-{generation}-{index}", dimension))
+                    .ToArray();
+                Dictionary<int, double> sourceRecall = CaptureCanonicalRecall(mmap, "embedding", beforeVectors, queries);
+                Dictionary<int, double> rebuiltRecall = CaptureCanonicalRecall(mmap, "embedding", afterVectors, queries);
+                foreach (int queryIndex in sourceRecall.Keys)
+                    Assert.True(Math.Abs(sourceRecall[queryIndex] - rebuiltRecall[queryIndex]) <= 0.10d,
+                        $"Canonical Recall@10 changed by more than one hit for query {queryIndex}: source={sourceRecall[queryIndex]:F2}, rebuilt={rebuiltRecall[queryIndex]:F2}.");
+            }
+            previous = afterMerge;
+        }
+    }
+
+    [Fact(DisplayName = "Merge: BBQ v3 AddIndexes preserves compound-source canonical records")]
+    public void BBQV3AddIndexes_PreservesCanonicalRecordsFromCompoundSources()
+    {
+        const int dimension = 128;
+        string sourcePath = SubDir(nameof(BBQV3AddIndexes_PreservesCanonicalRecordsFromCompoundSources) + "_source");
+        string targetPath = SubDir(nameof(BBQV3AddIndexes_PreservesCanonicalRecordsFromCompoundSources) + "_target");
+        using var source = new MMapDirectory(sourcePath);
+        using var target = new MMapDirectory(targetPath);
+
+        using (var sourceWriter = new IndexWriter(source, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 2,
+            MergeThreshold = 100,
+            UseCompoundFile = true,
+            VectorQuantisation = VectorQuantisation.BBQ,
+        }))
+        {
+            for (int docId = 0; docId < 6; docId++)
+            {
+                var document = new LeanDocument();
+                document.Add(new StringField("id", $"import-{docId}"));
+                document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(BuildMergeVector($"import-{docId}", dimension))));
+                sourceWriter.AddDocument(document);
+            }
+            sourceWriter.Commit();
+        }
+
+        Dictionary<string, string> sourceHashes = ReadCanonicalRecordHashes(source, "embedding");
+        Assert.All(IndexRecovery.RecoverLatestCommit(sourcePath, cleanupOrphans: false)!.SegmentInfos,
+            static segment => Assert.True(segment.IsCompoundFile));
+
+        using (var targetWriter = new IndexWriter(target, new IndexWriterConfig
+        {
+            MergeThreshold = 100,
+            VectorQuantisation = VectorQuantisation.BBQ,
+        }))
+        {
+            targetWriter.AddIndexes(source);
+            targetWriter.Commit();
+        }
+
+        Dictionary<string, string> targetHashes = ReadCanonicalRecordHashes(target, "embedding");
+        Assert.Equal(sourceHashes.Keys.Order(StringComparer.Ordinal), targetHashes.Keys.Order(StringComparer.Ordinal));
+        foreach (string id in sourceHashes.Keys)
+            Assert.Equal(sourceHashes[id], targetHashes[id]);
+        Assert.Empty(Directory.GetFiles(targetPath, "*_v_embedding.vec"));
+    }
+
+    private static Dictionary<string, string> ReadCanonicalRecordHashes(MMapDirectory directory, string fieldName)
+    {
+        string extension = Path.GetFileName(VectorFilePaths.QuantisedVectorFile(string.Empty, fieldName));
+        using var searcher = new IndexSearcher(directory);
+        var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var segment in searcher.GetSegmentReaders())
+        {
+            using var vectors = QuantisedVectorReader.Open(segment.OpenInput(extension));
+            Assert.Equal(QuantisedVectorStorageKind.BbqOsqCanonicalInt8, vectors.StorageKind);
+            byte[] record = new byte[CanonicalInt8VectorMetadata.Size + vectors.Dimension];
+            for (int docId = 0; docId < segment.MaxDoc; docId++)
+            {
+                if (!segment.IsLive(docId) || !vectors.HasVector(docId))
+                    continue;
+
+                string id = Assert.Single(segment.GetStoredFields(docId)["id"]);
+                vectors.CopyCanonicalRecordTo(docId, record);
+                hashes.Add(id, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(record)));
+            }
+        }
+        return hashes;
+    }
+
+    private static Dictionary<string, float[]> ReadCanonicalVectors(MMapDirectory directory, string fieldName)
+    {
+        using var searcher = new IndexSearcher(directory);
+        var vectors = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        foreach (var segment in searcher.GetSegmentReaders())
+        {
+            for (int docId = 0; docId < segment.MaxDoc; docId++)
+            {
+                if (!segment.IsLive(docId) || !segment.HasVector(fieldName, docId))
+                    continue;
+                string id = Assert.Single(segment.GetStoredFields(docId)["id"]);
+                vectors.Add(id, Assert.IsType<float[]>(segment.GetVector(fieldName, docId)));
+            }
+        }
+        return vectors;
+    }
+
+    private static Dictionary<int, double> CaptureCanonicalRecall(
+        MMapDirectory directory,
+        string fieldName,
+        IReadOnlyDictionary<string, float[]> canonicalVectors,
+        IReadOnlyList<float[]> queries)
+    {
+        const int topK = 10;
+        using var searcher = new IndexSearcher(directory);
+        Dictionary<int, string> idByGlobalDocId = searcher.GetSegmentReaders()
+            .SelectMany(segment => Enumerable.Range(0, segment.MaxDoc)
+                .Where(segment.IsLive)
+                .Select(docId => (GlobalDocId: segment.DocBase + docId,
+                    Id: Assert.Single(segment.GetStoredFields(docId)["id"]))))
+            .ToDictionary(static row => row.GlobalDocId, static row => row.Id);
+
+        var recalls = new Dictionary<int, double>();
+        for (int queryIndex = 0; queryIndex < queries.Count; queryIndex++)
+        {
+            float[] query = queries[queryIndex];
+            string[] truth = canonicalVectors
+                .Select(pair => (pair.Key, ScoreCanonicalCosine(query, pair.Value)))
+                .OrderByDescending(static row => row.Item2)
+                .ThenBy(static row => row.Key, StringComparer.Ordinal)
+                .Take(topK)
+                .Select(static row => row.Key)
+                .ToArray();
+            HashSet<string> truthIds = truth.ToHashSet(StringComparer.Ordinal);
+            var results = searcher.Search(new VectorQuery(fieldName, query, topK: topK, efSearch: 128), topK);
+            int overlap = results.ScoreDocs.Count(hit =>
+                idByGlobalDocId.TryGetValue(hit.DocId, out string? id) && truthIds.Contains(id));
+            recalls.Add(queryIndex, overlap / (double)truthIds.Count);
+        }
+        return recalls;
+    }
+
+    private static double ScoreCanonicalCosine(ReadOnlySpan<float> query, ReadOnlySpan<float> vector)
+    {
+        double dot = 0d;
+        double querySquaredNorm = 0d;
+        double vectorSquaredNorm = 0d;
+        for (int index = 0; index < query.Length; index++)
+        {
+            dot += (double)query[index] * vector[index];
+            querySquaredNorm += (double)query[index] * query[index];
+            vectorSquaredNorm += (double)vector[index] * vector[index];
+        }
+        return dot / Math.Sqrt(querySquaredNorm * vectorSquaredNorm);
+    }
+
+    private static float[] BuildMergeVector(string id, int dimension)
+    {
+        int seed = 17;
+        foreach (char character in id)
+            seed = unchecked(seed * 31 + character);
+        var random = new Random(seed);
+        var vector = new float[dimension];
+        for (int index = 0; index < vector.Length; index++)
+            vector[index] = (float)(random.NextDouble() * 2 - 1);
+        return vector;
+    }
+
+    [Fact(DisplayName = "Merge: BBQ v3 graphs rebuild with a pinned destination seed")]
+    public void BBQV3ForceMerge_RebuildsGraphWithPinnedSeedAndStableTopology()
+    {
+        byte[] first = BuildMergedBbqGraph(SubDir(nameof(BBQV3ForceMerge_RebuildsGraphWithPinnedSeedAndStableTopology) + "_first"));
+        byte[] second = BuildMergedBbqGraph(SubDir(nameof(BBQV3ForceMerge_RebuildsGraphWithPinnedSeedAndStableTopology) + "_second"));
+        Assert.Equal(first, second);
+    }
+
+    [Theory(DisplayName = "New BBQ rejects dimensions below 128 before writing segment files")]
+    [InlineData(1)]
+    [InlineData(127)]
+    public void BBQV3WriterRejectsUnsupportedDimensionsBeforeSegmentFiles(int dimension)
+    {
+        string dir = SubDir($"{nameof(BBQV3WriterRejectsUnsupportedDimensionsBeforeSegmentFiles)}_{dimension}");
+        using var mmap = new MMapDirectory(dir);
+        using var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 1,
+            VectorQuantisation = VectorQuantisation.BBQ,
+        });
+        var document = new LeanDocument();
+        document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(new float[dimension])));
+        Assert.Throws<ArgumentOutOfRangeException>(() => writer.AddDocument(document));
+        Assert.Empty(Directory.GetFiles(dir, "seg_*.seg"));
+        Assert.Empty(Directory.GetFiles(dir, "segments_*"));
+    }
+
+    [Fact(DisplayName = "New BBQ rejects disabled normalisation before creating writer files")]
+    public void BBQV3WriterRejectsDisabledNormalisationBeforeWriterFiles()
+    {
+        string dir = SubDir(nameof(BBQV3WriterRejectsDisabledNormalisationBeforeWriterFiles));
+        using var mmap = new MMapDirectory(dir);
+        Assert.Throws<ArgumentException>(() => new IndexWriter(mmap, new IndexWriterConfig
+        {
+            NormaliseVectors = false,
+            VectorQuantisation = VectorQuantisation.BBQ,
+        }));
+        Assert.Empty(Directory.GetFiles(dir));
+    }
+
+    private byte[] BuildMergedBbqGraph(string dir)
+    {
+        const int documentCountPerSegment = 16;
+        using var mmap = new MMapDirectory(dir);
+        using var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            BuildHnswOnFlush = true,
+            HnswBuildConfig = new HnswBuildConfig { M = 8, M0 = 16, EfConstruction = 64 },
+            HnswSeed = 101L,
+            MaxBufferedDocs = documentCountPerSegment,
+            MergeThreshold = 100,
+            NormaliseVectors = true,
+            VectorQuantisation = VectorQuantisation.BBQ,
+        });
+
+        for (int docId = 0; docId < documentCountPerSegment; docId++)
+            AddMergeVectorDocument(writer, docId);
+        writer.Commit();
+        writer.Config.HnswSeed = 202L;
+        for (int docId = documentCountPerSegment; docId < documentCountPerSegment * 2; docId++)
+            AddMergeVectorDocument(writer, docId);
+        writer.Commit();
+
+        SegmentInfo[] sources = IndexRecovery.RecoverLatestCommit(dir, cleanupOrphans: false)!.SegmentInfos.ToArray();
+        Assert.Equal(2, sources.Length);
+        using (var searcher = new IndexSearcher(mmap))
+            Assert.Equal(new long[] { 101L, 202L }, searcher.GetSegmentReaders()
+                .Select(static segment => segment.GetHnswGraph("embedding")!.Seed).Order().ToArray());
+
+        writer.ForceMerge(1);
+        writer.Commit();
+        using (var searcher = new IndexSearcher(mmap))
+            Assert.Equal(202L, Assert.Single(searcher.GetSegmentReaders()).GetHnswGraph("embedding")!.Seed);
+
+        string hnswPath = Assert.Single(Directory.GetFiles(dir, "seg_*.hnsw"));
+        return System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(hnswPath));
+    }
+
+    private static void AddMergeVectorDocument(IndexWriter writer, int docId)
+    {
+        float[] vector = BuildMergeVector($"graph-{docId}", 128);
+        var document = new LeanDocument();
+        document.Add(new StringField("id", docId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
+        writer.AddDocument(document);
+    }
+
     private static void AssertCurrentCanonicalFrame(string path)
     {
         Assert.True(CodecCatalog.Default.TryMatchFile(Path.GetFileName(path), out var descriptor));

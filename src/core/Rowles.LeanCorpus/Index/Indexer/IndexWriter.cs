@@ -7,6 +7,7 @@ using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Compatibility;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
@@ -155,6 +156,7 @@ public sealed partial class IndexWriter : IDisposable
                 _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
             // Load existing commit state if present
             CommitManager.LoadLatestCommit(this);
+            EnsureCommittedBbqSegmentsAreWritable();
             foreach (var segment in _committedSegments)
             {
                 foreach (var vectorField in segment.VectorFields)
@@ -383,6 +385,9 @@ public sealed partial class IndexWriter : IDisposable
                 .Select(static segment => segment.DeepCopy())
                 .ToList();
 
+            SegmentMerger.ValidateMergeSources(
+                sourceDirectory, sourceSegments, _config.CodecCatalog, _config.VectorQuantisation);
+
             var incomingDimensions = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var segment in sourceSegments)
             {
@@ -412,7 +417,8 @@ public sealed partial class IndexWriter : IDisposable
                     var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
                         _config.SoftDeleteRetentionSeconds, _config.HnswBuildConfig,
                         useCompoundFile: _config.UseCompoundFile,
-                        destinationVectorQuantisation: _config.VectorQuantisation)
+                        destinationVectorQuantisation: _config.VectorQuantisation,
+                        hnswSeed: _config.HnswSeed)
                     {
                         FileCatalog = _config.CodecCatalog
                     };
@@ -858,6 +864,29 @@ public sealed partial class IndexWriter : IDisposable
             EnsureVectorDimensionsMatch(incoming);
             foreach (var (fieldName, dimension) in incoming)
                 _vectorDimensions.TryAdd(fieldName, dimension);
+        }
+    }
+
+    private void EnsureCommittedBbqSegmentsAreWritable()
+    {
+        foreach (SegmentInfo segment in _committedSegments)
+        {
+            if (!segment.VectorFields.Any(static field => field.Quantisation == VectorQuantisation.BBQ))
+                continue;
+
+            using var reader = new SegmentReader(_directory, segment, _config.CodecCatalog);
+            foreach (VectorFieldInfo field in segment.VectorFields)
+            {
+                if (field.Quantisation != VectorQuantisation.BBQ)
+                    continue;
+
+                if (reader.GetVectorScoringGeneration(field.FieldName) == VectorScoringGeneration.BbqOsqV3)
+                    continue;
+
+                throw new InvalidDataException(
+                    $"Index segment '{segment.SegmentId}' contains legacy BBQ vector field '{field.FieldName}'. " +
+                    "The index remains available for read-only search but cannot be opened for writing because its original vectors are unavailable; reindex from source documents.");
+            }
         }
     }
 

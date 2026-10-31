@@ -1,6 +1,8 @@
-﻿using Rowles.LeanCorpus.Codecs.Hnsw;
+﻿using System.Buffers;
+using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Util;
 using MergeDocument = Rowles.LeanCorpus.Index.Segment.Merging.SegmentMergeDocumentMap.MergeDocument;
 
 namespace Rowles.LeanCorpus.Index.Segment.Merging;
@@ -11,12 +13,18 @@ internal sealed class SegmentMergeVectorWriter
     private readonly MMapDirectory _directory;
     private readonly HnswBuildConfig _hnswBuildConfig;
     private readonly Diagnostics.IMetricsCollector _metrics;
+    private readonly long? _hnswSeed;
 
-    internal SegmentMergeVectorWriter(MMapDirectory directory, HnswBuildConfig config, Diagnostics.IMetricsCollector metrics)
+    internal SegmentMergeVectorWriter(
+        MMapDirectory directory,
+        HnswBuildConfig config,
+        Diagnostics.IMetricsCollector metrics,
+        long? hnswSeed = null)
     {
         _directory = directory;
         _hnswBuildConfig = config;
         _metrics = metrics;
+        _hnswSeed = hnswSeed;
     }
 
     internal sealed class State
@@ -130,7 +138,7 @@ internal sealed class SegmentMergeVectorWriter
                         basePath,
                         dimension,
                         normalised,
-                        quantisation,
+                        GetDestinationScoringGeneration(quantisation),
                         new VectorReaderSource(vectorReader),
                         vectorDocIds,
                         ctx.VectorFieldRemaps);
@@ -139,47 +147,57 @@ internal sealed class SegmentMergeVectorWriter
             else
             {
                 var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                string vecFileName = Path.GetFileName(vecPath);
-                try
+                if (quantisation == VectorQuantisation.BBQ)
                 {
-                    VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, mergedSource, vectorDocIds);
-                    using (var vectorReader = VectorReader.Open(vecPath))
+                    string canonicalPath = string.Concat(vqPath, ".", Guid.NewGuid().ToString("N"), ".canonical.tmp");
+                    try
                     {
-                        var vectorSource = new VectorReaderSource(vectorReader);
-                        switch (quantisation)
-                        {
-                            case VectorQuantisation.Int8:
-                                QuantisedVectorWriter.WriteInt8(
-                                    vqPath, ctx.TotalDocs, dimension, vectorSource, vectorDocIds);
-                                break;
-                            case VectorQuantisation.BBQ:
-                                QuantisedVectorWriter.WriteBBQ(
-                                    vqPath, ctx.TotalDocs, dimension, vectorSource, vectorDocIds);
-                                break;
-                            default:
-                                throw new InvalidDataException(
-                                    $"Unsupported vector quantisation '{quantisation}' during merge of field '{fieldName}'.");
-                        }
+                        byte[] presence = VectorPresence.Create(ctx.TotalDocs, vectorDocIds);
+                        WriteMergedCanonicalRecords(
+                            canonicalPath, ctx.TotalDocs, dimension, fieldName, documentOrder, presence);
+                        using var canonical = CanonicalInt8VectorReader.OpenRecords(
+                            canonicalPath, ctx.TotalDocs, dimension, presence);
+                        QuantisedVectorWriter.WriteBBQOsqCanonical(
+                            vqPath, ctx.TotalDocs, dimension, canonical, vectorDocIds);
                     }
-
-                    if (shouldBuildHnsw)
+                    finally
                     {
-                        using var quantisedReader = QuantisedVectorReader.Open(vqPath);
-                        hasHnsw = BuildAndWriteMergedHnsw(
-                            fieldName,
-                            basePath,
-                            dimension,
-                            normalised,
-                            quantisation,
-                            new QuantisedVectorSource(quantisedReader),
-                            vectorDocIds,
-                            ctx.VectorFieldRemaps);
+                        TryDeleteTemporary(canonicalPath);
                     }
                 }
-                finally
+                else if (quantisation == VectorQuantisation.Int8)
                 {
-                    if (_directory.FileExists(vecFileName))
-                        _directory.DeleteFile(vecFileName);
+                    string vecFileName = Path.GetFileName(vecPath);
+                    try
+                    {
+                        VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, mergedSource, vectorDocIds);
+                        using var vectorReader = VectorReader.Open(vecPath);
+                        var vectorSource = new VectorReaderSource(vectorReader);
+                        QuantisedVectorWriter.WriteInt8(
+                            vqPath, ctx.TotalDocs, dimension, vectorSource, vectorDocIds);
+                    }
+                    finally
+                    {
+                        if (_directory.FileExists(vecFileName))
+                            _directory.DeleteFile(vecFileName);
+                    }
+                }
+                else
+                    throw new InvalidDataException(
+                        $"Unsupported vector quantisation '{quantisation}' during merge of field '{fieldName}'.");
+
+                if (shouldBuildHnsw)
+                {
+                    using var quantisedReader = QuantisedVectorReader.Open(vqPath);
+                    hasHnsw = BuildAndWriteMergedHnsw(
+                        fieldName,
+                        basePath,
+                        dimension,
+                        normalised,
+                        GetDestinationScoringGeneration(quantisation),
+                        new QuantisedVectorSource(quantisedReader),
+                        vectorDocIds,
+                        ctx.VectorFieldRemaps);
                 }
             }
 
@@ -195,12 +213,95 @@ internal sealed class SegmentMergeVectorWriter
         return merged;
     }
 
+    private static void WriteMergedCanonicalRecords(
+        string filePath,
+        int docCount,
+        int dimension,
+        string fieldName,
+        IReadOnlyList<MergeDocument> documentOrder,
+        byte[] presence)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        if (documentOrder.Count != docCount)
+            throw new ArgumentException("Merged document order does not match the canonical destination count.", nameof(documentOrder));
+
+        long recordSize = checked((long)CanonicalInt8VectorMetadata.Size + dimension);
+        var canonicalByReader = new Dictionary<SegmentReader, bool>(ReferenceEqualityComparer.Instance);
+        float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
+        byte[] codeBuffer = ArrayPool<byte>.Shared.Rent(dimension);
+        byte[] recordBuffer = ArrayPool<byte>.Shared.Rent(checked(CanonicalInt8VectorMetadata.Size + dimension));
+        try
+        {
+            using var output = new IndexOutput(filePath, preallocationSize: checked((long)docCount * recordSize));
+            Span<float> vector = vectorBuffer.AsSpan(0, dimension);
+            Span<byte> codes = codeBuffer.AsSpan(0, dimension);
+            Span<byte> record = recordBuffer.AsSpan(0, checked(CanonicalInt8VectorMetadata.Size + dimension));
+
+            for (int destinationDocId = 0; destinationDocId < docCount; destinationDocId++)
+            {
+                MergeDocument document = documentOrder[destinationDocId];
+                bool expectedPresent = (presence[destinationDocId >> 3] & (1 << (destinationDocId & 7))) != 0;
+                bool sourcePresent = document.Reader.HasVector(fieldName, document.OldDocId);
+                if (expectedPresent != sourcePresent)
+                    throw new InvalidDataException(
+                        $"Vector field '{fieldName}' presence differs from the merge remap for source segment '{document.Segment.SegmentId}', document {document.OldDocId}.");
+
+                if (!expectedPresent)
+                {
+                    record.Clear();
+                    output.WriteBytes(record);
+                    continue;
+                }
+
+                if (!canonicalByReader.TryGetValue(document.Reader, out bool hasCanonicalSource))
+                {
+                    hasCanonicalSource = document.Reader.UsesBbqOsq(fieldName);
+                    canonicalByReader.Add(document.Reader, hasCanonicalSource);
+                }
+
+                if (hasCanonicalSource)
+                {
+                    document.Reader.CopyCanonicalVectorRecordTo(fieldName, document.OldDocId, record);
+                }
+                else
+                {
+                    if (!document.Reader.TryCopyVectorTo(fieldName, document.OldDocId, vector))
+                        throw new InvalidDataException(
+                            $"Vector field '{fieldName}' presence changed while merge source segment '{document.Segment.SegmentId}' was read.");
+                    _ = VectorMath.NormaliseInPlace(vector);
+                    CanonicalInt8VectorWriter.WriteRecord(output, vector, codes);
+                    continue;
+                }
+
+                output.WriteBytes(record);
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(recordBuffer, clearArray: true);
+            ArrayPool<byte>.Shared.Return(codeBuffer, clearArray: true);
+            ArrayPool<float>.Shared.Return(vectorBuffer, clearArray: true);
+        }
+    }
+
+    private static void TryDeleteTemporary(string path)
+    {
+        try
+        {
+            FileOpenRetry.Delete(path);
+        }
+        catch (IOException)
+        {
+            // Preserve the original merge failure; recovery can remove an orphaned spool.
+        }
+    }
+
     private bool BuildAndWriteMergedHnsw(
         string fieldName,
         string basePath,
         int dimension,
         bool normalised,
-        VectorQuantisation destinationVectorQuantisation,
+        VectorScoringGeneration destinationScoringGeneration,
         IVectorSource vectorSource,
         IReadOnlyList<int> vectorDocIds,
         IReadOnlyDictionary<string, List<(SegmentInfo Seg, Dictionary<int, int> OldToNew, SegmentReader Reader)>> vectorFieldRemaps)
@@ -209,7 +310,10 @@ internal sealed class SegmentMergeVectorWriter
         HnswGraph? graph = null;
         try
         {
-            if (vectorFieldRemaps.TryGetValue(fieldName, out var remapList) && remapList.Count > 0)
+            bool seedReuseCompatible = destinationScoringGeneration is
+                VectorScoringGeneration.Float32 or VectorScoringGeneration.Int8Scalar;
+            if (seedReuseCompatible &&
+                vectorFieldRemaps.TryGetValue(fieldName, out var remapList) && remapList.Count > 0)
             {
                 var seed = remapList
                     .Where(entry => entry.Seg.VectorFields.Any(field =>
@@ -217,7 +321,7 @@ internal sealed class SegmentMergeVectorWriter
                         && field.HasHnsw
                         && field.Dimension == dimension
                         && field.Normalised == normalised
-                        && field.Quantisation == destinationVectorQuantisation))
+                        && entry.Reader.GetVectorScoringGeneration(fieldName) == destinationScoringGeneration))
                     .OrderByDescending(static entry => entry.OldToNew.Count)
                     .FirstOrDefault();
 
@@ -247,7 +351,7 @@ internal sealed class SegmentMergeVectorWriter
 
             if (graph is null)
             {
-                graph = HnswGraphBuilder.Build(vectorSource, vectorDocIds, _hnswBuildConfig);
+                graph = HnswGraphBuilder.Build(vectorSource, vectorDocIds, _hnswBuildConfig, _hnswSeed);
             }
             else
             {
@@ -265,6 +369,15 @@ internal sealed class SegmentMergeVectorWriter
             graph?.Dispose();
         }
     }
+
+    private static VectorScoringGeneration GetDestinationScoringGeneration(VectorQuantisation quantisation)
+        => quantisation switch
+        {
+            VectorQuantisation.None => VectorScoringGeneration.Float32,
+            VectorQuantisation.Int8 => VectorScoringGeneration.Int8Scalar,
+            VectorQuantisation.BBQ => VectorScoringGeneration.BbqOsqV3,
+            _ => throw new InvalidDataException($"Unsupported vector quantisation '{quantisation}' for HNSW scoring."),
+        };
 
     private sealed class MergedDocumentVectorSource : IVectorSource
     {

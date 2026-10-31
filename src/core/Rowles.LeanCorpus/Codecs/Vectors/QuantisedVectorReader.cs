@@ -372,6 +372,20 @@ internal sealed class QuantisedVectorReader : IDisposable
         _canonical!.CopyCanonicalRecordTo(docId, destination);
     }
 
+    internal void CopyCanonicalMetadataTo(int docId, ISequentialIndexOutput destination)
+    {
+        if (_storageKind != QuantisedVectorStorageKind.BbqOsqCanonicalInt8)
+            throw new InvalidOperationException("Canonical Int8 metadata is only available for BBQ OSQ canonical storage.");
+        _canonical!.CopyCanonicalMetadataTo(docId, destination);
+    }
+
+    internal void CopyCanonicalCodesTo(int docId, ISequentialIndexOutput destination)
+    {
+        if (_storageKind != QuantisedVectorStorageKind.BbqOsqCanonicalInt8)
+            throw new InvalidOperationException("Canonical Int8 codes are only available for BBQ OSQ canonical storage.");
+        _canonical!.CopyCanonicalCodesTo(docId, destination);
+    }
+
     internal PreparedBbqQuery PrepareBbqQuery(ReadOnlySpan<float> query)
     {
         if (_storageKind != QuantisedVectorStorageKind.BbqOsqCanonicalInt8)

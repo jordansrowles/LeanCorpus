@@ -166,7 +166,7 @@ internal sealed class CanonicalInt8VectorReader : ICanonicalVectorSource, IDispo
     }
 
     /// <summary>Streams the exact metadata bytes for one row into a v3 body or merge destination.</summary>
-    internal void CopyCanonicalMetadataTo(int docId, ISequentialIndexOutput destination)
+    public void CopyCanonicalMetadataTo(int docId, ISequentialIndexOutput destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
         ValidateDocId(docId);
@@ -175,7 +175,7 @@ internal sealed class CanonicalInt8VectorReader : ICanonicalVectorSource, IDispo
     }
 
     /// <summary>Streams the exact code bytes for one row into a v3 body or merge destination.</summary>
-    internal void CopyCanonicalCodesTo(int docId, ISequentialIndexOutput destination)
+    public void CopyCanonicalCodesTo(int docId, ISequentialIndexOutput destination)
     {
         ArgumentNullException.ThrowIfNull(destination);
         ValidateDocId(docId);

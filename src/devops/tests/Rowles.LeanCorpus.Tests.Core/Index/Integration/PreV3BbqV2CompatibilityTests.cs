@@ -2,9 +2,12 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Document;
+using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Compatibility;
 using Rowles.LeanCorpus.Index.Format;
+using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
@@ -131,6 +134,76 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
             migratedBody.AsSpan(commonMetadataLength + 1).ToArray());
         Assert.Equal(originalScores, CaptureSearchScores(indexPath));
     }
+
+    [Theory(DisplayName = "Legacy BBQ remains readable but cannot be opened for writing")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void WriterOpenRejectsLegacyBbqWithoutMutatingTheIndex(bool migrateToTaggedV3)
+    {
+        string extracted = HistoricalIndexFixtures.Extract(
+            HistoricalIndexFixture.PreV3BbqV2,
+            Path.Combine(_fixture.Path, $"pre-v3-bbq-writer-guard-{migrateToTaggedV3}-{Guid.NewGuid():N}"));
+        string indexPath = Path.Combine(extracted, "loose");
+        if (migrateToTaggedV3)
+        {
+            using var migrationDirectory = new MMapDirectory(indexPath);
+            IndexCodecMigrationResult migration = IndexCodecMigrator.Migrate(migrationDirectory,
+                new IndexCodecMigrationOptions { DryRun = false, ValidateBeforeMigration = true, ValidateAfterMigration = true });
+            Assert.True(migration.Succeeded, string.Join("; ", migration.Issues.Select(static issue => issue.Message)));
+        }
+
+        Dictionary<string, string> before = SnapshotFiles(indexPath);
+        using var directory = new MMapDirectory(indexPath);
+        InvalidDataException exception = Assert.Throws<InvalidDataException>(() =>
+            new IndexWriter(directory, new IndexWriterConfig { VectorQuantisation = VectorQuantisation.BBQ }));
+        Assert.True(
+            exception.Message.Contains("legacy BBQ", StringComparison.OrdinalIgnoreCase) ||
+            exception.Message.Contains("older codec files", StringComparison.OrdinalIgnoreCase),
+            $"Writer-open rejection should identify the legacy BBQ limitation or required structural migration: {exception.Message}");
+        Assert.Equal(before, SnapshotFiles(indexPath));
+
+        using var searcher = new IndexSearcher(directory);
+        var results = searcher.Search(
+            new VectorQuery("embedding", CreateBasisVector(128, 0), topK: 5, efSearch: 128), topN: 5);
+        ScoreDoc best = Assert.Single(results.ScoreDocs.Where(static hit => hit.DocId == 1));
+        Assert.Equal(0.09225467f, best.Score, 5);
+    }
+
+    [Fact(DisplayName = "AddIndexes rejects legacy BBQ before flushing pending destination documents")]
+    public void AddIndexesRejectsLegacyBbqBeforeDestinationMutation()
+    {
+        string extracted = HistoricalIndexFixtures.Extract(
+            HistoricalIndexFixture.PreV3BbqV2,
+            Path.Combine(_fixture.Path, $"pre-v3-bbq-import-guard-{Guid.NewGuid():N}"));
+        string sourcePath = Path.Combine(extracted, "loose");
+        string targetPath = Path.Combine(_fixture.Path, $"pre-v3-bbq-import-target-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(targetPath);
+
+        using var source = new MMapDirectory(sourcePath);
+        using var target = new MMapDirectory(targetPath);
+        using var writer = new IndexWriter(target, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 8,
+            VectorQuantisation = VectorQuantisation.BBQ,
+        });
+        var pending = new LeanDocument();
+        pending.Add(new StringField("id", "pending"));
+        writer.AddDocument(pending);
+
+        InvalidDataException exception = Assert.Throws<InvalidDataException>(() => writer.AddIndexes(source));
+        Assert.Contains("legacy BBQ", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.GetFiles(targetPath, "seg_*.seg"));
+
+        writer.Commit();
+        using var searcher = new IndexSearcher(target);
+        Assert.Equal(1, searcher.Search(new TermQuery("id", "pending"), 10).TotalHits);
+        Assert.Equal(0, searcher.Search(new VectorQuery("embedding", CreateBasisVector(128, 0), topK: 5), 5).TotalHits);
+    }
+
+    private static Dictionary<string, string> SnapshotFiles(string directory)
+        => Directory.GetFiles(directory)
+            .Order(StringComparer.Ordinal)
+            .ToDictionary(static path => Path.GetFileName(path)!, static path => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))), StringComparer.Ordinal);
 
     private static JsonElement ReadAndVerifyManifest(string extracted)
     {

@@ -45,3 +45,12 @@ public sealed class VectorFieldInfo
             throw new InvalidDataException($"Vector field '{FieldName}' has an undefined quantisation value '{Quantisation}'.");
     }
 }
+
+/// <summary>Identifies the persisted similarity function used by an HNSW graph.</summary>
+internal enum VectorScoringGeneration : byte
+{
+    Float32 = 0,
+    Int8Scalar = 1,
+    LegacyBbqSign = 2,
+    BbqOsqV3 = 3,
+}

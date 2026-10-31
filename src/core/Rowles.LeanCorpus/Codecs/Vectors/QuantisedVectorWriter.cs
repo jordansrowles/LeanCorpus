@@ -47,120 +47,137 @@ internal static class QuantisedVectorWriter
         if (dimension < 128)
             throw new ArgumentOutOfRangeException(nameof(dimension), dimension,
                 "New BBQ v3 fields require at least 128 dimensions.");
-
         byte[] presence = VectorPresence.Create(docCount, vectorDocIds);
-        int packedBytes = checked((dimension + 7) / 8);
         string canonicalPath = string.Concat(filePath, ".", Guid.NewGuid().ToString("N"), ".canonical.tmp");
-        string osqCodesPath = string.Concat(filePath, ".", Guid.NewGuid().ToString("N"), ".osq.tmp");
-
         try
         {
             CanonicalInt8VectorWriter.WriteRecords(canonicalPath, docCount, dimension, vectorsByDoc, vectorDocIds);
             using CanonicalInt8VectorReader canonical = CanonicalInt8VectorReader.OpenRecords(canonicalPath, docCount, dimension, presence);
-
-            float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
-            float[] residualBuffer = ArrayPool<float>.Shared.Rent(dimension);
-            byte[] codeBuffer = ArrayPool<byte>.Shared.Rent(dimension);
-            byte[] packedBuffer = ArrayPool<byte>.Shared.Rent(packedBytes);
-            float[] centroidBuffer = ArrayPool<float>.Shared.Rent(dimension);
-            try
-            {
-                Span<float> vector = vectorBuffer.AsSpan(0, dimension);
-                Span<float> centroid = centroidBuffer.AsSpan(0, dimension);
-                centroid.Clear();
-
-                foreach (int docId in vectorDocIds)
-                {
-                    canonical.CopyVectorTo(docId, vector);
-                    _ = VectorMath.NormaliseInPlace(vector);
-                    for (int index = 0; index < dimension; index++)
-                        centroid[index] += vector[index];
-                }
-
-                if (vectorDocIds.Count > 0)
-                {
-                    float divisor = vectorDocIds.Count;
-                    for (int index = 0; index < dimension; index++)
-                        centroid[index] /= divisor;
-                    _ = VectorMath.NormaliseInPlace(centroid);
-                }
-
-                float centroidSquaredNorm = Dot(centroid, centroid);
-                CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
-                {
-                    Span<float> outputVector = vectorBuffer.AsSpan(0, dimension);
-                    Span<float> outputResiduals = residualBuffer.AsSpan(0, dimension);
-                    Span<byte> outputCodes = codeBuffer.AsSpan(0, dimension);
-                    Span<byte> outputPacked = packedBuffer.AsSpan(0, packedBytes);
-                    Span<float> outputCentroid = centroidBuffer.AsSpan(0, dimension);
-
-                    bodyOutput.WriteInt32(docCount);
-                    bodyOutput.WriteInt32(dimension);
-                    bodyOutput.WriteByte((byte)VectorQuantisation.BBQ);
-                    bodyOutput.WriteBytes(presence, 0, presence.Length);
-                    bodyOutput.WriteByte((byte)QuantisedVectorStorageKind.BbqOsqCanonicalInt8);
-                    bodyOutput.WriteByte((byte)CanonicalVectorEncoding.PerVectorUnsigned8);
-                    for (int index = 0; index < dimension; index++)
-                        bodyOutput.WriteSingle(outputCentroid[index]);
-                    bodyOutput.WriteSingle(centroidSquaredNorm);
-
-                    using (var codeOutput = new IndexOutput(osqCodesPath,
-                               preallocationSize: checked((long)docCount * packedBytes)))
-                    {
-                        for (int docId = 0; docId < docCount; docId++)
-                        {
-                            if (!canonical.HasVector(docId))
-                            {
-                                bodyOutput.WriteSingle(0f);
-                                bodyOutput.WriteSingle(0f);
-                                bodyOutput.WriteSingle(0f);
-                                bodyOutput.WriteInt32(0);
-                                outputPacked.Clear();
-                                codeOutput.WriteBytes(outputPacked);
-                                continue;
-                            }
-
-                            canonical.CopyVectorTo(docId, outputVector);
-                            _ = VectorMath.NormaliseInPlace(outputVector);
-                            BbqOsqCorrections corrections = OptimizedScalarQuantiser.Quantize(
-                                outputVector, outputCentroid, bits: 1, outputResiduals, outputCodes);
-                            OptimizedScalarQuantiser.PackBinary(outputCodes, outputPacked);
-                            bodyOutput.WriteSingle(corrections.LowerInterval);
-                            bodyOutput.WriteSingle(corrections.UpperInterval);
-                            bodyOutput.WriteSingle(corrections.AdditionalCorrection);
-                            bodyOutput.WriteInt32(corrections.CodeSum);
-                            codeOutput.WriteBytes(outputPacked);
-                        }
-                    }
-
-                    using (var codeInput = new IndexInput(osqCodesPath))
-                    {
-                        for (int docId = 0; docId < docCount; docId++)
-                        {
-                            long position = (long)docId * packedBytes;
-                            bodyOutput.WriteBytes(codeInput.BorrowSpan(packedBytes, ref position));
-                        }
-                    }
-
-                    for (int docId = 0; docId < docCount; docId++)
-                        canonical.CopyCanonicalMetadataTo(docId, bodyOutput);
-                    for (int docId = 0; docId < docCount; docId++)
-                        canonical.CopyCanonicalCodesTo(docId, bodyOutput);
-                });
-            }
-            finally
-            {
-                ArrayPool<float>.Shared.Return(centroidBuffer, clearArray: true);
-                ArrayPool<byte>.Shared.Return(packedBuffer, clearArray: true);
-                ArrayPool<byte>.Shared.Return(codeBuffer, clearArray: true);
-                ArrayPool<float>.Shared.Return(residualBuffer, clearArray: true);
-                ArrayPool<float>.Shared.Return(vectorBuffer, clearArray: true);
-            }
+            WriteBBQOsqCanonical(filePath, docCount, dimension, canonical, vectorDocIds);
         }
         finally
         {
             TryDeleteTemporary(canonicalPath);
+        }
+    }
+
+    /// <summary>Rebuilds the segment OSQ data while streaming existing canonical records unchanged.</summary>
+    internal static void WriteBBQOsqCanonical(
+        string filePath,
+        int docCount,
+        int dimension,
+        ICanonicalVectorSource canonical,
+        IReadOnlyList<int> vectorDocIds)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
+        ValidateSparseSource(docCount, dimension, canonical, vectorDocIds);
+        if (dimension < 128)
+            throw new ArgumentOutOfRangeException(nameof(dimension), dimension,
+                "New BBQ v3 fields require at least 128 dimensions.");
+        foreach (int docId in vectorDocIds)
+            if (!canonical.HasVector(docId))
+                throw new InvalidDataException($"Canonical source is missing declared vector document {docId}.");
+
+        byte[] presence = VectorPresence.Create(docCount, vectorDocIds);
+        int packedBytes = checked((dimension + 7) / 8);
+        string osqCodesPath = string.Concat(filePath, ".", Guid.NewGuid().ToString("N"), ".osq.tmp");
+        float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
+        float[] residualBuffer = ArrayPool<float>.Shared.Rent(dimension);
+        byte[] codeBuffer = ArrayPool<byte>.Shared.Rent(dimension);
+        byte[] packedBuffer = ArrayPool<byte>.Shared.Rent(packedBytes);
+        float[] centroidBuffer = ArrayPool<float>.Shared.Rent(dimension);
+        try
+        {
+            Span<float> vector = vectorBuffer.AsSpan(0, dimension);
+            Span<float> centroid = centroidBuffer.AsSpan(0, dimension);
+            centroid.Clear();
+            foreach (int docId in vectorDocIds)
+            {
+                canonical.CopyVectorTo(docId, vector);
+                _ = VectorMath.NormaliseInPlace(vector);
+                for (int index = 0; index < dimension; index++)
+                    centroid[index] += vector[index];
+            }
+
+            if (vectorDocIds.Count > 0)
+            {
+                float divisor = vectorDocIds.Count;
+                for (int index = 0; index < dimension; index++)
+                    centroid[index] /= divisor;
+                _ = VectorMath.NormaliseInPlace(centroid);
+            }
+
+            float centroidSquaredNorm = Dot(centroid, centroid);
+            CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
+            {
+                Span<float> outputVector = vectorBuffer.AsSpan(0, dimension);
+                Span<float> outputResiduals = residualBuffer.AsSpan(0, dimension);
+                Span<byte> outputCodes = codeBuffer.AsSpan(0, dimension);
+                Span<byte> outputPacked = packedBuffer.AsSpan(0, packedBytes);
+                Span<float> outputCentroid = centroidBuffer.AsSpan(0, dimension);
+
+                bodyOutput.WriteInt32(docCount);
+                bodyOutput.WriteInt32(dimension);
+                bodyOutput.WriteByte((byte)VectorQuantisation.BBQ);
+                bodyOutput.WriteBytes(presence, 0, presence.Length);
+                bodyOutput.WriteByte((byte)QuantisedVectorStorageKind.BbqOsqCanonicalInt8);
+                bodyOutput.WriteByte((byte)CanonicalVectorEncoding.PerVectorUnsigned8);
+                for (int index = 0; index < dimension; index++)
+                    bodyOutput.WriteSingle(outputCentroid[index]);
+                bodyOutput.WriteSingle(centroidSquaredNorm);
+
+                using (var codeOutput = new IndexOutput(osqCodesPath,
+                           preallocationSize: checked((long)docCount * packedBytes)))
+                {
+                    for (int docId = 0; docId < docCount; docId++)
+                    {
+                        if (!canonical.HasVector(docId))
+                        {
+                            bodyOutput.WriteSingle(0f);
+                            bodyOutput.WriteSingle(0f);
+                            bodyOutput.WriteSingle(0f);
+                            bodyOutput.WriteInt32(0);
+                            outputPacked.Clear();
+                            codeOutput.WriteBytes(outputPacked);
+                            continue;
+                        }
+
+                        canonical.CopyVectorTo(docId, outputVector);
+                        _ = VectorMath.NormaliseInPlace(outputVector);
+                        BbqOsqCorrections corrections = OptimizedScalarQuantiser.Quantize(
+                            outputVector, outputCentroid, bits: 1, outputResiduals, outputCodes);
+                        OptimizedScalarQuantiser.PackBinary(outputCodes, outputPacked);
+                        bodyOutput.WriteSingle(corrections.LowerInterval);
+                        bodyOutput.WriteSingle(corrections.UpperInterval);
+                        bodyOutput.WriteSingle(corrections.AdditionalCorrection);
+                        bodyOutput.WriteInt32(corrections.CodeSum);
+                        codeOutput.WriteBytes(outputPacked);
+                    }
+                }
+
+                using (var codeInput = new IndexInput(osqCodesPath))
+                {
+                    for (int docId = 0; docId < docCount; docId++)
+                    {
+                        long position = (long)docId * packedBytes;
+                        bodyOutput.WriteBytes(codeInput.BorrowSpan(packedBytes, ref position));
+                    }
+                }
+
+                for (int docId = 0; docId < docCount; docId++)
+                    canonical.CopyCanonicalMetadataTo(docId, bodyOutput);
+                for (int docId = 0; docId < docCount; docId++)
+                    canonical.CopyCanonicalCodesTo(docId, bodyOutput);
+            });
+        }
+        finally
+        {
             TryDeleteTemporary(osqCodesPath);
+            ArrayPool<float>.Shared.Return(centroidBuffer, clearArray: true);
+            ArrayPool<byte>.Shared.Return(packedBuffer, clearArray: true);
+            ArrayPool<byte>.Shared.Return(codeBuffer, clearArray: true);
+            ArrayPool<float>.Shared.Return(residualBuffer, clearArray: true);
+            ArrayPool<float>.Shared.Return(vectorBuffer, clearArray: true);
         }
     }
 
