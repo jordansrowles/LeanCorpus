@@ -28,6 +28,9 @@ public enum HistoricalIndexFixture
 
     /// <summary>Package-generated comprehensive 3.1.1 compound release corpus.</summary>
     Version311ReleaseCompound,
+
+    /// <summary>Loose and compound BBQ v2 indexes generated from the pinned 31 October branch baseline.</summary>
+    PreV3BbqV2,
 }
 
 /// <summary>
@@ -83,6 +86,9 @@ public static class HistoricalIndexFixtures
             HistoricalIndexFixture.Version311ReleaseCompound => new(
                 prefix + "3.1.1-release-compound.fixture.b64",
                 "e3adfcba53955611f65282e3080f19035d15fa1ed2b8612f110de4d1b60c79a2"),
+            HistoricalIndexFixture.PreV3BbqV2 => new(
+                prefix + "pre-v3-bbq-v2.fixture.b64",
+                "189d29dbe1fe84cbd5806ab56c32babcada457efdb1c3ff5da9f6530b11f2b9c"),
             _ => throw new ArgumentOutOfRangeException(nameof(fixture), fixture, "Unknown historical index fixture."),
         };
     }

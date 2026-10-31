@@ -47,5 +47,31 @@
         }
       ]
     }
+  ],
+  "branchSnapshots": [
+    {
+      "id": "pre-v3-bbq-v2",
+      "sourceBranch": "fix/bbq-retrieval-quality",
+      "sourceCommit": "3dab5b656c0077470cd216646ba085a04fa40ef3",
+      "sourceCommitParent": "25c1c5a356653699574896a98d8f736e5b81cc74",
+      "generatorSdk": "11.0.100-preview.7.26381.103",
+      "generatorRuntime": "10.0.14",
+      "generationSeed": 311031,
+      "dimension": 128,
+      "documentCount": 8,
+      "fieldName": "embedding",
+      "quantisation": "BBQ",
+      "bodyVersion": 2,
+      "archiveFile": "pre-v3-bbq-v2.fixture.b64",
+      "baselinePath": "src/devops/tests/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/pre-v3-bbq-v2.fixture.b64",
+      "archiveSha256": "189d29dbe1fe84cbd5806ab56c32babcada457efdb1c3ff5da9f6530b11f2b9c",
+      "manifestFile": "pre-v3-bbq-v2.manifest.json",
+      "manifestPath": "src/devops/tests/Rowles.LeanCorpus.Tests.Shared/Fixtures/Indexes/pre-v3-bbq-v2.manifest.json",
+      "manifestSha256": "f71470b5cb9a53a80807bba3ffd4ba8390a08c09a90556c7348a80824bf4c726",
+      "generatorProjectPath": "src/devops/tests/fixtures/historical/branch-snapshots/pre-v3-bbq/PreV3BbqSnapshotGenerator.csproj",
+      "generatorProjectSha256": "eb8e8e19c33e15dbe97fc8e3062982544089597d99e42f976d20fd6ebcdfd7dd",
+      "generatorSourcePath": "src/devops/tests/fixtures/historical/branch-snapshots/pre-v3-bbq/Program.cs",
+      "generatorSourceSha256": "0181727facdd54df4ba317fc399c3b82ced670b0f812de8693dd7580db6e9df8"
+    }
   ]
 }

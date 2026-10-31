@@ -4,6 +4,8 @@ This tree generates historical physical index snapshots using a published
 LeanCorpus NuGet package. It is excluded from the normal solution build.
 `fixtures.json` pins each supported package archive and
 assembly, version project, scenario, output manifest and committed archive.
+It also pins the pre-v3 BBQ branch snapshot generated from the exact
+`fix/bbq-retrieval-quality` baseline recorded under `branchSnapshots`.
 
 List available scenarios with:
 
@@ -35,6 +37,12 @@ compound indexes, with two segments per layout and sparse graph membership.
 The `migration` scenario preserves the comprehensive release corpus in loose
 and compound layouts, including stored fields, deletions, vector and Geo
 compatibility data.
+
+The `branchSnapshots` entry is a frozen compatibility input, not a package
+generation scenario. Its one-purpose generator lives in
+`branch-snapshots/pre-v3-bbq`, requires the pinned baseline commit, and writes
+only to a new directory outside the repository. Ordinary tests use the
+committed archive and manifest; they never rerun this generator.
 
 `data migration-fixtures-311` remains as a deprecated alias for the migration
 scenario while automation moves to `data fixtures --version 3.1.1 --scenario

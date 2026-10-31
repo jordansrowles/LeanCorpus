@@ -1,0 +1,140 @@
+{
+  "FixtureFormatVersion": 1,
+  "FixtureId": "pre-v3-bbq-v2",
+  "SourceRepository": "https://github.com/jordansrowles/LeanCorpus",
+  "SourceBranch": "fix/bbq-retrieval-quality",
+  "SourceCommit": "3dab5b656c0077470cd216646ba085a04fa40ef3",
+  "SourceCommitParent": "25c1c5a356653699574896a98d8f736e5b81cc74",
+  "GeneratorSdk": "11.0.100-preview.7.26381.103",
+  "GeneratorRuntime": "10.0.14",
+  "GenerationSeed": 311031,
+  "Dimension": 128,
+  "DocumentCount": 8,
+  "FieldName": "embedding",
+  "Normalised": true,
+  "Quantisation": "BBQ",
+  "QuantisedVectorBodyVersion": 2,
+  "Layouts": [
+    "loose",
+    "compound"
+  ],
+  "PresentVectorDocumentIds": [
+    0,
+    1,
+    2,
+    4,
+    6
+  ],
+  "ExplicitZeroVectorDocumentIds": [
+    0
+  ],
+  "MissingVectorDocumentIds": [
+    3,
+    5,
+    7
+  ],
+  "ArchiveFile": "pre-v3-bbq-v2.fixture.b64",
+  "ArchiveSha256": "189d29dbe1fe84cbd5806ab56c32babcada457efdb1c3ff5da9f6530b11f2b9c",
+  "Files": [
+    {
+      "Name": "compound/seg_0.cfs",
+      "Length": 2490,
+      "Sha256": "ecf920da37d8a5cc18497cbcfaa6a4ab98a694efad8d527c44142e06e67347f0"
+    },
+    {
+      "Name": "compound/seg_0.seg",
+      "Length": 462,
+      "Sha256": "24512dbc4a548c4b05c1098f36701186d0d5e859b3f0e478078b98e3a464fa3e"
+    },
+    {
+      "Name": "compound/seg_0.stats.json",
+      "Length": 114,
+      "Sha256": "c2ab2fb5629d133e21c9bdb886d23763ea7167e71ab1cdade4d7d12be8820f04"
+    },
+    {
+      "Name": "compound/segments_1",
+      "Length": 187,
+      "Sha256": "7e3052f333b2ef6910b45cc832060d9dff7db3a46f262aa853da0e244e9609be"
+    },
+    {
+      "Name": "compound/stats_1.json",
+      "Length": 141,
+      "Sha256": "d755c6d8147a7e3f263951bc96cdd7a3ba9e2146badd652b56259d7979c9dab8"
+    },
+    {
+      "Name": "loose/seg_0.dic",
+      "Length": 115,
+      "Sha256": "806b47d441567d30680e7b1134e000ea238443de7780f09a64b374c21df49a28"
+    },
+    {
+      "Name": "loose/seg_0.dss",
+      "Length": 143,
+      "Sha256": "dd11e234cd958e9be5e09df54c51ca6bd974eb627b16528dbf423edb512df5da"
+    },
+    {
+      "Name": "loose/seg_0.dvb",
+      "Length": 155,
+      "Sha256": "355190267e167559f7d9bc85bd9ba1785d8faa5e78c50b62c73e250d58b7538f"
+    },
+    {
+      "Name": "loose/seg_0.dvs",
+      "Length": 99,
+      "Sha256": "6f2316f2036da06481d3bfd8c7289f9c8861733fa2a8f532da76c7cd1cb635a0"
+    },
+    {
+      "Name": "loose/seg_0.fdt",
+      "Length": 147,
+      "Sha256": "1d7e6d3511d416fd7aee1aa293168a74fcb457a52f9e3c89dbd089a2dc309cb8"
+    },
+    {
+      "Name": "loose/seg_0.fdx",
+      "Length": 92,
+      "Sha256": "d7104d42a4f4d57357d0373c78cd319bedb38964a422e459ea8ba9212ac40ce9"
+    },
+    {
+      "Name": "loose/seg_0.fln",
+      "Length": 65,
+      "Sha256": "9ba7807d9dc9576b55a962ac2188a685253696566cdf6ba01a0e01f058c94d49"
+    },
+    {
+      "Name": "loose/seg_0.nrm",
+      "Length": 54,
+      "Sha256": "aa059da328f54fe5b01d757145cdaf90fef15d1a21f137e364b79db256076a70"
+    },
+    {
+      "Name": "loose/seg_0.pos",
+      "Length": 296,
+      "Sha256": "568f7fa99ecc0706a742dbf0326261ecec63fe91a65291b7f56bd517e95b8233"
+    },
+    {
+      "Name": "loose/seg_0.seg",
+      "Length": 568,
+      "Sha256": "68c2b17f7016ef3c00dfed07640168af77d87c8eb2f8b021116464f6c43bc517"
+    },
+    {
+      "Name": "loose/seg_0.stats.json",
+      "Length": 114,
+      "Sha256": "c2ab2fb5629d133e21c9bdb886d23763ea7167e71ab1cdade4d7d12be8820f04"
+    },
+    {
+      "Name": "loose/seg_0_v_embedding.hnsw",
+      "Length": 196,
+      "Sha256": "f9aa30d4e18785c7a1913269a6bd23c5a38bcf8859617f925f352c03510e5b37"
+    },
+    {
+      "Name": "loose/seg_0_v_embedding.vq",
+      "Length": 806,
+      "Sha256": "a98aa23edd65b5b82efa1d3909fc61e66882ec48c180497afe59c27766c42bfa"
+    },
+    {
+      "Name": "loose/segments_1",
+      "Length": 187,
+      "Sha256": "7e3052f333b2ef6910b45cc832060d9dff7db3a46f262aa853da0e244e9609be"
+    },
+    {
+      "Name": "loose/stats_1.json",
+      "Length": 141,
+      "Sha256": "d755c6d8147a7e3f263951bc96cdd7a3ba9e2146badd652b56259d7979c9dab8"
+    }
+  ]
+}

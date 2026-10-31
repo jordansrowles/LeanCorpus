@@ -4,7 +4,9 @@ using System.Xml.Linq;
 
 namespace Rowles.LeanCorpus.DevOps.Data;
 
-internal sealed record HistoricalFixtureCatalog(IReadOnlyList<HistoricalFixtureVersion> Versions)
+internal sealed record HistoricalFixtureCatalog(
+    IReadOnlyList<HistoricalFixtureVersion> Versions,
+    IReadOnlyList<HistoricalFixtureBranchSnapshot> BranchSnapshots)
 {
     internal const string FixtureTree = "src/devops/tests/fixtures/historical";
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -32,7 +34,16 @@ internal sealed record HistoricalFixtureCatalog(IReadOnlyList<HistoricalFixtureV
                 throw new InvalidDataException($"Historical fixture version '{version.Version}' is duplicated.");
         }
 
-        return new HistoricalFixtureCatalog(catalog.Versions);
+        IReadOnlyList<HistoricalFixtureBranchSnapshot> branchSnapshots = catalog.BranchSnapshots ?? [];
+        var seenSnapshots = new HashSet<string>(StringComparer.Ordinal);
+        foreach (HistoricalFixtureBranchSnapshot snapshot in branchSnapshots)
+        {
+            ValidateBranchSnapshot(root, snapshot);
+            if (!seenSnapshots.Add(snapshot.Id))
+                throw new InvalidDataException($"Historical branch snapshot '{snapshot.Id}' is duplicated.");
+        }
+
+        return new HistoricalFixtureCatalog(catalog.Versions, branchSnapshots);
     }
 
     public HistoricalFixtureVersion GetVersion(string version)
@@ -124,6 +135,53 @@ internal sealed record HistoricalFixtureCatalog(IReadOnlyList<HistoricalFixtureV
         }
     }
 
+    private static void ValidateBranchSnapshot(string repositoryRoot, HistoricalFixtureBranchSnapshot snapshot)
+    {
+        if (string.IsNullOrWhiteSpace(snapshot.Id) || string.IsNullOrWhiteSpace(snapshot.SourceBranch) ||
+            !IsGitCommitId(snapshot.SourceCommit) || !IsGitCommitId(snapshot.SourceCommitParent) ||
+            string.IsNullOrWhiteSpace(snapshot.GeneratorSdk) || string.IsNullOrWhiteSpace(snapshot.GeneratorRuntime) ||
+            snapshot.GenerationSeed <= 0 || snapshot.Dimension <= 0 || snapshot.DocumentCount <= 0 ||
+            string.IsNullOrWhiteSpace(snapshot.FieldName) || snapshot.Quantisation != "BBQ" ||
+            snapshot.BodyVersion != 2 || !IsSafeFileName(snapshot.ArchiveFile) ||
+            !IsSafeFileName(snapshot.ManifestFile) || !IsSha256(snapshot.ArchiveSha256) ||
+            !IsSha256(snapshot.ManifestSha256) || !IsSha256(snapshot.GeneratorProjectSha256) ||
+            !IsSha256(snapshot.GeneratorSourceSha256))
+            throw new InvalidDataException($"Historical branch snapshot '{snapshot.Id}' has invalid provenance or pins.");
+
+        string archivePath = ResolveCatalogPath(repositoryRoot, snapshot.BaselinePath);
+        if (!string.Equals(Path.GetFileName(archivePath), snapshot.ArchiveFile, StringComparison.Ordinal))
+            throw new InvalidDataException($"Historical branch snapshot '{snapshot.Id}' archive name does not match its baseline path.");
+        VerifyHash(archivePath, snapshot.ArchiveSha256);
+
+        string manifestPath = ResolveCatalogPath(repositoryRoot, snapshot.ManifestPath);
+        if (!string.Equals(Path.GetFileName(manifestPath), snapshot.ManifestFile, StringComparison.Ordinal))
+            throw new InvalidDataException($"Historical branch snapshot '{snapshot.Id}' manifest name does not match its path.");
+        VerifyHash(manifestPath, snapshot.ManifestSha256);
+
+        string generatorProjectPath = ResolveCatalogPath(repositoryRoot, snapshot.GeneratorProjectPath);
+        string generatorSourcePath = ResolveCatalogPath(repositoryRoot, snapshot.GeneratorSourcePath);
+        VerifyHash(generatorProjectPath, snapshot.GeneratorProjectSha256);
+        VerifyHash(generatorSourcePath, snapshot.GeneratorSourceSha256);
+
+        using JsonDocument manifest = JsonDocument.Parse(File.ReadAllBytes(manifestPath));
+        JsonElement root = manifest.RootElement;
+        if (root.GetProperty("FixtureId").GetString() != snapshot.Id ||
+            root.GetProperty("SourceBranch").GetString() != snapshot.SourceBranch ||
+            root.GetProperty("SourceCommit").GetString() != snapshot.SourceCommit ||
+            root.GetProperty("SourceCommitParent").GetString() != snapshot.SourceCommitParent ||
+            root.GetProperty("GeneratorSdk").GetString() != snapshot.GeneratorSdk ||
+            root.GetProperty("GeneratorRuntime").GetString() != snapshot.GeneratorRuntime ||
+            root.GetProperty("GenerationSeed").GetInt64() != snapshot.GenerationSeed ||
+            root.GetProperty("Dimension").GetInt32() != snapshot.Dimension ||
+            root.GetProperty("DocumentCount").GetInt32() != snapshot.DocumentCount ||
+            root.GetProperty("FieldName").GetString() != snapshot.FieldName ||
+            root.GetProperty("Quantisation").GetString() != snapshot.Quantisation ||
+            root.GetProperty("QuantisedVectorBodyVersion").GetInt32() != snapshot.BodyVersion ||
+            root.GetProperty("ArchiveFile").GetString() != snapshot.ArchiveFile ||
+            root.GetProperty("ArchiveSha256").GetString() != snapshot.ArchiveSha256)
+            throw new InvalidDataException($"Historical branch snapshot '{snapshot.Id}' manifest does not match its catalogue pins.");
+    }
+
     private static void VerifyHash(string path, string expectedHash)
     {
         byte[] bytes = path.EndsWith(".fixture.b64", StringComparison.Ordinal)
@@ -137,6 +195,9 @@ internal sealed record HistoricalFixtureCatalog(IReadOnlyList<HistoricalFixtureV
     private static bool IsSha256(string value)
         => value.Length == 64 && value.All(Uri.IsHexDigit);
 
+    private static bool IsGitCommitId(string value)
+        => value.Length == 40 && value.All(Uri.IsHexDigit);
+
     private static bool IsSafeFileName(string value)
         => !string.IsNullOrWhiteSpace(value) && Path.GetFileName(value) == value &&
             !value.Contains('/') && !value.Contains('\\');
@@ -145,7 +206,9 @@ internal sealed record HistoricalFixtureCatalog(IReadOnlyList<HistoricalFixtureV
         => !string.IsNullOrWhiteSpace(value) && !Path.IsPathRooted(value) && !value.Contains('\\') &&
             value.Split('/').All(static part => part.Length > 0 && part is not "." and not "..");
 
-    private sealed record HistoricalFixtureCatalogDocument(IReadOnlyList<HistoricalFixtureVersion> Versions);
+    private sealed record HistoricalFixtureCatalogDocument(
+        IReadOnlyList<HistoricalFixtureVersion> Versions,
+        IReadOnlyList<HistoricalFixtureBranchSnapshot>? BranchSnapshots = null);
 }
 
 internal sealed record HistoricalFixtureVersion(
@@ -169,3 +232,27 @@ internal sealed record HistoricalFixtureOutput(
     string BaselinePath,
     string BaselineSha256,
     string? BaselineManifestSha256);
+
+internal sealed record HistoricalFixtureBranchSnapshot(
+    string Id,
+    string SourceBranch,
+    string SourceCommit,
+    string SourceCommitParent,
+    string GeneratorSdk,
+    string GeneratorRuntime,
+    long GenerationSeed,
+    int Dimension,
+    int DocumentCount,
+    string FieldName,
+    string Quantisation,
+    int BodyVersion,
+    string ArchiveFile,
+    string BaselinePath,
+    string ArchiveSha256,
+    string ManifestFile,
+    string ManifestPath,
+    string ManifestSha256,
+    string GeneratorProjectPath,
+    string GeneratorProjectSha256,
+    string GeneratorSourcePath,
+    string GeneratorSourceSha256);
