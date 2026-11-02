@@ -1,99 +1,161 @@
 ---
 adr: ADR042
-title: "BBQ v3: OSQ binary retrieval with stable canonical Int8 vectors"
+title: "Vector codec retirement and Float32/Int8 qualification"
 date: 2026-10-31
+last-updated: 2026-11-02
 status: Proposed
 version-added: 4.0.0
-summary: "Replace sign-Hamming BBQ with correction-aware OSQ traversal and stable Int8-based reranking; preserve legacy reads and reject lossy automatic upgrades."
+summary: "Retire all BBQ mutation, preserve historical reads, and require independent Float32 and Int8 qualification."
 areas: [vectors, codecs, hnsw, indexing, search, migration]
 supersedes: [ADR016, ADR017, ADR018, ADR019, ADR020]
 relates-to: [ADR025, ADR026, ADR039]
 ---
 
-# ADR042: BBQ v3: OSQ binary retrieval with stable canonical Int8 vectors
+# ADR042: Vector codec retirement and Float32/Int8 qualification
 
-- **Date:** 31 October 2026
-- **Status:** Proposed until all acceptance evidence is reviewed; after qualification mark Accepted in **this newly authored ADR only**.
-- **Supersedes:** ADR016 (experimental hybrid retrieval ship gates as the active design basis for this codec), ADR017 (Matryoshka experimental disposition), ADR018 (RaBitQ experimental disposition), ADR019 (Product Quantisation experimental disposition), ADR020 (hybrid-retrieval research stop). Historical decisions remain immutable evidence and are not edited or retroactively declared incorrect.
-- **Continues to respect:** ADR025 unified codec catalogue, ADR026 canonical frame, ADR039 sparse vector presence. Those are infrastructure contracts, not superseded design failures.
-
-## Scope and authority
-
-New BBQ v3 requires `NormaliseVectors=true` and vector dimensions >=128. Other quantisers remain unchanged. The agent must follow the external handoff document `spec/LOCKED-DECISIONS.md` without adding another candidate algorithm or new public storage configuration. This ADR is a **new** immutable-history decision and supersedes the active forward design of ADR016–ADR020 without altering any previous ADR contents.
+- **Date:** 31 October 2026, revised 2 November 2026.
+- **Status:** Proposed. Implementation and mandatory qualification remain incomplete.
+- **Supersedes:** the active forward vector design of ADR016 through ADR020. Their published findings remain immutable historical evidence.
+- **Preserves:** ADR025's single catalogue, ADR026's framing contract and ADR039's explicit sparse presence.
 
 ## Context
 
-LeanCorpus's existing BBQ v2 stores one sign bit per dimension, a per-segment centroid and three aggregate correction statistics. HNSW construction/traversal use a Hamming-style metric; final ranking reconstructs `centroid ± 1`. Under pinned 2026-10-30 attribution, BVAL 64D/128D and integration results fail their release recall requirements even when the source oracle neighbours are in the shortlist. A held-out 10K clustered case visited 10,000 nodes to fill 100 candidates after a graph underfill; that is not acceptable routine HNSW performance. Repeated v2 merges decode and requantise already lost magnitudes, so they accumulate quality degradation. These findings are recorded in the external '4.0 BBQ Engine Correctness' package, with code branch `fix/bbq-retrieval-quality`, commit `3dab5b6`.
+Historical sign-BBQ loses per-component magnitudes and cannot reconstruct original
+embeddings. The one-bit OSQ experiment added canonical Int8 reranking but did not
+qualify. On 31 October, the pinned 300-document, 128D integration case returned
+recall@10 of 0.60 against its 0.70 floor. The graph returned the exhaustive OSQ
+top-30, containing only six original Float32 top-10 neighbours. Canonical Int8
+reranking also returned 0.60. Independent Lucene reference execution reproduced
+the relevant candidate sets. This was a scoring/shortlist quality failure, not
+proof of a graph traversal defect.
 
-The 31 October branch also contains independently useful bounded tie traversal, live deletion shortlist, integer overflow protection, little-endian packing and extreme finite norm improvements. Those fixes remain part of 4.0 and are not evidence that v2 BBQ is qualified.
+A later single-query two-bit reference result of 0.80 is historical research
+motivation. It does not qualify a new writer or a supported release. Neither
+result permits weakening the frozen quality gates.
 
 ## Decision
 
-For **new normalised cosine LeanCorpus 4.0 BBQ indexes of dimension >=128**, implement a **new `.vq` body generation v3** inspired directly by Apache Lucene 10.5.2 Optimized Scalar Quantization (OSQ): 1-bit OSQ document codes, prepared 4-bit query codes, optimised scalar intervals, correction metadata and a mathematically corrected approximate cosine/dot estimator. Quantise a query once per field/segment. Stop treating Hamming sign matches as the final BBQ metric.
+LeanCorpus 4.0's new vector output is Float32 and Int8 only, conditional on their
+own qualification. Disable every BBQ creation and mutation path, including
+configuration of an empty index, flush, update, import, merge and migration.
+Never silently substitute another quantiser.
 
-Persist a second, **stable per-vector unsigned Int8 canonical representation** derived once from original normalised Float32 embeddings, with per-vector offset, scale, sum of codes and decoded squared norm. **Derive OSQ from decoded canonical Int8 and normalise only that temporary view on every flush/merge, including initial indexing; never derive first-generation OSQ from originals directly.** Use this representation for approximate-cosine final reranking and all future merge inputs. Return user-visible scores as **approximate**, not exact original Float32 cosine. Keep the public `VectorQuantisation.BBQ` enum and existing search API; new public precision options are not needed.
+Any committed BBQ field makes the entire containing index read-only. This also
+applies to mixed indexes, all-deleted BBQ documents and text-only changes.
+Writer opening must refuse before recovery mutations or background work.
+Imports and migrations preflight the complete source before staging and
+revalidate before execution or publication. Temporary exclusion locks may be
+acquired and released. Refused operations preserve committed source data.
 
-Persist OSQ and canonical sections with checked fixed-stride addressing, presence bitmap, version and corruption validation through existing CodecKit frames. On initial flush, prepare canonical codes from originals once, then derive OSQ from the decoded canonical values. At merge, copy canonical bytes and metadata byte-for-byte for surviving logical documents; derive fresh OSQ codes from their decoded, temporarily normalised canonical values. Rebuild v3 graphs after merge because centroid and scorer relationships can change. Keep bounded mapped/file-backed merge passes and existing atomic publish/recovery behaviour.
+Historical BBQ remains readable and searchable with its existing scorer and
+explicit quality limitations. Structural readability is not recall
+qualification. Preserve numeric tags and the known experimental one-bit
+`BbqOsqCanonicalInt8` interpretation; never reassign that tag to two-bit data.
+Retain required query preparation and immutable historical fixtures. Operators
+requiring writable data must create a separate Float32 or Int8 index from their
+original embeddings. Decoding BBQ is not recovery of the originals.
 
-New v3 graph construction, pruning and traversal use the same prepared, correction-aware scorer with **source/document acting as 4-bit query against 1-bit candidate document** direction, not a mixture of sign-Hamming and cosine. Search uses an automatic v3-only oversampling factor of 3 when source callers omit the parameter (`-1` sentinel); explicit user factors win. Already-compiled callers passing the previous default literal 1 continue to use 1× and this compatibility limit must be documented. Rerank by canonical Int8 estimates. Instrument graph visits and do not normalise full-scan HNSW fallback as an ordinary successful query.
+## Catalogue lifecycle
 
-## Compatibility and migration
+Extend the existing CodecKit descriptors with representation-aware decisions for
+`Read`, `Create`, `RewriteSource` and `Migrate`, plus explicit migration routes.
+Version-level `IsReadable`, `IsWritable` and `MigrationBehaviour` remain ceilings.
+An optional immutable representation policy can restrict them, never grant
+otherwise prohibited access. Unknown identities fail closed.
 
-Historical `.vq` v1/v2 BBQ decoders and graph search remain available for old indexes. Their sign bits and aggregate metadata are **insufficient to reconstruct original per-component magnitudes or the new canonical Int8 representation**. An ordinary CodecKit migration is not a quality upgrade; do not convert those old bodies into v3 OSQ/Int8 silently. Rebuilding v3 requires the original embeddings. Legacy BBQ indexes are query-readable; the 4.0 writer should reject mutation/automatic background merging early unless a separately safe, explicit legacy strategy has been verified. Do not repeatedly fail background merges or publish mixed incompatible graph generations.
+A readable retired v7 can coexist with a current v8 writer without a v7-to-v8
+migration route. A completely retired file role retains its latest known
+`CurrentFormatVersion` and resolves no `WritableFormatVersion`. It is distinct
+from a versionless role. Preserve existing public constructor signatures and
+unrelated catalogue registrations. Do not add another codec or version registry.
+Descriptor frame writers check lifecycle before emitting bytes; semantic writers
+also supply the validated representation identity. Raw framing remains a byte
+primitive, not a substitute for semantic lifecycle enforcement.
 
-The existing 3.1.1 release fixtures (loose/compound/sparse HNSW) and their hash pins stay immutable. Preserve the v1→v2 sparse-presence migration defined in ADR039, including graph-based presence reconstruction and exact preservation of old encoded bytes. CodecKit catalogue registration must not classify `.vq` v2 as a generic v1 presence rewrite after v3 is introduced. The **new v3 body** uses a `storageKind` discriminator: `LegacyInt8`, `LegacyBbqSign`, or `BbqOsqCanonicalInt8`. CodecKit structurally wraps v1/v2 quantised bodies into v3 tagged legacy storage after authentic presence reconstruction for v1, copying original quantised bytes without requantisation; these legacy tags keep the old scorer and do not become the new BBQ algorithm. No non-current v2 writer is required. Extend tests rather than loosening migration validation.
+## Formats and migration
 
-**Eligibility:** new BBQ v3 is rejected before any write if dimension <128 or the normalisation setting is disabled. No silent downgrade to standalone Int8. Smaller 32/64D historical BBQ indexes remain readable and structurally migratable. Existing pinned 32/64D failures remain historical diagnostics; new 4.0 qualification operates at supported 128/384/768D. The >=65% measured vector-payload reduction gate is unchanged: at 128D the exact logical proposed payload is 176 bytes versus 512 bytes Float32 (65.625% reduction before per-segment overhead); 32D and 64D cannot meet it under this format.
+Keep Float32 `.vec` v2, tagged Int8 `.vq` v3 and `.hnsw` v1 while their physical
+contracts remain unchanged. Product version 4.0 does not rename physical body
+versions. A demonstrated incompatible encoding requires a separate reviewed
+identity/version decision.
 
-Normal standalone Int8 and Float32 semantics remain as before. Imports that convert existing stand-alone Int8 into new canonical Int8 can introduce a single lossy conversion; record this fact and do not claim Float32-fidelity. There is **no** implicit v2 BBQ→v3 path.
+Preserve verified Int8 v1/v2-to-v3 structural migration. Copy encoded values,
+minimum/scale, corrections, document order and presence without requantisation.
+v1 presence requires authoritative persisted graph membership; absent proof is
+an unsupported migration. No original precision is recovered. Ordinary Int8
+merges can change per-segment scales and must be qualified for distortion
+separately from byte-preserving structural migration.
 
-## Alternatives rejected for 4.0
+All BBQ migrations are unsupported, including tagged current-version no-op
+requests. Report read-only retirement before returning AlreadyCurrent. Mixed
+indexes are rejected as a whole. Old staged plans cannot resume into new BBQ
+publication. Restoring an already committed, checksum-valid historical generation
+byte-for-byte is a separate recovery operation and remains permitted; it cannot
+finish an uncommitted conversion or regenerate vectors/graphs.
 
-- **Keep v2 and increase `efSearch`/oversampling:** held-out attribution shows final reconstructed scoring itself loses correct neighbours, even with complete candidate sets.
-- **Use 8-bit query with binary docs but no rerank:** cannot recover source document magnitude; adds complexity without sufficient evidence.
-- **Retain Float32 in every v3 index:** enables exact rescoring but sacrifices disk-saving goals for this release. This is Lucene/Elasticsearch's more accurate trade-off, not an error in those systems.
-- **Allow Int8 or Float16 user-configurable canonical stores:** doubles persisted contracts and migration/merge/test combinations. Float16 is deferred.
-- **Revisit RaBitQ, PQ, 2-bit/4-bit groups now:** expands scope into further experiments and risks failing the 4.0 readiness window. This ADR chooses one reference algorithm and asks for quality-gate proof.
-- **Copy an entire other .NET engine:** Qvec and Hnsw.Net offer useful storage/parity patterns, not drop-in LeanCorpus codecs.
+## Qualification
 
-## Rationale and expected costs
+Prove each layer in dependency order:
 
-At 768 dimensions, v3's raw vector payload is approximately `96 bytes` OSQ bits + `768 bytes` canonical codes + `16 bytes` OSQ correction + `16 bytes` canonical metadata = `896 bytes` per vector, excluding centroid, graph, presence, frames, alignment and other index data. Float32 alone is `3072 bytes` per vector: around 3.43× smaller vector payload, **not** a 32× total-index claim. The 1-bit working set remains compact for HNSW traversal. Canonical Int8 remains lossy, especially for tight cosine clusters; separate release qualification is mandatory. Some low-dimensional distributions may remain difficult.
+1. Exact Float32 against an independent scalar source-vector oracle.
+2. Float32 HNSW at frozen budgets, with explicit traversal/scan attribution.
+3. Exact Int8 against independently decoded stored semantics, and separately against original Float32.
+4. Int8 HNSW against both references to distinguish quantisation and graph errors.
+5. Persistence, structural migration, repeated merges, recovery and Windows lifetimes.
+6. Complete frozen 10K/100K quality, matched exact/ANN costs and exact-head Linux/Windows .NET 10/11, AOT, package, consumer, managed DevOps, server/Orchard and documentation CI.
 
-This architecture reuses LeanCorpus's random-access and file-backed merge machinery, Lucene's tested quantiser and score reconstruction, and Qvec's stable Int8 corrected arithmetic. The mathematical and storage contracts are explicit, AOT-compatible and independent of native dependencies.
+Primary ANN requires zero exhaustive underfill fallbacks. Preserve the fallback
+for correctness and report cumulative graph work separately from scanned
+vectors. Intentional selective-filter scans are a distinct strategy. Use clean
+resolved defaults, no result cache, automatic Float32/Int8 oversampling of 1 and
+expected default ef=max(64,4K); explicit user settings remain supported.
 
-## Release qualification and operational consequences
+BVAL recall@1/10/100 must each reach 0.90. Four-query confirmatory groups require
+mean recall@1/@10/@100 of at least 0.90 and every recall@10 at least 0.80. Apply
+absolute floors at every merge generation, with no successive mean @10 drop
+above 0.02. Exact Float32 requires correct ranking under the independent
+score/tie contract, rather than an ANN floor. Preserve the immutable BVAL fixture.
 
-- **Supported new BBQ v3** dimensions 128/384/768D must meet the existing BVAL recall floor (>=0.90 at the specified K) and new integration floor >=0.70, across multi-query held-out distributions. The original 32/64D cases remain immutable legacy reproduction/diagnostic and read/migration coverage, not v3 promotion cases. No recall threshold is reduced for supported v3. Measure candidate coverage versus final rank separately.
-- Confirm at least 65% lower **persisted** vector-payload bytes (both codes, both metadata blocks, presence and amortised centroid) than matched Float32 **for each qualifying dimension** and p95 latency no worse than 1.10 times matched Int8 (historic research comparison gates, not a substitute for the additional 4.0 reliability gates). Complete 10K and 100K tests with predeclared `efSearch`, default oversampling, HNSW config and source fingerprints. Include Float32/Int8 controls, merge generations, disk bytes, p50/p95 latency, allocations and graph visits.
-- Test deterministic graph builds, exact byte-preserving canonical merges under deletion/sorting/sparse/compound, crash recovery, migration, Unicode/metadata/checksum corruption, Windows mapped handle lifetime, Linux/Windows, .NET 10/11 and Native AOT.
-- Retain old `.vq` v1/v2 reader semantics, expose clear error when attempting to mutate an old BBQ index into v3 without reindexing originals; document a safe operator rebuild procedure.
-- Do not mark this ADR Accepted, or ship BBQ v3, if mandatory quality, compatibility, persistence or CI gates are unqualified.
+Measure complete matched exact/ANN latency, allocations, graph/scan costs,
+vector/graph/whole-index bytes, regressions and crossover points. There is no
+inherited BBQ storage-saving threshold, BBQ/Int8 latency gate or universal
+ANN/exact speed ratio. Unexplained material regressions remain Unqualified.
+Missing, failed or incomplete mandatory evidence cannot establish release or
+merge readiness. Keep this ADR Proposed until implementation and gates pass.
 
 ### Qualification record
 
-On 31 October 2026, the unchanged 300-document, 128D integration recall gate returned `0.60` against its `0.70` floor. The graph returned all 30 documents in the exhaustive OSQ top-30, but that set contained only 6 of the 10 Float32 oracle neighbours; canonical Int8 reranking produced the same `0.60` final recall. An independent harness using the bundled Lucene 10.5.2 OSQ implementation reproduced the C# top-10 and top-30 sets. This identifies a fixed-gate quality failure for the specified one-bit OSQ and 3x shortlist, not a demonstrated HNSW traversal or reranking defect. No threshold or search policy was changed. ADR042 therefore remains Proposed and BBQ v3 release qualification is Unqualified. The required multi-query held-out and performance matrices were not run after this stop condition.
+The earlier one-bit experiment remains Unqualified. The replacement Float32/Int8
+matrix and retirement implementation are in progress; no release qualification
+is claimed by this decision. External execution records contain actual run IDs,
+source/configuration hashes and unresolved failures.
 
-## Beyond 4.0: prior research revisited deliberately
+## Alternatives
 
-Earlier ADRs retain their historical outcomes; this decision **supersedes their role as the active forward vector design** but not the factual findings. In 5.0 or later, revisit in order of evidence:
+Scattered BBQ conditionals are insufficient because import, migration and
+background paths can bypass them. A second lifecycle registry would duplicate
+existing catalogue capabilities. The selected approach extends the existing
+catalogue and applies shared index-level preflight.
 
-1. **Product Quantisation (PQ):** the second two-level 256-centroid implementation reached recall@10 0.938/0.794 at default 64D/128D and 0.988/0.994 with `efSearch=512`, with about 68.2% payload reduction. Its principal unresolved issue was 128D default-budget HNSW routing, not a lack of codec potential. Start from preserved `vnext-hybrid-failed` implementation and confirm an independently qualified routing/latency envelope.
-2. **RaBitQ:** the earlier rotated-sign experimental implementation missed quality and allocation gates (64D 0.194 and 128D 0.156 recall@10). Reconsider only a complete reference-verified asymmetric native-bit-distance implementation, not the previous per-candidate Float32 reconstruction.
-3. **Float16 and other canonical layouts:** reconsider only if stable Int8 precision is materially insufficient for an actual supported workload, using per-codec versioned compatibility and measured storage/latency.
-4. **Higher-bit / residual / rotated or adaptive quantisers, Matryoshka, learned sparse, late interaction and hybrid retrieval:** independent, separately qualified proposals; no in-place retrofits to 4.0 v3 and no compatibility promises before data and gates.
+Continuing the one-bit writer, raising budgets silently, weakening recall floors
+or interpreting old BBQ as recovered Float32 would preserve an unqualified
+release path. These are excluded from 4.0.
 
-No current 4.0 acceptance gate can be waived merely because a later roadmap codec might improve it.
+## Deferred research
 
-## Reference implementation and tests
+New BBQ belongs to LeanCorpus 5 research: independently qualify two-bit first,
+then consider four-bit if two-bit fails. Either can remain unshipped. No Java
+feasibility run, OSQ tuning, PQ or RaBitQ implementation is a 4.0 dependency.
+Published identities cannot be silently reinterpreted by later research.
 
-- Apache Lucene 10.5.2 (Apache-2.0): `OptimizedScalarQuantizer.java`, `QuantizedByteVectorValues.java`, `Lucene104ScalarQuantizedVectorScorer.java`, `Lucene104ScalarQuantizedVectorsWriter.java`, `Lucene104ScalarQuantizedVectorsReader.java`, `TestOptimizedScalarQuantizer.java`.
-- Qvec (Apache-2.0): `docs/design-quantization-int8.md`, `docs/design-quantization-rescoring.md`, `Qvec.Core/QvecDatabase.cs`.
-- Hnsw.Net (MIT): `src/Hnsw.Net/HnswIndex.cs`, in particular `SelectNeighbors` and related parity tests.
-- Branch and test evidence as specified in the external package `LeanCorpus-BBQ-v3-Implementation`.
+Upstream reference names and licences remain exact, including Apache Lucene's
+`OptimizedScalarQuantizer`. Retained LeanCorpus-owned quantiser code uses
+`OptimisedScalarQuantiser.Quantise`; this naming change must preserve historical
+reader/query semantics.
 
 ## Changes
 
 | Date | Type | Change | Reference |
-|---|---|---|---|
-| 2026-10-31 | Proposed | Superseding BBQ v3 architecture and migration decision; acceptance pending implementation and qualification. | `6bba01a` |
+| --- | --- | --- | --- |
+| 2026-10-31 | Proposed | Initial one-bit OSQ/canonical Int8 experiment; qualification failed. | `6bba01a` |
+| 2026-11-02 | Proposed | Retire all BBQ mutation and qualify supported Float32/Int8; defer new BBQ research. | Vector reliability and codec retirement pack |

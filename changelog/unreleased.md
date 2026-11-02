@@ -40,6 +40,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Added
 
+- Add representation-aware CodecKit lifecycle decisions and separate writable-target resolution, including readable retired formats with no writer. Descriptor-based framing rejects retired targets before emitting bytes.
+
 - Compose first-party physical indexes under an internal runtime with terminal close, operation and search leases, definitive health, and correlated resource diagnostics.
 - Add trace-correlated backup/restore filesystem measurements and a fixed-seed DevOps matrix; honour configured FsCheck iterations without reducing default coverage. Publish the completed diagnostic results and distinguish read-open timings from deletion.
 - Add a Spectre.Console CLI Workbench for interactive index browsing, search, analysis, Core-backed inspection, deterministic index creation, fingerprints and workload replay. ([49cfcd898](https://github.com/jordansrowles/LeanCorpus/commit/49cfcd8980793b428469c1df503196637cf1d834))

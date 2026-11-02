@@ -146,6 +146,30 @@ Bump the body-format version only when the body wire representation changes. A m
 
 JSON manifests, compound containers and deliberately retained sidecars still belong in the catalogue. Declare them with `currentFormatVersion: null`, the appropriate `External` or `Container` framing policy, and no canonical checksum policy. Their own schema or container validator remains responsible for integrity.
 
+## Retired versions and representations
+
+`CurrentFormatVersion` identifies the current known body generation.
+`WritableFormatVersion` resolves its writable target separately. A completely
+retired role retains its latest known version, declares every version readable
+and non-writable with `Unsupported` migration, and resolves no writable target.
+This differs from a versionless role. Descriptor-based frame writers reject a
+role without a writable target before emitting a prefix or creating a temporary
+file.
+
+Use `CodecFileDescriptor.Evaluate` with a validated
+`CodecRepresentationIdentity` for `Read`, `Create`, `RewriteSource` and
+`Migrate`. Creation requires the current writable version. A readable version
+with `Unsupported` migration cannot be used as a rewrite source or migrated,
+even when a newer writer exists.
+
+Formats with several semantic representations can initialise `LifecyclePolicy`
+with an immutable `ICodecLifecyclePolicy`. It narrows the existing version
+capabilities and declares permitted source-to-target migration routes. It must
+reject missing or unknown representation IDs and check current-version requests
+before returning a successful no-op. It cannot grant a write or migration that
+the version descriptor forbids. Formats without a representation policy retain
+their declared version-level behaviour.
+
 ## See also
 
 - [CodecKit overview](index.md)

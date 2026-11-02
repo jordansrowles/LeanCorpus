@@ -17,10 +17,17 @@ public static class CodecFileWriter
 
     /// <summary>Begins a current canonical frame from its authoritative catalogue descriptor.</summary>
     public static CodecWriteSession Begin(IndexOutput output, CodecFileDescriptor descriptor)
+        => Begin(output, descriptor, CurrentIdentity(descriptor));
+
+    /// <summary>Begins a current frame after checking its semantic representation.</summary>
+    public static CodecWriteSession Begin(
+        IndexOutput output, CodecFileDescriptor descriptor, CodecRepresentationIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         if (descriptor.CurrentFraming != CodecFramingPolicy.Canonical || !descriptor.CurrentFormatVersion.HasValue)
             throw new ArgumentException($"Codec format '{descriptor.FormatId}' is not a versioned canonical format.", nameof(descriptor));
+
+        EnsureWritableTarget(descriptor, identity);
 
         return Begin(
             output,
@@ -36,10 +43,22 @@ public static class CodecFileWriter
         bool durable,
         Action<CodecBodyOutput> writeBody,
         bool dropPageCache = false)
+        => WriteAtomically(path, descriptor, CurrentIdentity(descriptor), durable, writeBody, dropPageCache);
+
+    /// <summary>Writes a current frame after checking its semantic representation before creating files.</summary>
+    public static void WriteAtomically(
+        string path,
+        CodecFileDescriptor descriptor,
+        CodecRepresentationIdentity identity,
+        bool durable,
+        Action<CodecBodyOutput> writeBody,
+        bool dropPageCache = false)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         if (descriptor.CurrentFraming != CodecFramingPolicy.Canonical || !descriptor.CurrentFormatVersion.HasValue)
             throw new ArgumentException($"Codec format '{descriptor.FormatId}' is not a versioned canonical format.", nameof(descriptor));
+
+        EnsureWritableTarget(descriptor, identity);
 
         WriteAtomically(
             path,
@@ -124,6 +143,20 @@ public static class CodecFileWriter
         output.WriteBytes(identifier);
 
         return new CodecWriteSession(output, formatId, formatVersion, flags, checksumAlgorithm);
+    }
+
+    private static CodecRepresentationIdentity CurrentIdentity(CodecFileDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return new(descriptor.FormatId, descriptor.CurrentFormatVersion ?? 0);
+    }
+
+    private static void EnsureWritableTarget(CodecFileDescriptor descriptor, CodecRepresentationIdentity identity)
+    {
+        var decision = descriptor.Evaluate(CodecLifecycleOperation.Create, target: identity);
+        if (!decision.IsAllowed)
+            throw new InvalidOperationException(
+                $"{decision.ReasonCode}: {decision.Explanation}");
     }
 
     internal static byte[] EncodeAndValidateFormatId(string formatId)
