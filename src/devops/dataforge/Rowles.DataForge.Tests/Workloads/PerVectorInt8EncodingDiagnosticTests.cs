@@ -38,8 +38,12 @@ public sealed class PerVectorInt8EncodingDiagnosticTests
             }
         };
 
+        string? diagnosticDirectory = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
+        if (string.IsNullOrWhiteSpace(diagnosticDirectory))
+            diagnosticDirectory = Path.GetTempPath();
+        Directory.CreateDirectory(diagnosticDirectory);
         File.WriteAllText(
-            "/tmp/leancorpus-per-vector-int8-diagnostic.json",
+            Path.Combine(diagnosticDirectory, "leancorpus-per-vector-int8-diagnostic.json"),
             JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
         Assert.Equal(4, results.candidates.Length);
     }

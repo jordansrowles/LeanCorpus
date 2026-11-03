@@ -85,8 +85,12 @@ public sealed class VectorMergeTransitionDiagnosticTests : IDisposable
             });
         }
 
+        string? diagnosticDirectory = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
+        if (string.IsNullOrWhiteSpace(diagnosticDirectory))
+            diagnosticDirectory = Path.GetTempPath();
+        Directory.CreateDirectory(diagnosticDirectory);
         File.WriteAllText(
-            "/tmp/leancorpus-vector-merge-transition-diagnostic.json",
+            Path.Combine(diagnosticDirectory, "leancorpus-vector-merge-transition-diagnostic.json"),
             JsonSerializer.Serialize(generations, new JsonSerializerOptions { WriteIndented = true }));
         Assert.Equal(4, generations.Count);
     }

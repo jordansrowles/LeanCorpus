@@ -174,11 +174,11 @@ public class HnswSearchBenchmarks
             throw new InvalidOperationException($"Expected ten exact vector results, got {_flatTopDocumentIds.Length}.");
 
         var scalarTopDocumentIds = ComputeScalarTopDocumentIds();
-        ValidateExactBaselineIds(Quantisation, _flatTopDocumentIds, scalarTopDocumentIds);
         _scalarChecksum = ResultChecksum(scalarTopDocumentIds);
 
         var exactOrdinalsByQueryAndK = new Dictionary<(string QueryId, int TopK), long[]>();
         var exactQueryResults = new List<VectorQueryQualityResult>(_dataset.Queries.Length);
+        var exactFloat32Contracts = new List<VectorExactFloat32ContractResult>();
         var qualityStopwatch = Stopwatch.StartNew();
         foreach (VectorQueryCase queryCase in _dataset.Queries)
         {
@@ -188,6 +188,9 @@ public class HnswSearchBenchmarks
                 topK =>
                 {
                     var exact = s_flatSearcher.Search(new LeanVectorQuery("emb", queryCase.Vector, topK: topK), topK);
+                    if (Quantisation == VectorQuantisation.None)
+                        exactFloat32Contracts.Add(BenchmarkExactFloat32Quality.Evaluate(
+                            _dataset.Records, queryCase, exact.ScoreDocs, topK));
                     exactOrdinalsByQueryAndK[(queryCase.Id, topK)] = exact.ScoreDocs
                         .Select(hit => _dataset.Records[hit.DocId].Ordinal)
                         .ToArray();
@@ -206,10 +209,14 @@ public class HnswSearchBenchmarks
                 topK = new[] { 1, 10, 100 },
                 heldOutQueryIds = _dataset.Queries.Select(static query => query.Id).ToArray(),
             },
-            exactQueryResults);
-        BenchmarkVectorQuality.RequireHeldOutGroup(
             exactQueryResults,
-            $"Exact vector search quantisation={Quantisation}, docCount={DocCount}, dimension={Dimension}");
+            Quantisation == VectorQuantisation.None ? exactFloat32Contracts : null);
+        if (Quantisation == VectorQuantisation.None)
+            BenchmarkExactFloat32Quality.Require(exactFloat32Contracts);
+        else
+            BenchmarkVectorQuality.RequireHeldOutGroup(
+                exactQueryResults,
+                $"Exact vector search quantisation={Quantisation}, docCount={DocCount}, dimension={Dimension}");
 
         var graphOrdinalsByQueryAndK = new Dictionary<(string QueryId, int TopK), long[]>();
         var graphQueryResults = new List<VectorQueryQualityResult>(_dataset.Queries.Length);
@@ -344,18 +351,9 @@ public class HnswSearchBenchmarks
 
     private FixtureIdentity CreateFixtureIdentity(BenchmarkVectorDataset dataset)
     {
-        var assemblyId = typeof(HnswSearchBenchmarks).Assembly.ManifestModule.ModuleVersionId;
-        var identity = string.Join('|',
-            "hnsw-search-fixture-v1",
-            dataset.Identity.ContentSha256,
-            DocCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            Dimension.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            Quantisation.ToString(),
-            GraphM.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            GraphM0.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            GraphEfConstruction.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            GraphSeed.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            assemblyId.ToString("N"));
+        var identity = CreateFixtureIdentityValue(dataset,
+            typeof(HnswSearchBenchmarks).Assembly.ManifestModule.ModuleVersionId,
+            typeof(LeanIndexWriter).Assembly.ManifestModule.ModuleVersionId);
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(identity));
         var key = Convert.ToHexString(hash).ToLowerInvariant()[..20];
         var artifactRoot = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
@@ -364,6 +362,23 @@ public class HnswSearchBenchmarks
             : Path.Combine(Path.GetFullPath(artifactRoot), "hnsw-setup", "fixture-" + key + ".json");
         return new FixtureIdentity(key, identity, evidencePath, Quantisation);
     }
+
+    internal string CreateFixtureIdentityValue(
+        BenchmarkVectorDataset dataset,
+        Guid benchmarkAssemblyId,
+        Guid coreAssemblyId)
+        => string.Join('|',
+            "hnsw-search-fixture-v2",
+            dataset.Identity.ContentSha256,
+            DocCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Dimension.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Quantisation.ToString(),
+            GraphM.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            GraphM0.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            GraphEfConstruction.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            GraphSeed.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            benchmarkAssemblyId.ToString("N"),
+            coreAssemblyId.ToString("N"));
 
     private static bool IsFixtureReady(string markerPath, string identity, string hnswPath, string flatPath)
     {
@@ -674,21 +689,6 @@ public class HnswSearchBenchmarks
         const int topK = 10;
         return VectorGroundTruth.Compute(s_referenceRecords, _queryCase, topK)
             .NeighbourOrdinals.Select(static ordinal => checked((int)ordinal)).ToArray();
-    }
-
-    internal static void ValidateExactBaselineIds(
-        VectorQuantisation quantisation,
-        IReadOnlyList<int> exactDocumentIds,
-        IReadOnlyList<int> scalarFloat32DocumentIds)
-    {
-        if (quantisation == VectorQuantisation.Int8)
-            return;
-
-        if (!scalarFloat32DocumentIds.SequenceEqual(exactDocumentIds))
-        {
-            throw new InvalidOperationException(
-                "LeanCorpus flat vector search does not agree with the scalar exact reference.");
-        }
     }
 
     /// <summary>Release shared resources after all HNSW parameter rows complete.</summary>

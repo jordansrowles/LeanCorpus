@@ -6,6 +6,7 @@ using Rowles.LeanCorpus;
 using Rowles.LeanCorpus.Benchmarks;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Index.Segment;
+using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Store;
 
 namespace Rowles.DataForge.Tests.Workloads;
@@ -48,20 +49,18 @@ public sealed class VectorBenchmarkMatrixTests
     }
 
     [Fact]
-    public void HnswExactBaseline_AllowsInt8ResultsToDifferFromFloat32Truth()
+    public void ExactFloat32Baseline_RejectsAnUnrelatedNeighbour()
     {
-        int[] float32ExactIds = [1, 2, 3];
-        int[] int8ExactIds = [4, 5, 6];
+        VectorRecord[] records =
+        [
+            new(0, "a", 0, "category", "public", [1f, 0f]),
+            new(1, "b", 0, "category", "public", [0f, 1f]),
+        ];
+        var result = BenchmarkExactFloat32Quality.Evaluate(records,
+            new VectorQueryCase("query", 0, [1f, 0f]), [new ScoreDoc(1, 0f)], topK: 1);
 
-        HnswSearchBenchmarks.ValidateExactBaselineIds(
-            VectorQuantisation.Int8,
-            int8ExactIds,
-            float32ExactIds);
-
-        Assert.Throws<InvalidOperationException>(() => HnswSearchBenchmarks.ValidateExactBaselineIds(
-            VectorQuantisation.None,
-            float32ExactIds,
-            [4, 5, 6]));
+        Assert.False(result.Passed);
+        Assert.Throws<InvalidOperationException>(() => BenchmarkExactFloat32Quality.Require([result]));
     }
 
     [Fact]

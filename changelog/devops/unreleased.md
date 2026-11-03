@@ -88,6 +88,11 @@
 
 ## Fixed
 
+- Validate exact Float32 benchmark results against the documented score and boundary-tie contract; retain literal recall measurements and unchanged ANN and Int8 quality floors.
+
+- Invalidate HNSW benchmark fixtures when the Core implementation build changes, preventing reuse of indexes encoded by an older quantiser.
+- Write vector diagnostic sidecars to the managed test run directory and use platform temporary paths for direct execution.
+
 - Sum BenchmarkDotNet discovery counts across all emitted class groups so multi-project coverage inventories include every discovered case.
 - Let Int8 HNSW benchmark setup record quantised exact quality against Float32 truth without requiring identical top-document IDs.
 - Remove misleading BenchmarkDotNet ratio baselines between BM25F and Boolean queries, and between TermInSet and Boolean OR algorithms.

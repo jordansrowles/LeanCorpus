@@ -133,7 +133,8 @@ internal static class BenchmarkVectorData
         string benchmark,
         string parameterKey,
         object parameters,
-        IReadOnlyList<VectorQueryQualityResult> queryResults)
+        IReadOnlyList<VectorQueryQualityResult> queryResults,
+        IReadOnlyList<VectorExactFloat32ContractResult>? exactFloat32Contracts = null)
     {
         ArgumentNullException.ThrowIfNull(dataset);
         ArgumentException.ThrowIfNullOrWhiteSpace(benchmark);
@@ -142,6 +143,14 @@ internal static class BenchmarkVectorData
         ArgumentNullException.ThrowIfNull(queryResults);
         VectorHeldOutQualitySummary qualitySummary = BenchmarkVectorQuality.EvaluateHeldOutGroup(
             queryResults, $"{benchmark} {parameterKey} held-out quality");
+        if (exactFloat32Contracts is not null)
+        {
+            var expected = queryResults.SelectMany(query => query.Measurements
+                .Select(measurement => (query.QueryId, measurement.TopK))).Order().ToArray();
+            var actual = exactFloat32Contracts.Select(result => (result.QueryId, result.TopK)).Order().ToArray();
+            if (!expected.SequenceEqual(actual))
+                throw new InvalidOperationException("Exact Float32 evidence must cover each query and K exactly once.");
+        }
         var root = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
         if (string.IsNullOrWhiteSpace(root))
             throw new InvalidOperationException("LEANCORPUS_ARTIFACT_DIR must be set before recording vector quality.");
@@ -160,9 +169,17 @@ internal static class BenchmarkVectorData
             benchmarkParameters = parameters,
             querySeed = dataset.QuerySeed,
             queryCount = queryResults.Count,
-            qualitySummary,
+            qualityBasis = exactFloat32Contracts is null ? "literal-source-recall" : "exact-float32-score-and-boundary-ties",
+            qualitySummary = exactFloat32Contracts is null ? (object)qualitySummary : new
+            {
+                passed = exactFloat32Contracts.All(result => result.Passed),
+                scoreTolerance = BenchmarkExactFloat32Quality.ScoreTolerance,
+                boundaryTieTolerance = BenchmarkExactFloat32Quality.BoundaryTieTolerance,
+                results = exactFloat32Contracts,
+            },
+            literalRecallSummary = qualitySummary,
             meanRecalls = means,
-            qualityPassed = qualitySummary.Passed,
+            qualityPassed = exactFloat32Contracts?.All(result => result.Passed) ?? qualitySummary.Passed,
             profileId = dataset.Identity.ProfileId,
             profileVersion = dataset.Identity.ProfileVersion,
             seed = dataset.Identity.Seed,
