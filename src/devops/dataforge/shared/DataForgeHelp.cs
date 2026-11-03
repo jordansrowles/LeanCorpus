@@ -148,7 +148,7 @@ internal static class DataForgeHelp
             case "generate":
                 output.WriteLine("Usage:");
                 output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-search [-Version <version>] [-Seed <seed>] [-Count <count>] [-Output <path>] [-Force]");
-                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-vector [-Version <version>] [-Seed <seed>] [-Count <count>] [-Dimension 64] [-VectorDistribution Uniform] [-ClusterCount 8] [-QueryCount 1] [-Output <path>] [-Force]");
+                output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-vector [-Version <version>] [-Seed <seed>] [-Count <count>] [-Dimension 64] [-VectorDistribution Uniform|Clustered|DenseNeighbourhood|NearDuplicate|QuantisationFriendly|QuantisationHostile|Anisotropic] [-ClusterCount 8] [-QueryCount 1] [-Output <path>] [-Force]");
                 output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-hybrid [-Version <version>] [-Seed <seed>] [-Count <count>] [-Dimension 64] [-Output <path>] [-Force]");
                 output.WriteLine($"  {commandPrefix} generate -Profile leancorpus-stress -Mode {string.Join('|', DataForgeProfileOptions.StressModes)} [-Version <version>] [-Seed <seed>] [-Count <mode-default>] [-AllowLarge] [-Output <path>] [-Force]");
                 output.WriteLine($"  {commandPrefix} generate -Profile rowles-text-multilingual -Language {string.Join('|', DataForgeProfileOptions.MultilingualLanguages)} [-Version <version>] [-Seed <seed>] [-Count <count>] [-Output <path>] [-Force]");

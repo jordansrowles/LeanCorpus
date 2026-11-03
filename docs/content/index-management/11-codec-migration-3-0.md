@@ -90,13 +90,21 @@ if (!result.Succeeded)
 
 ## LeanCorpus 4.0 vector presence migration
 
-Float `.vec` and Int8/BBQ `.vq` bodies migrate from v1 to v2 by structural
-rewrite. The owning `.seg` metadata must declare a persisted HNSW graph for the
-field. The migrator validates graph membership, unique document IDs and document
-bounds, and inserts those presence bits into the vector data body. Dense vector
-bytes, quantisation parameters, corrections and packed bytes remain unchanged;
-legacy quantised vectors are never dequantised and requantised by migration.
-The HNSW body stays at v1 and is reassociated with the migrated segment.
+Float `.vec` v1 bodies and Int8 `.vq` v1/v2 bodies migrate structurally to
+`.vec` v2 and `.vq` v3. For v1 vector bodies, the owning `.seg` metadata must
+declare a persisted HNSW graph so the migrator can reconstruct presence after
+validating graph membership, unique document IDs and document bounds. Int8 v2
+already contains presence bits, which are validated and copied. Dense vector
+bytes, Int8 parameters and encoded values remain unchanged; migration does not
+dequantise or requantise Int8 data. The HNSW body stays at v1 and is
+reassociated with the migrated segment.
+
+BBQ-tagged `.vq` bodies remain readable and searchable, but 4.0 does not migrate
+them. Planning reports an unsupported path and stops before changing source
+files. Any committed BBQ field makes its whole index read-only to writers,
+including mixed indexes and all-deleted fields. To continue indexing, create a
+separate Float32 or Int8 index from original documents and embeddings; decoded
+BBQ values do not restore the original components.
 
 Without persisted HNSW membership, v1 presence cannot be reconstructed. Planning
 reports a non-executable action with `UnsupportedMigrationPath`; migration stops
@@ -114,8 +122,9 @@ and HNSW membership through planning, migration, reopen and force merge. Both
 layouts physically sort on `sort:id`, preserving released metadata
 `String:sort:id:False` and sorted search results throughout. Acceptance checks
 the complete expected codec action set, with no index-sort rewrite.
-Focused vector tests additionally cover Int8 and BBQ rewrites. Vector v2 is a
-one-way persisted-format boundary; a 3.1.1 reader is not expected to open it.
+Focused vector tests additionally cover Int8 structural migration and BBQ
+migration denial. The resulting `.vec` v2 and `.vq` v3 formats are one-way
+persisted-format boundaries; a 3.1.1 reader is not expected to open them.
 
 Regenerate deliberately with `./devops data fixtures --version 3.1.1
 --scenario migration` using the pinned SDK and the isolated package source.

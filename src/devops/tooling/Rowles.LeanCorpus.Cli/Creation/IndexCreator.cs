@@ -36,7 +36,7 @@ internal static partial class IndexCreator
     private static readonly string[] SupportedPresets =
     [
         "minimal", "search-small", "search-medium", "realistic-mixed",
-        "vector-flat", "vector-hnsw", "vector-int8", "vector-bbq", "vector-filtered",
+        "vector-flat", "vector-hnsw", "vector-int8", "vector-filtered",
         "hybrid-balanced", "hybrid-text-heavy", "hybrid-vector-heavy", "multilingual",
         "compound", "non-compound", "many-small-segments", "delete-heavy",
         "codec-current", "codec-migration-required", "custom"
@@ -64,6 +64,10 @@ internal static partial class IndexCreator
         ArgumentException.ThrowIfNullOrWhiteSpace(preset);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         string normalisedPreset = preset.Trim().ToLowerInvariant();
+        if (normalisedPreset == "vector-bbq")
+            throw new ArgumentException(
+                "The 'vector-bbq' preset is retired. New vector indexes support Float32 and Int8; use 'vector-hnsw' or 'vector-int8'.",
+                nameof(preset));
         if (!SupportedPresets.Contains(normalisedPreset, StringComparer.Ordinal))
             throw new ArgumentException($"Unknown preset '{preset}'. Supported presets: {string.Join(", ", SupportedPresets)}.", nameof(preset));
         if (normalisedPreset == "custom")
@@ -94,7 +98,6 @@ internal static partial class IndexCreator
             ? normalisedPreset == "custom" ? ResolveCustomQuantisation(customSchema!) : normalisedPreset switch
             {
                 "vector-int8" => VectorQuantisation.Int8,
-                "vector-bbq" => VectorQuantisation.BBQ,
                 _ => VectorQuantisation.None
             }
             : ParseQuantisation(recipe.VectorQuantisation);
@@ -110,7 +113,7 @@ internal static partial class IndexCreator
             selection = new CustomProfileSelection(new LeanCorpusSearchProfile(), customSchema,
                 new Dictionary<string, string>(StringComparer.Ordinal) { ["schemaJson"] = canonicalSchema });
         }
-        else if (normalisedPreset is "vector-flat" or "vector-hnsw" or "vector-int8" or "vector-bbq" or "vector-filtered")
+        else if (normalisedPreset is "vector-flat" or "vector-hnsw" or "vector-int8" or "vector-filtered")
         {
             if (recipe is null)
                 buildHnsw = normalisedPreset != "vector-flat";
@@ -162,6 +165,9 @@ internal static partial class IndexCreator
             ?? throw new InvalidDataException("The index recipe is empty or invalid.");
         if (recipe.SchemaVersion != RecipeSchemaVersion)
             throw new InvalidDataException($"Unsupported recipe schema version {recipe.SchemaVersion}.");
+        if (recipe.Preset == "vector-bbq")
+            throw new InvalidDataException(
+                "Recipe preset 'vector-bbq' is retired. Create a separate Float32 or Int8 index from the original documents and embeddings.");
         if (!SupportedPresets.Contains(recipe.Preset, StringComparer.Ordinal))
             throw new InvalidDataException($"Recipe preset '{recipe.Preset}' is not registered.");
         IndexCreationResult result = recipe.Preset == "codec-migration-required"
@@ -191,7 +197,7 @@ internal static partial class IndexCreator
         "search-small" => 128,
         "search-medium" => 10_000,
         "realistic-mixed" => 2_048,
-        "vector-hnsw" or "vector-flat" or "vector-int8" or "vector-bbq" or "vector-filtered" => 128,
+        "vector-hnsw" or "vector-flat" or "vector-int8" or "vector-filtered" => 128,
         "hybrid-balanced" or "hybrid-text-heavy" or "hybrid-vector-heavy" => 128,
         "multilingual" => 24,
         "many-small-segments" => 64,

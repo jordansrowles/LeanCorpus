@@ -15,7 +15,7 @@ Return to the [feature comparison overview](index.md) for status definitions and
 | Filtered approximate kNN | ✔ | ❌ | ✔ | Pre-filter and post-filter modes. |
 | HNSW build configuration | ✔ | ❌ | ◐ | Per-index graph parameters and deterministic seed support. |
 | Vector normalisation | ✔ | ❌ | ◐ | Optional index-time L2 normalisation. |
-| Int8 and binary vector quantisation | ✔ | ❌ | ✔ | Scalar and binary quantisation across indexing and search. |
+| Int8 vector quantisation; historical BBQ read support | ✔ | ❌ | ✔ | New writes support Int8; existing BBQ data can be searched but its index is read-only. |
 | Four-bit and product quantisation | ❌ | ❌ | ✔ | Not currently available. |
 | SIMD vector operations | ✔ | ❌ | ◐ | Runtime-vectorised .NET implementation using `Vector<T>`. |
 | Reciprocal-rank fusion | ✔ | ❌ | ◐ | Native query form for lexical and vector result fusion. |

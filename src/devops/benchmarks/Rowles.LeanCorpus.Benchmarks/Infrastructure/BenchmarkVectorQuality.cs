@@ -16,6 +16,21 @@ internal sealed record VectorQualityMeasurement(
     double? MeanAbsoluteQuantisationScoreError,
     double? MaxAbsoluteQuantisationScoreError);
 
+internal sealed record VectorQueryQualityResult(
+    string QueryId,
+    VectorQualityMeasurement[] Measurements);
+
+internal sealed record VectorHeldOutQualitySummary(
+    int QueryCount,
+    double MeanRecallAt1,
+    double MeanRecallAt10,
+    double MeanRecallAt100,
+    double MinimumRecallAt10,
+    string[] FailedChecks)
+{
+    public bool Passed => FailedChecks.Length == 0;
+}
+
 internal static class BenchmarkVectorQuality
 {
     private const string FixtureRelativePath =
@@ -40,10 +55,21 @@ internal static class BenchmarkVectorQuality
         bool quantised)
     {
         ArgumentNullException.ThrowIfNull(dataset);
+        return Measure(dataset, dataset.Query, searchAtK, quantised);
+    }
+
+    public static VectorQualityMeasurement[] Measure(
+        BenchmarkVectorDataset dataset,
+        VectorQueryCase query,
+        Func<int, ScoreDoc[]> searchAtK,
+        bool quantised)
+    {
+        ArgumentNullException.ThrowIfNull(dataset);
+        ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(searchAtK);
         ValidateFixture();
 
-        var exact = VectorGroundTruth.Compute(dataset.Records, dataset.Query, dataset.Records.Length);
+        var exact = VectorGroundTruth.Compute(dataset.Records, query, dataset.Records.Length);
         var exactRankByOrdinal = new Dictionary<long, int>(exact.NeighbourOrdinals.Length);
         var exactScoreByOrdinal = new Dictionary<long, double>(exact.NeighbourOrdinals.Length);
         for (var i = 0; i < exact.NeighbourOrdinals.Length; i++)
@@ -104,6 +130,77 @@ internal static class BenchmarkVectorQuality
         return measurements.ToArray();
     }
 
+    public static void RequireHeldOutGroup(
+        IEnumerable<VectorQueryQualityResult> queryResults,
+        string context)
+    {
+        VectorHeldOutQualitySummary summary = EvaluateHeldOutGroup(queryResults, context);
+        if (!summary.Passed)
+            throw new InvalidOperationException(string.Join("; ", summary.FailedChecks) + ".");
+    }
+
+    public static VectorHeldOutQualitySummary EvaluateHeldOutGroup(
+        IEnumerable<VectorQueryQualityResult> queryResults,
+        string context)
+    {
+        ArgumentNullException.ThrowIfNull(queryResults);
+        ArgumentException.ThrowIfNullOrWhiteSpace(context);
+        VectorQueryQualityResult[] results = queryResults.ToArray();
+        if (results.Length != 4)
+            throw new InvalidOperationException($"{context} requires exactly four held-out queries; got {results.Length}.");
+        if (results.Any(static result => string.IsNullOrWhiteSpace(result.QueryId))
+            || results.Select(static result => result.QueryId).Distinct(StringComparer.Ordinal).Count() != results.Length)
+            throw new InvalidOperationException($"{context} requires four distinct, named held-out queries.");
+
+        foreach (VectorQueryQualityResult result in results)
+        {
+            if (result.Measurements is null)
+                throw new InvalidOperationException($"{context} query {result.QueryId} has no quality measurements.");
+            int[] topKs = result.Measurements.Select(static measurement => measurement.TopK)
+                .Order().ToArray();
+            if (!topKs.SequenceEqual([1, 10, 100]))
+                throw new InvalidOperationException(
+                    $"{context} query {result.QueryId} must contain exactly recall@1, recall@10 and recall@100 measurements.");
+            foreach (VectorQualityMeasurement measurement in result.Measurements)
+            {
+                if (!double.IsFinite(measurement.RecallAtK)
+                    || measurement.RecallAtK < 0d || measurement.RecallAtK > 1d
+                    || measurement.ReturnedCount != measurement.TopK
+                    || measurement.RecallHits < 0 || measurement.RecallHits > measurement.TopK
+                    || Math.Abs(measurement.RecallAtK - (double)measurement.RecallHits / measurement.TopK) > 1e-12)
+                {
+                    throw new InvalidOperationException(
+                        $"{context} query {result.QueryId} has an invalid recall@{measurement.TopK} measurement.");
+                }
+            }
+        }
+
+        double meanRecallAt1 = MeanRecall(results, 1);
+        double meanRecallAt10 = MeanRecall(results, 10);
+        double meanRecallAt100 = MeanRecall(results, 100);
+        double minimumRecallAt10 = results.Min(static result =>
+            result.Measurements.Single(static measurement => measurement.TopK == 10).RecallAtK);
+        var failedChecks = new List<string>();
+        AddFailure(meanRecallAt1, 0.90d, $"{context} mean recall@1");
+        AddFailure(meanRecallAt10, 0.90d, $"{context} mean recall@10");
+        AddFailure(meanRecallAt100, 0.90d, $"{context} mean recall@100");
+        foreach (VectorQueryQualityResult result in results)
+        {
+            double recallAt10 = result.Measurements.Single(static measurement => measurement.TopK == 10).RecallAtK;
+            AddFailure(recallAt10, 0.80d, $"{context} query {result.QueryId} minimum recall@10");
+        }
+
+        return new VectorHeldOutQualitySummary(results.Length, meanRecallAt1, meanRecallAt10,
+            meanRecallAt100, minimumRecallAt10, failedChecks.ToArray());
+
+        void AddFailure(double recall, double floor, string check)
+        {
+            if (recall + 1e-12 < floor)
+                failedChecks.Add($"{check}={recall.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} "
+                    + $"is below the predeclared {floor.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} floor");
+        }
+    }
+
     public static void RequireMinimumRecall(
         IEnumerable<VectorQualityMeasurement> measurements,
         string context)
@@ -126,6 +223,9 @@ internal static class BenchmarkVectorQuality
                 + $"is below the predeclared {floor.ToString("F6", System.Globalization.CultureInfo.InvariantCulture)} floor.");
         }
     }
+
+    private static double MeanRecall(IReadOnlyList<VectorQueryQualityResult> results, int topK)
+        => results.Average(result => result.Measurements.Single(measurement => measurement.TopK == topK).RecallAtK);
 
     private static double LoadAndValidateFixture()
     {

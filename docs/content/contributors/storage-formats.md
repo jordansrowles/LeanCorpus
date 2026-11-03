@@ -49,8 +49,13 @@ Normal opens validate framing and bounds but do not scan a large body checksum. 
 | Format ID | Extension | Readable bodies | Writable body | Older-body migration |
 | --- | --- | --- | --- | --- |
 | `leancorpus.vectors.float32` | `.vec` | v1, v2 | v2 | Rewrite |
-| `leancorpus.vectors.quantised` | `.vq` | v1, v2, v3 | v3 | v1/v2 structural wrap into v3 |
+| `leancorpus.vectors.quantised` | `.vq` | v1, v2, v3 | v3 Int8 | Int8 v1/v2 structural wrap into v3; BBQ unsupported |
 | `leancorpus.vectors.hnsw` | `.hnsw` | v1 | v1 | Unchanged body |
+
+The `.vq` migration rule is representation-specific. Int8 bodies may be
+structurally wrapped into v3 without requantising their values. BBQ-tagged
+bodies remain readable but are rejected for migration; a current BBQ-containing
+index is read-only to the writer.
 
 The `.vec` v2 and `.vq` v2/v3 bodies start with `docCount:int32`,
 `dimension:int32`, and a format/quantisation byte. Bodies with persisted vector
@@ -59,23 +64,25 @@ Each document has one bit in increasing document-ID order, least-significant
 bit first. Unused high bits in the final byte must be zero. There is no
 independent bitmap-length field or presence sidecar.
 
-For `.vec`, the existing dense float32 payload follows the bitmap; historical
+For `.vec`, the existing dense Float32 payload follows the bitmap; historical
 Int8 data-format bodies retain their min/alpha parameters before dense bytes.
 For `.vq` v1/v2, payload layout and legacy quantisation semantics remain
 unchanged. `.vq` v3 adds a `storageKind` tag after presence so the reader can
-distinguish legacy Int8, legacy sign-BBQ, and new BBQ OSQ with canonical Int8.
-The new BBQ body stores its canonical format tag, segment centroid and squared
-norm, per-document OSQ correction fields and packed one-bit codes, then
-per-document canonical Int8 metadata and codes. Fixed-stride offsets and body
-lengths are checked before access. Its `.hnsw` scorer generation is resolved
-from the associated `.vq` storage kind; `.hnsw` remains v1.
+distinguish Int8, historical sign-BBQ, and experimental OSQ with canonical
+Int8. Current writers emit the Int8 representation only. The historical OSQ
+body stores its format tag, segment centroid and squared norm, per-document
+OSQ correction fields and packed one-bit codes, then per-document canonical
+Int8 metadata and codes. Its readers remain for historical indexes; no current
+writer, migration or merge emits that representation. Fixed-stride offsets
+and body lengths are checked before access. The `.hnsw` scorer generation is
+resolved from the associated `.vq` storage kind; `.hnsw` remains v1.
 
 A set bit means the document explicitly supplied a vector, including an all-zero
-vector. A clear bit means padding, which search, reranking and merge skip before
-accessing vector values. Merge remaps presence alongside live documents and index
-sort order, then builds HNSW only from present destination IDs. For new BBQ v3,
-merge preserves each live canonical Int8 record byte-for-byte and regenerates
-segment-specific OSQ data and HNSW from those canonical records.
+vector. A clear bit means padding, which search and reranking skip before
+accessing vector values. Supported Float32 and Int8 merges remap presence
+alongside live documents and index sort order, then build HNSW only from present
+destination IDs. An index containing any BBQ representation is rejected before
+merge mutation.
 
 ## Supported historical framing
 

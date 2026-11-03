@@ -2,7 +2,7 @@
 
 Use this guide when your application already generates compatible embeddings. LeanCorpus stores and searches vectors, but does not choose an embedding model or generate embeddings from document text.
 
-Float32 vector fields are stored per segment with an HNSW graph built at flush time. Searches use HNSW when present, then rerank the shortlist with cosine similarity over the stored Float32 vectors. Quantised fields use their decoded representation for approximate rescoring, as described below.
+Float32 vector fields are stored per segment with an HNSW graph built at flush time. Searches use HNSW when present, then rerank the shortlist with cosine similarity over the stored Float32 vectors. Int8 and historical BBQ fields use their stored, decoded representation for approximate rescoring, as described below.
 
 ```mermaid
 flowchart TD
@@ -87,32 +87,42 @@ If no HNSW graph exists, falls back to a flat SIMD scan. Vector readers are open
 
 ## Quantisation
 
-New BBQ indexes in 4.0 use a v3 `.vq` format. BBQ v3 is supported for normalised cosine vectors with at least 128 dimensions; the writer rejects smaller dimensions and `NormaliseVectors = false`. It uses one-bit Optimised Scalar Quantisation (OSQ) document codes with prepared 4-bit query codes for HNSW traversal, plus a per-vector canonical unsigned Int8 representation for approximate cosine reranking. The final scores are approximate to the original Float32 vectors.
-
-The one-bit graph codes are only one part of this format. The index also stores canonical Int8 values, correction and per-vector metadata, presence information, and shared segment data. Do not read the one-bit working set as a 32× reduction in total index size. Measure the full index and recall on the target corpus.
+New vector indexes use Float32 by default. Int8 scalar quantisation is also
+available, storing one byte per component with per-vector scaling. Its scores
+use the decoded Int8 representation and are approximate to the original
+Float32 vectors:
 
 ```csharp
 var config = new IndexWriterConfig
 {
     BuildHnswOnFlush = true,
-    VectorQuantisation = VectorQuantisation.BBQ,
-};
-```
-
-Int8 scalar quantisation is also available, compressing 4× with a per-vector min/max scale:
-
-```csharp
-var config = new IndexWriterConfig
-{
     VectorQuantisation = VectorQuantisation.Int8,
 };
 ```
 
-For BBQ v3, an omitted `oversamplingFactor` selects a three-times HNSW shortlist. Explicit values, including `1`, are honoured. Callers compiled against an earlier optional-parameter default may still pass `1` and keep the one-times shortlist. Int8 stores one byte per component, while BBQ v3 combines one-bit traversal codes with canonical Int8 values; neither representation promises Float32-exact scores. Recall and index size depend on the corpus and dimension, so measure them before choosing a quantisation mode or search budget.
+### Historical BBQ indexes
 
-**Qualification status:** ADR042 remains Proposed. The fixed 128D integration recall gate is currently below its declared floor, so BBQ v3 has not completed release qualification. See [ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md) before treating this branch's BBQ v3 implementation as release-qualified.
+LeanCorpus 4.0 does not create BBQ indexes. The `VectorQuantisation.BBQ`
+identifier is retained for format compatibility, but requesting it for new
+output is rejected. Existing sign-BBQ and experimental OSQ `.vq` data remains
+readable and searchable with its historical scorer.
 
-Legacy BBQ v1/v2 indexes remain readable and can be structurally migrated while retaining their legacy scoring. That migration cannot recover the original component magnitudes or create BBQ v3 canonical vectors. To move to BBQ v3, rebuild the index from the original embeddings; the 4.0 writer rejects mutation or import of a legacy BBQ index.
+Any committed BBQ field makes its whole index read-only, including mixed
+indexes and indexes where all BBQ documents have been deleted. Opening a writer,
+mutating, importing, merging or migrating such an index is rejected before
+persistent changes. A no-op migration is rejected as well. This policy prevents
+an older BBQ representation from being silently rewritten or upgraded.
+
+To continue indexing, create a separate Float32 or Int8 index from the original
+documents and embeddings. Decoding BBQ values does not recover the original
+component magnitudes. Historical BBQ scores are approximate to those originals.
+For historical OSQ fields, an omitted `oversamplingFactor` selects the existing
+three-times HNSW shortlist; explicit values remain honoured. This is query
+compatibility for old indexes, not a BBQ creation path.
+
+ADR042 remains Proposed while mandatory Float32 and Int8 quality gates are
+unfinished. See [ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md)
+for the current lifecycle decision and qualification status.
 
 ## See also
 

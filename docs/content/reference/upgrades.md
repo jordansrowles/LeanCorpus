@@ -31,24 +31,16 @@ To roll back an application deployment, restore the preserved 3.x backup rather
 than opening the 4.x output with the older writer. Rowles.Text has its own
 package version and release boundary.
 
-## Rebuilding legacy BBQ as BBQ v3
+## BBQ-containing indexes in 4.0
 
-CodecKit migration preserves legacy BBQ v1/v2 payloads and their historical
-scoring. It cannot reconstruct the original per-component magnitudes or create
-the canonical Int8 records required by BBQ v3. After migration, legacy BBQ
-segments remain searchable, but a 4.0 writer rejects mutation and automatic
-merging of an index containing them.
+LeanCorpus 4.0 keeps historical BBQ data readable and searchable with its
+existing scorer. Any committed BBQ field makes the containing index read-only:
+writer opening, mutation, import, merge and migration are rejected before
+persistent changes, including a no-op migration. This applies to mixed indexes
+and BBQ fields whose documents have all been deleted.
 
-To create a BBQ v3 index, retain a backup of the old index and rebuild from the
-original documents and embeddings. Configure `VectorQuantisation.BBQ` with
-`NormaliseVectors = true`; every BBQ field must have at least 128 dimensions.
-The writer rejects unsupported fields and does not fall back to standalone
-Int8. Imports from Float32 are quantised once into the canonical representation;
-imports from standalone Int8 are a further lossy conversion. Do not use the
-legacy `.vq` files as an input source for this rebuild.
-
-BBQ v3 scores are approximate to the original Float32 cosine. ADR042 remains
-Proposed because the fixed integration recall gate has not passed on the current
-implementation; this branch does not establish release qualification. Validate
-the target workload and wait for the ADR's required quality and performance
-gates before deploying BBQ v3.
+New vector output is Float32 or Int8. To keep indexing data from an old BBQ
+index, create a separate index from the original documents and embeddings. BBQ
+decoding cannot recover the original component magnitudes, so do not use
+decoded BBQ vectors as a substitute for the source embeddings. See [CodecKit
+migrations](../contributors/codeckit/03-migrations.md) and [ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md).

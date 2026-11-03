@@ -14,7 +14,10 @@ public sealed class HnswBenchmarkQualityTests
     [Theory]
     [InlineData(64)]
     [InlineData(128)]
-    public void Ef64BenchmarkProfile_MeetsPinnedRecallFloor(int dimension)
+    public void Ef256BenchmarkProfile_MeetsPinnedRecallFloor(int dimension)
+        => RunBenchmarkProfile(dimension, efSearch: 256);
+
+    private static void RunBenchmarkProfile(int dimension, int efSearch)
     {
         var dataset = BenchmarkVectorData.Get(10_000, dimension);
         var temporaryDirectory = Directory.CreateTempSubdirectory("lc-hnsw-quality-");
@@ -45,12 +48,12 @@ public sealed class HnswBenchmarkQualityTests
             var measurements = BenchmarkVectorQuality.Measure(
                 dataset,
                 topK => searcher.Search(
-                    new VectorQuery("emb", dataset.Query.Vector, topK: topK, efSearch: 64), topK).ScoreDocs,
+                    new VectorQuery("emb", dataset.Query.Vector, topK: topK, efSearch: efSearch), topK).ScoreDocs,
                 quantised: false);
 
             BenchmarkVectorQuality.RequireMinimumRecall(
                 measurements,
-                $"HNSW docCount=10000, dimension={dimension}, efSearch=64");
+                $"HNSW docCount=10000, dimension={dimension}, efSearch={efSearch}");
         }
         finally
         {

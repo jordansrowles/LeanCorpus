@@ -101,6 +101,12 @@ The fuzzy `nohit-edit2` case uses a unique miss term on every measured invocatio
 
 For approximate vector search, report recall as well as latency. For cache work, include cold and warm cases. For indexing, include index size and merge or commit effects when they change.
 
+### Vector recall quality
+
+The deterministic `leancorpus-vector` DataForge profile supports uniform, clustered, dense-neighbourhood, near-duplicate, quantisation-friendly, quantisation-hostile and anisotropic vectors. Anisotropic vectors scale component `i` by `1 / sqrt(i + 1)` for both indexed records and queries; this distribution leaves existing version 1 uniform datasets unchanged. Record and held-out query seeds are independent, and query seed and query count are part of benchmark dataset identity.
+
+HNSW benchmark setup checks four distinct held-out queries against exact cosine ground truth at K=1, 10 and 100 before timing. The gate requires complete result counts, mean recall of at least 0.90 at each K, and recall of at least 0.80 for every query at K=10. A failed query group, incomplete result, or fallback scan prevents the case from being timed as qualified. Float32 and Int8 are the supported HNSW benchmark representations; unsupported quantisation formats are rejected during setup.
+
 ## Interpret results
 
 BenchmarkDotNet warnings are evidence, not decoration. Report denied process priority, unstable clocks, multimodal distributions, outliers, and short runs. Cross-machine or cross-runtime comparisons are directional unless the environment and workload are controlled.

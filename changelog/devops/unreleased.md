@@ -12,6 +12,7 @@
 - Add an interactive Spectre.Console workbench for managed tests, benchmark suites and area/group selectors, DataForge qualification and recent run inspection.
 - Exercise managed DevOps bootstrap and `report all` on Linux ARM64 and macOS ARM64 in Build CI.
 - Add a managed, bounded sustained-workload command with versioned input and terminal evidence for ingestion, read-only search and mixed ingest/search refresh scenarios.
+- Add deterministic vector workload distributions, independent held-out query seeds and a four-query HNSW recall gate against exact cosine ground truth before timing; preserve existing version 1 uniform dataset outputs.
 - Add a separate explicit-only capacity-one async indexing benchmark and independently budgeted 1,000-document and 100,000-document stress strategies.
 - Verify exact committed document ID sets for concurrent and sequential indexing benchmark cases.
 - Add a directional FST build benchmark for sorted UTF-8 terms with setup-time serialized-index and exact-output verification.
@@ -138,6 +139,8 @@
 - Validate equivalent query ASTs at the parser guard limit and reject limit-plus-one input before timing, with valid parsing and rejection kept as separate benchmark operations.
 
 ## Removed
+
+- Remove the retired `vector-bbq` CLI preset and return a stable error for new creation or reproduction attempts; new vector presets use Float32 or Int8 output.
 
 - Retire the JSON API, Newsgroups, telemetry and Rowles.Text tokenisation demo applications, the legacy news downloader and machine-specific nightly benchmark runner; keep the Linux kernel code-search workload and its manual reproduction guide.
 

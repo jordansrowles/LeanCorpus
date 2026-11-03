@@ -96,24 +96,28 @@ Float `.vec` v1 bodies migrate to v2 by structural rewrite. Their owning
 validates graph membership, unique document IDs and document bounds, and inserts
 the reconstructed presence bitmap. Dense Float32 bytes remain unchanged.
 
-Quantised `.vq` v1 and v2 bodies migrate to v3 by adding the v3 storage-kind tag
-and preserving the old payload. For v1, the migrator reconstructs authoritative
+Int8 `.vq` v1 and v2 bodies migrate to v3 by adding the v3 storage-kind tag and
+preserving the encoded payload. For v1, the migrator reconstructs authoritative
 presence from the persisted HNSW graph, after validating membership, unique IDs
 and document bounds. For v2, it validates and copies the persisted presence
-bitmap; this path does not require HNSW access or rewrite the bitmap from graph
-membership. In both cases, quantised bytes, parameters and corrections are
-copied without dequantisation or requantisation. Legacy BBQ remains tagged with
-its legacy scorer; this migration does not create BBQ v3 OSQ or canonical Int8
-vectors. The HNSW body stays at v1 and its scorer generation is resolved from
-the associated `.vq` storage kind.
+bitmap; this path does not require HNSW access or rebuild presence from graph
+membership. Int8 values and parameters are copied without dequantisation or
+requantisation. The HNSW body stays at v1 and its scorer generation is resolved
+from the associated `.vq` storage kind.
 
-Without persisted HNSW membership, v1 presence cannot be reconstructed. Planning
-reports a non-executable action with `UnsupportedMigrationPath`; migration stops
-before changing source files. Non-zero dense contents are not presence evidence.
-Rebuild such indexes from the original documents instead. A migrated legacy BBQ
-index remains readable for search, but the 4.0 writer rejects it before mutation
-or background merging because its original vector components are unavailable.
-Create a BBQ v3 index from the original embeddings to make that semantic change.
+BBQ-tagged `.vq` v1/v2 bodies have no migration route. Migration of any BBQ
+format, including a current-version no-op, is rejected before changing source
+files. Historical BBQ bodies remain readable and searchable with their existing
+scorers. Any committed BBQ field makes the entire containing index read-only to
+writers, including mixed indexes and all-deleted fields. New output is Float32
+or Int8 only. To continue indexing, create a separate index from original
+documents and embeddings; decoded BBQ data does not restore the original
+components.
+
+The `.vec` v1 and Int8 `.vq` v1 presence rewrites require persisted HNSW
+membership. Without it, planning reports `UnsupportedMigrationPath` and
+migration stops before changing source files. Non-zero vector contents are not
+presence evidence.
 
 Compound members use the same staged rewrite and normal repacking protocol.
 Publication failure preserves the last committed source index and supports retry.
@@ -126,8 +130,9 @@ and HNSW membership through planning, migration, reopen and force merge. Both
 layouts physically sort on `sort:id`, preserving released metadata
 `String:sort:id:False` and sorted search results throughout. Acceptance checks
 the complete expected codec action set, with no index-sort rewrite.
-Focused vector tests additionally cover Int8 and BBQ rewrites. Vector v2 is a
-one-way persisted-format boundary; a 3.1.1 reader is not expected to open it.
+Focused vector tests additionally cover Int8 structural migration and BBQ
+migration denials. The resulting `.vec` v2 and `.vq` v3 formats are one-way
+persisted-format boundaries; a 3.1.1 reader is not expected to open them.
 
 Regenerate deliberately with `./devops data fixtures --version 3.1.1
 --scenario migration` using the pinned SDK and the isolated package source.

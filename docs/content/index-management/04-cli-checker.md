@@ -69,7 +69,13 @@ The geo query accepts a centre latitude and longitude in decimal degrees and a p
 
 ## Deterministic index creation
 
-Presets use DataForge as a library and write `.leancorpus/recipe.json` and `.leancorpus/dataforge-manifest.json` beside the index. The first catalogue includes `minimal`, `search-small`, `search-medium`, `realistic-mixed`, `vector-flat`, `vector-hnsw`, `vector-int8`, `vector-bbq`, `vector-filtered`, `hybrid-balanced`, `hybrid-text-heavy`, `hybrid-vector-heavy`, `multilingual`, `compound`, `non-compound`, `many-small-segments`, `delete-heavy`, `codec-current`, and the frozen `codec-migration-required` release fixture.
+Presets use DataForge as a library and write `.leancorpus/recipe.json` and `.leancorpus/dataforge-manifest.json` beside the index. The first catalogue includes `minimal`, `search-small`, `search-medium`, `realistic-mixed`, `vector-flat`, `vector-hnsw`, `vector-int8`, `vector-filtered`, `hybrid-balanced`, `hybrid-text-heavy`, `hybrid-vector-heavy`, `multilingual`, `compound`, `non-compound`, `many-small-segments`, `delete-heavy`, `codec-current`, and the frozen `codec-migration-required` release fixture.
+
+The retired `vector-bbq` preset returns an error before creating an index.
+Choose `vector-hnsw` or `vector-int8` for new vector output. Existing BBQ
+indexes remain readable and searchable but are read-only; see the
+[upgrade guide](../reference/upgrades.md) before rebuilding from original
+embeddings.
 
 ```bash
 leancorpus-cli create preset vector-hnsw ./vector-index --seed 1234 --count 500 --dimension 64

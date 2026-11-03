@@ -51,7 +51,10 @@ public sealed class LeanCorpusVectorProfile : IDataForgeGeneratedProfile<VectorR
                 ? Math.Clamp(CentroidRaw(options.Seed, targetCluster, dimension) +
                     random.NextInt32(-524_288, 524_289), -Grid, Grid - 1)
                 : random.NextInt32(-Grid, Grid);
-            vector[dimension] = raw / (float)Grid;
+            float component = raw / (float)Grid;
+            vector[dimension] = parameters.Distribution == VectorDistribution.Anisotropic
+                ? component * (1f / MathF.Sqrt(dimension + 1f))
+                : component;
         }
         EnsureNonZero(vector);
         return new VectorQueryCase($"vector-query-{queryIndex:D4}", targetCluster, vector);
@@ -86,7 +89,8 @@ public sealed class LeanCorpusVectorProfile : IDataForgeGeneratedProfile<VectorR
                 : context.Random($"vector/component/{dimension}");
             var raw = parameters.Distribution switch
             {
-                VectorDistribution.Uniform or VectorDistribution.NearDuplicate => random.NextInt32(-Grid, Grid),
+                VectorDistribution.Uniform or VectorDistribution.NearDuplicate or VectorDistribution.Anisotropic
+                    => random.NextInt32(-Grid, Grid),
                 VectorDistribution.Clustered => Math.Clamp(
                     centroids![cluster][dimension] + random.NextInt32(-524_288, 524_289), -Grid, Grid - 1),
                 VectorDistribution.DenseNeighbourhood => Math.Clamp(
@@ -101,7 +105,10 @@ public sealed class LeanCorpusVectorProfile : IDataForgeGeneratedProfile<VectorR
             if (parameters.Distribution == VectorDistribution.NearDuplicate && member != 0 &&
                 dimension == member % parameters.Dimension)
                 raw = Math.Clamp(raw + (member % 2 == 1 ? 1 : -1), -Grid, Grid - 1);
-            vector[dimension] = raw / (float)Grid;
+            float component = raw / (float)Grid;
+            vector[dimension] = parameters.Distribution == VectorDistribution.Anisotropic
+                ? component * (1f / MathF.Sqrt(dimension + 1f))
+                : component;
         }
         EnsureNonZero(vector);
         return new VectorRecord(ordinal, $"vector-{ordinal:D8}", cluster, category, accessGroup, vector);

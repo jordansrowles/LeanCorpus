@@ -31,7 +31,7 @@ Console.WriteLine(explanation);
 
 Vector explanations report cosine similarity and the selected execution strategy. Depending on the segment and filter, that may be flat search, HNSW candidate generation and rescoring, brute-force filtered search, HNSW pre-filtering, or HNSW post-filtering. For quantised fields, scores are approximate to the original Float32 vectors.
 
-Approximate traversal diagnostics can include `ef`, shortlist size, and graph node count. The final score uses the stored Float32 vector where available, or the quantised representation for Int8 and BBQ fields.
+Approximate traversal diagnostics can include `ef`, shortlist size, and graph node count. The final score uses the stored Float32 vector where available, or the quantised representation for Int8 and historical BBQ fields. BBQ-containing indexes remain readable but read-only to writers.
 
 ## Operational use
 

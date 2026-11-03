@@ -9,6 +9,7 @@ using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
@@ -23,6 +24,13 @@ using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
+internal sealed record HnswGraphQualityMeasurement(
+    string QueryId,
+    int TopK,
+    int ExactRepresentationCount,
+    int GraphReturnedCount,
+    double GraphRecallAgainstExactRepresentation);
+
 /// <summary>
 /// Measures HNSW search against an exact flat reference over the same vectors.
 /// The reference row is deliberately scalar because Lucene.NET 4.8 has no
@@ -34,9 +42,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [IterationCount(5)]
 public class HnswSearchBenchmarks
 {
-    internal const int GraphM = 32;
-    internal const int GraphM0 = 64;
-    internal const int GraphEfConstruction = 400;
+    internal const int GraphM = 16;
+    internal const int GraphM0 = 32;
+    internal const int GraphEfConstruction = 100;
     internal const long GraphSeed = 1L;
 
     internal static HnswBuildConfig CreateGraphBuildConfig() => new()
@@ -46,13 +54,22 @@ public class HnswSearchBenchmarks
         EfConstruction = GraphEfConstruction,
     };
 
-    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(1_000, 10_000);
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(10_000, 100_000);
 
     [ParamsSource(nameof(DocCounts))]
     public int DocCount { get; set; }
 
-    [Params(64, 128)]
+    [Params(32, 64, 128, 384, 768)]
     public int Dimension { get; set; }
+
+    [Params(VectorQuantisation.None, VectorQuantisation.Int8)]
+    public VectorQuantisation Quantisation { get; set; }
+
+    [Params(VectorDistribution.Uniform, VectorDistribution.Clustered, VectorDistribution.QuantisationHostile)]
+    public VectorDistribution Distribution { get; set; }
+
+    [Params(42, 2025)]
+    public int QuerySeed { get; set; }
 
     [Params(64, 256)]
     public int EfSearch { get; set; }
@@ -64,6 +81,7 @@ public class HnswSearchBenchmarks
     private static string s_flatPath = string.Empty;
     private static LeanIndexSearcher s_hnswSearcher = default!;
     private static LeanIndexSearcher s_flatSearcher = default!;
+    private static DefaultMetricsCollector s_hnswMetrics = new();
     private static VectorRecord[] s_referenceRecords = [];
 
     private float[] _query = [];
@@ -76,9 +94,10 @@ public class HnswSearchBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        BenchmarkVectorData.ValidateSupportedQuantisation(Quantisation);
         var setupStopwatch = Stopwatch.StartNew();
         BenchmarkVectorQuality.ValidateFixture();
-        _dataset = BenchmarkVectorData.Get(DocCount, Dimension);
+        _dataset = BenchmarkVectorData.Get(DocCount, Dimension, Distribution, 42, (ulong)QuerySeed, 4);
         var fixtureKey = CreateFixtureIdentity(_dataset);
         FixturePreparation fixture = default;
         if (!s_built || !s_lastKey.Equals(fixtureKey.Key, StringComparison.Ordinal))
@@ -91,8 +110,18 @@ public class HnswSearchBenchmarks
                     fixture = EnsureSearchFixture(_dataset, fixtureKey);
                     s_hnswPath = fixture.HnswPath;
                     s_flatPath = fixture.FlatPath;
-                    s_hnswSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_hnswPath));
-                    s_flatSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_flatPath));
+                    s_hnswMetrics = new DefaultMetricsCollector();
+                    s_hnswSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_hnswPath), new IndexSearcherConfig
+                    {
+                        ParallelSearch = false,
+                        EnableQueryCache = false,
+                        Metrics = s_hnswMetrics,
+                    });
+                    s_flatSearcher = new LeanIndexSearcher(new LeanMMapDirectory(s_flatPath), new IndexSearcherConfig
+                    {
+                        ParallelSearch = false,
+                        EnableQueryCache = false,
+                    });
                     s_referenceRecords = _dataset.Records;
                     s_lastKey = fixtureKey.Key;
                     s_built = true;
@@ -110,6 +139,7 @@ public class HnswSearchBenchmarks
                 FixtureReused: true, BuildEvidencePath: null);
         _queryCase = _dataset.Query;
         _query = _queryCase.Vector;
+        MetricsSnapshot metricsBefore = s_hnswMetrics.GetSnapshot();
 
         var reference = s_flatSearcher.Search(new LeanVectorQuery("emb", _query, topK: 10), 10);
         _flatTopDocumentIds = reference.ScoreDocs
@@ -126,36 +156,114 @@ public class HnswSearchBenchmarks
         }
         _scalarChecksum = ResultChecksum(scalarTopDocumentIds);
 
+        var exactOrdinalsByQueryAndK = new Dictionary<(string QueryId, int TopK), long[]>();
+        var exactQueryResults = new List<VectorQueryQualityResult>(_dataset.Queries.Length);
         var qualityStopwatch = Stopwatch.StartNew();
-        var qualityMeasurements = BenchmarkVectorQuality.Measure(
+        foreach (VectorQueryCase queryCase in _dataset.Queries)
+        {
+            var exactMeasurements = BenchmarkVectorQuality.Measure(
+                _dataset,
+                queryCase,
+                topK =>
+                {
+                    var exact = s_flatSearcher.Search(new LeanVectorQuery("emb", queryCase.Vector, topK: topK), topK);
+                    exactOrdinalsByQueryAndK[(queryCase.Id, topK)] = exact.ScoreDocs
+                        .Select(hit => _dataset.Records[hit.DocId].Ordinal)
+                        .ToArray();
+                    return exact.ScoreDocs;
+                },
+                quantised: Quantisation == VectorQuantisation.Int8);
+            exactQueryResults.Add(new VectorQueryQualityResult(queryCase.Id, exactMeasurements));
+        }
+        BenchmarkVectorData.WriteVectorQualityGroup(
             _dataset,
-            topK => s_hnswSearcher.Search(
-                new LeanVectorQuery("emb", _query, topK: topK, efSearch: EfSearch), topK).ScoreDocs,
-            quantised: false);
-        BenchmarkVectorData.WriteVectorQuality(
-            _dataset,
-            "hnsw",
-            $"ef{EfSearch}",
+            "hnsw-exact",
+            Quantisation.ToString().ToLowerInvariant(),
             new
             {
+                quantisation = Quantisation.ToString(),
+                topK = new[] { 1, 10, 100 },
+                heldOutQueryIds = _dataset.Queries.Select(static query => query.Id).ToArray(),
+            },
+            exactQueryResults);
+        BenchmarkVectorQuality.RequireHeldOutGroup(
+            exactQueryResults,
+            $"Exact vector search quantisation={Quantisation}, docCount={DocCount}, dimension={Dimension}");
+
+        var graphOrdinalsByQueryAndK = new Dictionary<(string QueryId, int TopK), long[]>();
+        var graphQueryResults = new List<VectorQueryQualityResult>(_dataset.Queries.Length);
+        foreach (VectorQueryCase queryCase in _dataset.Queries)
+        {
+            var graphMeasurements = BenchmarkVectorQuality.Measure(
+                _dataset,
+                queryCase,
+                topK =>
+                {
+                    var graph = s_hnswSearcher.Search(
+                        new LeanVectorQuery("emb", queryCase.Vector, topK: topK, efSearch: EfSearch), topK);
+                    graphOrdinalsByQueryAndK[(queryCase.Id, topK)] = graph.ScoreDocs
+                        .Select(hit => _dataset.Records[hit.DocId].Ordinal)
+                        .ToArray();
+                    return graph.ScoreDocs;
+                },
+                quantised: Quantisation == VectorQuantisation.Int8);
+            graphQueryResults.Add(new VectorQueryQualityResult(queryCase.Id, graphMeasurements));
+        }
+        MetricsSnapshot searchMetrics = GetSearchMetricsDelta(metricsBefore, s_hnswMetrics.GetSnapshot());
+
+        var graphQuality = new HnswGraphQualityMeasurement[exactOrdinalsByQueryAndK.Count];
+        var graphQualityIndex = 0;
+        foreach (KeyValuePair<(string QueryId, int TopK), long[]> pair in exactOrdinalsByQueryAndK
+            .OrderBy(static pair => pair.Key.QueryId, StringComparer.Ordinal)
+            .ThenBy(static pair => pair.Key.TopK))
+        {
+            string queryId = pair.Key.QueryId;
+            int topK = pair.Key.TopK;
+            long[] exactOrdinals = pair.Value;
+            long[] graphOrdinals = graphOrdinalsByQueryAndK[(queryId, topK)];
+            var exactSet = exactOrdinals.ToHashSet();
+            int hits = graphOrdinals.Distinct().Count(exactSet.Contains);
+            graphQuality[graphQualityIndex++] = new HnswGraphQualityMeasurement(
+                queryId,
+                topK,
+                exactOrdinals.Length,
+                graphOrdinals.Length,
+                (double)hits / topK);
+        }
+
+        qualityStopwatch.Stop();
+        BenchmarkVectorData.WriteVectorQualityGroup(
+            _dataset,
+            "hnsw",
+            $"{Quantisation.ToString().ToLowerInvariant()}-ef{EfSearch}",
+            new
+            {
+                quantisation = Quantisation.ToString(),
                 efSearch = EfSearch,
                 graphBuild = new { m = GraphM, m0 = GraphM0, efConstruction = GraphEfConstruction, seed = GraphSeed },
+                heldOutQueryIds = _dataset.Queries.Select(static query => query.Id).ToArray(),
             },
-            qualityMeasurements);
-        BenchmarkVectorQuality.RequireMinimumRecall(
-            qualityMeasurements,
-            $"HNSW docCount={DocCount}, dimension={Dimension}, efSearch={EfSearch}");
-        qualityStopwatch.Stop();
+            graphQueryResults);
+
+        setupStopwatch.Stop();
+        WriteCaseSetupEvidence(_dataset, fixture, setupStopwatch.Elapsed, qualityStopwatch.Elapsed,
+            graphQueryResults, Quantisation, graphQuality, searchMetrics);
+
+        BenchmarkVectorQuality.RequireHeldOutGroup(
+            graphQueryResults,
+            $"HNSW docCount={DocCount}, dimension={Dimension}, quantisation={Quantisation}, efSearch={EfSearch}");
+        if (searchMetrics.HnswExhaustiveFallbackCount != 0 || searchMetrics.HnswVectorsScanned != 0)
+        {
+            throw new InvalidOperationException(
+                $"Primary HNSW qualification used fallback scans: count={searchMetrics.HnswExhaustiveFallbackCount}, "
+                + $"vectors={searchMetrics.HnswVectorsScanned}.");
+        }
 
         var hnsw = s_hnswSearcher.Search(
             new LeanVectorQuery("emb", _query, topK: 10, efSearch: EfSearch), 10);
         if (hnsw.ScoreDocs.Length != 10)
             throw new InvalidOperationException($"Expected ten HNSW results, got {hnsw.ScoreDocs.Length}.");
         _hnswChecksum = ResultChecksum(hnsw);
-
-        setupStopwatch.Stop();
-        WriteCaseSetupEvidence(_dataset, fixture, setupStopwatch.Elapsed, qualityStopwatch.Elapsed,
-            qualityMeasurements);
     }
 
     private static FixturePreparation EnsureSearchFixture(
@@ -184,8 +292,8 @@ public class HnswSearchBenchmarks
         var vectors = dataset.Records.Select(static record => record.Vector).ToArray();
         vectorMaterialisationStopwatch.Stop();
 
-        var hnswBuild = BuildIndex(hnswPath, vectors, hnsw: true);
-        var flatBuild = BuildIndex(flatPath, vectors, hnsw: false);
+        var hnswBuild = BuildIndex(hnswPath, vectors, hnsw: true, identity.Quantisation);
+        var flatBuild = BuildIndex(flatPath, vectors, hnsw: false, identity.Quantisation);
         var evidencePath = WriteFixtureBuildEvidence(dataset, identity, vectorMaterialisationStopwatch.Elapsed,
             hnswBuild, flatBuild, DirectorySize(hnswPath), DirectorySize(flatPath));
         var markerTemporaryPath = markerPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
@@ -216,6 +324,7 @@ public class HnswSearchBenchmarks
             dataset.Identity.ContentSha256,
             DocCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
             Dimension.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            Quantisation.ToString(),
             GraphM.ToString(System.Globalization.CultureInfo.InvariantCulture),
             GraphM0.ToString(System.Globalization.CultureInfo.InvariantCulture),
             GraphEfConstruction.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -227,7 +336,7 @@ public class HnswSearchBenchmarks
         var evidencePath = string.IsNullOrWhiteSpace(artifactRoot)
             ? string.Empty
             : Path.Combine(Path.GetFullPath(artifactRoot), "hnsw-setup", "fixture-" + key + ".json");
-        return new FixtureIdentity(key, identity, evidencePath);
+        return new FixtureIdentity(key, identity, evidencePath, Quantisation);
     }
 
     private static bool IsFixtureReady(string markerPath, string identity, string hnswPath, string flatPath)
@@ -256,13 +365,14 @@ public class HnswSearchBenchmarks
         throw new TimeoutException($"Timed out waiting for HNSW benchmark fixture lock '{path}'.");
     }
 
-    private static IndexBuildEvidence BuildIndex(string path, float[][] vectors, bool hnsw)
+    private static IndexBuildEvidence BuildIndex(string path, float[][] vectors, bool hnsw, VectorQuantisation quantisation)
     {
         var metrics = new DefaultMetricsCollector();
         var config = new LeanIndexWriterConfig
         {
             BuildHnswOnFlush = hnsw,
             NormaliseVectors = true,
+            VectorQuantisation = quantisation,
             HnswBuildConfig = CreateGraphBuildConfig(),
             HnswSeed = GraphSeed,
             Metrics = metrics,
@@ -319,6 +429,7 @@ public class HnswSearchBenchmarks
                 contentSha256 = dataset.Identity.ContentSha256,
                 dimension = dataset.Query.Vector.Length,
             },
+            quantisation = identity.Quantisation.ToString(),
             graph = new { m = GraphM, m0 = GraphM0, efConstruction = GraphEfConstruction, seed = GraphSeed },
             vectorMaterialisationMilliseconds = vectorMaterialisationElapsed.TotalMilliseconds,
             hnswIndexBuild = new
@@ -347,14 +458,17 @@ public class HnswSearchBenchmarks
         FixturePreparation fixture,
         TimeSpan setupElapsed,
         TimeSpan qualityElapsed,
-        IReadOnlyList<VectorQualityMeasurement> qualityMeasurements)
+        IReadOnlyList<VectorQueryQualityResult> qualityMeasurements,
+        VectorQuantisation quantisation,
+        IReadOnlyList<HnswGraphQualityMeasurement> graphQualityMeasurements,
+        MetricsSnapshot searchMetrics)
     {
         var artifactRoot = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
         if (string.IsNullOrWhiteSpace(artifactRoot))
             return;
 
         var path = Path.Combine(Path.GetFullPath(artifactRoot), "hnsw-setup", "cases",
-            $"process-{Environment.ProcessId}-doc{DocCount}-dim{Dimension}-ef{EfSearch}.json");
+            $"process-{Environment.ProcessId}-doc{DocCount}-dim{Dimension}-{Distribution.ToString().ToLowerInvariant()}-q{QuerySeed}-{quantisation.ToString().ToLowerInvariant()}-ef{EfSearch}.json");
         WriteJsonAtomically(path, new
         {
             schemaVersion = 1,
@@ -364,6 +478,9 @@ public class HnswSearchBenchmarks
             fixtureBuildEvidencePath = fixture.BuildEvidencePath,
             documentCount = DocCount,
             dimension = Dimension,
+            distribution = Distribution.ToString(),
+            querySeed = QuerySeed,
+            quantisation = quantisation.ToString(),
             efSearch = EfSearch,
             graph = new { m = GraphM, m0 = GraphM0, efConstruction = GraphEfConstruction, seed = GraphSeed },
             dataset = new
@@ -372,17 +489,41 @@ public class HnswSearchBenchmarks
                 profileVersion = dataset.Identity.ProfileVersion,
                 recordCount = dataset.Identity.RecordCount,
                 contentSha256 = dataset.Identity.ContentSha256,
+                querySeed = dataset.QuerySeed,
+                queryIds = dataset.Queries.Select(static query => query.Id).ToArray(),
             },
             setupMilliseconds = setupElapsed.TotalMilliseconds,
             qualityPreflightMilliseconds = qualityElapsed.TotalMilliseconds,
             qualityMeasurements,
+            graphQualityMeasurements,
+            searchMetrics = new
+            {
+                searchCount = searchMetrics.HnswSearchCount,
+                graphNodeVisits = searchMetrics.HnswNodesVisited,
+                vectorsScanned = searchMetrics.HnswVectorsScanned,
+                exhaustiveFallbackCount = searchMetrics.HnswExhaustiveFallbackCount,
+                selectiveFilterScanCount = searchMetrics.HnswSelectiveFilterScanCount,
+            },
         });
     }
+
+    private static MetricsSnapshot GetSearchMetricsDelta(MetricsSnapshot before, MetricsSnapshot after)
+        => new()
+        {
+            HnswSearchCount = after.HnswSearchCount - before.HnswSearchCount,
+            HnswNodesVisited = after.HnswNodesVisited - before.HnswNodesVisited,
+            HnswVectorsScanned = after.HnswVectorsScanned - before.HnswVectorsScanned,
+            HnswExhaustiveFallbackCount = after.HnswExhaustiveFallbackCount - before.HnswExhaustiveFallbackCount,
+            HnswSelectiveFilterScanCount = after.HnswSelectiveFilterScanCount - before.HnswSelectiveFilterScanCount,
+        };
 
     private static void WriteJsonAtomically(string path, object value)
     {
         IODirectory.CreateDirectory(Path.GetDirectoryName(path)!);
-        var content = JsonSerializer.SerializeToUtf8Bytes(value);
+        var content = JsonSerializer.SerializeToUtf8Bytes(value, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        });
         var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
@@ -492,7 +633,11 @@ public class HnswSearchBenchmarks
         s_referenceRecords = [];
     }
 
-    private readonly record struct FixtureIdentity(string Key, string Value, string BuildEvidencePath);
+    private readonly record struct FixtureIdentity(
+        string Key,
+        string Value,
+        string BuildEvidencePath,
+        VectorQuantisation Quantisation);
 
     private readonly record struct FixturePreparation(
         string HnswPath,

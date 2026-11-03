@@ -27,9 +27,7 @@ using IODirectory = System.IO.Directory;
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Measures HNSW search throughput across
-/// <see cref="VectorQuantisation"/> levels: None (float32 baseline),
-/// Int8 (scalar quantisation), and BBQ (binary quantisation).
+/// Measures HNSW search throughput for supported Float32 and Int8 vectors.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -38,16 +36,16 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [RPlotExporter]
 public class VectorQuantisationBenchmarks
 {
-    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(1_000, 10_000);
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(10_000, 100_000);
 
     [ParamsSource(nameof(DocCounts))]
     public int DocCount { get; set; }
 
-    [Params(64, 128)]
+    [Params(32, 64, 128, 384, 768)]
     public int Dimension { get; set; }
 
     /// <summary>Quantisation strategy applied at index time.</summary>
-    [Params(VectorQuantisation.None, VectorQuantisation.Int8, VectorQuantisation.BBQ)]
+    [Params(VectorQuantisation.None, VectorQuantisation.Int8)]
     public VectorQuantisation Quantisation { get; set; }
 
     private const string FieldName = "emb";
@@ -75,6 +73,7 @@ public class VectorQuantisationBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        BenchmarkVectorData.ValidateSupportedQuantisation(Quantisation);
         BenchmarkVectorQuality.ValidateFixture();
         var key = (DocCount, Dimension, Quantisation);
         if (!s_built || s_lastKey != key)

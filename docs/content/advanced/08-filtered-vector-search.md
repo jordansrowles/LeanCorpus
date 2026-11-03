@@ -61,7 +61,7 @@ An allow-list can disconnect useful graph routes because disallowed nodes cannot
 
 ## Rescoring
 
-HNSW produces a shortlist. LeanCorpus reads the stored representation and scores surviving candidates before collection. Float32 fields use their stored Float32 vectors; Int8 and BBQ v3 fields use decoded quantised values and return approximate cosine scores. Query vectors are normalised for fields recorded as normalised. Invalid zero-length normalisation produces no matches.
+HNSW produces a shortlist. LeanCorpus reads the stored representation and scores surviving candidates before collection. Float32 fields use their stored Float32 vectors; Int8 and historical BBQ fields use decoded quantised values and return approximate cosine scores. Query vectors are normalised for fields recorded as normalised. Invalid zero-length normalisation produces no matches. BBQ-containing indexes remain readable but are read-only to writers.
 
 Approximate traversal can omit a true neighbour before rescoring. Rescoring the shortlist does not make the overall search exhaustive or restore precision lost by quantisation.
 

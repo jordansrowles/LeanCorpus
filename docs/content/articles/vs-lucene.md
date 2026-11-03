@@ -321,7 +321,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Per-field stored-field compression selection | ✔   `FieldCompressionPolicy` | ❌ | ❌ | Compression policy is selected per stored field; Lucene stored-field compression is selected at codec or segment level. |
 | Postings format variants (Direct, BlockTree) | ❌ | ✔ | ✔ | Backlog |
 | Chunked stored-field format | ❌ | ✔ | ✔ | Backlog |
-| Vector quantisation (Int8 / BBQ) | ✔   `IndexWriterConfig.VectorQuantisation` / `VectorQuantisation.Int8` / `VectorQuantisation.BBQ` | ❌ | ✔ | BBQ v3 uses one-bit OSQ traversal codes and canonical Int8 approximate rescoring for normalised cosine vectors of at least 128 dimensions; legacy BBQ readers retain their historical scoring. Scores are not exact Float32 cosine. |
+| Vector quantisation (Int8; historical BBQ read support) | ✔   `IndexWriterConfig.VectorQuantisation.Int8` | ❌ | ✔ | New writes support Int8. Existing BBQ data remains readable with its historical scoring, but BBQ-containing indexes are read-only and cannot be migrated or merged. Quantised scores are not exact Float32 cosine. |
 | 4-bit scalar and product quantisation (PQ) | ❌ | ❌ | ✔ | Lucene (Java) vector formats; Backlog. |
 | Approximate kNN over filters | ✔   `VectorQuery` filter and `HnswSearchOptions` | ❌ | ✔ | Supports pre-filter and post-filter modes; Lucene.NET 4.8 has no vector-search API. |
 | NioFSDirectory equivalent | ❌ | ✔ | ✔ | Backlog |

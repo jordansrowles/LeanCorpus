@@ -122,6 +122,45 @@ public sealed class WorkbenchCommandsTests : IClassFixture<TestDirectoryFixture>
         Assert.False(string.IsNullOrWhiteSpace(recipe.RootElement.GetProperty("recipeIdentity").GetString()));
     }
 
+    [Fact(DisplayName = "Workbench: retired BBQ preset is rejected before creating an index")]
+    public void CreatePreset_RetiredBbqReturnsStableErrorWithoutCreatingIndex()
+    {
+        string path = Path.Combine(_fixture.Path, "workbench-retired-bbq");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = IndexCheckerCli.Run(
+            ["create", "preset", "vector-bbq", path, "--json"], output, error);
+
+        Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
+        Assert.StartsWith(
+            "The 'vector-bbq' preset is retired. New vector indexes support Float32 and Int8; use 'vector-hnsw' or 'vector-int8'.",
+            error.ToString());
+        Assert.Empty(output.ToString());
+        Assert.False(Directory.Exists(path));
+    }
+
+    [Fact(DisplayName = "Workbench: retired BBQ recipe cannot be reproduced into a new index")]
+    public void Reproduce_RetiredBbqRecipeReturnsStableErrorWithoutCreatingIndex()
+    {
+        string source = Path.Combine(_fixture.Path, "workbench-retired-bbq-recipe");
+        string metadata = Path.Combine(source, ".leancorpus");
+        string outputPath = Path.Combine(_fixture.Path, "workbench-retired-bbq-reproduction");
+        Directory.CreateDirectory(metadata);
+        File.WriteAllText(Path.Combine(metadata, "recipe.json"), "{\"schemaVersion\":1,\"preset\":\"vector-bbq\"}");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = IndexCheckerCli.Run(["create", "reproduce", source, outputPath], output, error);
+
+        Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
+        Assert.StartsWith(
+            "Recipe preset 'vector-bbq' is retired. Create a separate Float32 or Int8 index from the original documents and embeddings.",
+            error.ToString());
+        Assert.Empty(output.ToString());
+        Assert.False(Directory.Exists(outputPath));
+    }
+
     [Fact(DisplayName = "Workbench: recipe reproduction compares logically equal")]
     public void Reproduce_ProducesLogicallyEquivalentIndex()
     {
