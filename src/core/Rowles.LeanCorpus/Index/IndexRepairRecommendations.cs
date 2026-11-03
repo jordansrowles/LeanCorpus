@@ -41,6 +41,9 @@ internal static class IndexRepairRecommendations
             IndexCheckIssueCodes.UnsupportedFutureCodecVersion =>
                 ["Open the index with a newer LeanCorpus build that supports this codec version, or restore an index written by a supported build."],
 
+            IndexCheckIssueCodes.ReadOnlyRetiredCodec =>
+                ["This codec is read-only in this build; reindex the original vectors into a supported Float32 or Int8 index."],
+
             IndexCheckIssueCodes.InvalidStoredFieldHeader or
             IndexCheckIssueCodes.UnsupportedStoredFieldVersion or
             IndexCheckIssueCodes.UnregisteredCompressionPolicy or

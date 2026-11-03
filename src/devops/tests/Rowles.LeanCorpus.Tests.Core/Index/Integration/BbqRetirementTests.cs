@@ -33,10 +33,39 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
         var actual = searcher.Search(new VectorQuery("embedding", query, topK: 5), 5, TestContext.Current.CancellationToken);
 
         Assert.Equal(expected.GetProperty("TotalHits").GetInt64(), actual.TotalHits);
-        Assert.Equal(expected.GetProperty("scores").EnumerateArray().Select(value => value.GetProperty("DocId").GetInt32()),
-            actual.ScoreDocs.Select(value => value.DocId));
-        Assert.Equal(expected.GetProperty("scores").EnumerateArray().Select(value => value.GetProperty("Score").GetSingle()),
-            actual.ScoreDocs.Select(value => value.Score));
+        var expectedScores = expected.GetProperty("scores").EnumerateArray()
+            .Select(value => (DocId: value.GetProperty("DocId").GetInt32(), Score: value.GetProperty("Score").GetSingle()))
+            .ToArray();
+        var actualScores = actual.ScoreDocs.Select(static value => (value.DocId, value.Score)).ToArray();
+        Assert.Equal(expectedScores.Length, actualScores.Length);
+        Assert.Equal(expectedScores.Select(static value => value.DocId).OrderBy(static value => value),
+            actualScores.Select(static value => value.DocId).OrderBy(static value => value));
+
+        // SIMD lane reduction can vary by a few ULPs across CPU architectures.
+        // Preserve scores within the pack's 1e-6 tie tolerance and ordering outside that band.
+        const float historicalScoreTolerance = 1e-6f;
+        foreach (var expectedScore in expectedScores)
+        {
+            float actualScore = actualScores.Single(value => value.DocId == expectedScore.DocId).Score;
+            Assert.InRange(MathF.Abs(actualScore - expectedScore.Score), 0f, historicalScoreTolerance);
+        }
+
+        for (int higher = 0; higher < expectedScores.Length; higher++)
+        {
+            for (int lower = higher + 1; lower < expectedScores.Length; lower++)
+            {
+                if (expectedScores[higher].Score <= expectedScores[lower].Score + historicalScoreTolerance)
+                    continue;
+
+                float higherScore = actualScores.Single(value => value.DocId == expectedScores[higher].DocId).Score;
+                float lowerScore = actualScores.Single(value => value.DocId == expectedScores[lower].DocId).Score;
+                Assert.True(higherScore > lowerScore,
+                    $"Historical ordering changed outside the tie tolerance for document IDs {expectedScores[higher].DocId} and {expectedScores[lower].DocId}.");
+            }
+        }
+
+        var repeated = searcher.Search(new VectorQuery("embedding", query, topK: 5), 5, TestContext.Current.CancellationToken);
+        Assert.Equal(actual.ScoreDocs.Select(static value => value.DocId), repeated.ScoreDocs.Select(static value => value.DocId));
     }
 
     [Theory]

@@ -214,8 +214,12 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
             string.Join("; ", validation.DetailedIssues.Select(issue => $"{issue.Code}: {issue.Message}")));
         ScoreSnapshot[] scores = CaptureSearchScores(indexPath);
         Assert.Equal(new[] { 1, 6, 2, 0, 4 }, scores.Select(static score => score.DocId));
-        Assert.Equal(new uint[] { 0x3DBCF005, 0x3DB73B95, 0xBDB2AC0A, 0xBDB335DA, 0xBDB335DA },
-            scores.Select(static score => BitConverter.SingleToUInt32Bits(score.Score)));
+        uint[] expectedScoreBits = [0x3DBCF005, 0x3DB73B95, 0xBDB2AC0A, 0xBDB335DA, 0xBDB335DA];
+        for (int index = 0; index < scores.Length; index++)
+        {
+            float capturedScore = BitConverter.UInt32BitsToSingle(expectedScoreBits[index]);
+            Assert.InRange(MathF.Abs(scores[index].Score - capturedScore), 0f, 1e-6f);
+        }
 
         InvalidOperationException writeException = Assert.Throws<InvalidOperationException>(() =>
             new IndexWriter(directory, new IndexWriterConfig()));
