@@ -5,12 +5,14 @@ using System.Text;
 using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using Rowles.DataForge.Workloads;
+using Rowles.LeanCorpus;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
@@ -30,6 +32,12 @@ internal sealed record HnswGraphQualityMeasurement(
     int ExactRepresentationCount,
     int GraphReturnedCount,
     double GraphRecallAgainstExactRepresentation);
+
+internal sealed record HnswSearchBudgetMeasurement(
+    int TopK,
+    int ResolvedEfSearch,
+    int EffectiveEfSearch,
+    int ShortlistSize);
 
 /// <summary>
 /// Measures HNSW search against an exact flat reference over the same vectors.
@@ -54,6 +62,20 @@ public class HnswSearchBenchmarks
         EfConstruction = GraphEfConstruction,
     };
 
+    internal static LeanVectorQuery CreateQualificationQuery(string field, float[] queryVector, int topK)
+        => new(field, queryVector, topK: topK);
+
+    internal static HnswSearchBudgetMeasurement[] CreateQualificationBudgets(int availableCandidates)
+        => [.. new[] { 1, 10, 100 }.Select(topK =>
+        {
+            LeanVectorQuery query = CreateQualificationQuery("emb", new float[64], topK);
+            return new HnswSearchBudgetMeasurement(
+                topK,
+                query.EfSearch,
+                query.GetEffectiveEfSearch(availableCandidates),
+                query.GetShortlistSize(availableCandidates));
+        })];
+
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(10_000, 100_000);
 
     [ParamsSource(nameof(DocCounts))]
@@ -70,9 +92,6 @@ public class HnswSearchBenchmarks
 
     [Params(42, 2025)]
     public int QuerySeed { get; set; }
-
-    [Params(64, 256)]
-    public int EfSearch { get; set; }
 
     private static readonly System.Threading.Lock s_gate = new();
     private static string s_lastKey = string.Empty;
@@ -94,6 +113,7 @@ public class HnswSearchBenchmarks
     [GlobalSetup]
     public void Setup()
     {
+        LeanCorpusDefaults.Reset();
         BenchmarkVectorData.ValidateSupportedQuantisation(Quantisation);
         var setupStopwatch = Stopwatch.StartNew();
         BenchmarkVectorQuality.ValidateFixture();
@@ -140,6 +160,7 @@ public class HnswSearchBenchmarks
         _queryCase = _dataset.Query;
         _query = _queryCase.Vector;
         MetricsSnapshot metricsBefore = s_hnswMetrics.GetSnapshot();
+        HnswSearchBudgetMeasurement[] searchBudgets = CreateQualificationBudgets(DocCount);
 
         var reference = s_flatSearcher.Search(new LeanVectorQuery("emb", _query, topK: 10), 10);
         _flatTopDocumentIds = reference.ScoreDocs
@@ -200,7 +221,7 @@ public class HnswSearchBenchmarks
                 topK =>
                 {
                     var graph = s_hnswSearcher.Search(
-                        new LeanVectorQuery("emb", queryCase.Vector, topK: topK, efSearch: EfSearch), topK);
+                        CreateQualificationQuery("emb", queryCase.Vector, topK), topK);
                     graphOrdinalsByQueryAndK[(queryCase.Id, topK)] = graph.ScoreDocs
                         .Select(hit => _dataset.Records[hit.DocId].Ordinal)
                         .ToArray();
@@ -235,11 +256,12 @@ public class HnswSearchBenchmarks
         BenchmarkVectorData.WriteVectorQualityGroup(
             _dataset,
             "hnsw",
-            $"{Quantisation.ToString().ToLowerInvariant()}-ef{EfSearch}",
+            $"{Quantisation.ToString().ToLowerInvariant()}-default",
             new
             {
                 quantisation = Quantisation.ToString(),
-                efSearch = EfSearch,
+                requestedEfSearch = "omitted",
+                effectiveEfSearchByTopK = searchBudgets,
                 graphBuild = new { m = GraphM, m0 = GraphM0, efConstruction = GraphEfConstruction, seed = GraphSeed },
                 heldOutQueryIds = _dataset.Queries.Select(static query => query.Id).ToArray(),
             },
@@ -247,11 +269,11 @@ public class HnswSearchBenchmarks
 
         setupStopwatch.Stop();
         WriteCaseSetupEvidence(_dataset, fixture, setupStopwatch.Elapsed, qualityStopwatch.Elapsed,
-            graphQueryResults, Quantisation, graphQuality, searchMetrics);
+            graphQueryResults, Quantisation, graphQuality, searchMetrics, searchBudgets);
 
         BenchmarkVectorQuality.RequireHeldOutGroup(
             graphQueryResults,
-            $"HNSW docCount={DocCount}, dimension={Dimension}, quantisation={Quantisation}, efSearch={EfSearch}");
+            $"HNSW docCount={DocCount}, dimension={Dimension}, quantisation={Quantisation}, default efSearch");
         if (searchMetrics.HnswExhaustiveFallbackCount != 0 || searchMetrics.HnswVectorsScanned != 0)
         {
             throw new InvalidOperationException(
@@ -260,7 +282,7 @@ public class HnswSearchBenchmarks
         }
 
         var hnsw = s_hnswSearcher.Search(
-            new LeanVectorQuery("emb", _query, topK: 10, efSearch: EfSearch), 10);
+            CreateQualificationQuery("emb", _query, topK: 10), 10);
         if (hnsw.ScoreDocs.Length != 10)
             throw new InvalidOperationException($"Expected ten HNSW results, got {hnsw.ScoreDocs.Length}.");
         _hnswChecksum = ResultChecksum(hnsw);
@@ -370,6 +392,12 @@ public class HnswSearchBenchmarks
         var metrics = new DefaultMetricsCollector();
         var config = new LeanIndexWriterConfig
         {
+            // Keep the frozen primary fixture in dataset-record order by buffering
+            // the complete input in one DWPT and flushing it once at Commit.
+            IndexingConcurrency = 1,
+            RamBufferSizeMB = 0,
+            RamPerThreadHardLimitMB = 0,
+            MaxBufferedDocs = checked(vectors.Length + 1),
             BuildHnswOnFlush = hnsw,
             NormaliseVectors = true,
             VectorQuantisation = quantisation,
@@ -395,11 +423,19 @@ public class HnswSearchBenchmarks
         writer.Commit();
         commitStopwatch.Stop();
         commitElapsed = commitStopwatch.Elapsed;
+        IReadOnlyList<SegmentInfo> segments = writer.GetNrtSegments();
+        if (segments.Count != 1 || segments[0].DocCount != vectors.Length || segments[0].LiveDocCount != vectors.Length)
+        {
+            throw new InvalidOperationException(
+                $"Vector benchmark fixture expected one live {vectors.Length}-document segment in source order, " +
+                $"but found {segments.Count} segment(s) with {string.Join(", ", segments.Select(static segment => $"{segment.DocCount}/{segment.LiveDocCount}"))} documents.");
+        }
+
         totalStopwatch.Stop();
 
         var snapshot = metrics.GetSnapshot();
         return new IndexBuildEvidence(totalStopwatch.Elapsed, addDocumentsElapsed, commitElapsed,
-            snapshot.HnswBuildCount, snapshot.HnswBuildTotalMs);
+            segments.Count, segments[0].DocCount, segments[0], snapshot.HnswBuildCount, snapshot.HnswBuildTotalMs);
     }
 
     private static string WriteFixtureBuildEvidence(
@@ -437,6 +473,9 @@ public class HnswSearchBenchmarks
                 totalMilliseconds = hnswBuild.TotalElapsed.TotalMilliseconds,
                 documentAdditionMilliseconds = hnswBuild.AddDocumentsElapsed.TotalMilliseconds,
                 commitMilliseconds = hnswBuild.CommitElapsed.TotalMilliseconds,
+                segmentCount = hnswBuild.SegmentCount,
+                segmentDocumentCount = hnswBuild.SegmentDocumentCount,
+                documentOrder = "source ordinal",
                 graphBuildCount = hnswBuild.HnswBuildCount,
                 graphBuildMilliseconds = hnswBuild.HnswBuildMilliseconds,
                 indexBytes = hnswIndexBytes,
@@ -446,6 +485,9 @@ public class HnswSearchBenchmarks
                 totalMilliseconds = flatBuild.TotalElapsed.TotalMilliseconds,
                 documentAdditionMilliseconds = flatBuild.AddDocumentsElapsed.TotalMilliseconds,
                 commitMilliseconds = flatBuild.CommitElapsed.TotalMilliseconds,
+                segmentCount = flatBuild.SegmentCount,
+                segmentDocumentCount = flatBuild.SegmentDocumentCount,
+                documentOrder = "source ordinal",
                 indexBytes = flatIndexBytes,
             },
             fixtureBuildUtc = DateTimeOffset.UtcNow,
@@ -461,14 +503,15 @@ public class HnswSearchBenchmarks
         IReadOnlyList<VectorQueryQualityResult> qualityMeasurements,
         VectorQuantisation quantisation,
         IReadOnlyList<HnswGraphQualityMeasurement> graphQualityMeasurements,
-        MetricsSnapshot searchMetrics)
+        MetricsSnapshot searchMetrics,
+        IReadOnlyList<HnswSearchBudgetMeasurement> searchBudgets)
     {
         var artifactRoot = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
         if (string.IsNullOrWhiteSpace(artifactRoot))
             return;
 
         var path = Path.Combine(Path.GetFullPath(artifactRoot), "hnsw-setup", "cases",
-            $"process-{Environment.ProcessId}-doc{DocCount}-dim{Dimension}-{Distribution.ToString().ToLowerInvariant()}-q{QuerySeed}-{quantisation.ToString().ToLowerInvariant()}-ef{EfSearch}.json");
+            $"process-{Environment.ProcessId}-doc{DocCount}-dim{Dimension}-{Distribution.ToString().ToLowerInvariant()}-q{QuerySeed}-{quantisation.ToString().ToLowerInvariant()}-default.json");
         WriteJsonAtomically(path, new
         {
             schemaVersion = 1,
@@ -481,7 +524,8 @@ public class HnswSearchBenchmarks
             distribution = Distribution.ToString(),
             querySeed = QuerySeed,
             quantisation = quantisation.ToString(),
-            efSearch = EfSearch,
+            requestedEfSearch = "omitted",
+            effectiveEfSearchByTopK = searchBudgets,
             graph = new { m = GraphM, m0 = GraphM0, efConstruction = GraphEfConstruction, seed = GraphSeed },
             dataset = new
             {
@@ -567,7 +611,7 @@ public class HnswSearchBenchmarks
     public int Hnsw()
     {
         var result = s_hnswSearcher.Search(
-            new LeanVectorQuery("emb", _query, topK: 10, efSearch: EfSearch), 10);
+            CreateQualificationQuery("emb", _query, topK: 10), 10);
         if (result.ScoreDocs.Length != 10)
             throw new InvalidOperationException($"Expected ten HNSW results, got {result.ScoreDocs.Length}.");
         int checksum = ResultChecksum(result);
@@ -650,6 +694,9 @@ public class HnswSearchBenchmarks
         TimeSpan TotalElapsed,
         TimeSpan AddDocumentsElapsed,
         TimeSpan CommitElapsed,
+        int SegmentCount,
+        int SegmentDocumentCount,
+        SegmentInfo Segment,
         long HnswBuildCount,
         long HnswBuildMilliseconds);
 }

@@ -2,8 +2,11 @@ using System.Reflection;
 using System.Text.Json;
 using BenchmarkDotNet.Attributes;
 using Rowles.DataForge.Workloads;
+using Rowles.LeanCorpus;
 using Rowles.LeanCorpus.Benchmarks;
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Index.Segment;
+using Rowles.LeanCorpus.Store;
 
 namespace Rowles.DataForge.Tests.Workloads;
 
@@ -42,6 +45,80 @@ public sealed class VectorBenchmarkMatrixTests
         Assert.Equal(32, config.M0);
         Assert.Equal(100, config.EfConstruction);
         Assert.Equal(1L, HnswSearchBenchmarks.GraphSeed);
+    }
+
+    [Fact]
+    public void HnswFixtureBuild_RecordsOnePrimarySegmentForTheEntireCorpus()
+    {
+        MethodInfo? buildIndex = typeof(HnswSearchBenchmarks).GetMethod(
+            "BuildIndex",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(buildIndex);
+
+        const int documentCount = 10_001;
+        const int dimension = 32;
+        float[][] vectors = new float[documentCount][];
+        for (int document = 0; document < vectors.Length; document++)
+        {
+            vectors[document] = new float[dimension];
+            for (int component = 0; component < dimension; component++)
+                vectors[document][component] = MathF.Sin((document + 1) * (component + 1) * 0.013f);
+        }
+
+        string indexPath = Path.Combine(Path.GetTempPath(), "lc-hnsw-single-segment-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            object? evidence = buildIndex.Invoke(null, [indexPath, vectors, false, VectorQuantisation.None]);
+            Assert.NotNull(evidence);
+
+            Type evidenceType = evidence.GetType();
+            int? segmentCount = evidenceType.GetProperty("SegmentCount")?.GetValue(evidence) as int?;
+            int? segmentDocumentCount = evidenceType.GetProperty("SegmentDocumentCount")?.GetValue(evidence) as int?;
+
+            Assert.Equal(1, segmentCount);
+            Assert.Equal(documentCount, segmentDocumentCount);
+
+            SegmentInfo segment = Assert.IsType<SegmentInfo>(evidenceType.GetProperty("Segment")?.GetValue(evidence));
+            using var directory = new MMapDirectory(indexPath);
+            using var reader = new SegmentReader(directory, segment);
+            for (int document = 0; document < vectors.Length; document++)
+            {
+                float[] actual = Assert.IsType<float[]>(reader.GetVector("emb", document));
+                double dot = 0;
+                double expectedLengthSquared = 0;
+                double actualLengthSquared = 0;
+                for (int component = 0; component < dimension; component++)
+                {
+                    dot += vectors[document][component] * actual[component];
+                    expectedLengthSquared += vectors[document][component] * vectors[document][component];
+                    actualLengthSquared += actual[component] * actual[component];
+                }
+
+                double cosine = dot / Math.Sqrt(expectedLengthSquared * actualLengthSquared);
+                Assert.True(cosine > 0.999999, $"Segment document {document} is not in source ordinal order.");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(indexPath))
+                Directory.Delete(indexPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void HnswScaleQueries_UseFrozenDefaultEfBudgetsWithoutAnOverrideParameter()
+    {
+        LeanCorpusDefaults.Reset();
+        Assert.Null(typeof(HnswSearchBenchmarks).GetProperty("EfSearch"));
+        HnswSearchBudgetMeasurement[] budgets = HnswSearchBenchmarks.CreateQualificationBudgets(10_000);
+
+        Assert.Equal(
+        [
+            new HnswSearchBudgetMeasurement(1, 64, 64, 1),
+            new HnswSearchBudgetMeasurement(10, 64, 64, 10),
+            new HnswSearchBudgetMeasurement(100, 400, 400, 100),
+        ],
+        budgets);
     }
 
     [Fact]
