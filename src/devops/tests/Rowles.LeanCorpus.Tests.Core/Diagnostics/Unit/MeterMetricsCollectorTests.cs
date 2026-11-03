@@ -169,6 +169,41 @@ public sealed class MeterMetricsCollectorTests : IDisposable
         Assert.Equal(3, hitTotal);
     }
 
+    [Fact(DisplayName = "Meter Listener: Separates HNSW Visits, Fallbacks And Selective Scans")]
+    public void MeterListener_SeparatesHnswVisitsFallbacksAndSelectiveScans()
+    {
+        using var factory = new TestMeterFactory();
+        using var collector = new MeterMetricsCollector(factory);
+        var measurements = new List<(string Name, long Value)>();
+
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (ReferenceEquals(instrument.Meter, factory.Meter) &&
+                instrument.Name.StartsWith("leancorpus.hnsw.search.", StringComparison.Ordinal))
+                l.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, _, _) =>
+            measurements.Add((instrument.Name, value)));
+        listener.Start();
+
+        collector.RecordHnswSearch(TimeSpan.FromMilliseconds(7), nodesVisited: 2, scannedVectors: 4, usedExhaustiveFallback: true);
+        collector.RecordHnswSelectiveFilterScan(vectorsScanned: 3);
+
+        Assert.Contains(("leancorpus.hnsw.search.nodes_visited", 2L), measurements);
+        Assert.Contains(("leancorpus.hnsw.search.scanned_vectors", 4L), measurements);
+        Assert.Contains(("leancorpus.hnsw.search.exhaustive_fallbacks", 1L), measurements);
+        Assert.Contains(("leancorpus.hnsw.search.selective_filter_scans", 1L), measurements);
+        Assert.Contains(("leancorpus.hnsw.search.selective_filter_vectors_scanned", 3L), measurements);
+
+        MetricsSnapshot snapshot = collector.GetSnapshot();
+        Assert.Equal(2, snapshot.HnswNodesVisited);
+        Assert.Equal(4, snapshot.HnswVectorsScanned);
+        Assert.Equal(1, snapshot.HnswExhaustiveFallbackCount);
+        Assert.Equal(1, snapshot.HnswSelectiveFilterScanCount);
+        Assert.Equal(3, snapshot.HnswSelectiveFilterVectorsScanned);
+    }
+
     private sealed class TestMeterFactory : IMeterFactory
     {
         public Meter Meter { get; } = new("Rowles.LeanCorpus");

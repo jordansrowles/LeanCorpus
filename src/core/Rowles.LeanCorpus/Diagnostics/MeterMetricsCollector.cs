@@ -31,6 +31,10 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private readonly Counter<long> _fileSyncFiles;
     private readonly Histogram<double> _hnswSearchDuration;
     private readonly Histogram<long> _hnswNodesVisited;
+    private readonly Histogram<long> _hnswVectorsScanned;
+    private readonly Counter<long> _hnswExhaustiveFallbacks;
+    private readonly Counter<long> _hnswSelectiveFilterScans;
+    private readonly Histogram<long> _hnswSelectiveFilterVectorsScanned;
     private readonly Histogram<double> _hnswBuildDuration;
     private readonly Histogram<long> _hnswBuildSize;
 
@@ -70,6 +74,10 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private long _snHnswSearchCount;
     private long _snHnswSearchTotalMs;
     private long _snHnswNodesVisited;
+    private long _snHnswVectorsScanned;
+    private long _snHnswExhaustiveFallbackCount;
+    private long _snHnswSelectiveFilterScanCount;
+    private long _snHnswSelectiveFilterVectorsScanned;
     private long _snHnswBuildCount;
     private long _snHnswBuildTotalMs;
     private long _snHnswNodesBuilt;
@@ -147,7 +155,23 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
 
         _hnswNodesVisited = _meter.CreateHistogram<long>(
             "leancorpus.hnsw.search.nodes_visited", unit: "{node}",
-            description: "Distinct nodes visited per HNSW search; primary recall-vs-cost signal.");
+            description: "Graph node visits per HNSW search, including retries; primary recall-vs-cost signal.");
+
+        _hnswVectorsScanned = _meter.CreateHistogram<long>(
+            "leancorpus.hnsw.search.scanned_vectors", unit: "{vector}",
+            description: "Vectors examined by exhaustive scans after underfilled HNSW traversals.");
+
+        _hnswExhaustiveFallbacks = _meter.CreateCounter<long>(
+            "leancorpus.hnsw.search.exhaustive_fallbacks", unit: "{query}",
+            description: "HNSW searches completed by an exhaustive underfill scan.");
+
+        _hnswSelectiveFilterScans = _meter.CreateCounter<long>(
+            "leancorpus.hnsw.search.selective_filter_scans", unit: "{query}",
+            description: "Exact vector scans selected for highly selective HNSW filters.");
+
+        _hnswSelectiveFilterVectorsScanned = _meter.CreateHistogram<long>(
+            "leancorpus.hnsw.search.selective_filter_vectors_scanned", unit: "{vector}",
+            description: "Vectors scored by highly selective HNSW filter scans.");
 
         _hnswBuildDuration = _meter.CreateHistogram<double>(
             "leancorpus.hnsw.build.duration", unit: "ms",
@@ -250,6 +274,30 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     }
 
     /// <inheritdoc/>
+    public void RecordHnswSearch(TimeSpan elapsed, int nodesVisited, int scannedVectors, bool usedExhaustiveFallback)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(scannedVectors);
+        RecordHnswSearch(elapsed, nodesVisited);
+        _hnswVectorsScanned.Record(scannedVectors);
+        Interlocked.Add(ref _snHnswVectorsScanned, scannedVectors);
+        if (usedExhaustiveFallback)
+        {
+            _hnswExhaustiveFallbacks.Add(1);
+            Interlocked.Increment(ref _snHnswExhaustiveFallbackCount);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void RecordHnswSelectiveFilterScan(int vectorsScanned)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(vectorsScanned);
+        _hnswSelectiveFilterScans.Add(1);
+        _hnswSelectiveFilterVectorsScanned.Record(vectorsScanned);
+        Interlocked.Increment(ref _snHnswSelectiveFilterScanCount);
+        Interlocked.Add(ref _snHnswSelectiveFilterVectorsScanned, vectorsScanned);
+    }
+
+    /// <inheritdoc/>
     public void RecordHnswBuild(TimeSpan elapsed, int nodes)
     {
         double ms = elapsed.TotalMilliseconds;
@@ -297,6 +345,10 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
             HnswSearchCount = Interlocked.Read(ref _snHnswSearchCount),
             HnswSearchTotalMs = Interlocked.Read(ref _snHnswSearchTotalMs),
             HnswNodesVisited = Interlocked.Read(ref _snHnswNodesVisited),
+            HnswVectorsScanned = Interlocked.Read(ref _snHnswVectorsScanned),
+            HnswExhaustiveFallbackCount = Interlocked.Read(ref _snHnswExhaustiveFallbackCount),
+            HnswSelectiveFilterScanCount = Interlocked.Read(ref _snHnswSelectiveFilterScanCount),
+            HnswSelectiveFilterVectorsScanned = Interlocked.Read(ref _snHnswSelectiveFilterVectorsScanned),
             HnswBuildCount = Interlocked.Read(ref _snHnswBuildCount),
             HnswBuildTotalMs = Interlocked.Read(ref _snHnswBuildTotalMs),
             HnswNodesBuilt = Interlocked.Read(ref _snHnswNodesBuilt)

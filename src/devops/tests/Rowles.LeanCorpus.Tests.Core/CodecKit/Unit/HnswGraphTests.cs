@@ -367,10 +367,16 @@ public sealed class HnswGraphTests
             maxLevel: 1,
             nodeCount: 4);
 
-        var results = graph.Search([1f, 1f], new HnswTraversalOptions { Ef = 4, TopK = 3 });
+        var results = graph.Search(
+            [1f, 1f],
+            new HnswTraversalOptions { Ef = 4, TopK = 3 },
+            out HnswSearchStats stats);
 
         Assert.Equal(3, results.Count);
         Assert.Contains(3, results.Select(static result => result.DocId));
+        Assert.Equal(5, stats.NodesVisited);
+        Assert.Equal(0, stats.ScannedVectors);
+        Assert.False(stats.UsedExhaustiveFallback);
     }
 
     [Fact(DisplayName = "HNSW fills TopK with the graph metric when directed reachability underfills")]
@@ -400,7 +406,42 @@ public sealed class HnswGraphTests
             out HnswSearchStats stats);
 
         Assert.Equal(new[] { 0, 1, 2 }, results.Select(static result => result.DocId));
-        Assert.Equal(4, stats.NodesVisited);
+        Assert.Equal(2, stats.NodesVisited);
+        Assert.Equal(4, stats.ScannedVectors);
+        Assert.True(stats.UsedExhaustiveFallback);
+        Assert.Equal(HnswExhaustiveFallbackReason.UnderfilledAfterTraversal, stats.FallbackReason);
+    }
+
+    [Fact(DisplayName = "HNSW complete graph result does not use exhaustive fallback")]
+    public void Search_CompleteGraphDoesNotUseExhaustiveFallback()
+    {
+        var vectors = new Dictionary<int, float[]>
+        {
+            [0] = [1f, 0f],
+            [1] = [0f, 1f],
+            [2] = [-1f, 0f],
+        };
+        var source = MakeSource(vectors, dimension: 2);
+        var level = new HnswGraph.FrozenLevel([0, 1, 2], [[1, 2], [0, 2], [0, 1]]);
+        using var graph = HnswGraph.FromFrozen(
+            source,
+            new HnswBuildConfig { M = 2, EfConstruction = 4 },
+            seed: 1,
+            [level],
+            entryPoint: 0,
+            maxLevel: 0,
+            nodeCount: 3);
+
+        var results = graph.Search(
+            [1f, 0f],
+            new HnswTraversalOptions { Ef = 3, TopK = 2 },
+            out HnswSearchStats stats);
+
+        Assert.Equal(new[] { 0, 1 }, results.Select(static result => result.DocId));
+        Assert.Equal(3, stats.NodesVisited);
+        Assert.Equal(0, stats.ScannedVectors);
+        Assert.False(stats.UsedExhaustiveFallback);
+        Assert.Equal(HnswExhaustiveFallbackReason.None, stats.FallbackReason);
     }
 
     [Fact(DisplayName = "HNSW: Maximal efSearch is bounded during post-filter retries")]

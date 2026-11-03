@@ -39,11 +39,18 @@ public interface IMetricsCollector
     void RecordMergeBacklog(long pendingBytes, TimeSpan producerStall) { }
 
     /// <summary>
-    /// Records a single HNSW graph traversal. <paramref name="nodesVisited"/> is the number of
-    /// distinct nodes visited during the layer-zero search and is the primary recall-vs-cost signal.
+    /// Records a single HNSW graph traversal. <paramref name="nodesVisited"/> counts graph node
+    /// visits across layer-zero searches and retries and is the primary recall-vs-cost signal.
     /// Default implementation is a no-op for backwards compatibility.
     /// </summary>
     void RecordHnswSearch(TimeSpan elapsed, int nodesVisited) { }
+
+    /// <summary>Records graph visits separately from an exhaustive underfill scan.</summary>
+    void RecordHnswSearch(TimeSpan elapsed, int nodesVisited, int scannedVectors, bool usedExhaustiveFallback)
+        => RecordHnswSearch(elapsed, nodesVisited);
+
+    /// <summary>Records an exact vector scan selected for a highly selective filter.</summary>
+    void RecordHnswSelectiveFilterScan(int vectorsScanned) { }
 
     /// <summary>
     /// Records a single HNSW graph build (flush or merge). <paramref name="nodes"/> is the number

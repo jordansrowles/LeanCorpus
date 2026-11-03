@@ -73,8 +73,20 @@ public sealed class MetricsSnapshot
     /// <summary>Cumulative time spent in HNSW graph traversal in milliseconds.</summary>
     public long HnswSearchTotalMs { get; init; }
 
-    /// <summary>Total nodes visited across all HNSW graph traversals (recall-vs-cost signal).</summary>
+    /// <summary>Total graph node visits across all HNSW traversals and retries (recall-vs-cost signal).</summary>
     public long HnswNodesVisited { get; init; }
+
+    /// <summary>Total vectors examined by exhaustive scans after an underfilled HNSW traversal.</summary>
+    public long HnswVectorsScanned { get; init; }
+
+    /// <summary>Total HNSW traversals that required an exhaustive underfill scan.</summary>
+    public long HnswExhaustiveFallbackCount { get; init; }
+
+    /// <summary>Total exact scans selected for highly selective vector filters.</summary>
+    public long HnswSelectiveFilterScanCount { get; init; }
+
+    /// <summary>Total vectors scored by highly selective vector-filter scans.</summary>
+    public long HnswSelectiveFilterVectorsScanned { get; init; }
 
     /// <summary>Total number of HNSW graphs built (flush + merge).</summary>
     public long HnswBuildCount { get; init; }

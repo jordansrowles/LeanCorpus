@@ -5,6 +5,11 @@ namespace Rowles.LeanCorpus.Search.Queries;
 /// <summary>
 /// ANN search over vector data using HNSW when available, with a flat SIMD fallback.
 /// </summary>
+/// <remarks>
+/// The query vector must have the same dimension as the selected vector field. Search and
+/// explanation throw <see cref="ArgumentException"/> when the dimensions differ.
+/// <see cref="Rowles.LeanCorpus.Search.Query.Boost"/> is applied to final vector scores and their explanations.
+/// </remarks>
 public sealed class VectorQuery : Query
 {
     /// <inheritdoc/>

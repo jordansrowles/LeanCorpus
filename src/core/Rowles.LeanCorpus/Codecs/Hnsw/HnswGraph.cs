@@ -327,6 +327,9 @@ internal sealed class HnswGraph : IDisposable
         int retriesLeft = options.MaxPostFilterRetries;
         IReadOnlyList<HnswSearchResult> results;
         int totalVisited = 0;
+        int scannedVectors = 0;
+        bool usedExhaustiveFallback = false;
+        HnswExhaustiveFallbackReason fallbackReason = HnswExhaustiveFallbackReason.None;
 
         while (true)
         {
@@ -369,8 +372,9 @@ internal sealed class HnswGraph : IDisposable
                         target,
                         options.AllowList,
                         options.PostFilterMask,
-                        out int scannedNodes);
-                    totalVisited = scannedNodes;
+                        out scannedVectors);
+                    usedExhaustiveFallback = true;
+                    fallbackReason = HnswExhaustiveFallbackReason.UnderfilledAfterTraversal;
                 }
 
                 results = filtered
@@ -384,7 +388,12 @@ internal sealed class HnswGraph : IDisposable
             retriesLeft--;
         }
 
-        stats = new HnswSearchStats(totalVisited, layersDescended);
+        stats = new HnswSearchStats(
+            totalVisited,
+            layersDescended,
+            scannedVectors,
+            usedExhaustiveFallback,
+            fallbackReason);
         return results;
     }
 

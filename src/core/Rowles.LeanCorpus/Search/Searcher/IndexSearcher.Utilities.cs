@@ -146,10 +146,15 @@ public sealed partial class IndexSearcher
         if (!reader.IsLive(localDocId)) return null;
         if (!reader.HasVectors) return null;
 
+        var fieldInfo = reader.Info.VectorFields.FirstOrDefault(field => field.FieldName == query.Field);
+        if (fieldInfo is not null)
+            ValidateVectorQueryDimension(query, fieldInfo.Dimension);
+
         var docVector = reader.GetVector(query.Field, localDocId);
         if (docVector is null || docVector.Length == 0) return null;
 
         float similarity = VectorQuery.CosineSimilarity(query.QueryVector, docVector);
+        similarity = ApplyVectorQueryBoost(query, similarity);
         float indexBoost = reader.GetFieldBoost(localDocId, query.Field);
         if (indexBoost != 1.0f)
             similarity *= indexBoost;
@@ -194,6 +199,8 @@ public sealed partial class IndexSearcher
         details.Add(new Explanation { Score = shortlistSize, Description = $"shortlistSize={shortlistSize} (topK*oversampling)" });
         if (hasGraph)
             details.Add(new Explanation { Score = graph!.NodeCount, Description = $"hnswNodeCount={graph.NodeCount}" });
+        if (query.Boost != 1.0f)
+            details.Add(new Explanation { Score = query.Boost, Description = $"queryBoost={query.Boost}" });
         details.Add(new Explanation { Score = indexBoost, Description = $"indexBoost={indexBoost}" });
 
         return new Explanation

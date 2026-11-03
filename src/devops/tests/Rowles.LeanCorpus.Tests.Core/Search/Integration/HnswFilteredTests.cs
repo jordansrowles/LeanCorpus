@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.Codecs.Bkd;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Codecs.TermVectors;
 using Rowles.LeanCorpus.Codecs.TermDictionary;
+using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
@@ -126,7 +127,8 @@ public sealed class HnswFilteredTests : IClassFixture<TestDirectoryFixture>
             writer.Commit();
         }
 
-        using var searcher = new IndexSearcher(dir);
+        var searcherMetrics = new DefaultMetricsCollector();
+        using var searcher = new IndexSearcher(dir, new IndexSearcherConfig { Metrics = searcherMetrics });
         var query = new VectorQuery(
             "emb",
             vecs[5], // doc 5 should be the closest match (cos = 1)
@@ -137,6 +139,12 @@ public sealed class HnswFilteredTests : IClassFixture<TestDirectoryFixture>
         Assert.True(results.TotalHits > 0);
         Assert.True(results.TotalHits <= 2);
         Assert.Equal(5, results.ScoreDocs[0].DocId);
+
+        var metrics = searcherMetrics.GetSnapshot();
+        Assert.Equal(0, metrics.HnswSearchCount);
+        Assert.Equal(0, metrics.HnswExhaustiveFallbackCount);
+        Assert.Equal(1, metrics.HnswSelectiveFilterScanCount);
+        Assert.Equal(2, metrics.HnswSelectiveFilterVectorsScanned);
     }
 
     /// <summary>

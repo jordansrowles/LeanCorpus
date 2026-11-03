@@ -71,6 +71,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Apply query boosts to vector scores and explanations, reverse HNSW candidate direction for negative boosts, and reject query vectors whose dimensions do not match their indexed field.
+- Report HNSW graph visits, underfill scans and selective-filter exact scans separately in search metrics.
 - Limit new vector output to Float32 and Int8; treat every committed BBQ representation as read-only at index level, including mixed indexes and deleted BBQ documents.
 - Preserve historical experimental one-bit BBQ v3 query scoring and its automatic three-times shortlist. Float32/Int8 retain one-times automatic oversampling; explicit query settings remain honoured.
 - Report readable retired indexes as `ReadOnlyRetired` in compatibility checks and the product CLI, with reindexing guidance rather than a migration recommendation.

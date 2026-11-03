@@ -41,6 +41,10 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
     private long _hnswSearchCount;
     private long _hnswSearchTotalMs;
     private long _hnswNodesVisited;
+    private long _hnswVectorsScanned;
+    private long _hnswExhaustiveFallbackCount;
+    private long _hnswSelectiveFilterScanCount;
+    private long _hnswSelectiveFilterVectorsScanned;
     private long _hnswBuildCount;
     private long _hnswBuildTotalMs;
     private long _hnswNodesBuilt;
@@ -115,6 +119,24 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
     }
 
     /// <inheritdoc/>
+    public void RecordHnswSearch(TimeSpan elapsed, int nodesVisited, int scannedVectors, bool usedExhaustiveFallback)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(scannedVectors);
+        RecordHnswSearch(elapsed, nodesVisited);
+        Interlocked.Add(ref _hnswVectorsScanned, scannedVectors);
+        if (usedExhaustiveFallback)
+            Interlocked.Increment(ref _hnswExhaustiveFallbackCount);
+    }
+
+    /// <inheritdoc/>
+    public void RecordHnswSelectiveFilterScan(int vectorsScanned)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(vectorsScanned);
+        Interlocked.Increment(ref _hnswSelectiveFilterScanCount);
+        Interlocked.Add(ref _hnswSelectiveFilterVectorsScanned, vectorsScanned);
+    }
+
+    /// <inheritdoc/>
     public void RecordHnswBuild(TimeSpan elapsed, int nodes)
     {
         Interlocked.Increment(ref _hnswBuildCount);
@@ -158,6 +180,10 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
             HnswSearchCount = Interlocked.Read(ref _hnswSearchCount),
             HnswSearchTotalMs = Interlocked.Read(ref _hnswSearchTotalMs),
             HnswNodesVisited = Interlocked.Read(ref _hnswNodesVisited),
+            HnswVectorsScanned = Interlocked.Read(ref _hnswVectorsScanned),
+            HnswExhaustiveFallbackCount = Interlocked.Read(ref _hnswExhaustiveFallbackCount),
+            HnswSelectiveFilterScanCount = Interlocked.Read(ref _hnswSelectiveFilterScanCount),
+            HnswSelectiveFilterVectorsScanned = Interlocked.Read(ref _hnswSelectiveFilterVectorsScanned),
             HnswBuildCount = Interlocked.Read(ref _hnswBuildCount),
             HnswBuildTotalMs = Interlocked.Read(ref _hnswBuildTotalMs),
             HnswNodesBuilt = Interlocked.Read(ref _hnswNodesBuilt)
