@@ -28,8 +28,6 @@ namespace Rowles.LeanCorpus.Codecs.Vectors;
 /// </remarks>
 internal static class QuantisedVectorWriter
 {
-    private const float Epsilon = 1e-8f;
-
     /// <summary>
     /// Rejects creation of the retired experimental BBQ representation before touching files.
     /// </summary>
@@ -55,9 +53,7 @@ internal static class QuantisedVectorWriter
         byte[] packedBuffer = ArrayPool<byte>.Shared.Rent(dimension);
         try
         {
-            float min = float.MaxValue;
-            float max = float.MinValue;
-            bool any = false;
+            float maximumMagnitude = 0f;
             Span<float> calibrationVector = vectorBuffer.AsSpan(0, dimension);
             foreach (int docId in vectorDocIds)
             {
@@ -65,22 +61,13 @@ internal static class QuantisedVectorWriter
                 for (int j = 0; j < dimension; j++)
                 {
                     float value = calibrationVector[j];
-                    if (value < min) min = value;
-                    if (value > max) max = value;
-                    any = true;
+                    if (!float.IsFinite(value))
+                        throw new InvalidDataException("Int8 vector input contains a non-finite component.");
+                    maximumMagnitude = MathF.Max(maximumMagnitude, MathF.Abs(value));
                 }
             }
 
-            if (!any)
-            {
-                min = 0f;
-                max = 1f;
-            }
-            else if (MathF.Abs(max - min) < Epsilon)
-            {
-                max = min + 1f;
-            }
-            float alpha = (max - min) / 255f;
+            (float min, float alpha) = ComputeInt8Parameters(maximumMagnitude);
 
             CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised,
             VectorCodecFiles.QuantisedIdentity(QuantisedVectorStorageKind.LegacyInt8), durable: false, bodyOutput =>
@@ -123,6 +110,19 @@ internal static class QuantisedVectorWriter
             ArrayPool<byte>.Shared.Return(packedBuffer, clearArray: false);
             ArrayPool<float>.Shared.Return(vectorBuffer, clearArray: false);
         }
+    }
+
+    /// <summary>Returns the v3 zero-centred scale and unsigned-byte offset for the observed magnitude.</summary>
+    internal static (float Min, float Alpha) ComputeInt8Parameters(float maximumMagnitude)
+    {
+        if (!float.IsFinite(maximumMagnitude) || maximumMagnitude < 0f)
+            throw new ArgumentOutOfRangeException(nameof(maximumMagnitude));
+
+        if (maximumMagnitude == 0f)
+            maximumMagnitude = 1f;
+
+        float alpha = MathF.Max(maximumMagnitude / 127f, float.Epsilon);
+        return (-128f * alpha, alpha);
     }
 
     /// <summary>Writes BBQ vectors through bounded passes over a file-backed source.</summary>
@@ -178,8 +178,8 @@ internal static class QuantisedVectorWriter
     }
 
     /// <summary>
-    /// Writes int8 scalar-quantised vectors. Uses per-segment min/max to compute
-    /// a uniform scale factor (alpha), then quantises each float to [0, 255].
+    /// Writes int8 scalar-quantised vectors. Uses a per-segment zero-centred scale
+    /// and maps signed values to the existing unsigned-byte v3 representation.
     /// A per-vector correction float is stored for rescoring the quantised values.
     /// </summary>
     internal static void WriteInt8(
@@ -194,33 +194,21 @@ internal static class QuantisedVectorWriter
         VectorPresence.ValidateVectors(docCount, dimension, vectorsByDoc);
         var presence = VectorPresence.Create(docCount, vectorsByDoc.Keys);
 
-        // --- Pass 1: compute per-segment min / max ---
-        float min = float.MaxValue;
-        float max = float.MinValue;
-        bool any = false;
+        // --- Pass 1: compute the symmetric per-segment scale ---
+        float maximumMagnitude = 0f;
         foreach (var v in vectorsByDoc.Values)
         {
             var span = v.Span;
             for (int j = 0; j < span.Length; j++)
             {
                 float val = span[j];
-                if (val < min) min = val;
-                if (val > max) max = val;
-                any = true;
+                if (!float.IsFinite(val))
+                    throw new InvalidDataException("Int8 vector input contains a non-finite component.");
+                maximumMagnitude = MathF.Max(maximumMagnitude, MathF.Abs(val));
             }
         }
 
-        if (!any)
-        {
-            min = 0f;
-            max = 1f;
-        }
-        else if (Math.Abs(max - min) < Epsilon)
-        {
-            max = min + 1f; // avoid zero alpha
-        }
-
-        float alpha = (max - min) / 255f;
+        (float min, float alpha) = ComputeInt8Parameters(maximumMagnitude);
 
         CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised,
             VectorCodecFiles.QuantisedIdentity(QuantisedVectorStorageKind.LegacyInt8), durable: false, bodyOutput =>

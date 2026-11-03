@@ -150,6 +150,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- Use zero-centred Int8 calibration for new vectors so cosine ranking is not shifted by a segment-wide affine offset; retain the existing `.vq` v3 layout and reader semantics.
 - Reject non-empty HNSW files whose declared maximum level has no matching persisted layer.
 - Explore bounded equal-distance HNSW candidates at the level-zero search boundary and during upper-layer descent as bridges to closer results.
 - Read packed BBQ query-comparison words in persisted little-endian bit order, independent of host byte order.

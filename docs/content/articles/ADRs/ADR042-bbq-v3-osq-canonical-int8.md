@@ -2,7 +2,7 @@
 adr: ADR042
 title: "Vector codec retirement and Float32/Int8 qualification"
 date: 2026-10-31
-last-updated: 2026-11-02
+last-updated: 2026-11-03
 status: Proposed
 version-added: 4.0.0
 summary: "Retire all BBQ mutation, preserve historical reads, and require independent Float32 and Int8 qualification."
@@ -13,7 +13,7 @@ relates-to: [ADR025, ADR026, ADR039]
 
 # ADR042: Vector codec retirement and Float32/Int8 qualification
 
-- **Date:** 31 October 2026, revised 2 November 2026.
+- **Date:** 31 October 2026, revised 3 November 2026.
 - **Status:** Proposed. Implementation and mandatory qualification remain incomplete.
 - **Supersedes:** the active forward vector design of ADR016 through ADR020. Their published findings remain immutable historical evidence.
 - **Preserves:** ADR025's single catalogue, ADR026's framing contract and ADR039's explicit sparse presence.
@@ -79,6 +79,15 @@ contracts remain unchanged. Product version 4.0 does not rename physical body
 versions. A demonstrated incompatible encoding requires a separate reviewed
 identity/version decision.
 
+New Int8 v3 writes use a zero-centred per-segment calibration while retaining
+the existing body, unsigned code mapping, decoder and reader semantics. For
+maximum absolute component `r`, use `alpha = r / 127` and `min = -128 * alpha`
+(with a non-zero fallback range for an all-zero segment), so zero maps to code
+128. This avoids shifting cosine ranking by a segment-wide affine offset and
+does not reinterpret existing v3 files. Structural v1/v2 migration continues
+to preserve each source file's stored minimum, scale, corrections, codes and
+presence without requantisation.
+
 Preserve verified Int8 v1/v2-to-v3 structural migration. Copy encoded values,
 minimum/scale, corrections, document order and presence without requantisation.
 v1 presence requires authoritative persisted graph membership; absent proof is
@@ -125,10 +134,17 @@ merge readiness. Keep this ADR Proposed until implementation and gates pass.
 
 ### Qualification record
 
-The earlier one-bit experiment remains Unqualified. The replacement Float32/Int8
-matrix and retirement implementation are in progress; no release qualification
-is claimed by this decision. External execution records contain actual run IDs,
-source/configuration hashes and unresolved failures.
+The earlier one-bit experiment remains Unqualified. Focused exact Float32
+oracle runs pass on net10 and net11. The zero-centred Int8 calibration passes
+the 10K/64D Uniform exact held-out query sets on both frameworks, but the
+complete Int8 matrix and Int8 HNSW remain open. The four-generation Int8 merge
+gate still fails under this v3 calibration. A per-vector affine simulation is
+diagnostic only because it requires per-document bounds. On 3 November the
+owner chose to keep `.vq v3`; no v4 representation, migration route, or v3
+reinterpretation is approved. Any merge recovery must preserve v3 and pass the
+frozen drift gate. No release qualification is claimed. External execution
+records contain actual run IDs, source/configuration hashes and unresolved
+failures.
 
 ## Alternatives
 
@@ -159,3 +175,4 @@ reader/query semantics.
 | --- | --- | --- | --- |
 | 2026-10-31 | Proposed | Initial one-bit OSQ/canonical Int8 experiment; qualification failed. | `6bba01a` |
 | 2026-11-02 | Proposed | Retire all BBQ mutation and qualify supported Float32/Int8; defer new BBQ research. | Vector reliability and codec retirement pack |
+| 2026-11-03 | Proposed | Record zero-centred Int8 calibration under the existing v3 body and the owner decision to keep v3. | Vector reliability execution evidence |

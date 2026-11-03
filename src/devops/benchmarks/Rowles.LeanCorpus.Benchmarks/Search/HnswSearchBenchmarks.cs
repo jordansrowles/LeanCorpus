@@ -174,11 +174,7 @@ public class HnswSearchBenchmarks
             throw new InvalidOperationException($"Expected ten exact vector results, got {_flatTopDocumentIds.Length}.");
 
         var scalarTopDocumentIds = ComputeScalarTopDocumentIds();
-        if (!scalarTopDocumentIds.SequenceEqual(_flatTopDocumentIds))
-        {
-            throw new InvalidOperationException(
-                "LeanCorpus flat vector search does not agree with the scalar exact reference.");
-        }
+        ValidateExactBaselineIds(Quantisation, _flatTopDocumentIds, scalarTopDocumentIds);
         _scalarChecksum = ResultChecksum(scalarTopDocumentIds);
 
         var exactOrdinalsByQueryAndK = new Dictionary<(string QueryId, int TopK), long[]>();
@@ -678,6 +674,21 @@ public class HnswSearchBenchmarks
         const int topK = 10;
         return VectorGroundTruth.Compute(s_referenceRecords, _queryCase, topK)
             .NeighbourOrdinals.Select(static ordinal => checked((int)ordinal)).ToArray();
+    }
+
+    internal static void ValidateExactBaselineIds(
+        VectorQuantisation quantisation,
+        IReadOnlyList<int> exactDocumentIds,
+        IReadOnlyList<int> scalarFloat32DocumentIds)
+    {
+        if (quantisation == VectorQuantisation.Int8)
+            return;
+
+        if (!scalarFloat32DocumentIds.SequenceEqual(exactDocumentIds))
+        {
+            throw new InvalidOperationException(
+                "LeanCorpus flat vector search does not agree with the scalar exact reference.");
+        }
     }
 
     /// <summary>Release shared resources after all HNSW parameter rows complete.</summary>

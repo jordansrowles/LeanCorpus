@@ -89,6 +89,7 @@
 ## Fixed
 
 - Sum BenchmarkDotNet discovery counts across all emitted class groups so multi-project coverage inventories include every discovered case.
+- Let Int8 HNSW benchmark setup record quantised exact quality against Float32 truth without requiring identical top-document IDs.
 - Remove misleading BenchmarkDotNet ratio baselines between BM25F and Boolean queries, and between TermInSet and Boolean OR algorithms.
 - Pass operation cancellation through managed clean and configuration validation, including benchmark-host and solution-inventory checks.
 - Bound DevOps validation and workflow regular-expression matching to one second so pathological input fails promptly; resolve macOS hardware identity through `/usr/sbin/sysctl`.

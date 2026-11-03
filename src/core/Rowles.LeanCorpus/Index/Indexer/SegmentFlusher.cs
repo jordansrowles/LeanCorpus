@@ -1276,20 +1276,20 @@ internal static class SegmentFlusher
     internal static (float min, float alpha) ComputeInt8Params(
         IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField)
     {
-        float min = float.MaxValue;
-        float max = float.MinValue;
+        ArgumentNullException.ThrowIfNull(perField);
+        float maximumMagnitude = 0f;
         foreach (var v in perField.Values)
         {
             var span = v.Span;
             for (int j = 0; j < span.Length; j++)
             {
                 float val = span[j];
-                if (val < min) min = val;
-                if (val > max) max = val;
+                if (!float.IsFinite(val))
+                    throw new InvalidDataException("Int8 vector input contains a non-finite component.");
+                maximumMagnitude = MathF.Max(maximumMagnitude, MathF.Abs(val));
             }
         }
-        if (MathF.Abs(max - min) < 1e-8f) max = min + 1f;
-        return (min, (max - min) / 255f);
+        return Codecs.Vectors.QuantisedVectorWriter.ComputeInt8Parameters(maximumMagnitude);
     }
 
 

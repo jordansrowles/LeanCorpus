@@ -73,7 +73,7 @@ public sealed class SegmentFlusherFieldProcessingTests
     }
 
     [Fact]
-    public void ComputeInt8Params_ReturnsMinAndAlpha()
+    public void ComputeInt8Params_UsesZeroCentredSignedRange()
     {
         var perField = new Dictionary<int, ReadOnlyMemory<float>>
         {
@@ -83,8 +83,8 @@ public sealed class SegmentFlusherFieldProcessingTests
 
         var (min, alpha) = SegmentFlusher.ComputeInt8Params(perField);
 
-        Assert.Equal(-2f, min);
-        Assert.Equal(10f / 255f, alpha);
+        Assert.Equal(-128f * (8f / 127f), min);
+        Assert.Equal(8f / 127f, alpha);
     }
 
     [Fact]
@@ -97,8 +97,8 @@ public sealed class SegmentFlusherFieldProcessingTests
 
         var (min, alpha) = SegmentFlusher.ComputeInt8Params(perField);
 
-        Assert.Equal(5f, min);
-        Assert.Equal(1f / 255f, alpha);
+        Assert.Equal(-128f * (5f / 127f), min);
+        Assert.Equal(5f / 127f, alpha);
     }
 
 

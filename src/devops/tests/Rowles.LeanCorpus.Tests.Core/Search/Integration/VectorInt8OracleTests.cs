@@ -234,31 +234,20 @@ public sealed class VectorInt8OracleTests(TestDirectoryFixture fixture) : IClass
         var sourceByOrdinal = sourceDocuments.ToDictionary(static document => document.SourceOrdinal);
         foreach (ParsedInt8Segment segment in segments)
         {
-            float expectedMin = float.MaxValue;
-            float expectedMax = float.MinValue;
+            float expectedMaximumMagnitude = 0f;
             for (int localDocId = 0; localDocId < segment.DocumentCount; localDocId++)
             {
                 SourceDocument document = sourceByOrdinal[SourceOrdinal(searcher, segment.DocBase + localDocId)];
                 if (document.Vector is null)
                     continue;
                 foreach (float value in document.Vector!)
-                {
-                    expectedMin = Math.Min(expectedMin, value);
-                    expectedMax = Math.Max(expectedMax, value);
-                }
+                    expectedMaximumMagnitude = MathF.Max(expectedMaximumMagnitude, MathF.Abs(value));
             }
 
-            bool hasValues = expectedMin != float.MaxValue;
-            if (!hasValues)
-            {
-                expectedMin = 0f;
-                expectedMax = 1f;
-            }
-            else if (MathF.Abs(expectedMax - expectedMin) < 1e-8f)
-            {
-                expectedMax = expectedMin + 1f;
-            }
-            float expectedAlpha = (expectedMax - expectedMin) / 255f;
+            if (expectedMaximumMagnitude == 0f)
+                expectedMaximumMagnitude = 1f;
+            float expectedAlpha = expectedMaximumMagnitude / 127f;
+            float expectedMin = -128f * expectedAlpha;
             Assert.Equal(expectedMin, segment.Min);
             Assert.Equal(expectedAlpha, segment.Alpha);
 

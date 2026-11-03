@@ -55,8 +55,9 @@ public sealed class SparseVectorPresenceTests : IDisposable
 
     [Theory]
     [InlineData(VectorQuantisation.None, false)]
-    [InlineData(VectorQuantisation.Int8, false)]
     [InlineData(VectorQuantisation.None, true)]
+    [InlineData(VectorQuantisation.Int8, false)]
+    [InlineData(VectorQuantisation.Int8, true)]
     public void LegacyMigrationPreservesPayloadAndPresence(VectorQuantisation quantisation, bool compound)
     {
         using var directory = new MMapDirectory(_path);
@@ -66,6 +67,7 @@ public sealed class SparseVectorPresenceTests : IDisposable
         var descriptor = Descriptor(quantisation);
         byte[] legacyBody = ReadBody(directory, oldSegment, oldVectorName, descriptor);
         byte[] graphBody = ReadBody(directory, oldSegment, VectorFilePaths.HnswFile(oldSegment, "embedding"), VectorCodecFiles.Hnsw);
+        (int DocId, float Score)[] scoresBefore = CaptureSparseVectorScores(directory);
         var action = Assert.Single(IndexCodecMigrator.Plan(directory).Actions, item => item.FormatId == descriptor.FormatId);
         Assert.True(action.CanExecute, action.ReasonCannotExecute);
         Assert.Equal(IndexCodecMigrationActionKind.Rewrite, action.Kind);
@@ -93,6 +95,7 @@ public sealed class SparseVectorPresenceTests : IDisposable
             Assert.Equal(legacyBody[9..], currentBody[11..]);
         }
         Assert.Equal(graphBody, ReadBody(directory, newSegment, VectorFilePaths.HnswFile(newSegment, "embedding"), VectorCodecFiles.Hnsw));
+        Assert.Equal(scoresBefore, CaptureSparseVectorScores(directory));
         AssertSparseSearch(directory, [0, 2]);
         using (var writer = new IndexWriter(directory, Config(quantisation, true)))
         {
@@ -101,6 +104,56 @@ public sealed class SparseVectorPresenceTests : IDisposable
             writer.ForceMerge(1);
             writer.Commit();
         }
+        AssertSparseSearch(directory, [0, 2]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LegacyV2Int8MigrationPreservesPayloadPresenceAndScores(bool compound)
+    {
+        using var directory = new MMapDirectory(_path);
+        CreateLegacyIndex(directory, VectorQuantisation.Int8, hnsw: true, compound: false);
+        string segmentId = SegmentId();
+        string vectorName = VectorName(segmentId, VectorQuantisation.Int8);
+        byte[] v1Body = ReadBody(directory, segmentId, vectorName, VectorCodecFiles.Quantised, expectedVersion: 1);
+        byte[] v2Body = new byte[v1Body.Length + 1];
+        v1Body.AsSpan(0, 9).CopyTo(v2Body);
+        v2Body[9] = 0b0000_0101; // Documents 0 and 2 are authoritative graph members.
+        v1Body.AsSpan(9).CopyTo(v2Body.AsSpan(10));
+        using (var output = new IndexOutput(Path.Combine(_path, vectorName)))
+        {
+            output.WriteByte(2);
+            output.WriteBytes(v2Body);
+            output.WriteInt64(v2Body.Length);
+        }
+
+        if (compound)
+        {
+            Assert.True(SegmentFileSet.Pack(_path, segmentId));
+            SegmentInfo info = SegmentInfo.ReadFrom(Path.Combine(_path, segmentId + ".seg"));
+            info.IsCompoundFile = true;
+            info.WriteTo(Path.Combine(_path, segmentId + ".seg"));
+        }
+
+        byte[] sourceBody = ReadBody(directory, segmentId, vectorName, VectorCodecFiles.Quantised, expectedVersion: 2);
+        (int DocId, float Score)[] scoresBefore = CaptureSparseVectorScores(directory);
+        var action = Assert.Single(IndexCodecMigrator.Plan(directory).Actions,
+            item => item.FormatId == VectorCodecFiles.Quantised.FormatId);
+        Assert.Equal((byte)2, action.FromVersion);
+        Assert.Equal((byte)3, action.ToVersion);
+        Assert.True(action.CanExecute, action.ReasonCannotExecute);
+
+        var result = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions { DryRun = false });
+        Assert.True(result.Succeeded, string.Join("; ", result.Issues.Select(item => item.Message)));
+
+        string migratedSegment = SegmentId();
+        byte[] migratedBody = ReadBody(directory, migratedSegment,
+            VectorName(migratedSegment, VectorQuantisation.Int8), VectorCodecFiles.Quantised, expectedVersion: 3);
+        Assert.Equal(sourceBody[..9], migratedBody[..9]);
+        Assert.Equal(sourceBody[9], migratedBody[9]);
+        Assert.Equal(sourceBody[10..], migratedBody[11..]);
+        Assert.Equal(scoresBefore, CaptureSparseVectorScores(directory));
         AssertSparseSearch(directory, [0, 2]);
     }
 
@@ -374,6 +427,15 @@ public sealed class SparseVectorPresenceTests : IDisposable
             var hits = searcher.Search(query, 10, TestContext.Current.CancellationToken);
             Assert.Equal(expected, hits.ScoreDocs.Select(hit => hit.DocId).Order().ToArray());
         }
+    }
+
+    private static (int DocId, float Score)[] CaptureSparseVectorScores(MMapDirectory directory)
+    {
+        using var searcher = new IndexSearcher(directory);
+        var query = new VectorQuery("embedding", BasisVector(2, 0), 10, oversamplingFactor: 2);
+        return searcher.Search(query, 10, TestContext.Current.CancellationToken).ScoreDocs
+            .Select(static hit => (hit.DocId, hit.Score))
+            .ToArray();
     }
     private static int VectorDimension(VectorQuantisation quantisation)
         => quantisation == VectorQuantisation.BBQ ? 128 : 2;

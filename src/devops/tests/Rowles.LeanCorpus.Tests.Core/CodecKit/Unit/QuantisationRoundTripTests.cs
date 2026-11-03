@@ -112,7 +112,7 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
     }
 
     [Fact(DisplayName = "Int8: Single-vector min/max are correctly computed")]
-    public void Int8_SingleVector_MinMaxCorrect()
+    public void Int8_SingleVector_UsesZeroCentredScale()
     {
         var original = new Dictionary<int, ReadOnlyMemory<float>>
         {
@@ -123,8 +123,9 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
         QuantisedVectorWriter.WriteInt8(path, 1, 3, original);
 
         using var reader = QuantisedVectorReader.Open(path);
-        Assert.Equal(-5f, reader.Min, 1e-6f);
-        Assert.Equal((10f - (-5f)) / 255f, reader.Alpha, 1e-6f);
+        Assert.Equal(-128f * (10f / 127f), reader.Min, 1e-6f);
+        Assert.Equal(10f / 127f, reader.Alpha, 1e-6f);
+        Assert.Equal(0f, reader.ReadVector(0)[1], 1e-6f);
     }
 
     // --------------- BBQ binary quantisation ---------------

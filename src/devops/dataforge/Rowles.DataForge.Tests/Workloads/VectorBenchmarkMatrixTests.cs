@@ -48,6 +48,23 @@ public sealed class VectorBenchmarkMatrixTests
     }
 
     [Fact]
+    public void HnswExactBaseline_AllowsInt8ResultsToDifferFromFloat32Truth()
+    {
+        int[] float32ExactIds = [1, 2, 3];
+        int[] int8ExactIds = [4, 5, 6];
+
+        HnswSearchBenchmarks.ValidateExactBaselineIds(
+            VectorQuantisation.Int8,
+            int8ExactIds,
+            float32ExactIds);
+
+        Assert.Throws<InvalidOperationException>(() => HnswSearchBenchmarks.ValidateExactBaselineIds(
+            VectorQuantisation.None,
+            float32ExactIds,
+            [4, 5, 6]));
+    }
+
+    [Fact]
     public void HnswFixtureBuild_RecordsOnePrimarySegmentForTheEntireCorpus()
     {
         MethodInfo? buildIndex = typeof(HnswSearchBenchmarks).GetMethod(
