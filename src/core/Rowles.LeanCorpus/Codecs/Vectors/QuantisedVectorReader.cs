@@ -33,7 +33,7 @@ internal sealed class QuantisedVectorReader : IDisposable
     private readonly long _osqCorrectionsStart;
     private readonly CanonicalVectorEncoding? _canonicalEncoding;
     private readonly CanonicalInt8VectorReader? _canonical;
-    private readonly IDisposable _frame;
+    private readonly CodecBodyReadSession _frame;
 
     private bool _disposed;
     private byte[]? _presence;
@@ -56,7 +56,7 @@ internal sealed class QuantisedVectorReader : IDisposable
         long osqCorrectionsStart,
         CanonicalVectorEncoding? canonicalEncoding,
         CanonicalInt8VectorReader? canonical,
-        IDisposable frame)
+        CodecBodyReadSession frame)
     {
         _input = input;
         _docCount = docCount;
@@ -230,6 +230,8 @@ internal sealed class QuantisedVectorReader : IDisposable
     public VectorQuantisation Quantisation => _quantisation;
     internal QuantisedVectorStorageKind StorageKind => _storageKind;
 
+    internal CodecRepresentationIdentity LifecycleIdentity => QuantisedVectorLifecyclePolicy.Identity(_frame.FormatVersion, _storageKind);
+
     internal CanonicalVectorEncoding? CanonicalEncoding => _canonicalEncoding;
 
     internal float CentroidSquaredNorm
@@ -370,20 +372,6 @@ internal sealed class QuantisedVectorReader : IDisposable
         if (_storageKind != QuantisedVectorStorageKind.BbqOsqCanonicalInt8)
             throw new InvalidOperationException("Canonical Int8 records are only available for BBQ OSQ canonical storage.");
         _canonical!.CopyCanonicalRecordTo(docId, destination);
-    }
-
-    internal void CopyCanonicalMetadataTo(int docId, ISequentialIndexOutput destination)
-    {
-        if (_storageKind != QuantisedVectorStorageKind.BbqOsqCanonicalInt8)
-            throw new InvalidOperationException("Canonical Int8 metadata is only available for BBQ OSQ canonical storage.");
-        _canonical!.CopyCanonicalMetadataTo(docId, destination);
-    }
-
-    internal void CopyCanonicalCodesTo(int docId, ISequentialIndexOutput destination)
-    {
-        if (_storageKind != QuantisedVectorStorageKind.BbqOsqCanonicalInt8)
-            throw new InvalidOperationException("Canonical Int8 codes are only available for BBQ OSQ canonical storage.");
-        _canonical!.CopyCanonicalCodesTo(docId, destination);
     }
 
     internal PreparedBbqQuery PrepareBbqQuery(ReadOnlySpan<float> query)

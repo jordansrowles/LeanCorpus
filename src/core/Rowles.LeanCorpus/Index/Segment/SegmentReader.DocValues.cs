@@ -903,15 +903,6 @@ internal sealed partial class SegmentReaderState
         };
     }
 
-    internal void CopyCanonicalVectorRecordTo(string fieldName, int docId, Span<byte> destination)
-    {
-        if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState)
-            || !EnsureVectorReadersLoaded(fieldName, fieldState)
-            || fieldState.QuantisedVector is not { StorageKind: QuantisedVectorStorageKind.BbqOsqCanonicalInt8 } quantised)
-            throw new InvalidDataException($"Vector field '{fieldName}' does not contain a canonical BBQ v3 record.");
-        quantised.CopyCanonicalRecordTo(docId, destination);
-    }
-
     private float[]? ReadVectorFromField(string fieldName, int docId)
     {
         if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState)

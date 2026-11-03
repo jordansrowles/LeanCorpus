@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment.Merging;
+using Rowles.LeanCorpus.Index.Compatibility;
 
 namespace Rowles.LeanCorpus.Index.Segment;
 
@@ -126,6 +127,8 @@ public sealed class SegmentMerger
         CodecCatalog catalog,
         VectorQuantisation destinationVectorQuantisation)
     {
+        VectorCodecFiles.EnsureCanCreate(destinationVectorQuantisation);
+        VectorMutationGuard.EnsureCanRewrite(sourceDirectory, sourceSegments);
         var readers = new Dictionary<string, SegmentReader>(StringComparer.Ordinal);
         try
         {
@@ -203,6 +206,8 @@ public sealed class SegmentMerger
 
     private SegmentInfo? MergeSegments(List<SegmentInfo> segments, ref int nextSegmentOrdinal, int commitGeneration)
     {
+        VectorCodecFiles.EnsureCanCreate(_destinationVectorQuantisation);
+        VectorMutationGuard.EnsureCanRewrite(_directory, segments);
         // Open one SegmentReader per source segment up front and keep it open for the
         // whole merge. The merge has three passes (doc-id remap, field copy, norm copy)
         // and previously each opened its own SegmentReader, tripling mmap creation and
@@ -271,6 +276,8 @@ public sealed class SegmentMerger
         IndexWriterConfig config,
         int commitGeneration = 0)
     {
+        VectorCodecFiles.EnsureCanCreate(config.VectorQuantisation);
+        VectorMutationGuard.EnsureCanRewrite(sourceDirectory, sourceSegments);
         var readers = new Dictionary<string, SegmentReader>(StringComparer.Ordinal);
         try
         {

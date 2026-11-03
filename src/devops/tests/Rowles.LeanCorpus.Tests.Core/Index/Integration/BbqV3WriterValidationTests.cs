@@ -1,6 +1,4 @@
 using Rowles.LeanCorpus.Codecs.Vectors;
-using Rowles.LeanCorpus.Document;
-using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
@@ -14,6 +12,24 @@ public sealed class BbqV3WriterValidationTests : IClassFixture<TestDirectoryFixt
     private readonly TestDirectoryFixture _fixture;
 
     public BbqV3WriterValidationTests(TestDirectoryFixture fixture) => _fixture = fixture;
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmptyIndex_RejectsRetiredBbqConfigurationBeforeCreatingFiles(bool normalise)
+    {
+        string path = SubDir($"{nameof(EmptyIndex_RejectsRetiredBbqConfigurationBeforeCreatingFiles)}_{normalise}");
+        using var directory = new MMapDirectory(path);
+
+        var exception = Assert.Throws<ArgumentException>(() => new IndexWriter(directory, new IndexWriterConfig
+        {
+            VectorQuantisation = VectorQuantisation.BBQ,
+            NormaliseVectors = normalise
+        }));
+
+        Assert.Contains("CodecReadOnly", exception.Message, StringComparison.Ordinal);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(path));
+    }
 
     [Fact]
     public void WriterRejectsBbqWithoutNormalisationBeforeAcquiringDirectoryLock()
@@ -31,33 +47,23 @@ public sealed class BbqV3WriterValidationTests : IClassFixture<TestDirectoryFixt
         Assert.Empty(Directory.EnumerateFiles(path));
     }
 
-    [Fact]
-    public void WriterRejectsUnsupportedDimensionsWithoutReservingTheFieldAndWritesV3At128()
+    [Theory]
+    [InlineData(32)]
+    [InlineData(64)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(384)]
+    [InlineData(768)]
+    public void SemanticWriter_RejectsEveryBbqDimensionBeforeTemporaryFiles(int dimension)
     {
-        string path = SubDir(nameof(WriterRejectsUnsupportedDimensionsWithoutReservingTheFieldAndWritesV3At128));
-        using var directory = new MMapDirectory(path);
-        using var writer = new IndexWriter(directory, new IndexWriterConfig
-        {
-            VectorQuantisation = VectorQuantisation.BBQ,
-            NormaliseVectors = true,
-            BuildHnswOnFlush = false
-        });
-
-        var unsupported = new LeanDocument();
-        unsupported.Add(new VectorField("embedding", new float[127]));
-        Assert.Throws<ArgumentOutOfRangeException>(() => writer.AddDocument(unsupported));
-        Assert.Equal(0, writer.NextSequenceNumber);
-
-        var supported = new LeanDocument();
-        supported.Add(new VectorField("embedding", UnitVector(128)));
-        writer.AddDocument(supported);
-        writer.Commit();
-
-        string vqPath = Assert.Single(Directory.EnumerateFiles(path, "*.vq", SearchOption.AllDirectories));
-        using var reader = QuantisedVectorReader.Open(vqPath);
-        Assert.Equal(QuantisedVectorStorageKind.BbqOsqCanonicalInt8, reader.StorageKind);
-        Assert.Equal(128, reader.Dimension);
-        Assert.True(reader.HasVector(0));
+        string directory = SubDir($"retired-{dimension}");
+        string path = Path.Combine(directory, "vectors.vq");
+        var vectors = new Dictionary<int, ReadOnlyMemory<float>> { [0] = UnitVector(dimension) };
+        var source = new InMemoryVectorSource(vectors, dimension);
+        Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteBBQOsqCanonical(path, 1, dimension, source, [0]));
+        Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteBBQ(path, 1, dimension, source, [0]));
+        Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteBBQ(path, 1, dimension, vectors, new float[dimension]));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(directory));
     }
 
     private string SubDir(string name)

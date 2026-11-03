@@ -807,7 +807,7 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
                 ValidateAfterMigration = false,
             });
 
-        Assert.True(result.Succeeded);
+        Assert.True(result.Succeeded, string.Join("; ", result.Issues.Select(static issue => $"{issue.Code}: {issue.Message}")));
         Assert.NotEmpty(result.ExecutedActions);
     }
 

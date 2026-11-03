@@ -156,7 +156,6 @@ public sealed partial class IndexWriter : IDisposable
                 _backpressureSemaphore = new SemaphoreSlim(config.MaxQueuedDocs, config.MaxQueuedDocs);
             // Load existing commit state if present
             CommitManager.LoadLatestCommit(this);
-            EnsureCommittedBbqSegmentsAreWritable();
             foreach (var segment in _committedSegments)
             {
                 foreach (var vectorField in segment.VectorFields)
@@ -779,11 +778,13 @@ public sealed partial class IndexWriter : IDisposable
     internal void ValidateDocument(LeanDocument doc)
     {
         ArgumentNullException.ThrowIfNull(doc);
+        VectorCodecFiles.EnsureCanCreate(_config.VectorQuantisation);
         _config.Schema?.Validate(doc);
     }
 
     internal void ValidateDocuments(IReadOnlyList<LeanDocument> documents)
     {
+        VectorCodecFiles.EnsureCanCreate(_config.VectorQuantisation);
         if (_config.Schema is not { } schema)
         {
             for (int i = 0; i < documents.Count; i++)
@@ -849,44 +850,13 @@ public sealed partial class IndexWriter : IDisposable
 
     private void ValidateIncomingVectorDimensions(Dictionary<string, int> incoming)
     {
-        if (_config.VectorQuantisation == VectorQuantisation.BBQ)
-        {
-            foreach (var (fieldName, dimension) in incoming)
-            {
-                if (dimension < 128)
-                    throw new ArgumentOutOfRangeException(nameof(incoming), dimension,
-                        $"New BBQ v3 vector field '{fieldName}' requires at least 128 dimensions.");
-            }
-        }
+        VectorCodecFiles.EnsureCanCreate(_config.VectorQuantisation);
 
         lock (_vectorDimensionLock)
         {
             EnsureVectorDimensionsMatch(incoming);
             foreach (var (fieldName, dimension) in incoming)
                 _vectorDimensions.TryAdd(fieldName, dimension);
-        }
-    }
-
-    private void EnsureCommittedBbqSegmentsAreWritable()
-    {
-        foreach (SegmentInfo segment in _committedSegments)
-        {
-            if (!segment.VectorFields.Any(static field => field.Quantisation == VectorQuantisation.BBQ))
-                continue;
-
-            using var reader = new SegmentReader(_directory, segment, _config.CodecCatalog);
-            foreach (VectorFieldInfo field in segment.VectorFields)
-            {
-                if (field.Quantisation != VectorQuantisation.BBQ)
-                    continue;
-
-                if (reader.GetVectorScoringGeneration(field.FieldName) == VectorScoringGeneration.BbqOsqV3)
-                    continue;
-
-                throw new InvalidDataException(
-                    $"Index segment '{segment.SegmentId}' contains legacy BBQ vector field '{field.FieldName}'. " +
-                    "The index remains available for read-only search but cannot be opened for writing because its original vectors are unavailable; reindex from source documents.");
-            }
         }
     }
 

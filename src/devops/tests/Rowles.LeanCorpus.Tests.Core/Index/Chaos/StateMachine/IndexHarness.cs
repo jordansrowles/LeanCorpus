@@ -1,6 +1,4 @@
-using System.Globalization;
-using System.Security.Cryptography;
-using Rowles.LeanCorpus.Codecs.Vectors;
+﻿using System.Globalization;
 using Rowles.LeanCorpus.Tests.Core.Infrastructure;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index.Chaos.StateMachine;
@@ -9,14 +7,12 @@ internal sealed class IndexHarness : IDisposable
 {
     private readonly StateMachineTestDirectory _testDirectory = new();
     private readonly string _indexPath;
-    private readonly bool _useBbqV3Vectors;
     private MMapDirectory? _writerDirectory;
     private IndexWriter? _writer;
     private bool _disposed;
 
-    public IndexHarness(bool useBbqV3Vectors = false)
+    public IndexHarness()
     {
-        _useBbqV3Vectors = useBbqV3Vectors;
         _indexPath = _testDirectory.CreateChildPath("index");
         OpenWriter();
         _writer!.Commit();
@@ -24,22 +20,22 @@ internal sealed class IndexHarness : IDisposable
 
     public void Add(ModelDocument document)
     {
-        Writer.AddDocument(document.ToLeanDocument(_useBbqV3Vectors));
+        Writer.AddDocument(document.ToLeanDocument());
     }
 
     public void AddBatch(IReadOnlyList<ModelDocument> documents)
     {
-        Writer.AddDocuments(documents.Select(document => document.ToLeanDocument(_useBbqV3Vectors)).ToArray());
+        Writer.AddDocuments(documents.Select(document => document.ToLeanDocument()).ToArray());
     }
 
     public void AddAsync(ModelDocument document)
     {
-        Writer.AddDocumentAsync(document.ToLeanDocument(_useBbqV3Vectors)).AsTask().GetAwaiter().GetResult();
+        Writer.AddDocumentAsync(document.ToLeanDocument()).AsTask().GetAwaiter().GetResult();
     }
 
     public void AddBatchAsync(IReadOnlyList<ModelDocument> documents)
     {
-        Writer.AddDocumentsAsync(documents.Select(document => document.ToLeanDocument(_useBbqV3Vectors)).ToArray())
+        Writer.AddDocumentsAsync(documents.Select(document => document.ToLeanDocument()).ToArray())
             .AsTask()
             .GetAwaiter()
             .GetResult();
@@ -52,14 +48,14 @@ internal sealed class IndexHarness : IDisposable
 
     public void Update(ModelDocument replacement)
     {
-        Writer.UpdateDocument("id", replacement.Id, replacement.ToLeanDocument(_useBbqV3Vectors));
+        Writer.UpdateDocument("id", replacement.Id, replacement.ToLeanDocument());
     }
 
     public void UpdateByQuery(ModelDocument replacement)
     {
         Writer.UpdateDocuments(
             new TermQuery("id", replacement.Id),
-            replacement.ToLeanDocument(_useBbqV3Vectors));
+            replacement.ToLeanDocument());
     }
 
     public void Commit()
@@ -74,39 +70,10 @@ internal sealed class IndexHarness : IDisposable
     }
 
     public void AssertCommitted(IReadOnlyDictionary<string, ModelDocument> expected)
-    {
-        AssertCommittedDocuments(expected);
-
-        if (_useBbqV3Vectors)
-        {
-            var expectedHashes = expected.Values
-                .Where(static document => document.HasCanonicalVector)
-                .ToDictionary(static document => document.Id, static document => document.CanonicalVectorHash(), StringComparer.Ordinal);
-            Assert.Equal(expectedHashes, ReadCanonicalVectorHashes());
-        }
-    }
+        => AssertCommittedDocuments(expected);
 
     public void AssertCommitted(IndexModel model)
-    {
-        Assert.Equal(_useBbqV3Vectors, model.UseBbqV3Vectors);
-        AssertCommittedDocuments(model.Committed);
-        if (_useBbqV3Vectors)
-            Assert.Equal(model.CanonicalVectorHashes, ReadCanonicalVectorHashes());
-    }
-
-    public void AssertCanonicalVectorHashes(IndexModel model)
-    {
-        Assert.Equal(_useBbqV3Vectors, model.UseBbqV3Vectors);
-        if (_useBbqV3Vectors)
-            Assert.Equal(model.CanonicalVectorHashes, ReadCanonicalVectorHashes());
-    }
-
-    public void ForceMergeAndCommit()
-    {
-        Writer.Commit();
-        Writer.ForceMerge(1);
-        Writer.Commit();
-    }
+        => AssertCommittedDocuments(model.Committed);
 
     private void AssertCommittedDocuments(IReadOnlyDictionary<string, ModelDocument> expected)
     {
@@ -148,7 +115,7 @@ internal sealed class IndexHarness : IDisposable
     private void OpenWriter()
     {
         _writerDirectory = new MMapDirectory(_indexPath);
-        _writer = new IndexWriter(_writerDirectory, CreateWriterConfig(_useBbqV3Vectors));
+        _writer = new IndexWriter(_writerDirectory, CreateWriterConfig());
     }
 
     private void CloseWriter()
@@ -203,40 +170,11 @@ internal sealed class IndexHarness : IDisposable
         return values![0];
     }
 
-    private Dictionary<string, string> ReadCanonicalVectorHashes()
-    {
-        using var directory = new MMapDirectory(_indexPath);
-        using var searcher = new IndexSearcher(directory);
-        var hashes = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var segment in searcher.GetSegmentReaders())
-        {
-            if (!segment.Info.VectorFields.Any(static field => field.FieldName == "embedding"))
-                continue;
-
-            using var vectors = QuantisedVectorReader.Open(
-                segment.OpenInput(VectorFilePaths.QuantisedVectorFile(string.Empty, "embedding")));
-            Assert.Equal(QuantisedVectorStorageKind.BbqOsqCanonicalInt8, vectors.StorageKind);
-            byte[] record = new byte[CanonicalInt8VectorMetadata.Size + vectors.Dimension];
-            for (int docId = 0; docId < segment.MaxDoc; docId++)
-            {
-                if (!segment.IsLive(docId) || !vectors.HasVector(docId))
-                    continue;
-
-                string id = Assert.Single(segment.GetStoredFields(docId)["id"]);
-                vectors.CopyCanonicalRecordTo(docId, record);
-                hashes.Add(id, Convert.ToHexString(SHA256.HashData(record)));
-            }
-        }
-        return hashes;
-    }
-
-    private static IndexWriterConfig CreateWriterConfig(bool useBbqV3Vectors) => new()
+    private static IndexWriterConfig CreateWriterConfig() => new()
     {
         MaxBufferedDocs = 3,
         MergePolicy = NoMergePolicy.Instance,
-        VectorQuantisation = useBbqV3Vectors ? VectorQuantisation.BBQ : VectorQuantisation.None,
-        NormaliseVectors = useBbqV3Vectors,
-        BuildHnswOnFlush = useBbqV3Vectors,
+        VectorQuantisation = VectorQuantisation.None,
         HnswSeed = 42,
     };
 }

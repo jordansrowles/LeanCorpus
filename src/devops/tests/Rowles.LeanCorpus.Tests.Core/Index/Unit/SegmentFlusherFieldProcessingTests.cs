@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Tests.Core.Index;
+﻿namespace Rowles.LeanCorpus.Tests.Core.Index;
 
 /// <summary>
 /// Unit tests for the pure field-processing helpers in <see cref="SegmentFlusher"/>:
@@ -101,26 +101,5 @@ public sealed class SegmentFlusherFieldProcessingTests
         Assert.Equal(1f / 255f, alpha);
     }
 
-    [Fact]
-    public void ComputeBBQCentroid_AveragesPerDimension()
-    {
-        var perField = new Dictionary<int, ReadOnlyMemory<float>>
-        {
-            [0] = new float[] { 1f, 3f },
-            [1] = new float[] { 5f, 7f }
-        };
 
-        var centroid = SegmentFlusher.ComputeBBQCentroid(perField, 2);
-
-        Assert.Equal(new[] { 3f, 5f }, centroid);
-    }
-
-    [Fact]
-    public void ComputeBBQCentroid_EmptyInput_ReturnsZeroCentroid()
-    {
-        var centroid = SegmentFlusher.ComputeBBQCentroid(
-            new Dictionary<int, ReadOnlyMemory<float>>(), 3);
-
-        Assert.Equal(new float[] { 0f, 0f, 0f }, centroid);
-    }
 }

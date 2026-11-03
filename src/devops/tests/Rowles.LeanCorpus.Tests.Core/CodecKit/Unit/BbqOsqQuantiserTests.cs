@@ -16,8 +16,8 @@ public sealed class BbqOsqQuantiserTests
         Span<byte> documentCodes = stackalloc byte[vector.Length];
         Span<byte> queryCodes = stackalloc byte[vector.Length];
 
-        BbqOsqCorrections document = OptimizedScalarQuantiser.Quantize(vector, centroid, 1, residuals, documentCodes);
-        BbqOsqCorrections query = OptimizedScalarQuantiser.Quantize(vector, centroid, 4, residuals, queryCodes);
+        BbqOsqCorrections document = OptimisedScalarQuantiser.Quantise(vector, centroid, 1, residuals, documentCodes);
+        BbqOsqCorrections query = OptimisedScalarQuantiser.Quantise(vector, centroid, 4, residuals, queryCodes);
 
         Assert.Equal(new byte[] { 0, 0, 0, 0, 1, 1, 1, 1 }, documentCodes.ToArray());
         Assert.Equal(-0.45964378f, document.LowerInterval);
@@ -41,7 +41,7 @@ public sealed class BbqOsqQuantiserTests
         Span<float> residuals = stackalloc float[vector.Length];
         Span<byte> codes = stackalloc byte[vector.Length];
 
-        BbqOsqCorrections corrections = OptimizedScalarQuantiser.Quantize(vector, centroid, 4, residuals, codes);
+        BbqOsqCorrections corrections = OptimisedScalarQuantiser.Quantise(vector, centroid, 4, residuals, codes);
 
         Assert.Equal(0f, corrections.LowerInterval);
         Assert.Equal(0f, corrections.UpperInterval);
@@ -56,7 +56,7 @@ public sealed class BbqOsqQuantiserTests
     [InlineData(0.5f, 1)]
     [InlineData(-0.5f, 0)]
     public void RoundLikeJava_UsesTiesTowardsPositiveInfinity(float value, int expected)
-        => Assert.Equal(expected, OptimizedScalarQuantiser.RoundLikeJava(value));
+        => Assert.Equal(expected, OptimisedScalarQuantiser.RoundLikeJava(value));
 
     [Theory]
     [InlineData(1)]
@@ -79,7 +79,7 @@ public sealed class BbqOsqQuantiserTests
             .ToArray();
         byte[] packed = new byte[(dimension + 7) / 8];
 
-        OptimizedScalarQuantiser.PackBinary(source, packed);
+        OptimisedScalarQuantiser.PackBinary(source, packed);
 
         for (int index = 0; index < dimension; index++)
         {
@@ -107,6 +107,6 @@ public sealed class BbqOsqQuantiserTests
         float[] centroid = [0f, 0f];
         Span<float> residuals = stackalloc float[2];
         Span<byte> codes = stackalloc byte[2];
-        _ = OptimizedScalarQuantiser.Quantize(vector, centroid, 1, residuals, codes);
+        _ = OptimisedScalarQuantiser.Quantise(vector, centroid, 1, residuals, codes);
     }
 }

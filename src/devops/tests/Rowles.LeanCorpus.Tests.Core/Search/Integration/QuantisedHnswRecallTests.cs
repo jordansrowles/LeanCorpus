@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Codecs;
+﻿using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
@@ -93,112 +93,21 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
         Assert.True(recall >= 0.75, $"Int8 recall {recall:F2} below 0.75 threshold.");
     }
 
-    [Fact(DisplayName = "BBQ Quantisation: HNSW search recall >= 70% against flat baseline")]
-    public void BBQQuantised_HnswRecall_AgainstFlatBaseline()
+    [Fact(DisplayName = "Retired BBQ cannot create a new HNSW index")]
+    public void BBQQuantised_NewHnswIndexIsRejected()
     {
-        var dir = new MMapDirectory(SubDir("bbq_recall"));
-        var config = new IndexWriterConfig
+        string path = SubDir("bbq_retired");
+        using var directory = new MMapDirectory(path);
+        var exception = Assert.Throws<ArgumentException>(() => new IndexWriter(directory, new IndexWriterConfig
         {
             BuildHnswOnFlush = true,
             NormaliseVectors = true,
             VectorQuantisation = VectorQuantisation.BBQ,
             HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
             HnswSeed = 1337L,
-        };
-
-        const int n = 300;
-        const int dim = 128;
-        var vectors = BuildRandomVectors(n, dim, seed: 11);
-
-        using (var writer = new IndexWriter(dir, config))
-        {
-            for (int i = 0; i < n; i++)
-            {
-                var doc = new LeanDocument();
-                doc.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vectors[i])));
-                writer.AddDocument(doc);
-            }
-            writer.Commit();
-        }
-
-        var query = BuildRandomVectors(1, dim, seed: 99)[0];
-        const int topK = 10;
-
-        var truth = Enumerable.Range(0, n)
-            .Select(i => (DocId: i, Score: VectorQuery.CosineSimilarity(query, vectors[i])))
-            .OrderByDescending(t => t.Score)
-            .Take(topK)
-            .Select(t => t.DocId)
-            .ToHashSet();
-
-        using var searcher = new IndexSearcher(dir);
-        var vectorQuery = new VectorQuery("embedding", query, topK: topK, efSearch: 100);
-        var results = searcher.Search(vectorQuery, topK, TestContext.Current.CancellationToken);
-
-        Assert.True(results.TotalHits > 0, "BBQ HNSW search returned no hits.");
-        var found = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
-        int overlap = found.Intersect(truth).Count();
-        double recall = overlap / (double)topK;
-
-        float[] traversalQuery = (float[])query.Clone();
-        Assert.True(SimdVectorOps.NormaliseInPlace(traversalQuery));
-        var segments = searcher.GetSegmentReaders();
-        var graphCandidates = new HashSet<int>();
-        foreach (var segment in segments)
-        {
-            var graph = segment.GetHnswGraph("embedding");
-            Assert.NotNull(graph);
-            foreach (HnswSearchResult candidate in graph!.Search(
-                traversalQuery,
-                new HnswTraversalOptions { Ef = 100, TopK = topK * 3 }))
-                graphCandidates.Add(segment.DocBase + candidate.DocId);
-        }
-
-        double candidateRecall = graphCandidates.Intersect(truth).Count() / (double)topK;
-        var exhaustiveOsqScores = new List<(int DocId, float Score)>(n);
-        foreach (var segment in segments)
-        {
-            using var vectorsReader = QuantisedVectorReader.Open(
-                segment.OpenInput(VectorFilePaths.QuantisedVectorFile(string.Empty, "embedding")));
-            PreparedBbqQuery preparedQuery = vectorsReader.PrepareBbqQuery(query);
-            for (int docId = 0; docId < segment.MaxDoc; docId++)
-            {
-                if (!segment.IsLive(docId) || !vectorsReader.HasVector(docId))
-                    continue;
-                exhaustiveOsqScores.Add((segment.DocBase + docId,
-                    vectorsReader.ScoreBbqCandidate(preparedQuery, docId)));
-            }
-        }
-        (int DocId, float Score)[] osqRanked = exhaustiveOsqScores
-            .OrderByDescending(static item => item.Score)
-            .ThenBy(static item => item.DocId)
-            .ToArray();
-        int osqTopThirtyCount = Math.Min(topK * 3, osqRanked.Length);
-        HashSet<int> exhaustiveOsqTopK = osqRanked.Take(topK).Select(static item => item.DocId).ToHashSet();
-        HashSet<int> exhaustiveOsqTopThirty = osqRanked.Take(osqTopThirtyCount).Select(static item => item.DocId).ToHashSet();
-        double exhaustiveOsqRecall = exhaustiveOsqTopK.Intersect(truth).Count() / (double)topK;
-        double graphOsqRecall = graphCandidates.Intersect(exhaustiveOsqTopThirty).Count() / osqTopThirtyCount;
-        int[] canonicalRerank = graphCandidates
-            .Select(docId =>
-            {
-                var segment = segments.Single(segment =>
-                    docId >= segment.DocBase && docId < segment.DocBase + segment.MaxDoc);
-                float[] canonical = Assert.IsType<float[]>(segment.GetVector("embedding", docId - segment.DocBase));
-                return (DocId: docId, Score: VectorQuery.CosineSimilarity(query, canonical));
-            })
-            .OrderByDescending(static item => item.Score)
-            .ThenBy(static item => item.DocId)
-            .Take(topK)
-            .Select(static item => item.DocId)
-            .ToArray();
-        Assert.Equal(canonicalRerank, results.ScoreDocs.Select(static hit => hit.DocId));
-        Assert.True(recall >= 0.70,
-            $"BBQ recall {recall:F2} below the declared 0.70 integration threshold; " +
-            $"graph candidate recall was {candidateRecall:F2}; exhaustive OSQ recall@{topK} was {exhaustiveOsqRecall:F2}; " +
-            $"graph recall against exhaustive OSQ top-{osqTopThirtyCount} was {graphOsqRecall:F2}; " +
-            $"Float32 top-{topK} IDs=[{string.Join(',', truth.Order())}], " +
-            $"OSQ top-{topK} IDs=[{string.Join(',', exhaustiveOsqTopK.Order())}], " +
-            $"graph candidates=[{string.Join(',', graphCandidates.Order())}].");
+        }));
+        Assert.Contains("CodecReadOnly", exception.Message);
+        Assert.Empty(Directory.GetFiles(path));
     }
 
     [Fact(DisplayName = "Legacy 32D BBQ recall remains a historical diagnostic")]
@@ -214,7 +123,10 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
             vectorsByDoc.Add(docId, vectors[docId]);
         }
 
-        float[] centroid = SegmentFlusher.ComputeBBQCentroid(vectorsByDoc, dim);
+        float[] centroid = new float[dim];
+        foreach (ReadOnlyMemory<float> vector in vectorsByDoc.Values)
+            for (int dimension = 0; dimension < dim; dimension++)
+                centroid[dimension] += vector.Span[dimension] / vectorsByDoc.Count;
         var source = new BBQMemoryVectorSource(vectorsByDoc, dim, centroid);
         using HnswGraph graph = HnswGraphBuilder.Build(
             source,

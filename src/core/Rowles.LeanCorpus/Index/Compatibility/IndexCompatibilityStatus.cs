@@ -24,5 +24,8 @@ public enum IndexCompatibilityStatus
     Corrupt = 5,
 
     /// <summary>The index contains a self-identifying file whose format is not registered.</summary>
-    UnknownFormat = 6
+    UnknownFormat = 6,
+
+    /// <summary>The index remains readable, but a retired representation prohibits mutation and migration.</summary>
+    ReadOnlyRetired = 7
 }

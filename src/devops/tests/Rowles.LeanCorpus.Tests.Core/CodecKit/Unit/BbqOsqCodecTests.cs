@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Search.Simd;
@@ -19,20 +20,9 @@ public sealed class BbqOsqCodecTests : IClassFixture<TestDirectoryFixture>
     {
         const int docCount = 5;
         const int dimension = 129;
-        int[] vectorDocIds = [0, 2, 3];
-        var vectors = new Dictionary<int, ReadOnlyMemory<float>>
-        {
-            [0] = NormalisedVector(dimension, 71),
-            [2] = new float[dimension],
-            [3] = NormalisedVector(dimension, 93)
-        };
-        var source = new InMemoryVectorSource(vectors, dimension);
         string path = TempFile("bbq_osq_v3.vq");
-        string expectedCanonicalPath = TempFile("bbq_osq_expected_canonical.raw");
-        byte[] presence = VectorPresence.Create(docCount, vectorDocIds);
-        CanonicalInt8VectorWriter.WriteRecords(expectedCanonicalPath, docCount, dimension, source, vectorDocIds);
-
-        QuantisedVectorWriter.WriteBBQOsqCanonical(path, docCount, dimension, source, vectorDocIds);
+        HistoricalBbqVectorFixtures.CopyOsq(
+            path, docCount, dimension, "WriteAndRead_V3BodyHasLockedArraysAndPreservesCanonicalRows");
 
         int packedBytes = (dimension + 7) / 8;
         long expectedBodyLength = 8L + 1 + VectorPresence.ByteCount(docCount) + 2
@@ -50,8 +40,6 @@ public sealed class BbqOsqCodecTests : IClassFixture<TestDirectoryFixture>
         }
 
         using var reader = QuantisedVectorReader.Open(path);
-        using var expectedCanonical = CanonicalInt8VectorReader.OpenRecords(
-            expectedCanonicalPath, docCount, dimension, presence);
         Assert.Equal(VectorQuantisation.BBQ, reader.Quantisation);
         Assert.Equal(QuantisedVectorStorageKind.BbqOsqCanonicalInt8, reader.StorageKind);
         Assert.Equal(CanonicalVectorEncoding.PerVectorUnsigned8, reader.CanonicalEncoding);
@@ -65,16 +53,11 @@ public sealed class BbqOsqCodecTests : IClassFixture<TestDirectoryFixture>
         Assert.InRange(MathF.Abs(centroidNorm - 1f), 0f, 1e-4f);
 
         Span<byte> actualRecord = stackalloc byte[CanonicalInt8VectorMetadata.Size + dimension];
-        Span<byte> expectedRecord = stackalloc byte[CanonicalInt8VectorMetadata.Size + dimension];
         Span<float> decoded = stackalloc float[dimension];
         for (int docId = 0; docId < docCount; docId++)
         {
             reader.CopyCanonicalRecordTo(docId, actualRecord);
-            expectedCanonical.CopyCanonicalRecordTo(docId, expectedRecord);
-            Assert.Equal(expectedRecord.ToArray(), actualRecord.ToArray());
-
             reader.ReadVector(docId, decoded);
-            Assert.Equal(expectedCanonical.ReadVector(docId), decoded.ToArray());
 
             BbqOsqCorrections corrections = reader.GetOsqCorrections(docId);
             int packedCodeSum = 0;
@@ -84,12 +67,25 @@ public sealed class BbqOsqCodecTests : IClassFixture<TestDirectoryFixture>
             Assert.Equal(packedCodeSum, corrections.CodeSum);
 
             CanonicalInt8VectorMetadata canonicalMetadata = reader.GetCanonicalMetadata(docId);
+            ReadOnlySpan<byte> canonicalCodes = reader.GetCanonicalCodes(docId);
+            Assert.Equal(canonicalMetadata.SumOfCodes, canonicalCodes.ToArray().Sum(static code => (int)code));
+            Assert.Equal(BitConverter.SingleToInt32Bits(canonicalMetadata.Offset),
+                BinaryPrimitives.ReadInt32LittleEndian(actualRecord));
+            Assert.Equal(BitConverter.SingleToInt32Bits(canonicalMetadata.Scale),
+                BinaryPrimitives.ReadInt32LittleEndian(actualRecord[sizeof(float)..]));
             Assert.Equal(canonicalMetadata.SumOfCodes,
-                reader.GetCanonicalCodes(docId).ToArray().Sum(static code => (int)code));
+                BinaryPrimitives.ReadInt32LittleEndian(actualRecord[(2 * sizeof(float))..]));
+            Assert.Equal(BitConverter.SingleToInt32Bits(canonicalMetadata.DecodedSquaredNorm),
+                BinaryPrimitives.ReadInt32LittleEndian(actualRecord[(2 * sizeof(float) + sizeof(int))..]));
+            Assert.Equal(canonicalCodes.ToArray(), actualRecord[CanonicalInt8VectorMetadata.Size..].ToArray());
+            for (int index = 0; index < dimension; index++)
+                Assert.Equal((float)((double)canonicalMetadata.Offset + (double)canonicalMetadata.Scale * canonicalCodes[index]), decoded[index]);
+
             if (!reader.HasVector(docId))
             {
                 Assert.Equal(default, corrections);
                 Assert.All(actualRecord.ToArray(), static value => Assert.Equal((byte)0, value));
+                Assert.All(decoded.ToArray(), static value => Assert.Equal(0f, value));
             }
         }
 
@@ -103,8 +99,6 @@ public sealed class BbqOsqCodecTests : IClassFixture<TestDirectoryFixture>
         }
 
         Assert.Empty(Directory.EnumerateFiles(_fixture.Path,
-            Path.GetFileName(path) + ".*canonical.tmp"));
-        Assert.Empty(Directory.EnumerateFiles(_fixture.Path,
             Path.GetFileName(path) + ".*osq.tmp"));
     }
 
@@ -116,8 +110,7 @@ public sealed class BbqOsqCodecTests : IClassFixture<TestDirectoryFixture>
         int[] ids = [0];
         var vectors = new Dictionary<int, ReadOnlyMemory<float>> { [0] = NormalisedVector(dimension, 101) };
         string path = TempFile("bbq_osq_corrupt.vq");
-        QuantisedVectorWriter.WriteBBQOsqCanonical(path, docCount, dimension,
-            new InMemoryVectorSource(vectors, dimension), ids);
+        HistoricalBbqVectorFixtures.CopyOsq(path, docCount, dimension);
 
         long bodyStart;
         using (var input = new IndexInput(path))
@@ -142,7 +135,7 @@ public sealed class BbqOsqCodecTests : IClassFixture<TestDirectoryFixture>
         var vectors = new Dictionary<int, ReadOnlyMemory<float>> { [0] = NormalisedVector(dimension, 53) };
         string path = TempFile("bbq_osq_unsupported_dimension.vq");
 
-        Assert.Throws<ArgumentOutOfRangeException>(() => QuantisedVectorWriter.WriteBBQOsqCanonical(
+        Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteBBQOsqCanonical(
             path, 1, dimension, new InMemoryVectorSource(vectors, dimension), [0]));
 
         Assert.False(File.Exists(path));

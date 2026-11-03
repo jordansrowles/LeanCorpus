@@ -1,4 +1,4 @@
-using FsCheck;
+﻿using FsCheck;
 using FsCheck.Experimental;
 using FsCheck.Fluent;
 
@@ -7,21 +7,16 @@ namespace Rowles.LeanCorpus.Tests.Core.Index.Chaos.StateMachine;
 internal sealed class IndexLifecycleMachine : Machine<IndexHarness, IndexModel>
 {
     private const int MaxTraceLength = 30;
-    private readonly bool _useBbqV3Vectors;
 
     private static readonly IReadOnlyList<Operation<IndexHarness, IndexModel>> SearchOperations =
         SearchSpec.Cases
             .Select(static search => (Operation<IndexHarness, IndexModel>)new SearchOperation(search))
             .ToArray();
 
-    public IndexLifecycleMachine(bool useBbqV3Vectors = false)
-        : base(MaxTraceLength)
-    {
-        _useBbqV3Vectors = useBbqV3Vectors;
-    }
+    public IndexLifecycleMachine() : base(MaxTraceLength) { }
 
     public override Arbitrary<Setup<IndexHarness, IndexModel>> Setup =>
-        Arb.ToArbitrary(Gen.Fresh(() => (Setup<IndexHarness, IndexModel>)new IndexLifecycleSetup(_useBbqV3Vectors)));
+        Arb.ToArbitrary(Gen.Fresh(static () => (Setup<IndexHarness, IndexModel>)new IndexLifecycleSetup()));
 
     public override Gen<Operation<IndexHarness, IndexModel>> Next(IndexModel model)
     {
@@ -53,8 +48,6 @@ internal sealed class IndexLifecycleMachine : Machine<IndexHarness, IndexModel>
         if (updates.Length > 0)
             choices.Add((10, Gen.Elements(updates)));
 
-        if (_useBbqV3Vectors)
-            choices.Add((8, Constant(new ForceMergeOperation())));
 
         return Gen.Frequency(choices.ToArray());
     }
@@ -72,11 +65,10 @@ internal sealed class IndexLifecycleMachine : Machine<IndexHarness, IndexModel>
             .ToArray();
     }
 
-    private sealed class IndexLifecycleSetup(bool useBbqV3Vectors) : Setup<IndexHarness, IndexModel>
+    private sealed class IndexLifecycleSetup : Setup<IndexHarness, IndexModel>
     {
-        public override IndexModel Model() => useBbqV3Vectors ? IndexModel.BbqV3Empty : IndexModel.Empty;
-
-        public override IndexHarness Actual() => new(useBbqV3Vectors);
+        public override IndexModel Model() => IndexModel.Empty;
+        public override IndexHarness Actual() => new();
     }
 
     private sealed class IndexLifecycleTearDown : TearDown<IndexHarness>

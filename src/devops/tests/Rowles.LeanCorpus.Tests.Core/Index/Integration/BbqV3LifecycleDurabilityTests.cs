@@ -24,7 +24,7 @@ public sealed class BbqV3LifecycleDurabilityTests : IClassFixture<TestDirectoryF
 
     public BbqV3LifecycleDurabilityTests(TestDirectoryFixture fixture) => _fixture = fixture;
 
-    [Fact(DisplayName = "BBQ v3 partial .vq and .hnsw writes preserve the committed segment")]
+    [Fact(DisplayName = "Historical BBQ framing refusal and partial graph writes preserve the committed segment")]
     public void PartialVqAndHnswWritesLeaveTheCommittedIndexReadable()
     {
         string indexPath = Path.Combine(_fixture.Path, $"bbq-v3-atomic-{Guid.NewGuid():N}");
@@ -42,6 +42,17 @@ public sealed class BbqV3LifecycleDurabilityTests : IClassFixture<TestDirectoryF
         foreach ((string filePath, CodecFileDescriptor descriptor) in files)
         {
             byte[] original = File.ReadAllBytes(filePath);
+            if (descriptor == VectorCodecFiles.Quantised)
+            {
+                bool bodyCalled = false;
+                var error = Assert.Throws<InvalidOperationException>(() => CodecFileWriter.WriteAtomically(
+                    filePath, descriptor, VectorCodecFiles.QuantisedIdentity(QuantisedVectorStorageKind.BbqOsqCanonicalInt8),
+                    durable: false, _ => bodyCalled = true));
+                Assert.Contains("CodecReadOnly", error.Message, StringComparison.Ordinal);
+                Assert.False(bodyCalled);
+                Assert.Equal(original, File.ReadAllBytes(filePath));
+                continue;
+            }
             IOException injected = Assert.Throws<IOException>(() => CodecFileWriter.WriteAtomically(
                 filePath,
                 descriptor,
@@ -69,7 +80,7 @@ public sealed class BbqV3LifecycleDurabilityTests : IClassFixture<TestDirectoryF
             TestContext.Current.CancellationToken).ScoreDocs);
     }
 
-    [Fact(DisplayName = "BBQ v3 backup, compound repack and parallel pinned search preserve canonical records")]
+    [Fact(DisplayName = "Historical BBQ backup, refused merge and parallel pinned search preserve canonical records")]
     public async Task BackupRestoreMergeAndPinnedParallelSearchPreserveCanonicalRecords()
     {
         string sourcePath = Path.Combine(_fixture.Path, $"bbq-v3-backup-source-{Guid.NewGuid():N}");
@@ -110,11 +121,8 @@ public sealed class BbqV3LifecycleDurabilityTests : IClassFixture<TestDirectoryF
 
             mergeStarted.Set();
             using (var mergeDirectory = new MMapDirectory(restorePath))
-            using (var writer = new IndexWriter(mergeDirectory, CreateWriterConfig(useCompoundFile: false)))
-            {
-                writer.ForceMerge(1);
-                writer.Commit();
-            }
+                Assert.Throws<InvalidOperationException>(() =>
+                    new IndexWriter(mergeDirectory, CreateWriterConfig(useCompoundFile: false)));
             await Task.WhenAll(parallelSearches);
 
             Assert.Equal(initialFingerprint, SearchFingerprint(pinnedSearcher, TestContext.Current.CancellationToken));
@@ -127,15 +135,15 @@ public sealed class BbqV3LifecycleDurabilityTests : IClassFixture<TestDirectoryF
 
         using var mergedDirectory = new MMapDirectory(restorePath);
         Assert.Equal(expectedHashes, ReadCanonicalHashes(mergedDirectory));
-        SegmentInfo merged = Assert.Single(IndexRecovery.RecoverLatestCommit(restorePath, cleanupOrphans: false)!.SegmentInfos);
-        Assert.False(merged.IsCompoundFile);
+        var preserved = IndexRecovery.RecoverLatestCommit(restorePath, cleanupOrphans: false)!.SegmentInfos;
+        Assert.All(preserved, segment => Assert.True(segment.IsCompoundFile));
         IndexCheckResult health = IndexValidator.Check(mergedDirectory, new IndexCheckOptions { Deep = true });
         Assert.True(health.IsHealthy, string.Join("; ", health.DetailedIssues.Select(static issue => issue.Message)));
         using var mergedSearcher = new IndexSearcher(mergedDirectory);
         Assert.Equal(6, mergedSearcher.Search(new MatchAllDocsQuery(), 10, TestContext.Current.CancellationToken).TotalHits);
     }
 
-    [Fact(DisplayName = "BBQ v3 mapped files remain leased through merge and are deleted after release on Windows")]
+    [Fact(DisplayName = "Historical BBQ mapped files survive refused merge and release their leases on Windows")]
     public void WindowsMappedBbqFilesRemainLeasedUntilThePinnedSearcherIsReleased()
     {
         if (!OperatingSystem.IsWindows())
@@ -160,11 +168,8 @@ public sealed class BbqV3LifecycleDurabilityTests : IClassFixture<TestDirectoryF
         try
         {
             using (var mergeDirectory = new MMapDirectory(indexPath))
-            using (var writer = new IndexWriter(mergeDirectory, CreateWriterConfig(useCompoundFile: false)))
-            {
-                writer.ForceMerge(1);
-                writer.Commit();
-            }
+                Assert.Throws<InvalidOperationException>(() =>
+                    new IndexWriter(mergeDirectory, CreateWriterConfig(useCompoundFile: false)));
 
             Assert.All(sourceFiles, filePath => Assert.True(File.Exists(filePath), $"Mapped source file was removed before lease release: {filePath}"));
             Assert.Equal(expectedSearch, SearchFingerprint(pinnedSearcher, TestContext.Current.CancellationToken));
@@ -173,24 +178,15 @@ public sealed class BbqV3LifecycleDurabilityTests : IClassFixture<TestDirectoryF
         {
             pinnedSearcher.Dispose();
         }
-        Assert.All(sourceFiles, filePath => Assert.False(File.Exists(filePath), $"Deferred source file remains after lease release: {filePath}"));
+        Assert.All(sourceFiles, filePath => Assert.True(File.Exists(filePath), $"Read-only source file was removed after lease release: {filePath}"));
+        pinnedDirectory.Dispose();
+        foreach (string file in sourceFiles)
+            using (File.Open(file, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
     }
 
     private static void CreateIndex(string path, bool useCompoundFile)
     {
-        Directory.CreateDirectory(path);
-        using var directory = new MMapDirectory(path);
-        using var writer = new IndexWriter(directory, CreateWriterConfig(useCompoundFile));
-        for (int id = 0; id < 6; id++)
-        {
-            var document = new LeanDocument();
-            document.Add(new StringField("id", $"doc-{id}"));
-            document.Add(new TextField("body", "bbq canonical durable document"));
-            if (id % 4 != 1)
-                document.Add(new VectorField("embedding", CreateVector(id)));
-            writer.AddDocument(document);
-        }
-        writer.Commit();
+        HistoricalBbqIndexFixtures.CopyTo(path, useCompoundFile ? "lifecycle-compound" : "lifecycle-loose");
     }
 
     private static IndexWriterConfig CreateWriterConfig(bool useCompoundFile) => new()
@@ -202,7 +198,7 @@ public sealed class BbqV3LifecycleDurabilityTests : IClassFixture<TestDirectoryF
         BuildHnswOnFlush = true,
         HnswSeed = 42,
         NormaliseVectors = true,
-        VectorQuantisation = VectorQuantisation.BBQ,
+        VectorQuantisation = VectorQuantisation.Int8,
     };
 
     private static float[] CreateVector(int id)

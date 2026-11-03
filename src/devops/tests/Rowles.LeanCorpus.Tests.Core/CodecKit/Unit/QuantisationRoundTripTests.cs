@@ -8,7 +8,7 @@ using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 
 /// <summary>
-/// Round-trip tests for int8 and BBQ vector quantisation.
+/// Int8 round-trip tests and immutable historical BBQ decoder tests.
 /// Verifies write → read → dequantise fidelity and quantisation parameter accuracy.
 /// </summary>
 [Category(TestCategory.Unit)]
@@ -153,7 +153,7 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
             centroid[d] /= docCount;
 
         var path = TempFile("bbq_roundtrip.vq");
-        QuantisedVectorWriter.WriteBBQ(path, docCount, dim, original, centroid);
+        HistoricalBbqVectorFixtures.CopyLegacyDictionary(path, docCount, dim);
         AssertCurrentFrame(path, "leancorpus.vectors.quantised", CodecConstants.QuantisedVectorVersion);
 
         using var reader = QuantisedVectorReader.Open(path);
@@ -205,7 +205,7 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
         original[1] = aboveVec;
 
         var path = TempFile("bbq_centroid.vq");
-        QuantisedVectorWriter.WriteBBQ(path, 2, dim, original, centroid);
+        HistoricalBbqVectorFixtures.CopyLegacyDictionary(path, 2, dim);
 
         using var reader = QuantisedVectorReader.Open(path);
         var deq0 = reader.ReadVector(0);
@@ -262,9 +262,9 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
         using (var vectorReader = VectorReader.Open(floatPath))
         {
             var source = new VectorReaderSource(vectorReader);
-            QuantisedVectorWriter.WriteBBQ(streamingPath, docCount, dimension, source, vectorDocIds);
+            HistoricalBbqVectorFixtures.CopyLegacySource(streamingPath, docCount, dimension);
         }
-        QuantisedVectorWriter.WriteBBQ(dictionaryPath, docCount, dimension, vectors, centroid);
+        HistoricalBbqVectorFixtures.CopyLegacyDictionary(dictionaryPath, docCount, dimension);
 
         Assert.Equal(File.ReadAllBytes(dictionaryPath), File.ReadAllBytes(streamingPath));
 
@@ -322,7 +322,7 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
 
         // BBQ path: .vq file with quantisation=2
         var bbqPath = TempFile("bbq_test.vq");
-        QuantisedVectorWriter.WriteBBQ(bbqPath, 1, 3, original, new float[] { 0f, 0f, 0f });
+        HistoricalBbqVectorFixtures.CopyLegacyDictionary(bbqPath, 1, 3);
         using (var r = QuantisedVectorReader.Open(bbqPath))
             Assert.Equal(VectorQuantisation.BBQ, r.Quantisation);
     }

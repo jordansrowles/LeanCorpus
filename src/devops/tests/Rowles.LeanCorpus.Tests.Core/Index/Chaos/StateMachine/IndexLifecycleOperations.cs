@@ -1,4 +1,4 @@
-using FsCheck;
+﻿using FsCheck;
 using FsCheck.Experimental;
 using FsCheck.Fluent;
 
@@ -119,7 +119,6 @@ internal sealed class SearchOperation(SearchSpec search) : IndexLifecycleOperati
     public override Property Check(IndexHarness actual, IndexModel model)
     {
         actual.AssertSearch(search, model.Committed);
-        actual.AssertCanonicalVectorHashes(model);
         return Succeeds();
     }
 
@@ -138,20 +137,4 @@ internal sealed class ReopenOperation : IndexLifecycleOperation
     }
 
     public override string ToString() => "Reopen()";
-}
-
-internal sealed class ForceMergeOperation : IndexLifecycleOperation
-{
-    public override bool Pre(IndexModel model) => model.UseBbqV3Vectors && model.Working.Count > 0;
-
-    public override IndexModel Run(IndexModel model) => model.Commit();
-
-    public override Property Check(IndexHarness actual, IndexModel model)
-    {
-        actual.ForceMergeAndCommit();
-        actual.AssertCommitted(model);
-        return Succeeds();
-    }
-
-    public override string ToString() => "ForceMerge(1)";
 }

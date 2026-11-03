@@ -34,6 +34,8 @@ internal sealed class HnswGraph : IDisposable
     private readonly QuantisedVectorSource? _bbqOsqSource;
     private readonly IInt8VectorSource? _int8Source;
 
+    internal VectorQuantisation Quantisation => _vectorQuantisation;
+
     // Layer 0 is the base; index increases with sparsity.
     private List<Dictionary<int, List<int>>> _mutableLevels;
 

@@ -71,9 +71,9 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
-- Restrict new BBQ v3 writes to normalised cosine fields with at least 128 dimensions; use correction-aware 4-bit query versus 1-bit document scores for HNSW construction and search, building flush-time graphs from persisted canonical Int8 records with deterministic document-ID tie-breaking.
-- Use a default three-times HNSW shortlist for BBQ v3 when oversampling is omitted, retain one-times defaults for other representations and explicit factor 1, and rerank v3 candidates with canonical Int8 vectors; quantised scores remain approximate to the original Float32 values.
-- Preserve BBQ v3 canonical Int8 records byte-for-byte through merges, rebuild segment OSQ and HNSW data from canonical vectors, and reject legacy BBQ indexes for writing or import with rebuild guidance.
+- Limit new vector output to Float32 and Int8; treat every committed BBQ representation as read-only at index level, including mixed indexes and deleted BBQ documents.
+- Preserve historical experimental one-bit BBQ v3 query scoring and its automatic three-times shortlist. Float32/Int8 retain one-times automatic oversampling; explicit query settings remain honoured.
+- Report readable retired indexes as `ReadOnlyRetired` in compatibility checks and the product CLI, with reindexing guidance rather than a migration recommendation.
 - Apply `FuzzyQuery.MaxExpansions` once across all search segments, with deterministic UTF-8 term-byte ordering for equal-distance ties; reuse one lazily compiled edit automaton across segment expansion misses.
 - Resolve edit-zero fuzzy queries through exact term lookup and return warm empty-expansion cache entries before constructing the edit automaton.
 - Reduce cold compilation time and allocation for small fuzzy automata with a bounded compact state representation; retain the existing compiler for larger automata.
@@ -111,8 +111,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Clarify that concurrent bulk indexing does not preserve input document-ID order and tracked sequence ranges describe flush generations. ([bcdcbc8ea](https://github.com/jordansrowles/LeanCorpus/commit/bcdcbc8ea72e7d921a5826ad743825268bcf8194))
 - Keep field-length bodies in the existing v2 VarInt format, validate encoded values before allocation, and accept only verified legacy zero padding. ([af6aacfa7](https://github.com/jordansrowles/LeanCorpus/commit/af6aacfa7d1128e0f8876ab1c6d1511cb62f7c25), [53b537956](https://github.com/jordansrowles/LeanCorpus/commit/53b53795698144c29ff52299d7c02d4141d06826))
 - Advance float and quantised vector bodies to v2 with per-document presence; migrate reconstructable v1 fields using persisted HNSW membership without changing vector payload bytes, and reject migration without authoritative presence. HNSW remains v1. ([2228d0d52](https://github.com/jordansrowles/LeanCorpus/commit/2228d0d5291cade5c00d9de5115a56c6e7658a23))
-- Advance quantised vector bodies to v3 with explicit legacy storage-kind tags; structurally migrate v1 and v2 Int8/BBQ payloads without requantisation, preserving persisted presence and historical BBQ scoring.
-- Write new normalised cosine BBQ fields of at least 128 dimensions with Lucene 10.5.2-inspired one-bit OSQ vectors and stable per-vector canonical Int8 records; retain tagged legacy readers for older fields.
+- Retain tagged quantised vector bodies at v3 and preserve Int8 v1/v2 structural migration without requantisation or recovered-precision claims. All BBQ migration routes, including current-version no-op requests, are unsupported.
+- Preserve released sign-BBQ and known experimental one-bit v3 readers without reinterpreting storage tags. New BBQ research is deferred to LeanCorpus 5 and remains subject to independent qualification.
 - Replace path-owning `JapaneseTokeniser` construction with explicit `JapaneseDictionary` ownership; tokenisers borrow supplied dictionaries, and disposal waits for active tokenisation. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Replace repeated Thai and Chinese lexicon prefix hash probes with an allocation-free radix trie, reducing tokenisation time for long unknown runs. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Separate query-string lexing, syntax parsing and query compilation into internal stages while preserving escaped source text, parser budgets and the public API. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
@@ -254,6 +254,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Fix merge validation for Shape DocValues component trees, empty spatial aggregations after shape deletion, and WKT output for degenerate Geo and XY rectangles and Geo rectangles spanning longitude -180 to 180. ([4d0432e27](https://github.com/jordansrowles/LeanCorpus/commit/4d0432e27fb3027e6987009cde2fad5b41e2c1f0))
 
 ## Removed
+
+- Retire all BBQ creation, ingestion, import, merge and migration targets. Existing embeddings must be reindexed from originals into a separate Float32 or Int8 index.
 
 - Remove the redundant public `BooleanQueryBuilder`; `QueryBuilder.Bool` now configures the existing `BooleanQuery.Builder` directly. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Remove lenient query parsing until deterministic clause-boundary recovery is defined; the existing constructor flag remains for compatibility and throws when set to `true`. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))

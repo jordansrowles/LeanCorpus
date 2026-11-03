@@ -264,7 +264,11 @@ internal static class CommitManager
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
         var recovery = IndexRecovery.RecoverLatestCommit(
             directory.DirectoryPath,
-            catalog: config.CodecCatalog);
+            cleanupOrphans: true,
+            catalog: config.CodecCatalog,
+            beforeMutation: state => VectorMutationGuard.EnsureCanRewrite(directory, state.SegmentInfos));
+        if (recovery is not null)
+            VectorMutationGuard.EnsureCanRewrite(directory, recovery.SegmentInfos);
         var occupiedSegmentIds = SegmentFileSet.FindSegmentIds(directory.ListAll(), config.CodecCatalog);
         writer.InitialiseNextSegmentOrdinal(GetNextSegmentOrdinal(
             (recovery?.SegmentIds ?? []).Concat(occupiedSegmentIds)));

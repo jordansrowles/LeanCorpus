@@ -157,4 +157,7 @@ public static class IndexCheckIssueCodes
 
     /// <summary>A codec descriptor's semantic body validation failed.</summary>
     public const string CodecSemanticValidationFailure = "LLIDX050";
+
+    /// <summary>A readable codec representation is retired from every mutation route.</summary>
+    public const string ReadOnlyRetiredCodec = "LLIDX051";
 }

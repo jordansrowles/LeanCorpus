@@ -5,7 +5,7 @@ using System.Security.Cryptography;
 
 namespace Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
-/// <summary>Immutable full-index fixtures emitted by historical LeanCorpus releases.</summary>
+/// <summary>Immutable index and codec fixtures emitted by historical LeanCorpus writers.</summary>
 public enum HistoricalIndexFixture
 {
     /// <summary>Loose-file index written by the final 2.0.0 release source.</summary>
@@ -31,6 +31,18 @@ public enum HistoricalIndexFixture
 
     /// <summary>Loose and compound BBQ v2 indexes generated from the pinned 31 October branch baseline.</summary>
     PreV3BbqV2,
+
+    /// <summary>Pre-retirement one-bit v3 loose, compound, mixed and all-deleted experimental indexes.</summary>
+    ExperimentalBbqV3,
+
+    /// <summary>Historical v2 BBQ structurally migrated to a committed v3 sign-BBQ tag-2 index.</summary>
+    ExperimentalBbqV3LegacySign,
+
+    /// <summary>Pre-retirement vector bodies for historical decoder/scorer regression inputs.</summary>
+    ExperimentalBbqCodecBodies,
+
+    /// <summary>Pre-retirement indexes for historical query, backup and reader-lifetime checks.</summary>
+    ExperimentalBbqQueryIndexes,
 }
 
 /// <summary>
@@ -89,6 +101,18 @@ public static class HistoricalIndexFixtures
             HistoricalIndexFixture.PreV3BbqV2 => new(
                 prefix + "pre-v3-bbq-v2.fixture.b64",
                 "189d29dbe1fe84cbd5806ab56c32babcada457efdb1c3ff5da9f6530b11f2b9c"),
+            HistoricalIndexFixture.ExperimentalBbqV3 => new(
+                prefix + "experimental-bbq-v3.fixture.b64",
+                "9093003ea1a6c00e2d19f6a46e603762ab4086df9c0a4ce1975f5d12e63f316c"),
+            HistoricalIndexFixture.ExperimentalBbqV3LegacySign => new(
+                prefix + "experimental-bbq-v3-legacy-sign.fixture.b64",
+                "9d99f8b29309b3741d8071d99338b5d9f651afb9926b8ba6b3849ad70f75fcbd"),
+            HistoricalIndexFixture.ExperimentalBbqCodecBodies => new(
+                prefix + "experimental-bbq-codec-bodies.fixture.b64",
+                "7fa4fbc127ed0bbb24ea692d6260d84f49e5a6cbf3f04b2b39a31635e68d38b3"),
+            HistoricalIndexFixture.ExperimentalBbqQueryIndexes => new(
+                prefix + "experimental-bbq-query-indexes.fixture.b64",
+                "acda9cbe4d774705f918a3a4f6135be95faf9394d4d9ac674155080e6b0bc41c"),
             _ => throw new ArgumentOutOfRangeException(nameof(fixture), fixture, "Unknown historical index fixture."),
         };
     }

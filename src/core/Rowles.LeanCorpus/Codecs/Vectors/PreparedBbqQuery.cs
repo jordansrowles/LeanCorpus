@@ -35,7 +35,7 @@ internal sealed class PreparedBbqQuery
         float[] residuals = System.Buffers.ArrayPool<float>.Shared.Rent(dimension);
         try
         {
-            BbqOsqCorrections corrections = OptimizedScalarQuantiser.Quantize(
+            BbqOsqCorrections corrections = OptimisedScalarQuantiser.Quantise(
                 query, centroid, bits: 4, residuals.AsSpan(0, dimension), codes);
             for (int index = 0; index < dimension; index++)
             {

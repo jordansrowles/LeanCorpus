@@ -128,8 +128,7 @@ public sealed class BbqOsqHnswTests : IClassFixture<TestDirectoryFixture>
     {
         string path = Path.Combine(_fixture.Path, $"{name}_{Guid.NewGuid():N}.vq");
         var source = new InMemoryVectorSource(vectors, Dimension);
-        QuantisedVectorWriter.WriteBBQOsqCanonical(
-            path, vectors.Count, Dimension, source, vectors.Keys.Order().ToArray());
+        HistoricalBbqVectorFixtures.CopyOsq(path, vectors.Count, Dimension);
         return QuantisedVectorReader.Open(path);
     }
 

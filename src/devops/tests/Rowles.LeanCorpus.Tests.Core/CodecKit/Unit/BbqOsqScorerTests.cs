@@ -38,7 +38,7 @@ public sealed class BbqOsqScorerTests
         for (int index = 0; index < dimension; index++)
             documentCodes[index] = (byte)((index * 7 + dimension) % 2);
         byte[] packedDocument = new byte[(dimension + 7) / 8];
-        OptimizedScalarQuantiser.PackBinary(documentCodes, packedDocument);
+        OptimisedScalarQuantiser.PackBinary(documentCodes, packedDocument);
         int documentCodeSum = documentCodes.Sum(static code => (int)code);
         var documentCorrections = new BbqOsqCorrections(-0.125f, 0.375f, 0.0625f, documentCodeSum);
         float centroidSquaredNorm = Dot(centroid, centroid);
@@ -69,7 +69,7 @@ public sealed class BbqOsqScorerTests
             .Select(static index => (byte)(index % 2))
             .ToArray();
         byte[] packedDocument = new byte[(dimension + 7) / 8];
-        OptimizedScalarQuantiser.PackBinary(documentCodes, packedDocument);
+        OptimisedScalarQuantiser.PackBinary(documentCodes, packedDocument);
         var corrections = new BbqOsqCorrections(-0.2f, 0.4f, 0.1f, documentCodes.Sum(static code => (int)code));
 
         for (int index = 0; index < 4; index++)

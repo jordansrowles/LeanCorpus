@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Codecs.Vectors;
+﻿namespace Rowles.LeanCorpus.Codecs.Vectors;
 
 /// <summary>The four correction values stored for one OSQ vector.</summary>
 internal readonly record struct BbqOsqCorrections(
@@ -13,7 +13,7 @@ internal readonly record struct BbqOsqCorrections(
 /// modify the caller's source vector. Upstream source is pinned in the BBQ v3
 /// implementation reference package under Apache-2.0.
 /// </summary>
-internal static class OptimizedScalarQuantiser
+internal static class OptimisedScalarQuantiser
 {
     private const float Lambda = 0.1f;
     private const int OptimisationIterations = 5;
@@ -34,7 +34,7 @@ internal static class OptimizedScalarQuantiser
     /// Quantises a vector relative to a unit cosine centroid. <paramref name="residualScratch"/>
     /// is caller-owned and receives the centred vector; source and centroid remain unchanged.
     /// </summary>
-    internal static BbqOsqCorrections Quantize(
+    internal static BbqOsqCorrections Quantise(
         ReadOnlySpan<float> vector,
         ReadOnlySpan<float> centroid,
         int bits,

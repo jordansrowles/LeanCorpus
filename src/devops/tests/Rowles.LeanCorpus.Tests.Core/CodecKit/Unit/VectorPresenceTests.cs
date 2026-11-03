@@ -28,7 +28,7 @@ public sealed class VectorPresenceTests
                 if (quantisation == VectorQuantisation.Int8)
                     QuantisedVectorWriter.WriteInt8(path, 3, 2, vectors);
                 else
-                    QuantisedVectorWriter.WriteBBQ(path, 3, 2, vectors, new float[2]);
+                    HistoricalBbqVectorFixtures.CopyLegacyDictionary(path, 3, 2);
                 using var reader = QuantisedVectorReader.Open(path);
                 Assert.True(reader.HasVector(0));
                 Assert.False(reader.HasVector(1));
@@ -75,7 +75,7 @@ public sealed class VectorPresenceTests
             var vectors = new Dictionary<int, ReadOnlyMemory<float>> { [0] = new float[2], [2] = new float[] { 1, 0 } };
             if (quantisation == VectorQuantisation.None) VectorWriter.WriteField(path, 3, 2, vectors);
             else if (quantisation == VectorQuantisation.Int8) QuantisedVectorWriter.WriteInt8(path, 3, 2, vectors);
-            else QuantisedVectorWriter.WriteBBQ(path, 3, 2, vectors, new float[2]);
+            else HistoricalBbqVectorFixtures.CopyLegacyDictionary(path, 3, 2);
             byte[] body;
             using (var input = new IndexInput(path))
             using (var frame = CodecFileReader.OpenSupported(input, descriptor))
@@ -96,7 +96,9 @@ public sealed class VectorPresenceTests
             }
             foreach (var corrupt in corruptions)
             {
-                CodecFileWriter.WriteAtomically(path, descriptor, false, output => output.WriteBytes(corrupt, 0, corrupt.Length));
+                // Deliberately malformed test bytes use the raw framing primitive, not a semantic writer.
+                CodecFileWriter.WriteAtomically(path, descriptor.FormatId, descriptor.CurrentFormatVersion!.Value,
+                    false, output => output.WriteBytes(corrupt, 0, corrupt.Length));
                 Assert.ThrowsAny<InvalidDataException>(() =>
                 {
                     if (quantisation == VectorQuantisation.None) { using var reader = VectorReader.Open(path); }
@@ -118,7 +120,7 @@ public sealed class VectorPresenceTests
         {
             Assert.Throws<InvalidDataException>(() => VectorWriter.WriteField(path, 3, 2, vectors));
             Assert.Throws<InvalidDataException>(() => QuantisedVectorWriter.WriteInt8(path, 3, 2, vectors));
-            Assert.Throws<InvalidDataException>(() => QuantisedVectorWriter.WriteBBQ(path, 3, 2, vectors, new float[2]));
+            Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteBBQ(path, 3, 2, vectors, new float[2]));
         }
         Assert.Throws<InvalidDataException>(() => VectorPresence.Create(3, new[] { 0, 0 }));
         Assert.Throws<OverflowException>(() => VectorPresence.ByteCount(int.MaxValue));
@@ -139,7 +141,7 @@ public sealed class VectorPresenceTests
         var source = new InMemoryVectorSource(new Dictionary<int, ReadOnlyMemory<float>> { [0] = new float[2] }, 2);
         Assert.Throws<InvalidDataException>(() => VectorWriter.WriteField(path, 1, 2, source, new[] { 0, 0 }));
         Assert.Throws<InvalidDataException>(() => QuantisedVectorWriter.WriteInt8(path, 1, 2, source, new[] { 0, 0 }));
-        Assert.Throws<InvalidDataException>(() => QuantisedVectorWriter.WriteBBQ(path, 1, 2, source, new[] { 0, 0 }));
+        Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteBBQ(path, 1, 2, source, new[] { 0, 0 }));
         Assert.False(File.Exists(path));
     }
 

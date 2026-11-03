@@ -128,6 +128,7 @@ internal static class SegmentMergePlanner
         IReadOnlyDictionary<string, SegmentReader> readers,
         VectorQuantisation destinationVectorQuantisation)
     {
+        VectorCodecFiles.EnsureCanCreate(destinationVectorQuantisation);
         foreach (SegmentInfo segment in segments)
         {
             if (!readers.TryGetValue(segment.SegmentId, out SegmentReader? reader))
@@ -136,15 +137,10 @@ internal static class SegmentMergePlanner
             foreach (VectorFieldInfo field in segment.VectorFields)
             {
                 VectorScoringGeneration scoringGeneration = reader.GetVectorScoringGeneration(field.FieldName);
-                if (scoringGeneration == VectorScoringGeneration.LegacyBbqSign)
-                    throw new InvalidDataException(
-                        $"Cannot merge legacy BBQ vector field '{field.FieldName}' from segment '{segment.SegmentId}': its original vectors are unavailable. Reindex from source documents before writing or importing this index.");
+                if (scoringGeneration is VectorScoringGeneration.LegacyBbqSign or VectorScoringGeneration.BbqOsqV3)
+                    throw VectorCodecFiles.RetiredBbqWrite();
 
-                if (destinationVectorQuantisation == VectorQuantisation.BBQ &&
-                    (field.Dimension < 128 ||
-                     (scoringGeneration == VectorScoringGeneration.BbqOsqV3 && !field.Normalised)))
-                    throw new InvalidDataException(
-                        $"Cannot write BBQ v3 vector field '{field.FieldName}' from segment '{segment.SegmentId}': dimension must be at least 128, and existing BBQ v3 canonical data must declare Normalised=true (actual dimension={field.Dimension}, Normalised={field.Normalised}).");
+
             }
         }
     }

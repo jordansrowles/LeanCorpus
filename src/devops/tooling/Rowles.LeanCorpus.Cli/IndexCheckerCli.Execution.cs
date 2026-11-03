@@ -71,7 +71,7 @@ public static partial class IndexCheckerCli
             var result = IndexCompatibility.Check(directory, new IndexCompatibilityOptions { DeepValidation = deep });
             var dto = CliCompatibilityResultDto.FromResult(result);
             WriteCliResult(outputPath, json, output, dto, writer => WriteCompatibilityText(writer, result));
-            return result.Status is IndexCompatibilityStatus.Compatible or IndexCompatibilityStatus.Empty or IndexCompatibilityStatus.MigrationRecommended
+            return result.Status is IndexCompatibilityStatus.Compatible or IndexCompatibilityStatus.Empty or IndexCompatibilityStatus.MigrationRecommended or IndexCompatibilityStatus.ReadOnlyRetired
                 ? CliExitCodes.Success
                 : CliExitCodes.ValidationErrors;
         }

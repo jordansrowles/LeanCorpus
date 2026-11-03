@@ -19,9 +19,9 @@ public sealed class BbqV3RetrievalTests : IClassFixture<TestDirectoryFixture>
     [Fact(DisplayName = "BBQ v3: Omitted oversampling uses three candidates per result")]
     public void DefaultOversampling_IsThreeForBbqV3AndOneForOtherRepresentations()
     {
-        using var bbq = BuildIndex("bbq_v3_auto_oversampling", VectorQuantisation.BBQ, buildGraph: true, 24, seed: 71);
-        using var bbqFlat = BuildIndex("bbq_v3_auto_oversampling_flat", VectorQuantisation.BBQ, buildGraph: false, 24, seed: 74);
-        using var int8 = BuildIndex("int8_auto_oversampling", VectorQuantisation.Int8, buildGraph: true, 24, seed: 72);
+        using var bbq = OpenFixtureOrBuildSupportedIndex("bbq_v3_auto_oversampling", VectorQuantisation.BBQ, buildGraph: true, 24, seed: 71);
+        using var bbqFlat = OpenFixtureOrBuildSupportedIndex("bbq_v3_auto_oversampling_flat", VectorQuantisation.BBQ, buildGraph: false, 24, seed: 74);
+        using var int8 = OpenFixtureOrBuildSupportedIndex("int8_auto_oversampling", VectorQuantisation.Int8, buildGraph: true, 24, seed: 72);
         using var bbqSearcher = new IndexSearcher(bbq);
         using var bbqFlatSearcher = new IndexSearcher(bbqFlat);
         using var int8Searcher = new IndexSearcher(int8);
@@ -55,7 +55,7 @@ public sealed class BbqV3RetrievalTests : IClassFixture<TestDirectoryFixture>
         const int count = 24;
         float[][] vectors = BuildVectors(count, seed: 81);
         vectors[1] = (float[])vectors[0].Clone();
-        using var directory = BuildIndex(SubDir("bbq_v3_canonical_rerank"), vectors, VectorQuantisation.BBQ, buildGraph: true);
+        using var directory = OpenFixtureOrBuildSupportedIndex(SubDir("bbq_v3_canonical_rerank"), vectors, VectorQuantisation.BBQ, buildGraph: true);
         using var searcher = new IndexSearcher(directory);
         var query = new VectorQuery("embedding", vectors[0], topK: count, efSearch: count);
 
@@ -96,31 +96,9 @@ public sealed class BbqV3RetrievalTests : IClassFixture<TestDirectoryFixture>
     [Fact(DisplayName = "BBQ v3: Filtered HNSW results exclude deleted and non-matching documents")]
     public void Search_FilteredShortlist_ContainsOnlyLiveMatchingDocuments()
     {
-        const int count = 96;
-        float[][] vectors = BuildVectors(count, seed: 91);
-        using var directory = new MMapDirectory(SubDir("bbq_v3_filtered_deleted"));
-        var config = new IndexWriterConfig
-        {
-            BuildHnswOnFlush = true,
-            NormaliseVectors = true,
-            VectorQuantisation = VectorQuantisation.BBQ,
-            HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
-            HnswSeed = 1337L,
-        };
-
-        using (var writer = new IndexWriter(directory, config))
-        {
-            for (int i = 0; i < count; i++)
-            {
-                var document = new LeanDocument();
-                document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vectors[i])));
-                document.Add(new TextField("category", i < 80 ? "keep" : "skip"));
-                document.Add(new StringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
-                writer.AddDocument(document);
-            }
-            writer.DeleteDocuments(new TermQuery("id", "12"));
-            writer.Commit();
-        }
+        string path = SubDir("bbq_v3_filtered_deleted");
+        HistoricalBbqIndexFixtures.CopyTo(path, "bbq_v3_filtered_deleted");
+        using var directory = new MMapDirectory(path);
 
         using var searcher = new IndexSearcher(directory);
         var query = new VectorQuery(
@@ -143,20 +121,29 @@ public sealed class BbqV3RetrievalTests : IClassFixture<TestDirectoryFixture>
         return path;
     }
 
-    private MMapDirectory BuildIndex(
+    private MMapDirectory OpenFixtureOrBuildSupportedIndex(
         string name,
         VectorQuantisation quantisation,
         bool buildGraph,
         int count,
         int seed)
-        => BuildIndex(SubDir(name), BuildVectors(count, seed), quantisation, buildGraph);
+        => OpenFixtureOrBuildSupportedIndex(SubDir(name), BuildVectors(count, seed), quantisation, buildGraph);
 
-    private static MMapDirectory BuildIndex(
+    private static MMapDirectory OpenFixtureOrBuildSupportedIndex(
         string path,
         float[][] vectors,
         VectorQuantisation quantisation,
         bool buildGraph)
     {
+        if (quantisation == VectorQuantisation.BBQ)
+        {
+            string name = Path.GetFileName(path);
+            int suffix = name.LastIndexOf('_');
+            if (suffix >= 0 && Guid.TryParseExact(name[(suffix + 1)..], "N", out _))
+                name = name[..suffix];
+            HistoricalBbqIndexFixtures.CopyTo(path, name);
+            return new MMapDirectory(path);
+        }
         var directory = new MMapDirectory(path);
         var config = new IndexWriterConfig
         {

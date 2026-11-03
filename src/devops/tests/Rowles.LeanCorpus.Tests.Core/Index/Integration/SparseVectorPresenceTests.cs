@@ -22,6 +22,12 @@ public sealed class SparseVectorPresenceTests : IDisposable
         using var directory = new MMapDirectory(_path);
         int dimension = VectorDimension(quantisation);
         var config = Config(quantisation, hnsw);
+        if (quantisation == VectorQuantisation.BBQ)
+        {
+            Assert.Throws<ArgumentException>(() => new IndexWriter(directory, config));
+            Assert.Empty(Directory.EnumerateFiles(_path));
+            return;
+        }
         using (var writer = new IndexWriter(directory, config))
         {
             AddSparseDocuments(writer, dimension);
@@ -149,6 +155,12 @@ public sealed class SparseVectorPresenceTests : IDisposable
         int dimension = VectorDimension(quantisation);
         var config = Config(quantisation, true);
         config.IndexSort = new IndexSort(SortField.String("id", descending: true));
+        if (quantisation == VectorQuantisation.BBQ)
+        {
+            Assert.Throws<ArgumentException>(() => new IndexWriter(directory, config));
+            Assert.Empty(Directory.EnumerateFiles(_path));
+            return;
+        }
         using (var writer = new IndexWriter(directory, config))
         {
             writer.AddDocument(Document(0, [0, 0], dimension));
@@ -194,6 +206,12 @@ public sealed class SparseVectorPresenceTests : IDisposable
             AddSparseDocuments(sourceWriter, dimension);
             sourceWriter.Commit();
         }
+        if (destinationQuantisation == VectorQuantisation.BBQ)
+        {
+            Assert.Throws<ArgumentException>(() => new IndexWriter(target, Config(destinationQuantisation, true)));
+            Assert.Empty(Directory.EnumerateFiles(targetPath));
+            return;
+        }
         using (var targetWriter = new IndexWriter(target, Config(destinationQuantisation, true)))
         {
             targetWriter.AddIndexes(source);
@@ -206,8 +224,6 @@ public sealed class SparseVectorPresenceTests : IDisposable
         using var searcher = new IndexSearcher(target);
         var mergedField = Assert.Single(searcher.GetSegmentReaders()).Info.VectorFields.Single();
         Assert.Equal(destinationQuantisation, mergedField.Quantisation);
-        if (destinationQuantisation == VectorQuantisation.BBQ)
-            Assert.True(mergedField.Normalised, "Float32 imports into BBQ v3 must canonicalise normalised values.");
     }
 
     [Theory]

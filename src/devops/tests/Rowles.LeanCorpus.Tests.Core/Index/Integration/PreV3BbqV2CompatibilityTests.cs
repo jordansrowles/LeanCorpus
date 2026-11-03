@@ -1,6 +1,7 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.Json;
 using Rowles.LeanCorpus.Codecs.CodecKit;
+using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
@@ -79,167 +80,74 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         Assert.Equal(0.09225467f, best.Score, 5);
     }
 
-    [Theory(DisplayName = "BBQ v2 migration wraps its legacy bytes without changing the legacy score")]
-    [InlineData("loose", false)]
-    [InlineData("compound", true)]
-    public void V2MigrationWrapsLegacyPayloadAndPreservesSearchResults(string layout, bool compound)
+    [Theory(DisplayName = "BBQ v2 migration is refused without changing historical bytes or scores")]
+    [InlineData("loose")]
+    [InlineData("compound")]
+    public void V2MigrationIsReadOnly(string layout)
     {
-        string extracted = HistoricalIndexFixtures.Extract(
-            HistoricalIndexFixture.PreV3BbqV2,
+        string extracted = HistoricalIndexFixtures.Extract(HistoricalIndexFixture.PreV3BbqV2,
             Path.Combine(_fixture.Path, $"pre-v3-bbq-migration-{layout}-{Guid.NewGuid():N}"));
-        string indexPath = Path.Combine(extracted, layout);
-        byte[] originalBody;
-        ScoreSnapshot[] originalScores;
-
-        using (var directory = new MMapDirectory(indexPath))
-        {
-            SegmentInfo segment = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
-            originalBody = ReadQuantisedBody(directory, segment);
-            originalScores = CaptureSearchScores(indexPath);
-
-            IndexCodecMigrationPlan plan = IndexCodecMigrator.Plan(directory);
-            IndexCodecMigrationAction action = Assert.Single(plan.Actions,
-                candidate => candidate.FormatId == "leancorpus.vectors.quantised");
-            Assert.Equal((byte)2, action.FromVersion);
-            Assert.Equal((byte)3, action.ToVersion);
-            Assert.Equal(IndexCodecMigrationActionKind.Rewrite, action.Kind);
-            Assert.True(action.CanExecute, action.ReasonCannotExecute);
-
-            IndexCodecMigrationResult migration = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
-            {
-                DryRun = false,
-                ValidateBeforeMigration = true,
-                ValidateAfterMigration = true,
-            });
-            Assert.True(migration.Succeeded, string.Join("; ", migration.Issues.Select(issue => issue.Message)));
-            Assert.NotNull(migration.ValidationResult);
-            Assert.True(migration.ValidationResult.IsHealthy,
-                string.Join("; ", migration.ValidationResult.DetailedIssues.Select(issue => issue.Message)));
-        }
-
-        byte[] migratedBody;
-        using (var directory = new MMapDirectory(indexPath))
-        {
-            SegmentInfo segment = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
-            migratedBody = ReadQuantisedBody(directory, segment, expectedVersion: 3);
-            var validation = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true });
-            Assert.True(validation.IsHealthy,
-                string.Join("; ", validation.DetailedIssues.Select(issue => issue.Message)));
-        }
-
-        const int commonMetadataLength = sizeof(int) + sizeof(int) + sizeof(byte) + 1;
-        Assert.Equal(originalBody.AsSpan(0, commonMetadataLength).ToArray(),
-            migratedBody.AsSpan(0, commonMetadataLength).ToArray());
-        Assert.Equal(2, migratedBody[commonMetadataLength]); // LegacyBbqSign
-        Assert.Equal(originalBody.AsSpan(commonMetadataLength).ToArray(),
-            migratedBody.AsSpan(commonMetadataLength + 1).ToArray());
-        Assert.Equal(originalScores, CaptureSearchScores(indexPath));
+        string path = Path.Combine(extracted, layout);
+        var before = SnapshotFiles(path);
+        var scores = CaptureSearchScores(path);
+        using var directory = new MMapDirectory(path);
+        Assert.False(IndexCodecMigrator.Plan(directory).CanExecute);
+        var result = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions { DryRun = false });
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Issues, issue => issue.Code == IndexCheckIssueCodes.ReadOnlyRetiredCodec);
+        Assert.Null(result.StagingDirectory);
+        Assert.Equal(before, SnapshotFiles(path));
+        Assert.Equal(scores, CaptureSearchScores(path));
     }
 
-    [Fact(DisplayName = "Interrupted BBQ v2 staged migration keeps the source and resumes with legacy bytes intact")]
-    public void InterruptedV2MigrationAfterStagingPreservesSourceAndResumes()
+    [Theory(DisplayName = "Old BBQ migration markers cannot resume publication")]
+    [InlineData(IndexMigrationState.Failed)]
+    [InlineData(IndexMigrationState.ReadyToPublish)]
+    public void OldMigrationMarkerCannotResume(IndexMigrationState state)
     {
-        string extracted = HistoricalIndexFixtures.Extract(
-            HistoricalIndexFixture.PreV3BbqV2,
-            Path.Combine(_fixture.Path, $"pre-v3-bbq-staged-recovery-{Guid.NewGuid():N}"));
-        string indexPath = Path.Combine(extracted, "loose");
-        long originalGeneration;
-        string originalSegmentId;
-        byte[] originalBody;
-        ScoreSnapshot[] originalScores = CaptureSearchScores(indexPath);
-        Dictionary<string, string> originalFiles = SnapshotFiles(indexPath);
-        string[] originalFileNames = originalFiles.Keys.ToArray();
-
-        using (var directory = new MMapDirectory(indexPath))
+        string extracted = HistoricalIndexFixtures.Extract(HistoricalIndexFixture.PreV3BbqV2,
+            Path.Combine(_fixture.Path, $"pre-v3-bbq-resume-{state}-{Guid.NewGuid():N}"));
+        string path = Path.Combine(extracted, "loose");
+        string staging = Path.Combine(extracted, "staging");
+        Directory.CreateDirectory(staging);
+        File.WriteAllText(Path.Combine(staging, "preserve.tmp"), "historical staging evidence");
+        using var directory = new MMapDirectory(path);
+        var plan = IndexCodecMigrator.Plan(directory);
+        IndexMigrationRecovery.WriteMarker(path, new IndexMigrationMarker
         {
-            var commit = Assert.Single(IndexFileInspector.FindCommitFiles(indexPath));
-            originalGeneration = commit.Generation;
-            SegmentInfo segment = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
-            originalSegmentId = segment.SegmentId;
-            originalBody = ReadQuantisedBody(directory, segment);
-
-            IndexCodecMigrationPlan plan = IndexCodecMigrator.Plan(directory);
-            IndexCodecMigrationAction action = Assert.Single(plan.Actions,
-                candidate => candidate.FormatId == "leancorpus.vectors.quantised");
-            Assert.Equal((byte)2, action.FromVersion);
-            Assert.Equal((byte)3, action.ToVersion);
-            Assert.Equal(IndexCodecMigrationActionKind.Rewrite, action.Kind);
-
-            string blockedCommit = Path.Combine(indexPath, $"segments_{originalGeneration + 1}");
-            Directory.CreateDirectory(blockedCommit);
-            IndexCodecMigrationResult failed = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
-            {
-                DryRun = false,
-                ValidateBeforeMigration = true,
-                ValidateAfterMigration = false,
-            });
-
-            Assert.False(failed.Succeeded);
-            Assert.Equal(IndexMigrationState.Failed, IndexMigrationRecovery.GetState(indexPath).State);
-            Assert.Equal(originalGeneration, IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.Generation);
-            Assert.NotNull(failed.StagingDirectory);
-            Assert.True(Directory.Exists(failed.StagingDirectory));
-            AssertStagedV2MigrationPayload(originalBody, failed.StagingDirectory);
-            Dictionary<string, string> filesAfterFailure = SnapshotFiles(indexPath);
-            foreach (string fileName in originalFileNames)
-                Assert.Equal(originalFiles[fileName], filesAfterFailure[fileName]);
-
-            Directory.Delete(blockedCommit);
-            IndexCodecMigrationResult resumed = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
-            {
-                DryRun = false,
-                ValidateBeforeMigration = false,
-                ValidateAfterMigration = true,
-            });
-            Assert.True(resumed.Succeeded, string.Join("; ", resumed.Issues.Select(static issue => issue.Message)));
-            Assert.Equal(IndexMigrationState.Published, IndexMigrationRecovery.GetState(indexPath).State);
-        }
-
-        using (var directory = new MMapDirectory(indexPath))
-        {
-            SegmentInfo migrated = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
-            byte[] migratedBody = ReadQuantisedBody(directory, migrated, expectedVersion: 3);
-            AssertV2MigrationBodyPreserved(originalBody, migratedBody);
-            IndexCheckResult health = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true });
-            Assert.True(health.IsHealthy,
-                string.Join("; ", health.DetailedIssues.Select(static issue => $"{issue.Code}: {issue.Message}")));
-        }
-
-        Assert.Equal(originalScores, CaptureSearchScores(indexPath));
+            State = state,
+            SourceDirectory = path,
+            StagingDirectory = staging,
+            SourceCommitGeneration = checked((int)IndexRecovery.RecoverLatestCommit(path, cleanupOrphans: false)!.Generation),
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            UpdatedAtUtc = DateTimeOffset.UtcNow,
+            PlannedActions = plan.Actions,
+        }, durable: false);
+        var before = SnapshotFiles(path);
+        var stagedBefore = SnapshotFiles(staging);
+        var result = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions { DryRun = false });
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Issues, issue => issue.Code == IndexCheckIssueCodes.ReadOnlyRetiredCodec);
+        Assert.Equal(before, SnapshotFiles(path));
+        Assert.Equal(stagedBefore, SnapshotFiles(staging));
+        Assert.Equal(state, IndexMigrationRecovery.GetState(path).State);
     }
 
     [Theory(DisplayName = "Legacy BBQ remains readable but cannot be opened for writing")]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void WriterOpenRejectsLegacyBbqWithoutMutatingTheIndex(bool migrateToTaggedV3)
+    [InlineData("loose")]
+    [InlineData("compound")]
+    public void WriterOpenRejectsLegacyBbqWithoutMutatingTheIndex(string layout)
     {
-        string extracted = HistoricalIndexFixtures.Extract(
-            HistoricalIndexFixture.PreV3BbqV2,
-            Path.Combine(_fixture.Path, $"pre-v3-bbq-writer-guard-{migrateToTaggedV3}-{Guid.NewGuid():N}"));
-        string indexPath = Path.Combine(extracted, "loose");
-        if (migrateToTaggedV3)
-        {
-            using var migrationDirectory = new MMapDirectory(indexPath);
-            IndexCodecMigrationResult migration = IndexCodecMigrator.Migrate(migrationDirectory,
-                new IndexCodecMigrationOptions { DryRun = false, ValidateBeforeMigration = true, ValidateAfterMigration = true });
-            Assert.True(migration.Succeeded, string.Join("; ", migration.Issues.Select(static issue => issue.Message)));
-        }
-
-        Dictionary<string, string> before = SnapshotFiles(indexPath);
+        string extracted = HistoricalIndexFixtures.Extract(HistoricalIndexFixture.PreV3BbqV2,
+            Path.Combine(_fixture.Path, $"pre-v3-bbq-writer-guard-{layout}-{Guid.NewGuid():N}"));
+        string indexPath = Path.Combine(extracted, layout);
+        var before = SnapshotFiles(indexPath);
         using var directory = new MMapDirectory(indexPath);
-        InvalidDataException exception = Assert.Throws<InvalidDataException>(() =>
-            new IndexWriter(directory, new IndexWriterConfig { VectorQuantisation = VectorQuantisation.BBQ }));
-        Assert.True(
-            exception.Message.Contains("legacy BBQ", StringComparison.OrdinalIgnoreCase) ||
-            exception.Message.Contains("older codec files", StringComparison.OrdinalIgnoreCase),
-            $"Writer-open rejection should identify the legacy BBQ limitation or required structural migration: {exception.Message}");
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            new IndexWriter(directory, new IndexWriterConfig()));
+        Assert.Contains("CodecReadOnly", exception.Message);
         Assert.Equal(before, SnapshotFiles(indexPath));
-
-        using var searcher = new IndexSearcher(directory);
-        var results = searcher.Search(
-            new VectorQuery("embedding", CreateBasisVector(128, 0), topK: 5, efSearch: 128), topN: 5);
-        ScoreDoc best = Assert.Single(results.ScoreDocs.Where(static hit => hit.DocId == 1));
-        Assert.Equal(0.09225467f, best.Score, 5);
+        Assert.Equal(0.09225467f, Assert.Single(CaptureSearchScores(indexPath).Where(hit => hit.DocId == 1)).Score, 5);
     }
 
     [Fact(DisplayName = "AddIndexes rejects legacy BBQ before flushing pending destination documents")]
@@ -257,14 +165,14 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         using var writer = new IndexWriter(target, new IndexWriterConfig
         {
             MaxBufferedDocs = 8,
-            VectorQuantisation = VectorQuantisation.BBQ,
+            VectorQuantisation = VectorQuantisation.Int8,
         });
         var pending = new LeanDocument();
         pending.Add(new StringField("id", "pending"));
         writer.AddDocument(pending);
 
-        InvalidDataException exception = Assert.Throws<InvalidDataException>(() => writer.AddIndexes(source));
-        Assert.Contains("legacy BBQ", exception.Message, StringComparison.OrdinalIgnoreCase);
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => writer.AddIndexes(source));
+        Assert.Contains("CodecReadOnly", exception.Message);
         Assert.Empty(Directory.GetFiles(targetPath, "seg_*.seg"));
 
         writer.Commit();
@@ -273,8 +181,140 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         Assert.Equal(0, searcher.Search(new VectorQuery("embedding", CreateBasisVector(128, 0), topK: 5), 5).TotalHits);
     }
 
+    [Fact(DisplayName = "Migrated v3 sign-BBQ tag 2 remains readable and refuses writes and migration")]
+    public void V3LegacySignTagRemainsReadableAndReadOnly()
+    {
+        string indexPath = HistoricalBbqIndexFixtures.CopyLegacySignV3To(
+            Path.Combine(_fixture.Path, $"pre-retirement-v3-sign-{Guid.NewGuid():N}"));
+        var before = SnapshotFiles(indexPath);
+        using var directory = new MMapDirectory(indexPath);
+
+        var inventory = IndexFormatInspector.Inspect(directory, new IndexFormatInspectionOptions { IncludeChecksums = true });
+        Assert.DoesNotContain(inventory.Issues, issue => issue.Severity == IndexCheckSeverity.Error);
+        Assert.Equal(3, Assert.Single(inventory.Segments)
+            .Files.Single(file => file.FileName.EndsWith(".vq", StringComparison.Ordinal)).FormatVersion);
+
+        var compatibility = IndexCompatibility.Check(directory);
+        Assert.True(compatibility.CanRead);
+        Assert.True(compatibility.CanValidate);
+        Assert.False(compatibility.CanWrite);
+        Assert.False(compatibility.CanMigrate);
+        Assert.False(compatibility.RequiresMigration);
+        Assert.False(compatibility.MustReject);
+
+        var committed = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
+        using var vectors = QuantisedVectorReader.Open(
+            VectorFilePaths.QuantisedVectorFile(Path.Combine(indexPath, committed.SegmentId), "embedding"));
+        Assert.Equal(QuantisedVectorStorageKind.LegacyBbqSign, vectors.StorageKind);
+        Assert.Equal(8, vectors.DocCount);
+        Assert.Equal(128, vectors.Dimension);
+
+        var validation = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true });
+        Assert.True(validation.IsHealthy,
+            string.Join("; ", validation.DetailedIssues.Select(issue => $"{issue.Code}: {issue.Message}")));
+        ScoreSnapshot[] scores = CaptureSearchScores(indexPath);
+        Assert.Equal(new[] { 1, 6, 2, 0, 4 }, scores.Select(static score => score.DocId));
+        Assert.Equal(new uint[] { 0x3DBCF005, 0x3DB73B95, 0xBDB2AC0A, 0xBDB335DA, 0xBDB335DA },
+            scores.Select(static score => BitConverter.SingleToUInt32Bits(score.Score)));
+
+        InvalidOperationException writeException = Assert.Throws<InvalidOperationException>(() =>
+            new IndexWriter(directory, new IndexWriterConfig()));
+        Assert.Contains("CodecReadOnly", writeException.Message, StringComparison.Ordinal);
+        Assert.Equal(before, SnapshotFiles(indexPath));
+        string lockPath = Path.Combine(indexPath, "write.lock");
+        using (File.Open(lockPath, FileMode.CreateNew, FileAccess.Write, FileShare.None)) { }
+        File.Delete(lockPath);
+
+        Assert.False(IndexCodecMigrator.Plan(directory).CanExecute);
+        string staging = Path.Combine(_fixture.Path, $"pre-retirement-v3-sign-stage-{Guid.NewGuid():N}");
+        var result = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions
+        {
+            DryRun = false,
+            StagingDirectory = staging,
+        });
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Issues, issue => issue.Code == IndexCheckIssueCodes.ReadOnlyRetiredCodec);
+        Assert.False(Directory.Exists(staging));
+        Assert.Equal(before, SnapshotFiles(indexPath));
+        Assert.Equal(scores, CaptureSearchScores(indexPath));
+    }
+
+    [Fact(DisplayName = "Migrated v3 sign-BBQ tag 2 is refused by import before destination mutation")]
+    public void V3LegacySignTagImportIsRefusedBeforeDestinationMutation()
+    {
+        string sourcePath = HistoricalBbqIndexFixtures.CopyLegacySignV3To(
+            Path.Combine(_fixture.Path, $"pre-retirement-v3-sign-import-{Guid.NewGuid():N}"));
+        var sourceBefore = SnapshotFiles(sourcePath);
+        string targetPath = Path.Combine(_fixture.Path, $"pre-retirement-v3-sign-import-target-{Guid.NewGuid():N}");
+        using var source = new MMapDirectory(sourcePath);
+        using var target = new MMapDirectory(targetPath);
+        using var writer = new IndexWriter(target, new IndexWriterConfig
+        {
+            MaxBufferedDocs = 8,
+            VectorQuantisation = VectorQuantisation.Int8,
+        });
+        var pending = new LeanDocument();
+        pending.Add(new StringField("id", "pending"));
+        writer.AddDocument(pending);
+        var targetBefore = SnapshotFiles(targetPath);
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => writer.AddIndexes(source));
+
+        Assert.Contains("CodecReadOnly", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(sourceBefore, SnapshotFiles(sourcePath));
+        Assert.Equal(targetBefore, SnapshotFiles(targetPath));
+    }
+
+    [Fact(DisplayName = "Migrated v3 sign-BBQ tag 2 is refused by merge before destination allocation")]
+    public void V3LegacySignTagMergeIsRefusedBeforeDestinationAllocation()
+    {
+        string sourcePath = HistoricalBbqIndexFixtures.CopyLegacySignV3To(
+            Path.Combine(_fixture.Path, $"pre-retirement-v3-sign-merge-{Guid.NewGuid():N}"));
+        using var source = new MMapDirectory(sourcePath);
+        var segments = IndexRecovery.RecoverLatestCommit(sourcePath, cleanupOrphans: false)!.SegmentInfos;
+        string targetPath = Path.Combine(_fixture.Path, $"pre-retirement-v3-sign-merge-target-{Guid.NewGuid():N}");
+        using var target = new MMapDirectory(targetPath);
+        var merger = new SegmentMerger(target, NoMergePolicy.Instance);
+        int next = 42;
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            merger.MergeSegmentsFromDirectory(source, segments, ref next, new IndexWriterConfig()));
+
+        Assert.Contains("CodecReadOnly", exception.Message, StringComparison.Ordinal);
+        Assert.Equal(42, next);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(targetPath));
+    }
+
+    [Fact(DisplayName = "Migrated v3 sign-BBQ tag 2 refuses graph writes and pending recovery")]
+    public void V3LegacySignTagGraphWriteAndPendingRecoveryAreRefused()
+    {
+        string indexPath = HistoricalBbqIndexFixtures.CopyLegacySignV3To(
+            Path.Combine(_fixture.Path, $"pre-retirement-v3-sign-recovery-{Guid.NewGuid():N}"));
+        using var directory = new MMapDirectory(indexPath);
+        SegmentInfo segment = Assert.Single(IndexRecovery.RecoverLatestCommit(indexPath, cleanupOrphans: false)!.SegmentInfos);
+        using var reader = new SegmentReader(directory, segment);
+        var graph = reader.GetHnswGraph("embedding")!;
+        string graphPath = Path.Combine(_fixture.Path, $"pre-retirement-v3-sign-{Guid.NewGuid():N}.hnsw");
+
+        InvalidOperationException graphException = Assert.Throws<InvalidOperationException>(() =>
+            HnswWriter.Write(graphPath, graph, 128, normalised: true));
+
+        Assert.Contains("CodecReadOnly", graphException.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(graphPath));
+        string commitPath = Assert.Single(Directory.GetFiles(indexPath, "segments_*"));
+        File.Move(commitPath, commitPath + ".pending");
+        var pendingBefore = SnapshotFiles(indexPath);
+
+        InvalidOperationException recoveryException = Assert.Throws<InvalidOperationException>(() =>
+            IndexRecovery.RecoverLatestCommit(indexPath));
+
+        Assert.Contains("CodecReadOnly", recoveryException.Message, StringComparison.Ordinal);
+        Assert.Equal(pendingBefore, SnapshotFiles(indexPath));
+    }
+
     private static Dictionary<string, string> SnapshotFiles(string directory)
         => Directory.GetFiles(directory)
+            .Where(static path => Path.GetFileName(path) != "write.lock")
             .Order(StringComparer.Ordinal)
             .ToDictionary(static path => Path.GetFileName(path)!, static path => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(path))), StringComparer.Ordinal);
 
@@ -355,47 +395,6 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         float[] decoded = reader.ReadVector(1);
         Assert.Equal(reader.Centroid[0] + 1f, decoded[0]);
         Assert.Equal(reader.Centroid[1] - 1f, decoded[1]);
-    }
-
-    private static byte[] ReadQuantisedBody(MMapDirectory directory, SegmentInfo segment, int? expectedVersion = null)
-    {
-        string name = VectorFilePaths.QuantisedVectorFile(segment.SegmentId, "embedding");
-        using ISegmentFileSource files = segment.IsCompoundFile
-            ? new CompoundSegmentFileSource(directory, segment.SegmentId)
-            : new LooseSegmentFileSource(directory, segment.SegmentId);
-        using var input = files.OpenInput(name);
-        using var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Quantised);
-        if (expectedVersion is int version)
-            Assert.Equal(version, frame.FormatVersion);
-        return frame.ReadBody();
-    }
-
-    private static void AssertStagedV2MigrationPayload(byte[] originalBody, string stagingDirectory)
-    {
-        const int commonMetadataLength = sizeof(int) + sizeof(int) + sizeof(byte) + 1;
-        var stagedBodies = new List<byte[]>();
-        foreach (string path in Directory.GetFiles(stagingDirectory, "*.vq", SearchOption.AllDirectories))
-        {
-            using var input = new IndexInput(path);
-            using var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Quantised);
-            if (frame.FormatVersion == 3)
-                stagedBodies.Add(frame.ReadBody());
-        }
-
-        Assert.NotEmpty(stagedBodies);
-        foreach (byte[] body in stagedBodies)
-            AssertV2MigrationBodyPreserved(originalBody, body);
-        Assert.Equal((byte)2, stagedBodies[0][commonMetadataLength]);
-    }
-
-    private static void AssertV2MigrationBodyPreserved(byte[] originalBody, byte[] migratedBody)
-    {
-        const int commonMetadataLength = sizeof(int) + sizeof(int) + sizeof(byte) + 1;
-        Assert.Equal(originalBody.AsSpan(0, commonMetadataLength).ToArray(),
-            migratedBody.AsSpan(0, commonMetadataLength).ToArray());
-        Assert.Equal((byte)2, migratedBody[commonMetadataLength]); // LegacyBbqSign
-        Assert.Equal(originalBody.AsSpan(commonMetadataLength).ToArray(),
-            migratedBody.AsSpan(commonMetadataLength + 1).ToArray());
     }
 
     private static ScoreSnapshot[] CaptureSearchScores(string indexPath)

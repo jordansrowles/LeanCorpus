@@ -29,7 +29,7 @@ public static class IndexCompatibility
         });
         var migrationPlan = IndexCodecMigrator.Plan(inventory, catalog);
 
-        var issues = new List<IndexCheckIssue>(migrationPlan.Inventory.Issues);
+        var issues = new List<IndexCheckIssue>(migrationPlan.Issues);
         foreach (var issue in validation.DetailedIssues)
         {
             if (!issues.Any(existing => existing.Code == issue.Code &&
@@ -47,6 +47,8 @@ public static class IndexCompatibility
             issue.Severity == IndexCheckSeverity.Error &&
             issue.Code != IndexCheckIssueCodes.NoCommitFile);
         var hasMigrationActions = migrationPlan.Actions.Count > 0;
+        var hasRetiredCommittedCodec = issues.Any(issue => issue.Code == IndexCheckIssueCodes.ReadOnlyRetiredCodec
+            && inventory.Segments.Any(segment => segment.SegmentId == issue.SegmentId));
 
         var status = DetermineStatus(
             hasNoCommit,
@@ -55,12 +57,13 @@ public static class IndexCompatibility
             hasValidationErrors,
             hasMigrationActions,
             migrationPlan.CanExecute,
+            hasRetiredCommittedCodec,
             options);
 
         return new IndexCompatibilityResult
         {
             Status = status,
-            CanRead = status is IndexCompatibilityStatus.Empty or IndexCompatibilityStatus.Compatible or IndexCompatibilityStatus.MigrationRecommended,
+            CanRead = status is IndexCompatibilityStatus.Empty or IndexCompatibilityStatus.Compatible or IndexCompatibilityStatus.MigrationRecommended or IndexCompatibilityStatus.ReadOnlyRetired,
             CanWrite = status is IndexCompatibilityStatus.Empty or IndexCompatibilityStatus.Compatible,
             CanValidate = status is not IndexCompatibilityStatus.UnsupportedFutureFormat,
             CanMigrate = hasMigrationActions && migrationPlan.CanExecute,
@@ -79,6 +82,7 @@ public static class IndexCompatibility
         bool hasValidationErrors,
         bool hasMigrationActions,
         bool canExecuteMigration,
+        bool hasRetiredCommittedCodec,
         IndexCompatibilityOptions options)
     {
         if (hasNoCommit)
@@ -89,6 +93,8 @@ public static class IndexCompatibility
             return IndexCompatibilityStatus.UnknownFormat;
         if (hasValidationErrors)
             return IndexCompatibilityStatus.Corrupt;
+        if (hasRetiredCommittedCodec)
+            return IndexCompatibilityStatus.ReadOnlyRetired;
         if (hasMigrationActions && (!options.AllowSupportedOlderFormats || options.RequireCurrentFormats || !canExecuteMigration))
             return IndexCompatibilityStatus.MigrationRequired;
         if (hasMigrationActions)

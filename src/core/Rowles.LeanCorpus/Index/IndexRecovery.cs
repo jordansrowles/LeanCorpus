@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.Codecs.Postings;
 using Rowles.LeanCorpus.Codecs.StoredFields;
 using Rowles.LeanCorpus.Serialisation;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Index.Compatibility;
 
 namespace Rowles.LeanCorpus.Index;
 
@@ -30,8 +31,44 @@ public static class IndexRecovery
         string directoryPath,
         bool cleanupOrphans = true,
         CodecCatalog? catalog = null)
+        => RecoverLatestCommit(directoryPath, cleanupOrphans, catalog, beforeMutation: null);
+
+    internal static RecoveryResult? RecoverLatestCommit(
+        string directoryPath,
+        bool cleanupOrphans,
+        CodecCatalog? catalog,
+        Action<RecoveryResult>? beforeMutation)
     {
         catalog ??= CodecCatalog.Default;
+
+        if (cleanupOrphans)
+        {
+            RecoveryResult? committed = null;
+            var existingCommits = FindCommitFiles(directoryPath);
+            for (int index = 0; index < existingCommits.Count; index++)
+            {
+                var (generation, file) = existingCommits[index];
+                committed = TryLoadCommit(directoryPath, file, generation, catalog, wasFallback: index > 0);
+                if (committed is not null)
+                    break;
+            }
+            if (committed is not null)
+                beforeMutation?.Invoke(committed);
+            foreach (string pending in FileOpenRetry.GetFiles(directoryPath, "segments_*.pending"))
+            {
+                string name = Path.GetFileName(pending);
+                if (int.TryParse(name.AsSpan("segments_".Length, name.Length - "segments_".Length - ".pending".Length), out int generation)
+                    && !FileOpenRetry.FileExists(Path.Combine(directoryPath, $"segments_{generation}"))
+                    && TryLoadCommit(directoryPath, pending, generation, catalog, wasFallback: false) is { } candidate)
+                {
+                    using var directory = new MMapDirectory(directoryPath);
+                    if (committed is not null)
+                        VectorMutationGuard.EnsureCanRewrite(directory, committed.SegmentInfos);
+                    VectorMutationGuard.EnsureCanRewrite(directory, candidate.SegmentInfos);
+                    beforeMutation?.Invoke(candidate);
+                }
+            }
+        }
 
         // Clean up any leftover temp files from interrupted commits (writer-side only).
         if (cleanupOrphans)

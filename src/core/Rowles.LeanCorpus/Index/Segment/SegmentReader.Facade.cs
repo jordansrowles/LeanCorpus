@@ -620,8 +620,6 @@ public sealed partial class SegmentReader : IDisposable
     internal bool UsesBbqOsq(string fieldName) { using var lease = AcquireReadLease(); return lease.State.UsesBbqOsq(fieldName); }
     internal VectorScoringGeneration GetVectorScoringGeneration(string fieldName)
     { using var lease = AcquireReadLease(); return lease.State.GetVectorScoringGeneration(fieldName); }
-    internal void CopyCanonicalVectorRecordTo(string fieldName, int docId, Span<byte> destination)
-    { using var lease = AcquireReadLease(); lease.State.CopyCanonicalVectorRecordTo(fieldName, docId, destination); }
     public IReadOnlyCollection<string> VectorFieldNames { get { using var lease = AcquireReadLease(); return lease.State.VectorFieldNames.ToArray(); } }
     internal HnswGraph? GetHnswGraph(string fieldName) { using var lease = AcquireReadLease(); return lease.State.GetHnswGraph(fieldName); }
 

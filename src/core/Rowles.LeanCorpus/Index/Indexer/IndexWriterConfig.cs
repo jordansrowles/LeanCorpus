@@ -337,11 +337,9 @@ public sealed class IndexWriterConfig
     /// <summary>
     /// Quantisation strategy for vector fields. <see cref="Codecs.Vectors.VectorQuantisation.None"/> (default)
     /// stores raw float32 vectors. <see cref="Codecs.Vectors.VectorQuantisation.Int8"/> uses one byte per
-    /// component. New <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> segments use one-bit HNSW codes
-    /// with canonical per-vector Int8 values for approximate-cosine reranking and require normalised
-    /// vectors of at least 128 dimensions. When a <see cref="global::Rowles.LeanCorpus.Search.Queries.VectorQuery"/> omits
-    /// <c>oversamplingFactor</c>, BBQ v3 resolves it to a three-times HNSW shortlist; explicit values
-    /// are honoured. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
+    /// component. <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> is retained for historical reading
+    /// and rejected for writer configuration. Reindex original embeddings into a separate Float32 or
+    /// Int8 index. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
     /// </summary>
     public VectorQuantisation VectorQuantisation { get; set; } = VectorQuantisation.None;
 
@@ -391,8 +389,9 @@ public sealed class IndexWriterConfig
     /// <exception cref="ArgumentException">Thrown when a property is invalid.</exception>
     internal void Validate()
     {
-        if (VectorQuantisation == VectorQuantisation.BBQ && !NormaliseVectors)
-            throw new ArgumentException("New BBQ v3 vector fields require NormaliseVectors=true.", nameof(NormaliseVectors));
+        var vectorDecision = VectorCodecFiles.CanCreate(VectorQuantisation);
+        if (!vectorDecision.IsAllowed)
+            throw new ArgumentException($"{vectorDecision.ReasonCode}: {vectorDecision.Explanation}", nameof(VectorQuantisation));
 
         if (RamBufferSizeMB < 0)
             throw new ArgumentException("RamBufferSizeMB must not be negative.", nameof(RamBufferSizeMB));
