@@ -31,7 +31,11 @@ internal sealed record HnswGraphQualityMeasurement(
     int TopK,
     int ExactRepresentationCount,
     int GraphReturnedCount,
-    double GraphRecallAgainstExactRepresentation);
+    double GraphRecallAgainstExactRepresentation)
+{
+    public long[] ExactOrdinals { get; init; } = [];
+    public long[] GraphOrdinals { get; init; } = [];
+}
 
 internal sealed record HnswSearchBudgetMeasurement(
     int TopK,
@@ -249,7 +253,11 @@ public class HnswSearchBenchmarks
                 topK,
                 exactOrdinals.Length,
                 graphOrdinals.Length,
-                (double)hits / topK);
+                (double)hits / topK)
+            {
+                ExactOrdinals = exactOrdinals,
+                GraphOrdinals = graphOrdinals,
+            };
         }
 
         qualityStopwatch.Stop();
@@ -410,32 +418,60 @@ public class HnswSearchBenchmarks
         var addDocumentsStopwatch = Stopwatch.StartNew();
         TimeSpan addDocumentsElapsed;
         TimeSpan commitElapsed;
-        using var writer = new LeanIndexWriter(new LeanMMapDirectory(path), config);
-        for (int i = 0; i < vectors.Length; i++)
+        IReadOnlyList<SegmentInfo> segments;
+        using (var writer = new LeanIndexWriter(new LeanMMapDirectory(path), config))
         {
-            var document = new LeanDocument();
-            document.Add(new VectorField("emb", new ReadOnlyMemory<float>(vectors[i])));
-            writer.AddDocument(document);
-        }
-        addDocumentsStopwatch.Stop();
-        addDocumentsElapsed = addDocumentsStopwatch.Elapsed;
-        var commitStopwatch = Stopwatch.StartNew();
-        writer.Commit();
-        commitStopwatch.Stop();
-        commitElapsed = commitStopwatch.Elapsed;
-        IReadOnlyList<SegmentInfo> segments = writer.GetNrtSegments();
-        if (segments.Count != 1 || segments[0].DocCount != vectors.Length || segments[0].LiveDocCount != vectors.Length)
-        {
-            throw new InvalidOperationException(
-                $"Vector benchmark fixture expected one live {vectors.Length}-document segment in source order, " +
-                $"but found {segments.Count} segment(s) with {string.Join(", ", segments.Select(static segment => $"{segment.DocCount}/{segment.LiveDocCount}"))} documents.");
+            for (int i = 0; i < vectors.Length; i++)
+            {
+                var document = new LeanDocument();
+                document.Add(new VectorField("emb", new ReadOnlyMemory<float>(vectors[i])));
+                writer.AddDocument(document);
+            }
+            addDocumentsStopwatch.Stop();
+            addDocumentsElapsed = addDocumentsStopwatch.Elapsed;
+            var commitStopwatch = Stopwatch.StartNew();
+            writer.Commit();
+            commitStopwatch.Stop();
+            commitElapsed = commitStopwatch.Elapsed;
+            segments = writer.GetNrtSegments();
+            if (segments.Count != 1 || segments[0].DocCount != vectors.Length || segments[0].LiveDocCount != vectors.Length)
+            {
+                throw new InvalidOperationException(
+                    $"Vector benchmark fixture expected one live {vectors.Length}-document segment in source order, " +
+                    $"but found {segments.Count} segment(s) with {string.Join(", ", segments.Select(static segment => $"{segment.DocCount}/{segment.LiveDocCount}"))} documents.");
+            }
+
+            totalStopwatch.Stop();
         }
 
-        totalStopwatch.Stop();
+        int graphNodeCount = 0;
+        int graphLevelCount = 0;
+        int graphMaxLevel = -1;
+        int graphEntryPoint = -1;
+        long[] graphDirectedEdgesByLevel = [];
+        if (hnsw)
+        {
+            using var directory = new LeanMMapDirectory(path);
+            using var reader = new SegmentReader(directory, segments[0]);
+            HnswGraph graph = reader.GetHnswGraph("emb")
+                ?? throw new InvalidOperationException("The HNSW benchmark fixture did not persist its graph.");
+            graphNodeCount = graph.NodeCount;
+            graphLevelCount = graph.LevelCount;
+            graphMaxLevel = graph.MaxLevel;
+            graphEntryPoint = graph.EntryPoint;
+            graphDirectedEdgesByLevel = new long[graph.LevelCount];
+            for (int level = 0; level < graph.LevelCount; level++)
+            {
+                foreach (int node in graph.GetNodesAtLevel(level))
+                    graphDirectedEdgesByLevel[level] += graph.GetNeighbours(node, level).Length;
+            }
+        }
 
         var snapshot = metrics.GetSnapshot();
         return new IndexBuildEvidence(totalStopwatch.Elapsed, addDocumentsElapsed, commitElapsed,
-            segments.Count, segments[0].DocCount, segments[0], snapshot.HnswBuildCount, snapshot.HnswBuildTotalMs);
+            segments.Count, segments[0].DocCount, segments[0], graphNodeCount, graphLevelCount, graphMaxLevel,
+            graphEntryPoint, graphDirectedEdgesByLevel.Sum(), graphDirectedEdgesByLevel,
+            snapshot.HnswBuildCount, snapshot.HnswBuildTotalMs);
     }
 
     private static string WriteFixtureBuildEvidence(
@@ -476,6 +512,12 @@ public class HnswSearchBenchmarks
                 segmentCount = hnswBuild.SegmentCount,
                 segmentDocumentCount = hnswBuild.SegmentDocumentCount,
                 documentOrder = "source ordinal",
+                graphNodeCount = hnswBuild.GraphNodeCount,
+                graphLevelCount = hnswBuild.GraphLevelCount,
+                graphMaxLevel = hnswBuild.GraphMaxLevel,
+                graphEntryPoint = hnswBuild.GraphEntryPoint,
+                graphDirectedEdgeCount = hnswBuild.GraphDirectedEdgeCount,
+                graphDirectedEdgesByLevel = hnswBuild.GraphDirectedEdgesByLevel,
                 graphBuildCount = hnswBuild.HnswBuildCount,
                 graphBuildMilliseconds = hnswBuild.HnswBuildMilliseconds,
                 indexBytes = hnswIndexBytes,
@@ -697,6 +739,12 @@ public class HnswSearchBenchmarks
         int SegmentCount,
         int SegmentDocumentCount,
         SegmentInfo Segment,
+        int GraphNodeCount,
+        int GraphLevelCount,
+        int GraphMaxLevel,
+        int GraphEntryPoint,
+        long GraphDirectedEdgeCount,
+        long[] GraphDirectedEdgesByLevel,
         long HnswBuildCount,
         long HnswBuildMilliseconds);
 }

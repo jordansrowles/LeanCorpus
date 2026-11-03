@@ -106,6 +106,57 @@ public sealed class VectorBenchmarkMatrixTests
     }
 
     [Fact]
+    public void HnswFixtureBuild_RecordsGraphNodesAndDirectedEdges()
+    {
+        MethodInfo? buildIndex = typeof(HnswSearchBenchmarks).GetMethod(
+            "BuildIndex",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(buildIndex);
+
+        const int documentCount = 128;
+        const int dimension = 32;
+        float[][] vectors = new float[documentCount][];
+        for (int document = 0; document < vectors.Length; document++)
+        {
+            vectors[document] = new float[dimension];
+            for (int component = 0; component < dimension; component++)
+                vectors[document][component] = MathF.Sin((document + 1) * (component + 1) * 0.031f);
+        }
+
+        string indexPath = Path.Combine(Path.GetTempPath(), "lc-hnsw-graph-inventory-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            object? evidence = buildIndex.Invoke(null, [indexPath, vectors, true, VectorQuantisation.None]);
+            Assert.NotNull(evidence);
+
+            Type evidenceType = evidence.GetType();
+            int? graphNodeCount = evidenceType.GetProperty("GraphNodeCount")?.GetValue(evidence) as int?;
+            int? graphLevelCount = evidenceType.GetProperty("GraphLevelCount")?.GetValue(evidence) as int?;
+            int? graphMaxLevel = evidenceType.GetProperty("GraphMaxLevel")?.GetValue(evidence) as int?;
+            int? graphEntryPoint = evidenceType.GetProperty("GraphEntryPoint")?.GetValue(evidence) as int?;
+            long? graphDirectedEdgeCount = evidenceType.GetProperty("GraphDirectedEdgeCount")?.GetValue(evidence) as long?;
+            long[]? directedEdgesByLevel = evidenceType.GetProperty("GraphDirectedEdgesByLevel")?.GetValue(evidence) as long[];
+
+            Assert.Equal(documentCount, graphNodeCount);
+            Assert.NotNull(graphLevelCount);
+            Assert.True(graphLevelCount > 0);
+            Assert.Equal(graphLevelCount - 1, graphMaxLevel);
+            Assert.InRange(graphEntryPoint ?? -1, 0, documentCount - 1);
+            Assert.NotNull(graphDirectedEdgeCount);
+            Assert.True(graphDirectedEdgeCount > 0);
+            Assert.NotNull(directedEdgesByLevel);
+            Assert.NotEmpty(directedEdgesByLevel);
+            Assert.Equal(graphLevelCount, directedEdgesByLevel.Length);
+            Assert.Equal(graphDirectedEdgeCount, directedEdgesByLevel.Sum());
+        }
+        finally
+        {
+            if (Directory.Exists(indexPath))
+                Directory.Delete(indexPath, recursive: true);
+        }
+    }
+
+    [Fact]
     public void HnswScaleQueries_UseFrozenDefaultEfBudgetsWithoutAnOverrideParameter()
     {
         LeanCorpusDefaults.Reset();
@@ -149,6 +200,28 @@ public sealed class VectorBenchmarkMatrixTests
 
         Assert.Equal(10, json.GetProperty("exactRepresentationCount").GetInt32());
         Assert.False(json.TryGetProperty("exactInt8Count", out _));
+    }
+
+    [Fact]
+    public void HnswSetupEvidence_RetainsExactAndReturnedCandidateOrdinals()
+    {
+        PropertyInfo? exactProperty = typeof(HnswGraphQualityMeasurement).GetProperty("ExactOrdinals");
+        PropertyInfo? graphProperty = typeof(HnswGraphQualityMeasurement).GetProperty("GraphOrdinals");
+        Assert.NotNull(exactProperty);
+        Assert.NotNull(graphProperty);
+
+        long[] exactOrdinals = [1, 2, 3, 4];
+        long[] graphOrdinals = [1, 3, 5, 6];
+        var measurement = new HnswGraphQualityMeasurement("vector-query-0000", 4, 4, 4, 0.5);
+        exactProperty.SetValue(measurement, exactOrdinals);
+        graphProperty.SetValue(measurement, graphOrdinals);
+        var json = JsonSerializer.SerializeToElement(measurement, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        });
+
+        Assert.Equal(exactOrdinals, json.GetProperty("exactOrdinals").EnumerateArray().Select(static value => value.GetInt64()));
+        Assert.Equal(graphOrdinals, json.GetProperty("graphOrdinals").EnumerateArray().Select(static value => value.GetInt64()));
     }
 
     [Fact]
