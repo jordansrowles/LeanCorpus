@@ -72,7 +72,9 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
             writer.ForceMerge(1);
             writer.Commit();
         }
-        AssertSnapshotEqual(before, AssertCorpus(target, manifest, merged: true), merged: true);
+        // Structural migration preserves the legacy graph bytes above. The retired 4.0
+        // writer emits an exact-only segment after merge, so verify its graph is absent.
+        AssertSnapshotEqual(before, AssertCorpus(target, manifest, merged: true, expectHistoricalGraphs: false), merged: true);
         AssertCurrentFormats(target, manifest, expectHistoricalGraphs: false);
         Release311Fixture.VerifyFiles(manifest, source);
     }
@@ -171,7 +173,7 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
         }
     }
 
-    private static CorpusSnapshot AssertCorpus(string path, JsonElement manifest, bool merged)
+    private static CorpusSnapshot AssertCorpus(string path, JsonElement manifest, bool merged, bool expectHistoricalGraphs = true)
     {
         using var directory = new MMapDirectory(path);
         var health = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true });
@@ -262,7 +264,22 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
                 snapshots.Add(id, snapshot);
                 if (segment.IsLive(docId)) liveSnapshots.Add(id, snapshot);
             }
-            Assert.Equal(vectorIds, segment.GetHnswGraph("embedding")!.GetNodesAtLevel(0).Order().ToArray());
+            VectorFieldInfo vectorField = segment.Info.VectorFields.Single(field => field.FieldName == "embedding");
+            string hnswFileName = VectorFilePaths.HnswFile(segment.Info.SegmentId, "embedding");
+            if (expectHistoricalGraphs)
+            {
+                Assert.True(vectorField.HasHnsw);
+                Assert.True(files.FileExists(hnswFileName));
+                var graph = segment.GetHnswGraph("embedding");
+                Assert.NotNull(graph);
+                Assert.Equal(vectorIds, graph!.GetNodesAtLevel(0).Order().ToArray());
+            }
+            else
+            {
+                Assert.False(vectorField.HasHnsw);
+                Assert.False(files.FileExists(hnswFileName));
+                Assert.Null(segment.GetHnswGraph("embedding"));
+            }
         }
         Assert.Equal(expected.Keys.Order(), seen.Order());
         string[] liveIds = expected.Where(pair => pair.Value.GetProperty("IsLive").GetBoolean()).Select(pair => pair.Key).Order().ToArray();
