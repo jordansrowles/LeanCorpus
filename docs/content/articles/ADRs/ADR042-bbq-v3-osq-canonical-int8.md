@@ -1,20 +1,20 @@
 ---
 adr: ADR042
-title: "Vector codec retirement and Float32/Int8 qualification"
+title: "Vector codec retirement and exact Float32 support"
 date: 2026-10-31
-last-updated: 2026-11-03
-status: Proposed
+last-updated: 2026-11-04
+status: Accepted
 version-added: 4.0.0
-summary: "Retire all BBQ mutation, preserve historical reads, and require independent Float32 and Int8 qualification."
+summary: "Support exact Float32 writes and search; retire new HNSW and Int8 writes while preserving compatible historical reads."
 areas: [vectors, codecs, hnsw, indexing, search, migration]
 supersedes: [ADR016, ADR017, ADR018, ADR019, ADR020]
 relates-to: [ADR025, ADR026, ADR039]
 ---
 
-# ADR042: Vector codec retirement and Float32/Int8 qualification
+# ADR042: Vector codec retirement and exact Float32 support
 
-- **Date:** 31 October 2026, revised 3 November 2026.
-- **Status:** Proposed. Implementation and mandatory qualification remain incomplete.
+- **Date:** 31 October 2026, revised 4 November 2026.
+- **Status:** Accepted. This records the product and compatibility decision; it does not claim release qualification.
 - **Supersedes:** the active forward vector design of ADR016 through ADR020. Their published findings remain immutable historical evidence.
 - **Preserves:** ADR025's single catalogue, ADR026's framing contract and ADR039's explicit sparse presence.
 
@@ -35,10 +35,26 @@ result permits weakening the frozen quality gates.
 
 ## Decision
 
-LeanCorpus 4.0's new vector output is Float32 and Int8 only, conditional on their
-own qualification. Disable every BBQ creation and mutation path, including
-configuration of an empty index, flush, update, import, merge and migration.
-Never silently substitute another quantiser.
+Float32 exact search is supported for new vectors. Frozen qualification passed
+the exact Float32 gates but failed the HNSW traversal gate. Int8 exact search
+passed only part of the matrix; the frozen merge drift gate failed. Therefore
+LeanCorpus 4.0 retires new Int8 writes and new HNSW graph writes. New vector
+indexes contain Float32 values only and use exact scoring. This keeps a
+qualified, deterministic retrieval floor without weakening the frozen gates.
+
+`BuildHnswOnFlush` defaults to false. Explicit true is rejected before index
+side effects. Historical Float32 and Int8 `.hnsw` graphs are retained as data
+but ignored by those query routes; searches use exact scans and report that
+choice through metrics and explanations. Float32 merges preserve vectors but
+do not create graphs. Merging a historical Int8 segment decodes its stored
+values and writes them to Float32 `.vec` v2, preserving the decoded exact
+scores without emitting new Int8 data. Retained HNSW helpers remain available
+for compatibility, structural migration, and historical fixtures, not as a
+supported index writer path.
+
+Disable every BBQ creation and mutation path, including configuration of an
+empty index, flush, update, import, merge and migration. Never silently
+substitute another quantiser.
 
 Any committed BBQ field makes the entire containing index read-only. This also
 applies to mixed indexes, all-deleted BBQ documents and text-only changes.
@@ -47,13 +63,17 @@ Imports and migrations preflight the complete source before staging and
 revalidate before execution or publication. Temporary exclusion locks may be
 acquired and released. Refused operations preserve committed source data.
 
-Historical BBQ remains readable and searchable with its existing scorer and
-explicit quality limitations. Structural readability is not recall
-qualification. Preserve numeric tags and the known experimental one-bit
-`BbqOsqCanonicalInt8` interpretation; never reassign that tag to two-bit data.
-Retain required query preparation and immutable historical fixtures. Operators
-requiring writable data must create a separate Float32 or Int8 index from their
-original embeddings. Decoding BBQ is not recovery of the originals.
+Historical Int8 remains readable and is searched exactly over its decoded
+stored values. This is not exact recovery of source Float32 ranking.
+Structural Int8 v1/v2-to-v3/tag-1 migration remains supported without
+requantisation, but Int8 merge rewrites are retired. Historical BBQ remains
+readable and searchable with its existing scorer and explicit quality
+limitations. Structural readability is not recall qualification. Preserve
+numeric tags and the known experimental one-bit `BbqOsqCanonicalInt8`
+interpretation; never reassign that tag to two-bit data. Retain required query
+preparation and immutable historical fixtures. Operators requiring writable
+data must create a separate Float32 index from their original documents and
+embeddings. Decoding BBQ is not recovery of the originals.
 
 ## Catalogue lifecycle
 
@@ -76,24 +96,16 @@ primitive, not a substitute for semantic lifecycle enforcement.
 
 Keep Float32 `.vec` v2, tagged Int8 `.vq` v3 and `.hnsw` v1 while their physical
 contracts remain unchanged. Product version 4.0 does not rename physical body
-versions. A demonstrated incompatible encoding requires a separate reviewed
-identity/version decision.
-
-New Int8 v3 writes use a zero-centred per-segment calibration while retaining
-the existing body, unsigned code mapping, decoder and reader semantics. For
-maximum absolute component `r`, use `alpha = r / 127` and `min = -128 * alpha`
-(with a non-zero fallback range for an all-zero segment), so zero maps to code
-128. This avoids shifting cosine ranking by a segment-wide affine offset and
-does not reinterpret existing v3 files. Structural v1/v2 migration continues
-to preserve each source file's stored minimum, scale, corrections, codes and
-presence without requantisation.
+versions. No current semantic writer emits `.vq` or `.hnsw`; historical
+readers and approved structural migration remain. A demonstrated incompatible
+encoding requires a separate reviewed identity/version decision.
 
 Preserve verified Int8 v1/v2-to-v3 structural migration. Copy encoded values,
 minimum/scale, corrections, document order and presence without requantisation.
 v1 presence requires authoritative persisted graph membership; absent proof is
-an unsupported migration. No original precision is recovered. Ordinary Int8
-merges can change per-segment scales and must be qualified for distortion
-separately from byte-preserving structural migration.
+an unsupported migration. No original precision is recovered. New Int8 writes
+remain retired. Ordinary merges of historical Int8 materialise its decoded
+values as Float32 and do not apply the unqualified zero-centred calibration.
 
 All BBQ migrations are unsupported, including tagged current-version no-op
 requests. Report read-only retirement before returning AlreadyCurrent. Mixed
@@ -102,49 +114,45 @@ publication. Restoring an already committed, checksum-valid historical generatio
 byte-for-byte is a separate recovery operation and remains permitted; it cannot
 finish an uncommitted conversion or regenerate vectors/graphs.
 
-## Qualification
+## Qualification and release status
 
-Prove each layer in dependency order:
+The implementation must preserve the selected write and read behaviour across
+flush, search, merge, migration, recovery, CLI, benchmarks and documentation.
+Release qualification remains a separate evidence decision and requires the
+pack's exact-head Linux/Windows .NET 10/11, AOT, package, consumer, managed
+DevOps, server/Orchard and documentation gates. Retired ANN/Int8 quality rows
+remain failures in the frozen evidence ledger; their retirement does not turn
+them into passes.
 
-1. Exact Float32 against an independent scalar source-vector oracle.
-2. Float32 HNSW at frozen budgets, with explicit traversal/scan attribution.
-3. Exact Int8 against independently decoded stored semantics, and separately against original Float32.
-4. Int8 HNSW against both references to distinguish quantisation and graph errors.
-5. Persistence, structural migration, repeated merges, recovery and Windows lifetimes.
-6. Complete frozen 10K/100K quality, matched exact/ANN costs and exact-head Linux/Windows .NET 10/11, AOT, package, consumer, managed DevOps, server/Orchard and documentation CI.
+Float32 exact ranking uses the independent source-vector oracle. Historical
+Int8 exact ranking is defined against decoded stored values, not source
+Float32. Historical BBQ retains its recorded scorer and quality limitations.
+Exact vector scans report scan counts separately from historical BBQ graph
+work and intentionally ignored graph counts.
 
-Primary ANN requires zero exhaustive underfill fallbacks. Preserve the fallback
-for correctness and report cumulative graph work separately from scanned
-vectors. Intentional selective-filter scans are a distinct strategy. Use clean
-resolved defaults, no result cache, automatic Float32/Int8 oversampling of 1 and
-expected default ef=max(64,4K); explicit user settings remain supported.
+The frozen BVAL and four-query floors remain unchanged for research and for any
+future request to restore approximate routes. Apply merge-generation floors
+without weakening them. Exact Float32 requires correct ranking under the
+independent score/tie contract, rather than an ANN floor. Preserve the
+immutable BVAL fixture.
 
-BVAL recall@1/10/100 must each reach 0.90. Four-query confirmatory groups require
-mean recall@1/@10/@100 of at least 0.90 and every recall@10 at least 0.80. Apply
-absolute floors at every merge generation, with no successive mean @10 drop
-above 0.02. Exact Float32 requires correct ranking under the independent
-score/tie contract, rather than an ANN floor. Preserve the immutable BVAL fixture.
-
-Measure complete matched exact/ANN latency, allocations, graph/scan costs,
-vector/graph/whole-index bytes, regressions and crossover points. There is no
-inherited BBQ storage-saving threshold, BBQ/Int8 latency gate or universal
-ANN/exact speed ratio. Unexplained material regressions remain Unqualified.
-Missing, failed or incomplete mandatory evidence cannot establish release or
-merge readiness. Keep this ADR Proposed until implementation and gates pass.
+Historical qualification measurements remain evidence, not a product promise.
+Any future approximate route requires matched exact/ANN latency, allocations,
+graph/scan costs, vector/graph/whole-index bytes, regressions and crossover
+points. There is no inherited BBQ storage-saving threshold, BBQ/Int8 latency
+gate or universal ANN/exact speed ratio. Missing, failed or incomplete
+mandatory release evidence cannot establish release or merge readiness.
 
 ### Qualification record
 
-The earlier one-bit experiment remains Unqualified. Focused exact Float32
-oracle runs pass on net10 and net11. The zero-centred Int8 calibration passes
-the 10K/64D Uniform exact held-out query sets on both frameworks, but the
-complete Int8 matrix and Int8 HNSW remain open. The four-generation Int8 merge
-gate still fails under this v3 calibration. A per-vector affine simulation is
-diagnostic only because it requires per-document bounds. On 3 November the
-owner chose to keep `.vq v3`; no v4 representation, migration route, or v3
-reinterpretation is approved. Any merge recovery must preserve v3 and pass the
-frozen drift gate. No release qualification is claimed. External execution
-records contain actual run IDs, source/configuration hashes and unresolved
-failures.
+The earlier one-bit experiment remains Unqualified. Exact Float32 passed its
+focused net10/net11 oracle and DataForge contract runs. Float32 HNSW failed all
+eight frozen EF64 groups; Int8 candidate and four-generation merge gates also
+failed. The implementation retires those new write/search routes without
+changing their frozen ledger rows. No v4 representation, migration route, or
+v3 reinterpretation is approved. No release qualification is claimed.
+External execution records contain actual run IDs, source/configuration hashes
+and unresolved release gates.
 
 ## Alternatives
 
@@ -176,3 +184,4 @@ reader/query semantics.
 | 2026-10-31 | Proposed | Initial one-bit OSQ/canonical Int8 experiment; qualification failed. | `6bba01a` |
 | 2026-11-02 | Proposed | Retire all BBQ mutation and qualify supported Float32/Int8; defer new BBQ research. | Vector reliability and codec retirement pack |
 | 2026-11-03 | Proposed | Record zero-centred Int8 calibration under the existing v3 body and the owner decision to keep v3. | Vector reliability execution evidence |
+| 2026-11-04 | Accepted | Retire new HNSW and Int8 writes after frozen gates failed; retain exact Float32 and historical compatibility routes. | `LeanCorpus_4_Vector_Closeout_Luna_Implementation_Pack` |

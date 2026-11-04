@@ -12,6 +12,7 @@ using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Search;
 
@@ -35,7 +36,7 @@ public sealed class VectorInt8OracleTests(TestDirectoryFixture fixture) : IClass
     {
         SourceDocument[] documents = BuildDimensionCorpus(dimension);
         string path = SubDir($"{nameof(ExactInt8_MatchesIndependentStoredCodeOracleAcrossDimensions)}_{dimension}");
-        BuildIndex(path, documents, buildHnsw: false, useCompoundFile: false, segmentSize: documents.Length);
+        BuildIndex(path, documents, segmentSize: documents.Length);
 
         using var directory = new MMapDirectory(path);
         using var searcher = new IndexSearcher(directory, ExactSearcherConfig());
@@ -50,43 +51,33 @@ public sealed class VectorInt8OracleTests(TestDirectoryFixture fixture) : IClass
     }
 
     [Fact]
-    public void ExactAndHnswInt8_MatchIndependentOracleAcrossPerSegmentScales()
+    public void HistoricalInt8_MatchesIndependentOracleAcrossPerSegmentScales()
     {
         SourceDocument[] documents = BuildPerSegmentScaleCorpus();
-        string exactPath = SubDir(nameof(ExactAndHnswInt8_MatchIndependentOracleAcrossPerSegmentScales) + "_exact");
-        string hnswPath = SubDir(nameof(ExactAndHnswInt8_MatchIndependentOracleAcrossPerSegmentScales) + "_hnsw");
-        BuildIndex(exactPath, documents, buildHnsw: false, useCompoundFile: false, segmentSize: DocumentsPerSegment);
-        BuildIndex(hnswPath, documents, buildHnsw: true, useCompoundFile: true, segmentSize: DocumentsPerSegment);
+        string path = SubDir(nameof(HistoricalInt8_MatchesIndependentOracleAcrossPerSegmentScales));
+        BuildIndex(path, documents, segmentSize: DocumentsPerSegment);
 
-        using var exactDirectory = new MMapDirectory(exactPath);
-        using var exactSearcher = new IndexSearcher(exactDirectory, ExactSearcherConfig());
-        var exactSegments = DecodeInt8Segments(exactDirectory, exactSearcher);
-        Assert.Equal(6, exactSegments.Length);
-        AssertEncodedBodyMatchesSource(exactSearcher, exactSegments, documents);
-        Assert.True(exactSegments.Select(static segment => segment.Min).Distinct().Count() >= 5);
-        Assert.True(exactSegments.Select(static segment => segment.Alpha).Distinct().Count() >= 4);
-
+        using var directory = new MMapDirectory(path);
         var metrics = new DefaultMetricsCollector();
-        using var hnswDirectory = new MMapDirectory(hnswPath);
-        using var hnswSearcher = new IndexSearcher(hnswDirectory, new IndexSearcherConfig
+        using var searcher = new IndexSearcher(directory, new IndexSearcherConfig
         {
             ParallelSearch = false,
             EnableQueryCache = false,
             Metrics = metrics,
         });
-        var hnswSegments = DecodeInt8Segments(hnswDirectory, hnswSearcher);
-        Assert.Equal(6, hnswSegments.Length);
-        AssertEncodedBodyMatchesSource(hnswSearcher, hnswSegments, documents);
+        var segments = DecodeInt8Segments(directory, searcher);
+        Assert.Equal(6, segments.Length);
+        AssertEncodedBodyMatchesSource(searcher, segments, documents);
+        Assert.True(segments.Select(static segment => segment.Min).Distinct().Count() >= 5);
+        Assert.True(segments.Select(static segment => segment.Alpha).Distinct().Count() >= 4);
 
         float[] query = RandomVector(new Random(18_492), SegmentedDimension, magnitude: 1.25f);
-        AssertDecodedOracle(exactSearcher, exactSegments, query, topK: 10, efSearch: 0);
-        AssertDecodedOracle(hnswSearcher, hnswSegments, query, topK: 10, efSearch: 512);
+        AssertDecodedOracle(searcher, segments, query, topK: 10, efSearch: 0);
 
         MetricsSnapshot snapshot = metrics.GetSnapshot();
-        Assert.Equal(6, snapshot.HnswSearchCount);
-        Assert.True(snapshot.HnswNodesVisited > 0);
-        Assert.Equal(0, snapshot.HnswVectorsScanned);
-        Assert.Equal(0, snapshot.HnswExhaustiveFallbackCount);
+        Assert.Equal(6, snapshot.VectorExactScanCount);
+        Assert.Equal(documents.Count(static document => document.Vector is not null), snapshot.VectorExactVectorsScanned);
+        Assert.Equal(0, snapshot.HnswSearchCount);
     }
 
     private SourceDocument[] BuildDimensionCorpus(int dimension)
@@ -143,38 +134,39 @@ public sealed class VectorInt8OracleTests(TestDirectoryFixture fixture) : IClass
         return documents;
     }
 
-    private void BuildIndex(string path, IReadOnlyList<SourceDocument> documents, bool buildHnsw, bool useCompoundFile, int segmentSize)
+    private void BuildIndex(string path, IReadOnlyList<SourceDocument> documents, int segmentSize)
     {
-        using var directory = new MMapDirectory(path);
-        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            BuildHnswOnFlush = buildHnsw,
+            BuildHnswOnFlush = false,
             NormaliseVectors = false,
-            VectorQuantisation = VectorQuantisation.Int8,
-            HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
-            HnswSeed = 611_204L,
-            UseCompoundFile = useCompoundFile,
+            VectorQuantisation = VectorQuantisation.None,
+            UseCompoundFile = false,
             DurableCommits = false,
             MaxBufferedDocs = 10_000,
             MaxQueuedDocs = 20_000,
             MergeThreshold = 1_000,
             MergeThrottleSegments = 1_000,
-        });
-
-        foreach ((SourceDocument source, int index) in documents.Select(static (document, index) => (document, index)))
+        }))
         {
-            var document = new LeanDocument();
-            document.Add(new StoredField("sourceOrdinal", source.SourceOrdinal));
-            if (source.Vector is not null)
-                document.Add(new VectorField("embedding", source.Vector));
-            writer.AddDocument(document);
+            foreach ((SourceDocument source, int index) in documents.Select(static (document, index) => (document, index)))
+            {
+                var document = new LeanDocument();
+                document.Add(new StoredField("sourceOrdinal", source.SourceOrdinal));
+                if (source.Vector is not null)
+                    document.Add(new VectorField("embedding", source.Vector));
+                writer.AddDocument(document);
 
-            if ((index + 1) % segmentSize == 0)
+                if ((index + 1) % segmentSize == 0)
+                    writer.Commit();
+            }
+
+            if (documents.Count % segmentSize != 0)
                 writer.Commit();
         }
 
-        if (documents.Count % segmentSize != 0)
-            writer.Commit();
+        HistoricalInt8VectorFixtures.ReplaceFloat32SegmentsWithV3Tag1(path, "embedding");
     }
 
     private static ParsedInt8Segment[] DecodeInt8Segments(MMapDirectory directory, IndexSearcher searcher)
@@ -258,19 +250,14 @@ public sealed class VectorInt8OracleTests(TestDirectoryFixture fixture) : IClass
                 Assert.Equal(source.Vector is not null, segment.Present[localDocId]);
 
                 ReadOnlySpan<float> original = source.Vector ?? new float[segment.Dimension];
-                float correctionFromCodes = 0f;
-                for (int dimension = 0; dimension < segment.Dimension; dimension++)
-                {
+            for (int dimension = 0; dimension < segment.Dimension; dimension++)
+            {
                     byte code = segment.Codes[localDocId * segment.Dimension + dimension];
                     byte expectedCode = (byte)Math.Clamp((original[dimension] - segment.Min) / segment.Alpha + 0.5f, 0f, 255f);
                     Assert.Equal(expectedCode, code);
 
-                    float reconstructed = segment.Min + segment.Alpha * code;
-                    correctionFromCodes += segment.Alpha * code * (original[dimension] - reconstructed);
-                }
-
-                Assert.True(MathF.Abs(correctionFromCodes - segment.Corrections[localDocId]) <= 1e-4f,
-                    $"Correction mismatch for source document {sourceOrdinal}: stored={segment.Corrections[localDocId]:R}, decoded-code oracle={correctionFromCodes:R}.");
+            }
+            Assert.Equal(0f, segment.Corrections[localDocId]);
             }
         }
     }

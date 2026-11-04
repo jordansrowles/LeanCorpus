@@ -7,6 +7,7 @@ using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -40,6 +41,7 @@ public sealed class VectorMergeTransitionDiagnosticTests : IDisposable
             AddVectorDocuments(sourceWriter, originalVectors, rowAffineVectors, 0, 24);
             sourceWriter.Commit();
         }
+        HistoricalInt8VectorFixtures.ReplaceFloat32SegmentsWithV3Tag1(sourcePath, "embedding");
 
         using var writer = new IndexWriter(targetDirectory, CreateConfig());
         writer.AddIndexes(sourceDirectory);
@@ -102,7 +104,7 @@ public sealed class VectorMergeTransitionDiagnosticTests : IDisposable
         MergeThreshold = 100,
         BuildHnswOnFlush = false,
         NormaliseVectors = false,
-        VectorQuantisation = VectorQuantisation.Int8,
+        VectorQuantisation = VectorQuantisation.None,
         IndexSort = new IndexSort(SortField.String("id")),
     };
 

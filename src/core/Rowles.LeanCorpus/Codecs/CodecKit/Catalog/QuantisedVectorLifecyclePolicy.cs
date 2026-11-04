@@ -29,6 +29,12 @@ internal sealed class QuantisedVectorLifecyclePolicy : ICodecLifecyclePolicy
             if (!int8 && !sign && !osq)
                 return CodecLifecycleDecision.Denied("UnknownRepresentation",
                     $"{value.FormatId} v{value.Version}: {operation} requires a validated storage-kind identity.");
+            if (int8 && operation is not (CodecLifecycleOperation.Read
+                or CodecLifecycleOperation.RewriteSource
+                or CodecLifecycleOperation.Migrate))
+                return CodecLifecycleDecision.Denied("Int8WriteRetired",
+                    $"{value.FormatId} v{value.Version}/{value.RepresentationId}: {operation} is retired for 4.0. " +
+                    "Historical Int8 files remain readable, convertible to Float32 during rewrites, and structurally migratable; create new vector indexes with Float32.");
             if (!int8 && operation != CodecLifecycleOperation.Read)
                 return CodecLifecycleDecision.Denied("CodecReadOnly",
                     $"{value.FormatId} v{value.Version}/{value.RepresentationId}: {operation} is retired. " +

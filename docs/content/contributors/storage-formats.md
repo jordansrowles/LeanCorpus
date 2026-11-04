@@ -49,11 +49,12 @@ Normal opens validate framing and bounds but do not scan a large body checksum. 
 | Format ID | Extension | Readable bodies | Writable body | Older-body migration |
 | --- | --- | --- | --- | --- |
 | `leancorpus.vectors.float32` | `.vec` | v1, v2 | v2 | Rewrite |
-| `leancorpus.vectors.quantised` | `.vq` | v1, v2, v3 | v3 Int8 | Int8 v1/v2 structural wrap into v3; BBQ unsupported |
-| `leancorpus.vectors.hnsw` | `.hnsw` | v1 | v1 | Unchanged body |
+| `leancorpus.vectors.quantised` | `.vq` | v1, v2, v3 | None | Int8 v1/v2 structural wrap into v3; BBQ unsupported |
+| `leancorpus.vectors.hnsw` | `.hnsw` | v1 | None | Historical reads only |
 
-The `.vq` migration rule is representation-specific. Int8 bodies may be
-structurally wrapped into v3 without requantising their values. BBQ-tagged
+The `.vq` migration rule is representation-specific. Historical Int8 bodies
+may be structurally wrapped into v3 without requantising their values. New
+Int8 writes and Int8 merge rewrites are retired. BBQ-tagged
 bodies remain readable but are rejected for migration; a current BBQ-containing
 index is read-only to the writer.
 
@@ -69,7 +70,8 @@ Int8 data-format bodies retain their min/alpha parameters before dense bytes.
 For `.vq` v1/v2, payload layout and legacy quantisation semantics remain
 unchanged. `.vq` v3 adds a `storageKind` tag after presence so the reader can
 distinguish Int8, historical sign-BBQ, and experimental OSQ with canonical
-Int8. Current writers emit the Int8 representation only. The historical OSQ
+Int8. Historical v3 writers emitted the Int8 representation; current semantic
+writers do not emit `.vq` files. The historical OSQ
 body stores its format tag, segment centroid and squared norm, per-document
 OSQ correction fields and packed one-bit codes, then per-document canonical
 Int8 metadata and codes. Its readers remain for historical indexes; no current
@@ -79,10 +81,11 @@ resolved from the associated `.vq` storage kind; `.hnsw` remains v1.
 
 A set bit means the document explicitly supplied a vector, including an all-zero
 vector. A clear bit means padding, which search and reranking skip before
-accessing vector values. Supported Float32 and Int8 merges remap presence
-alongside live documents and index sort order, then build HNSW only from present
-destination IDs. An index containing any BBQ representation is rejected before
-merge mutation.
+accessing vector values. Float32 merges preserve vector presence alongside
+live documents and index sort order, but do not create HNSW graphs. A merge
+reads historical Int8 vectors as decoded Float32 values and writes `.vec` v2;
+it does not requantise into `.vq`. An index containing any BBQ representation
+is rejected before merge mutation.
 
 ## Supported historical framing
 

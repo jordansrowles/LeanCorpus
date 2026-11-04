@@ -51,10 +51,10 @@ Index-time and query-time analysis must agree for exact term matching. A schema 
 | `StorePayloads` | `false` | Persists token payloads where analysis supplies them. |
 | `StoreTermVectors` | `false` | Persists per-document term vectors. |
 | `NormaliseVectors` | `true` | Normalises vectors at index time for cosine search. |
-| `VectorQuantisation` | `None` | Optional vector storage quantisation. |
-| `BuildHnswOnFlush` | `true` | Builds an HNSW graph for vector fields on flush. |
-| `HnswBuildConfig` | library default | Controls graph connectivity and construction search. |
-| `HnswSeed` | `null` | Optional deterministic graph-construction seed. |
+| `VectorQuantisation` | `None` | New vector indexes use Float32. `Int8` and `BBQ` writer choices are rejected; historical files remain readable. |
+| `BuildHnswOnFlush` | `false` | New graph writes are retired. Setting `true` is rejected before writer side effects. |
+| `HnswBuildConfig` | library default | Retained for source compatibility; no new graphs are built. |
+| `HnswSeed` | `null` | Retained for source compatibility; no new graphs are built. |
 
 Term vectors, payloads, vectors, and DocValues increase index size. Enable them only for features that consume them.
 

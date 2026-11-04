@@ -52,6 +52,9 @@ public interface IMetricsCollector
     /// <summary>Records an exact vector scan selected for a highly selective filter.</summary>
     void RecordHnswSelectiveFilterScan(int vectorsScanned) { }
 
+    /// <summary>Records an intentional exact vector scan and whether it bypassed a retired HNSW graph.</summary>
+    void RecordVectorExactScan(int vectorsScanned, bool retiredHnswGraphIgnored) { }
+
     /// <summary>
     /// Records a single HNSW graph build (flush or merge). <paramref name="nodes"/> is the number
     /// of vectors inserted. Default implementation is a no-op for backwards compatibility.

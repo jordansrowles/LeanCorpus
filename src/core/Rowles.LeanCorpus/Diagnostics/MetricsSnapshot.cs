@@ -88,6 +88,15 @@ public sealed class MetricsSnapshot
     /// <summary>Total vectors scored by highly selective vector-filter scans.</summary>
     public long HnswSelectiveFilterVectorsScanned { get; init; }
 
+    /// <summary>Total intentional exact vector scans, separate from underfilled HNSW fallback scans.</summary>
+    public long VectorExactScanCount { get; init; }
+
+    /// <summary>Total vectors scored by intentional exact vector scans.</summary>
+    public long VectorExactVectorsScanned { get; init; }
+
+    /// <summary>Exact vector scans that ignored an existing retired HNSW graph.</summary>
+    public long VectorRetiredHnswExactScanCount { get; init; }
+
     /// <summary>Total number of HNSW graphs built (flush + merge).</summary>
     public long HnswBuildCount { get; init; }
 

@@ -2499,54 +2499,6 @@
       "estimatedBudget": "short"
     },
     {
-      "id": "merge-hnsw-output",
-      "project": "core",
-      "benchmarkClass": "MergeBenchmarks",
-      "benchmarkMethods": [
-        "LeanCorpus_Merge_WithHnswVectors"
-      ],
-      "parameterValues": {
-        "DocumentCount": [
-          "1000",
-          "10000"
-        ],
-        "SegmentCount": [
-          "5",
-          "20"
-        ]
-      },
-      "semanticParameters": {
-        "mergeMode": "full-segment-merge",
-        "storage": "file-backed",
-        "vectorDimension": "64"
-      },
-      "engineId": "leancorpus",
-      "category": "Index",
-      "operation": "MergeSegmentsWithHnswVectors",
-      "datasetProfile": "leancorpus-search-v1",
-      "workloadId": "merge-hnsw-v1",
-      "algorithmFamily": "HnswSegmentMerge",
-      "cachePolicy": "NotApplicable",
-      "lifecyclePolicy": "merge",
-      "comparisonGroup": null,
-      "classification": "Unqualified",
-      "resultContract": "exact-merged-id-set-and-live-count",
-      "qualityProof": "Iteration cleanup reads every stored ID from the merged segment and verifies DocCount, LiveDocCount, and the complete invariant-culture ID set. The HNSW merge case is correctness-only; no comparative qualification is claimed.",
-      "metrics": [
-        {
-          "name": "Mean",
-          "unit": "ns",
-          "role": "primary"
-        },
-        {
-          "name": "Allocated",
-          "unit": "B",
-          "role": "secondary"
-        }
-      ],
-      "estimatedBudget": "short"
-    },
-    {
       "id": "merge-plain-output",
       "project": "core",
       "benchmarkClass": "MergeBenchmarks",
@@ -3578,27 +3530,6 @@
       "project": "core",
       "benchmarkClass": "HighlighterBenchmarks",
       "benchmarkMethod": "LuceneNet_Highlight_TwoTerms",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "HnswSearchBenchmarks",
-      "benchmarkMethod": "FlatScan",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "HnswSearchBenchmarks",
-      "benchmarkMethod": "Hnsw",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "HnswSearchBenchmarks",
-      "benchmarkMethod": "Reference_ScalarFlatScan",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },
@@ -4880,20 +4811,6 @@
       "project": "core",
       "benchmarkClass": "VectorMergeMemoryBenchmarks",
       "benchmarkMethod": "MergeHighDimensionalVectors",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "VectorQuantisationBenchmarks",
-      "benchmarkMethod": "LuceneNet_Baseline",
-      "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
-      "expiresOn": "2027-01-31"
-    },
-    {
-      "project": "core",
-      "benchmarkClass": "VectorQuantisationBenchmarks",
-      "benchmarkMethod": "Search",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },

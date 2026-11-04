@@ -17,24 +17,19 @@ public sealed class BbqV3RetrievalTests : IClassFixture<TestDirectoryFixture>
     public BbqV3RetrievalTests(TestDirectoryFixture fixture) => _fixture = fixture;
 
     [Fact(DisplayName = "BBQ v3: Omitted oversampling uses three candidates per result")]
-    public void DefaultOversampling_IsThreeForBbqV3AndOneForOtherRepresentations()
+    public void DefaultOversampling_IsThreeForBbqV3()
     {
         using var bbq = OpenFixtureOrBuildSupportedIndex("bbq_v3_auto_oversampling", VectorQuantisation.BBQ, buildGraph: true, 24, seed: 71);
         using var bbqFlat = OpenFixtureOrBuildSupportedIndex("bbq_v3_auto_oversampling_flat", VectorQuantisation.BBQ, buildGraph: false, 24, seed: 74);
-        using var int8 = OpenFixtureOrBuildSupportedIndex("int8_auto_oversampling", VectorQuantisation.Int8, buildGraph: true, 24, seed: 72);
         using var bbqSearcher = new IndexSearcher(bbq);
         using var bbqFlatSearcher = new IndexSearcher(bbqFlat);
-        using var int8Searcher = new IndexSearcher(int8);
 
         var automatic = new VectorQuery("embedding", BuildVector(seed: 73), topK: 5, efSearch: 64);
         Assert.Equal(1, automatic.OversamplingFactor);
         var bbqExplanation = bbqSearcher.Explain(automatic, 0);
-        var int8Explanation = int8Searcher.Explain(automatic, 0);
 
         Assert.NotNull(bbqExplanation);
-        Assert.NotNull(int8Explanation);
         Assert.Contains(bbqExplanation!.Details, detail => detail.Description.Contains("shortlistSize=15", StringComparison.Ordinal));
-        Assert.Contains(int8Explanation!.Details, detail => detail.Description.Contains("shortlistSize=5", StringComparison.Ordinal));
         var bbqFlatExplanation = bbqFlatSearcher.Explain(automatic, 0);
         Assert.NotNull(bbqFlatExplanation);
         Assert.Contains("flat-scan", bbqFlatExplanation!.Description, StringComparison.OrdinalIgnoreCase);
@@ -135,36 +130,14 @@ public sealed class BbqV3RetrievalTests : IClassFixture<TestDirectoryFixture>
         VectorQuantisation quantisation,
         bool buildGraph)
     {
-        if (quantisation == VectorQuantisation.BBQ)
-        {
-            string name = Path.GetFileName(path);
-            int suffix = name.LastIndexOf('_');
-            if (suffix >= 0 && Guid.TryParseExact(name[(suffix + 1)..], "N", out _))
-                name = name[..suffix];
-            HistoricalBbqIndexFixtures.CopyTo(path, name);
-            return new MMapDirectory(path);
-        }
-        var directory = new MMapDirectory(path);
-        var config = new IndexWriterConfig
-        {
-            BuildHnswOnFlush = buildGraph,
-            NormaliseVectors = true,
-            VectorQuantisation = quantisation,
-            HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
-            HnswSeed = 1337L,
-        };
-
-        using (var writer = new IndexWriter(directory, config))
-        {
-            foreach (float[] vector in vectors)
-            {
-                var document = new LeanDocument();
-                document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
-                writer.AddDocument(document);
-            }
-            writer.Commit();
-        }
-        return directory;
+        if (quantisation != VectorQuantisation.BBQ)
+            throw new ArgumentOutOfRangeException(nameof(quantisation), "This fixture helper only opens historical BBQ indexes.");
+        string name = Path.GetFileName(path);
+        int suffix = name.LastIndexOf('_');
+        if (suffix >= 0 && Guid.TryParseExact(name[(suffix + 1)..], "N", out _))
+            name = name[..suffix];
+        HistoricalBbqIndexFixtures.CopyTo(path, name);
+        return new MMapDirectory(path);
     }
 
     private static float[][] BuildVectors(int count, int seed)

@@ -15,7 +15,6 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 public sealed class VectorMergeGenerationQualificationTests : IDisposable
 {
     private const int Dimension = 4;
-    private const int TopK = 10;
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"vector-merge-generations-{Guid.NewGuid():N}");
 
     public VectorMergeGenerationQualificationTests() => Directory.CreateDirectory(_path);
@@ -25,9 +24,7 @@ public sealed class VectorMergeGenerationQualificationTests : IDisposable
     [Theory]
     [InlineData(VectorQuantisation.None, false)]
     [InlineData(VectorQuantisation.None, true)]
-    [InlineData(VectorQuantisation.Int8, false)]
-    [InlineData(VectorQuantisation.Int8, true)]
-    public void FourMergeGenerationsPreserveFloat32AndBoundInt8Quality(
+    public void FourMergeGenerationsPreserveExactFloat32Vectors(
         VectorQuantisation quantisation,
         bool compound)
     {
@@ -54,7 +51,6 @@ public sealed class VectorMergeGenerationQualificationTests : IDisposable
         writer.DeleteDocuments(new TermQuery("id", FormatId(7)));
         Assert.Equal(2, IndexRecovery.RecoverLatestCommit(targetPath, cleanupOrphans: false)!.SegmentInfos.Count);
 
-        var int8GenerationMeasurements = new List<RecallMeasurement[]>();
         for (int generation = 1; generation <= 4; generation++)
         {
             int lastId = 47;
@@ -78,16 +74,7 @@ public sealed class VectorMergeGenerationQualificationTests : IDisposable
             Assert.Empty(Directory.GetDirectories(targetPath, ".merge-*"));
             AssertMergedDocumentOrderAndVectors(targetDirectory, merged, originalVectors, deletedIds, lastId, quantisation);
 
-            if (quantisation == VectorQuantisation.Int8)
-            {
-                RecallMeasurement[] queryMeasurements = MeasureRecallAtTen(
-                    targetDirectory, originalVectors, deletedIds, lastId);
-                int8GenerationMeasurements.Add(queryMeasurements);
-            }
         }
-
-        if (quantisation == VectorQuantisation.Int8)
-            AssertInt8MergeQuality(int8GenerationMeasurements);
     }
 
     private static IndexWriterConfig CreateConfig(VectorQuantisation quantisation, bool compound)
@@ -172,91 +159,13 @@ public sealed class VectorMergeGenerationQualificationTests : IDisposable
                 Assert.True(reader.HasVector("embedding", localDocId));
                 float[]? actualVector = reader.GetVector("embedding", localDocId);
                 Assert.NotNull(actualVector);
-                if (quantisation == VectorQuantisation.None)
-                    Assert.Equal(expectedVector, actualVector);
+                Assert.Equal(expectedVector, actualVector);
             }
         }
-    }
-
-    private static RecallMeasurement[] MeasureRecallAtTen(
-        MMapDirectory directory,
-        IReadOnlyDictionary<string, float[]?> originalVectors,
-        IReadOnlySet<string> deletedIds,
-        int lastId)
-    {
-        using var searcher = new IndexSearcher(directory);
-        var measurements = new RecallMeasurement[Dimension];
-        for (int group = 0; group < Dimension; group++)
-        {
-            float[] queryVector = new float[Dimension];
-            queryVector[group] = 1f;
-            string[] expected = originalVectors
-                .Where(pair => ParseId(pair.Key) <= lastId && !deletedIds.Contains(pair.Key) && pair.Value is not null)
-                .OrderByDescending(pair => Cosine(queryVector, pair.Value!))
-                .ThenBy(static pair => pair.Key, StringComparer.Ordinal)
-                .Take(TopK)
-                .Select(static pair => pair.Key)
-                .ToArray();
-            var query = new VectorQuery("embedding", queryVector, TopK, oversamplingFactor: 1);
-            string[] actual = searcher.Search(query, TopK, TestContext.Current.CancellationToken).ScoreDocs
-                .Select(hit => searcher.GetStoredFields(hit.DocId)["id"].Single())
-                .ToArray();
-            int matches = actual.Intersect(expected, StringComparer.Ordinal).Count();
-            measurements[group] = new RecallMeasurement(matches / (double)TopK, expected, actual);
-        }
-        return measurements;
-    }
-
-    private static double Cosine(ReadOnlySpan<float> left, ReadOnlySpan<float> right)
-    {
-        double dot = 0d;
-        double leftSquared = 0d;
-        double rightSquared = 0d;
-        for (int component = 0; component < left.Length; component++)
-        {
-            dot += left[component] * right[component];
-            leftSquared += left[component] * left[component];
-            rightSquared += right[component] * right[component];
-        }
-        if (leftSquared == 0d || rightSquared == 0d)
-            return 0d;
-        return dot / Math.Sqrt(leftSquared * rightSquared);
-    }
-
-    private static void AssertInt8MergeQuality(IReadOnlyList<RecallMeasurement[]> generations)
-    {
-        var failures = new List<string>();
-        var trajectory = new List<string>();
-        double previousMeanRecall = 1d;
-        for (int index = 0; index < generations.Count; index++)
-        {
-            RecallMeasurement[] measurements = generations[index];
-            double[] recalls = measurements.Select(static measurement => measurement.Recall).ToArray();
-            double meanRecall = recalls.Average();
-            string details = string.Join("; ", measurements.Select((measurement, group) =>
-            {
-                string[] missing = measurement.ExpectedIds.Except(measurement.ActualIds, StringComparer.Ordinal).ToArray();
-                string[] unexpected = measurement.ActualIds.Except(measurement.ExpectedIds, StringComparer.Ordinal).ToArray();
-                return $"q{group}={measurement.Recall:F2} missing=[{string.Join(",", missing)}] unexpected=[{string.Join(",", unexpected)}]";
-            }));
-            int generation = index + 1;
-            trajectory.Add($"generation {generation}: mean Recall@10={meanRecall:F3}; {details}");
-            if (recalls.Min() < 0.80)
-                failures.Add($"generation {generation} minimum Recall@10={recalls.Min():F3} (<0.80)");
-            if (meanRecall < 0.90)
-                failures.Add($"generation {generation} mean Recall@10={meanRecall:F3} (<0.90)");
-            if (previousMeanRecall - meanRecall > 0.02)
-                failures.Add($"generation {generation} mean Recall@10 fell from {previousMeanRecall:F3} to {meanRecall:F3} (>0.02): {details}");
-            previousMeanRecall = meanRecall;
-        }
-
-        Assert.True(failures.Count == 0,
-            $"{string.Join(Environment.NewLine, failures)}{Environment.NewLine}Trajectory:{Environment.NewLine}{string.Join(Environment.NewLine, trajectory)}");
     }
 
     private static string FormatId(int id) => $"doc-{id:D3}";
 
     private static int ParseId(string id) => int.Parse(id.AsSpan("doc-".Length));
 
-    private readonly record struct RecallMeasurement(double Recall, string[] ExpectedIds, string[] ActualIds);
 }

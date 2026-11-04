@@ -138,7 +138,6 @@ internal static class Program
 
         // Non-shared Lucene indexes (one per non-standard suite).
         HnswSearchBenchmarks.CleanupLuceneResources();
-        VectorQuantisationBenchmarks.CleanupLuceneResources();
         ParallelSearchBenchmarks.CleanupLuceneResources();
 
         // Remove this run's benchmark temp tree so subsequent runs start clean.

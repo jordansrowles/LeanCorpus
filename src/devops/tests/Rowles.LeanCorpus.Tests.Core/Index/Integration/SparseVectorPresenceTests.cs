@@ -1,4 +1,7 @@
-﻿namespace Rowles.LeanCorpus.Tests.Core.Index;
+﻿using Rowles.LeanCorpus.Index.Indexer;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
+
+namespace Rowles.LeanCorpus.Tests.Core.Index;
 
 [Category(TestCategory.Integration)]
 [Area(TestArea.Index)]
@@ -13,15 +16,13 @@ public sealed class SparseVectorPresenceTests : IDisposable
     [Theory]
     [InlineData(VectorQuantisation.None, false)]
     [InlineData(VectorQuantisation.None, true)]
-    [InlineData(VectorQuantisation.Int8, false)]
-    [InlineData(VectorQuantisation.Int8, true)]
     [InlineData(VectorQuantisation.BBQ, false)]
     [InlineData(VectorQuantisation.BBQ, true)]
     public void SearchAndMergeExcludePadding(VectorQuantisation quantisation, bool hnsw)
     {
         using var directory = new MMapDirectory(_path);
         int dimension = VectorDimension(quantisation);
-        var config = Config(quantisation, hnsw);
+        var config = Config(quantisation);
         if (quantisation == VectorQuantisation.BBQ)
         {
             Assert.Throws<ArgumentException>(() => new IndexWriter(directory, config));
@@ -33,6 +34,11 @@ public sealed class SparseVectorPresenceTests : IDisposable
             AddSparseDocuments(writer, dimension);
             writer.Commit();
             AssertSparseSearch(directory, [0, 2], dimension);
+        }
+        if (hnsw)
+            HistoricalHnswGraphFixtures.AttachToFloat32Index(_path);
+        using (var writer = new IndexWriter(directory, config))
+        {
             // A second segment ensures ForceMerge actually rewrites the first segment.
             writer.AddDocument(Document(3, null, dimension));
             writer.Commit();
@@ -46,18 +52,12 @@ public sealed class SparseVectorPresenceTests : IDisposable
         Assert.False(segment.HasVector("embedding", 1));
         Assert.True(segment.HasVector("embedding", 2));
         Assert.False(segment.HasVector("embedding", 3));
-        if (hnsw)
-        {
-            var graph = Assert.IsType<Rowles.LeanCorpus.Codecs.Hnsw.HnswGraph>(segment.GetHnswGraph("embedding"));
-            Assert.Equal(new[] { 0, 2 }, graph.GetNodesAtLevel(0).Order().ToArray());
-        }
+        Assert.Null(segment.GetHnswGraph("embedding"));
     }
 
     [Theory]
     [InlineData(VectorQuantisation.None, false)]
     [InlineData(VectorQuantisation.None, true)]
-    [InlineData(VectorQuantisation.Int8, false)]
-    [InlineData(VectorQuantisation.Int8, true)]
     public void LegacyMigrationPreservesPayloadAndPresence(VectorQuantisation quantisation, bool compound)
     {
         using var directory = new MMapDirectory(_path);
@@ -97,7 +97,7 @@ public sealed class SparseVectorPresenceTests : IDisposable
         Assert.Equal(graphBody, ReadBody(directory, newSegment, VectorFilePaths.HnswFile(newSegment, "embedding"), VectorCodecFiles.Hnsw));
         Assert.Equal(scoresBefore, CaptureSparseVectorScores(directory));
         AssertSparseSearch(directory, [0, 2]);
-        using (var writer = new IndexWriter(directory, Config(quantisation, true)))
+        using (var writer = new IndexWriter(directory, Config(VectorQuantisation.None)))
         {
             writer.AddDocument(Document(3, null));
             writer.Commit();
@@ -159,7 +159,6 @@ public sealed class SparseVectorPresenceTests : IDisposable
 
     [Theory]
     [InlineData(VectorQuantisation.None)]
-    [InlineData(VectorQuantisation.Int8)]
     public void LegacyWithoutGraphIsNonExecutableAndUnchanged(VectorQuantisation quantisation)
     {
         using var directory = new MMapDirectory(_path);
@@ -197,29 +196,23 @@ public sealed class SparseVectorPresenceTests : IDisposable
 
     [Theory]
     [InlineData(VectorQuantisation.None, false)]
-    [InlineData(VectorQuantisation.Int8, false)]
-    [InlineData(VectorQuantisation.BBQ, false)]
     [InlineData(VectorQuantisation.None, true)]
-    [InlineData(VectorQuantisation.Int8, true)]
-    [InlineData(VectorQuantisation.BBQ, true)]
     public void MergeRemapsPresenceThroughSortingDeletionAndZeroVectors(VectorQuantisation quantisation, bool deleteZero)
     {
         using var directory = new MMapDirectory(_path);
         int dimension = VectorDimension(quantisation);
-        var config = Config(quantisation, true);
+        var config = Config(quantisation);
         config.IndexSort = new IndexSort(SortField.String("id", descending: true));
-        if (quantisation == VectorQuantisation.BBQ)
-        {
-            Assert.Throws<ArgumentException>(() => new IndexWriter(directory, config));
-            Assert.Empty(Directory.EnumerateFiles(_path));
-            return;
-        }
         using (var writer = new IndexWriter(directory, config))
         {
             writer.AddDocument(Document(0, [0, 0], dimension));
             writer.AddDocument(Document(1, null, dimension));
             writer.AddDocument(Document(2, [1, 0], dimension));
             writer.Commit();
+        }
+        HistoricalHnswGraphFixtures.AttachToFloat32Index(_path);
+        using (var writer = new IndexWriter(directory, config))
+        {
             writer.AddDocument(Document(3, [0, 1], dimension));
             writer.Commit();
             if (deleteZero) writer.DeleteDocuments(new TermQuery("id", "0"));
@@ -230,7 +223,7 @@ public sealed class SparseVectorPresenceTests : IDisposable
         var segment = Assert.Single(searcher.GetSegmentReaders());
         int[] present = deleteZero ? [0, 1] : [0, 1, 3];
         Assert.Equal(present, Enumerable.Range(0, segment.MaxDoc).Where(docId => segment.HasVector("embedding", docId)).ToArray());
-        Assert.Equal(present, segment.GetHnswGraph("embedding")!.GetNodesAtLevel(0).Order().ToArray());
+        Assert.Null(segment.GetHnswGraph("embedding"));
         for (int docId = 0; docId < segment.MaxDoc; docId++)
             Assert.Equal(present.Contains(docId), segment.GetVector("embedding", docId) is not null);
         if (!deleteZero && quantisation == VectorQuantisation.None)
@@ -243,7 +236,6 @@ public sealed class SparseVectorPresenceTests : IDisposable
 
     [Theory]
     [InlineData(VectorQuantisation.None)]
-    [InlineData(VectorQuantisation.Int8)]
     [InlineData(VectorQuantisation.BBQ)]
     public void AddIndexesPreservesSparsePresenceWhenRewriting(VectorQuantisation destinationQuantisation)
     {
@@ -254,18 +246,18 @@ public sealed class SparseVectorPresenceTests : IDisposable
         Directory.CreateDirectory(targetPath);
         using var source = new MMapDirectory(sourcePath);
         using var target = new MMapDirectory(targetPath);
-        using (var sourceWriter = new IndexWriter(source, Config(VectorQuantisation.None, true)))
+        using (var sourceWriter = new IndexWriter(source, Config(VectorQuantisation.None)))
         {
             AddSparseDocuments(sourceWriter, dimension);
             sourceWriter.Commit();
         }
         if (destinationQuantisation == VectorQuantisation.BBQ)
         {
-            Assert.Throws<ArgumentException>(() => new IndexWriter(target, Config(destinationQuantisation, true)));
+            Assert.Throws<ArgumentException>(() => new IndexWriter(target, Config(destinationQuantisation)));
             Assert.Empty(Directory.EnumerateFiles(targetPath));
             return;
         }
-        using (var targetWriter = new IndexWriter(target, Config(destinationQuantisation, true)))
+        using (var targetWriter = new IndexWriter(target, Config(destinationQuantisation)))
         {
             targetWriter.AddIndexes(source);
             targetWriter.AddDocument(Document(3, null, dimension));
@@ -344,12 +336,28 @@ public sealed class SparseVectorPresenceTests : IDisposable
 
     private void CreateLegacyIndex(MMapDirectory directory, VectorQuantisation quantisation, bool hnsw, bool compound)
     {
-        using (var writer = new IndexWriter(directory, Config(quantisation, hnsw)))
+        using (var writer = new IndexWriter(directory, Config(VectorQuantisation.None)))
         {
             AddSparseDocuments(writer);
             writer.Commit();
         }
+        if (hnsw)
+            HistoricalHnswGraphFixtures.AttachToFloat32Index(_path);
+
         string segmentId = SegmentId();
+        var segment = Assert.Single(IndexRecovery.RecoverLatestCommit(_path, cleanupOrphans: false)!.SegmentInfos);
+        if (quantisation == VectorQuantisation.Int8)
+        {
+            File.Delete(Path.Combine(_path, VectorFilePaths.VectorFile(segmentId, "embedding")));
+            segment.VectorFields[0] = new VectorFieldInfo
+            {
+                FieldName = "embedding",
+                Dimension = 2,
+                Normalised = false,
+                HasHnsw = hnsw,
+                Quantisation = VectorQuantisation.Int8,
+            };
+        }
         string name = VectorName(segmentId, quantisation);
         // Construct the historical body independently of the current vector writer.
         using var bodyStream = new MemoryStream();
@@ -385,15 +393,14 @@ public sealed class SparseVectorPresenceTests : IDisposable
         if (compound)
         {
             Assert.True(SegmentFileSet.Pack(_path, segmentId));
-            var info = SegmentInfo.ReadFrom(Path.Combine(_path, segmentId + ".seg"));
-            info.IsCompoundFile = true;
-            info.WriteTo(Path.Combine(_path, segmentId + ".seg"));
+            segment.IsCompoundFile = true;
         }
+        SegmentFlusher.RefreshSegmentSize(segment, _path);
     }
 
-    private static IndexWriterConfig Config(VectorQuantisation quantisation, bool hnsw) => new()
+    private static IndexWriterConfig Config(VectorQuantisation quantisation) => new()
     {
-        NormaliseVectors = quantisation == VectorQuantisation.BBQ, VectorQuantisation = quantisation, BuildHnswOnFlush = hnsw,
+        NormaliseVectors = false, VectorQuantisation = quantisation, BuildHnswOnFlush = false,
         UseCompoundFile = false, HnswSeed = 42, IndexSort = new IndexSort(SortField.String("id"))
     };
 

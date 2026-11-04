@@ -3,7 +3,6 @@ using System.Runtime.CompilerServices;
 using BenchmarkDotNet.Attributes;
 using Rowles.DataForge;
 using Rowles.DataForge.Workloads;
-using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Search;
@@ -60,10 +59,7 @@ public class HybridSearchBenchmarks
         _indexPath = BenchmarkHelpers.CreateTempDirectory("lc-hybrid");
         var config = new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
             NormaliseVectors = true,
-            HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
-            HnswSeed = 1L
         };
         using (var writer = new IndexWriter(new MMapDirectory(_indexPath), config))
         {

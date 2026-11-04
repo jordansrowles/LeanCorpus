@@ -4,12 +4,12 @@ using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 
 /// <summary>
-/// Int8 round-trip tests and immutable historical BBQ decoder tests.
-/// Verifies write → read → dequantise fidelity and quantisation parameter accuracy.
+/// Retired Int8 write-boundary tests and immutable historical Int8/BBQ decoder tests.
 /// </summary>
 [Category(TestCategory.Unit)]
 [Area(TestArea.CodecKit)]
@@ -29,103 +29,47 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
         frame.ValidateChecksum();
     }
 
-    // --------------- Int8 scalar quantisation ---------------
+    // --------------- Historical Int8 scalar quantisation ---------------
 
-    [Fact(DisplayName = "Int8: Random vectors round-trip within half-bucket error")]
-    public void Int8_RandomVectors_RoundTripWithinHalfBucket()
+    [Theory(DisplayName = "Int8: New writes are rejected before output creation")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Int8_WritersRejectRetiredWritesBeforeOutputCreation(bool streaming)
     {
-        const int docCount = 100;
-        const int dim = 16;
-        var rng = new Random(42);
+        string path = TempFile($"int8_retired_{streaming}.vq");
+        var vectors = new Dictionary<int, ReadOnlyMemory<float>> { [0] = new float[] { 1f, 0f } };
 
-        var original = new Dictionary<int, ReadOnlyMemory<float>>();
-        for (int i = 0; i < docCount; i++)
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
         {
-            var vec = new float[dim];
-            for (int d = 0; d < dim; d++)
-                vec[d] = (float)(rng.NextDouble() * 2.0 - 1.0);
-            original[i] = vec;
-        }
+            if (streaming)
+            {
+                var source = new InMemoryVectorSource(vectors, dimension: 2);
+                QuantisedVectorWriter.WriteInt8(path, 1, 2, source, [0]);
+            }
+            else
+                QuantisedVectorWriter.WriteInt8(path, 1, 2, vectors);
+        });
 
-        var path = TempFile("int8_roundtrip.vq");
-        QuantisedVectorWriter.WriteInt8(path, docCount, dim, original);
+        Assert.Contains("Int8WriteRetired", exception.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact(DisplayName = "Int8: Historical v3 tag 1 remains readable")]
+    public void Int8_HistoricalV3Tag1_DecodesStoredValuesAndScale()
+    {
+        var original = new Dictionary<int, ReadOnlyMemory<float>> { [0] = new float[] { -5f, 0f, 10f } };
+        string path = TempFile("historical_int8_v3.vq");
+        HistoricalInt8VectorFixtures.WriteV3Tag1(path, 1, 3, original);
         AssertCurrentFrame(path, "leancorpus.vectors.quantised", CodecConstants.QuantisedVectorVersion);
 
         using var reader = QuantisedVectorReader.Open(path);
-        Assert.Equal(docCount, reader.DocCount);
-        Assert.Equal(dim, reader.Dimension);
         Assert.Equal(VectorQuantisation.Int8, reader.Quantisation);
-
-        float alpha = reader.Alpha;
-        float maxError = 0f;
-
-        for (int i = 0; i < docCount; i++)
-        {
-            var deq = reader.ReadVector(i);
-            var orig = original[i].Span;
-            for (int d = 0; d < dim; d++)
-            {
-                float err = MathF.Abs(deq[d] - orig[d]);
-                if (err > maxError) maxError = err;
-            }
-        }
-
-        // Error should be at most half a bucket width (alpha / 2)
-        Assert.True(maxError <= alpha * 0.55f, $"Max error {maxError:E4} exceeds alpha/2 ({alpha / 2f:E4})");
-    }
-
-    [Fact(DisplayName = "Int8: All-zeros vector round-trips correctly")]
-    public void Int8_AllZeros_RoundTripsCorrectly()
-    {
-        const int dim = 8;
-        var original = new Dictionary<int, ReadOnlyMemory<float>>
-        {
-            [0] = new float[dim], // all zeros
-        };
-
-        var path = TempFile("int8_zeros.vq");
-        QuantisedVectorWriter.WriteInt8(path, 1, dim, original);
-
-        using var reader = QuantisedVectorReader.Open(path);
-        var deq = reader.ReadVector(0);
-        for (int d = 0; d < dim; d++)
-            Assert.True(MathF.Abs(deq[d]) < 0.01f, $"Expected near-zero, got {deq[d]}");
-    }
-
-    [Fact(DisplayName = "Int8: Identical min & max handled without division by zero")]
-    public void Int8_IdenticalValues_DoesNotDivideByZero()
-    {
-        const int dim = 4;
-        const float val = 3.0f;
-        var vec = new float[dim];
-        Array.Fill(vec, val);
-        var original = new Dictionary<int, ReadOnlyMemory<float>> { [0] = vec };
-
-        var path = TempFile("int8_const.vq");
-        QuantisedVectorWriter.WriteInt8(path, 1, dim, original);
-
-        using var reader = QuantisedVectorReader.Open(path);
-        var deq = reader.ReadVector(0);
-        // When min == max, alpha = 1/255, so quantised values should reconstruct close to original
-        for (int d = 0; d < dim; d++)
-            Assert.True(MathF.Abs(deq[d] - val) < 1f, $"Constant value {val} distorted to {deq[d]}");
-    }
-
-    [Fact(DisplayName = "Int8: Single-vector min/max are correctly computed")]
-    public void Int8_SingleVector_UsesZeroCentredScale()
-    {
-        var original = new Dictionary<int, ReadOnlyMemory<float>>
-        {
-            [0] = new float[] { -5f, 0f, 10f },
-        };
-
-        var path = TempFile("int8_single.vq");
-        QuantisedVectorWriter.WriteInt8(path, 1, 3, original);
-
-        using var reader = QuantisedVectorReader.Open(path);
+        Assert.Equal(QuantisedVectorStorageKind.LegacyInt8, reader.StorageKind);
         Assert.Equal(-128f * (10f / 127f), reader.Min, 1e-6f);
         Assert.Equal(10f / 127f, reader.Alpha, 1e-6f);
-        Assert.Equal(0f, reader.ReadVector(0)[1], 1e-6f);
+        float[] decoded = reader.ReadVector(0);
+        for (int component = 0; component < decoded.Length; component++)
+            Assert.InRange(MathF.Abs(decoded[component] - original[0].Span[component]), 0f, reader.Alpha * 0.51f);
     }
 
     // --------------- BBQ binary quantisation ---------------
@@ -300,11 +244,9 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
 
     // --------------- Cross-type validation ---------------
 
-    [Fact(DisplayName = "Quantisation: Default config writes .vec not .vq")]
-    public void DefaultConfig_WritesVecNotVq()
+    [Fact(DisplayName = "Quantisation: New default output is Float32 and historical .vq remains readable")]
+    public void DefaultConfig_WritesVecAndHistoricalVqRemainsReadable()
     {
-        // Int8 and BBQ should produce .vq files with correct quantisation bytes,
-        // while None should produce .vec. Verified via writer flags.
         var original = new Dictionary<int, ReadOnlyMemory<float>>
         {
             [0] = new float[] { 1f, 2f, 3f },
@@ -315,15 +257,14 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
         VectorWriter.WriteField(vecPath, 1, 3, original);
         Assert.True(File.Exists(vecPath));
 
-        // Int8 path: .vq file with quantisation=1
+        // New Int8 output is retired before creating a .vq file.
         var int8Path = TempFile("int8_test.vq");
-        QuantisedVectorWriter.WriteInt8(int8Path, 1, 3, original);
-        using (var r = QuantisedVectorReader.Open(int8Path))
-            Assert.Equal(VectorQuantisation.Int8, r.Quantisation);
+        Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteInt8(int8Path, 1, 3, original));
+        Assert.False(File.Exists(int8Path));
 
         // BBQ path: .vq file with quantisation=2
         var bbqPath = TempFile("bbq_test.vq");
-        HistoricalBbqVectorFixtures.CopyLegacyDictionary(bbqPath, 1, 3);
+        HistoricalBbqVectorFixtures.CopyLegacyDictionary(bbqPath, 1, 3, "DefaultConfig_WritesVecNotVq");
         using (var r = QuantisedVectorReader.Open(bbqPath))
             Assert.Equal(VectorQuantisation.BBQ, r.Quantisation);
     }
@@ -337,7 +278,7 @@ public sealed class QuantisationRoundTripTests : IClassFixture<TestDirectoryFixt
         {
             [0] = new float[] { -1f, 0f, 1f },
         };
-        QuantisedVectorWriter.WriteInt8(canonicalPath, 1, 3, vectors);
+        HistoricalInt8VectorFixtures.WriteV3Tag1(canonicalPath, 1, 3, vectors);
 
         byte[] body;
         using (var input = new IndexInput(canonicalPath))

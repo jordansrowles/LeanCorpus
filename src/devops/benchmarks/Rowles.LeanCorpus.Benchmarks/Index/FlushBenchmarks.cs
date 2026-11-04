@@ -138,10 +138,6 @@ public class FlushBenchmarks
                    MaxConcurrentFlushes = MaxConcurrentFlushes,
                    IndexingConcurrency = 4,
                    RamBufferSizeMB = 64,
-                   BuildHnswOnFlush = true,
-                   HnswBuildConfig = new Rowles.LeanCorpus.Codecs.Hnsw.HnswBuildConfig
-                       { M = 8, M0 = 16, EfConstruction = 50 },
-                   HnswSeed = 1L,
                }))
         {
             var documents = new LeanDocument[_documents.Length];

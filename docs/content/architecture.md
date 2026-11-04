@@ -89,7 +89,7 @@ Merges also:
 
 - apply deletions physically;
 - rebuild term dictionaries and postings;
-- remap DocValues, vectors, HNSW nodes, parent markers, and sort metadata;
+- remap DocValues, vector values, parent markers, and sort metadata; new merges do not create HNSW graphs;
 - preserve codec and scoring invariants;
 - improve query locality by reducing segment count.
 
@@ -128,7 +128,7 @@ flowchart LR
     W --> L{Structure}
     L -->|Terms or patterns| F[FST term lookup]
     L -->|Numeric points| B[BKD traversal]
-    L -->|Vector| H[HNSW or exact scan]
+    L -->|Vector| H[Exact Float32 or decoded Int8 scan]
     F --> P[Postings decode]
     B --> X[Matching document IDs]
     H --> X
@@ -138,7 +138,7 @@ flowchart LR
     T --> D[TopDocs]
 ```
 
-Term queries seek through the FST and decode postings. Numeric ranges prune BKD cells. Vector queries use HNSW when available and exact flat search otherwise. Compound queries combine these primitives.
+Term queries seek through the FST and decode postings. Numeric ranges prune BKD cells. New Float32 and historical Int8 vector queries scan matching vectors exactly and ignore historical HNSW graphs. Historical BBQ keeps its read-only scorer. Compound queries combine these primitives.
 
 BM25 uses collection-wide statistics so scores remain comparable across segments. Optional Block-Max WAND can skip postings blocks whose score upper bounds cannot enter the current top-N.
 

@@ -26,7 +26,7 @@ public sealed class DataForgeQualificationServiceTests
 
         Assert.Equal(OutcomeKind.Success, result.CommandResult.Outcome);
         Assert.Null(result.QualificationDirectory);
-        Assert.Equal(26, output.Count);
+        Assert.Equal(24, output.Count);
         Assert.Contains(output, line => line.Contains("[wikipedia-reference]", StringComparison.Ordinal));
         Assert.Empty(runner.Steps);
         Assert.Equal(0, provenance.Calls);

@@ -6,9 +6,8 @@ using Rowles.LeanCorpus.Util;
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
 /// <summary>
-/// Writes supported Int8 dense vectors in the <c>.vq</c> format. BBQ entry points reject retired writes.
-/// The file format is self-describing: the quantisation
-/// type is encoded in the header so the reader can validate against segment metadata.
+/// Retained Int8 and BBQ write helpers for historical source compatibility. Their lifecycle policy
+/// rejects new files before creating output; historical files continue through <see cref="QuantisedVectorReader"/>.
 /// </summary>
 /// <remarks>
 /// File format:
@@ -47,6 +46,7 @@ internal static class QuantisedVectorWriter
         IVectorSource vectorsByDoc,
         IReadOnlyList<int> vectorDocIds)
     {
+        VectorCodecFiles.EnsureCanCreate(VectorQuantisation.Int8);
         ValidateSource(docCount, dimension, vectorsByDoc, vectorDocIds);
         var presence = VectorPresence.Create(docCount, vectorDocIds);
         float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
@@ -188,6 +188,7 @@ internal static class QuantisedVectorWriter
         int dimension,
         IReadOnlyDictionary<int, ReadOnlyMemory<float>> vectorsByDoc)
     {
+        VectorCodecFiles.EnsureCanCreate(VectorQuantisation.Int8);
         ArgumentOutOfRangeException.ThrowIfNegative(docCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
 

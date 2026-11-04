@@ -39,12 +39,12 @@ public sealed class DataForgeQualificationPlanTests
         var plan = DataForgeQualificationPlan.Create(
             new DataForgeQualificationOptions("/tmp/frozen wikipedia", Dry: true));
 
-        Assert.Equal(24, plan.Steps.Count);
+        Assert.Equal(22, plan.Steps.Count);
         Assert.Equal(1, plan.Steps.Count(step => step.Group == "build"));
         Assert.Equal(1, plan.Steps.Count(step => step.Group == "profiles"));
         Assert.Equal(1, plan.Steps.Count(step => step.Group == "wikipedia-reference"));
         Assert.Equal(4, plan.Steps.Count(step => step.Group == "synthetic-tests"));
-        Assert.Equal(5, plan.Steps.Count(step => step.Group == "synthetic-benchmarks"));
+        Assert.Equal(3, plan.Steps.Count(step => step.Group == "synthetic-benchmarks"));
         Assert.Equal(6, plan.Steps.Count(step => step.Group == "wikipedia-smoke"));
         Assert.Equal(6, plan.Steps.Count(step => step.Group == "wikipedia-benchmarks"));
         Assert.All(plan.Steps, step => Assert.DoesNotContain("pwsh", step.Command, StringComparison.OrdinalIgnoreCase));

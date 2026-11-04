@@ -9,7 +9,7 @@ internal static partial class WorkbenchCommands
     private static Command BuildCreateCommands()
     {
         var command = new Command("create", "Create deterministic synthetic LeanCorpus indexes.");
-        var preset = new Argument<string>("preset") { Description = "Preset name, for example search-small, vector-hnsw or hybrid-balanced." };
+        var preset = new Argument<string>("preset") { Description = "Preset name, for example search-small, vector-flat or hybrid-balanced." };
         var path = new Argument<string>("index-path") { Description = "Output index directory. It must be empty or absent." };
         var seed = new Option<ulong>("--seed") { Description = "Deterministic DataForge seed (default 42).", DefaultValueFactory = _ => 42UL };
         var count = new Option<int?>("--count") { Description = "Number of records (preset default when omitted)." };
@@ -89,7 +89,7 @@ internal static partial class WorkbenchCommands
         string preset = profile.Trim().ToLowerInvariant() switch
         {
             "search" => "search-small",
-            "vector" => "vector-hnsw",
+            "vector" => "vector-flat",
             "hybrid" => "hybrid-balanced",
             "multilingual" => "multilingual",
             _ => throw new ArgumentException($"Unknown DataForge profile family '{profile}'.")

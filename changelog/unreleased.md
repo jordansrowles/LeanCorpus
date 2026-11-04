@@ -73,8 +73,9 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 - Apply query boosts to vector scores and explanations, reverse HNSW candidate direction for negative boosts, and reject query vectors whose dimensions do not match their indexed field.
 - Report HNSW graph visits, underfill scans and selective-filter exact scans separately in search metrics.
-- Limit new vector output to Float32 and Int8; treat every committed BBQ representation as read-only at index level, including mixed indexes and deleted BBQ documents.
-- Preserve historical experimental one-bit BBQ v3 query scoring and its automatic three-times shortlist. Float32/Int8 retain one-times automatic oversampling; explicit query settings remain honoured.
+- Support exact Float32 vector writes and search; retire new HNSW graph and Int8 writes after their frozen quality gates failed. Historical Int8 remains readable through exact decoded scoring, and historical BBQ retains its read-only scorer.
+- Default `BuildHnswOnFlush` to false and reject explicit graph creation before index side effects. Exact Float32 queries ignore historical graphs, Float32 merges do not recreate them, and metrics and score explanations report intentional exact scans.
+- Retire CLI and benchmark creation routes for new HNSW, Int8 and BBQ vectors while preserving historical vector readers, BBQ query compatibility, structural Int8 v1/v2-to-v3 migration, and exact Float32 materialisation when merging historical Int8 values.
 - Report readable retired indexes as `ReadOnlyRetired` in compatibility checks and the product CLI, with reindexing guidance rather than a migration recommendation.
 - Apply `FuzzyQuery.MaxExpansions` once across all search segments, with deterministic UTF-8 term-byte ordering for equal-distance ties; reuse one lazily compiled edit automaton across segment expansion misses.
 - Resolve edit-zero fuzzy queries through exact term lookup and return warm empty-expansion cache entries before constructing the edit automaton.

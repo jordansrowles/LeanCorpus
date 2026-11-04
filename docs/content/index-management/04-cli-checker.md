@@ -69,22 +69,23 @@ The geo query accepts a centre latitude and longitude in decimal degrees and a p
 
 ## Deterministic index creation
 
-Presets use DataForge as a library and write `.leancorpus/recipe.json` and `.leancorpus/dataforge-manifest.json` beside the index. The first catalogue includes `minimal`, `search-small`, `search-medium`, `realistic-mixed`, `vector-flat`, `vector-hnsw`, `vector-int8`, `vector-filtered`, `hybrid-balanced`, `hybrid-text-heavy`, `hybrid-vector-heavy`, `multilingual`, `compound`, `non-compound`, `many-small-segments`, `delete-heavy`, `codec-current`, and the frozen `codec-migration-required` release fixture.
+Presets use DataForge as a library and write `.leancorpus/recipe.json` and `.leancorpus/dataforge-manifest.json` beside the index. The catalogue includes `minimal`, `search-small`, `search-medium`, `realistic-mixed`, `vector-flat`, `vector-filtered`, `hybrid-balanced`, `hybrid-text-heavy`, `hybrid-vector-heavy`, `multilingual`, `compound`, `non-compound`, `many-small-segments`, `delete-heavy`, `codec-current`, and the frozen `codec-migration-required` release fixture.
 
-The retired `vector-bbq` preset returns an error before creating an index.
-Choose `vector-hnsw` or `vector-int8` for new vector output. Existing BBQ
-indexes remain readable and searchable but are read-only; see the
+`vector-hnsw`, `vector-int8`, and `vector-bbq` are retired and return an error
+before creating an index. New vectors use exact Float32 search. Historical
+Int8 vectors remain readable through exact decoded scoring, and historical BBQ
+indexes remain readable with their existing scorer but are read-only. See the
 [upgrade guide](../reference/upgrades.md) before rebuilding from original
 embeddings.
 
 ```bash
-leancorpus-cli create preset vector-hnsw ./vector-index --seed 1234 --count 500 --dimension 64
+leancorpus-cli create preset vector-flat ./vector-index --seed 1234 --count 500 --dimension 64
 leancorpus-cli create reproduce ./vector-index ./vector-index-recreated
 leancorpus-cli index diff ./vector-index ./vector-index-recreated --logical --json
 leancorpus-cli index fingerprint ./vector-index
 ```
 
-Custom schemas use deterministic Search-profile records as their value source. Supported field types are `text`, `keyword`, `double`, `int64`, `vector`, and `geoPoint`; keyword fields can use sorted DocValues or facet paths, and vector fields can request dimensions and HNSW. For example:
+Custom schemas use deterministic Search-profile records as their value source. Supported field types are `text`, `keyword`, `double`, `int64`, `vector`, and `geoPoint`; keyword fields can use sorted DocValues or facet paths. Vector fields use exact Float32 search; requesting HNSW is rejected. For example:
 
 ```json
 {
@@ -94,7 +95,7 @@ Custom schemas use deterministic Search-profile records as their value source. S
     { "name": "title", "type": "text", "source": "title", "stored": true, "positions": true },
     { "name": "category", "type": "keyword", "source": "category", "facet": true, "docValues": true },
     { "name": "price", "type": "double", "source": "price", "docValues": true },
-    { "name": "embedding", "type": "vector", "dimensions": 64, "hnsw": true },
+    { "name": "embedding", "type": "vector", "dimensions": 64 },
     { "name": "location", "type": "geoPoint" }
   ]
 }

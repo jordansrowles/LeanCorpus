@@ -204,6 +204,39 @@ public sealed class MeterMetricsCollectorTests : IDisposable
         Assert.Equal(3, snapshot.HnswSelectiveFilterVectorsScanned);
     }
 
+    [Fact(DisplayName = "Meter Listener: Separates Intentional Exact Vector Scans From Retired Graph Bypass")]
+    public void MeterListener_RecordsIntentionalExactVectorScans()
+    {
+        using var factory = new TestMeterFactory();
+        using var collector = new MeterMetricsCollector(factory);
+        var measurements = new List<(string Name, long Value)>();
+
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (ReferenceEquals(instrument.Meter, factory.Meter) &&
+                instrument.Name.StartsWith("leancorpus.vector.search.", StringComparison.Ordinal))
+                l.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, _, _) =>
+            measurements.Add((instrument.Name, value)));
+        listener.Start();
+
+        collector.RecordVectorExactScan(vectorsScanned: 4, retiredHnswGraphIgnored: false);
+        collector.RecordVectorExactScan(vectorsScanned: 3, retiredHnswGraphIgnored: true);
+
+        Assert.Contains(("leancorpus.vector.search.exact_scans", 1L), measurements);
+        Assert.Contains(("leancorpus.vector.search.exact_scanned_vectors", 4L), measurements);
+        Assert.Contains(("leancorpus.vector.search.exact_scanned_vectors", 3L), measurements);
+        Assert.Contains(("leancorpus.vector.search.retired_hnsw_exact_scans", 1L), measurements);
+
+        MetricsSnapshot snapshot = collector.GetSnapshot();
+        Assert.Equal(2, snapshot.VectorExactScanCount);
+        Assert.Equal(7, snapshot.VectorExactVectorsScanned);
+        Assert.Equal(1, snapshot.VectorRetiredHnswExactScanCount);
+        Assert.Equal(0, snapshot.HnswExhaustiveFallbackCount);
+    }
+
     private sealed class TestMeterFactory : IMeterFactory
     {
         public Meter Meter { get; } = new("Rowles.LeanCorpus");

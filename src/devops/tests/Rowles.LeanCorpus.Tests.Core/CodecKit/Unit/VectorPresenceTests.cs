@@ -1,4 +1,6 @@
-﻿namespace Rowles.LeanCorpus.Tests.Core.CodecKit;
+﻿using Rowles.LeanCorpus.Tests.Core.Fixtures;
+
+namespace Rowles.LeanCorpus.Tests.Core.CodecKit;
 
 [Category(TestCategory.Unit)]
 [Area(TestArea.CodecKit)]
@@ -23,12 +25,17 @@ public sealed class VectorPresenceTests
                 Assert.True(reader.HasVector(2));
                 Assert.Equal(new float[2], reader.ReadVector(0));
             }
+            else if (quantisation == VectorQuantisation.Int8)
+            {
+                HistoricalInt8VectorFixtures.WriteV3Tag1(path, 3, 2, vectors);
+                using var reader = QuantisedVectorReader.Open(path);
+                Assert.True(reader.HasVector(0));
+                Assert.False(reader.HasVector(1));
+                Assert.True(reader.HasVector(2));
+            }
             else
             {
-                if (quantisation == VectorQuantisation.Int8)
-                    QuantisedVectorWriter.WriteInt8(path, 3, 2, vectors);
-                else
-                    HistoricalBbqVectorFixtures.CopyLegacyDictionary(path, 3, 2);
+                HistoricalBbqVectorFixtures.CopyLegacyDictionary(path, 3, 2);
                 using var reader = QuantisedVectorReader.Open(path);
                 Assert.True(reader.HasVector(0));
                 Assert.False(reader.HasVector(1));
@@ -60,6 +67,8 @@ public sealed class VectorPresenceTests
         }
 
         Assert.True(Assert.Single(VectorCodecFiles.Quantised.SupportedVersions, version => version.Version == 3).IsWritable);
+        Assert.False(VectorCodecFiles.Quantised.Evaluate(CodecLifecycleOperation.Create,
+            target: VectorCodecFiles.QuantisedIdentity(QuantisedVectorStorageKind.LegacyInt8)).IsAllowed);
     }
 
     [Theory]
@@ -74,7 +83,7 @@ public sealed class VectorPresenceTests
         {
             var vectors = new Dictionary<int, ReadOnlyMemory<float>> { [0] = new float[2], [2] = new float[] { 1, 0 } };
             if (quantisation == VectorQuantisation.None) VectorWriter.WriteField(path, 3, 2, vectors);
-            else if (quantisation == VectorQuantisation.Int8) QuantisedVectorWriter.WriteInt8(path, 3, 2, vectors);
+            else if (quantisation == VectorQuantisation.Int8) HistoricalInt8VectorFixtures.WriteV3Tag1(path, 3, 2, vectors);
             else HistoricalBbqVectorFixtures.CopyLegacyDictionary(path, 3, 2);
             byte[] body;
             using (var input = new IndexInput(path))
@@ -119,7 +128,8 @@ public sealed class VectorPresenceTests
             new Dictionary<int, ReadOnlyMemory<float>> { [0] = new float[3] } })
         {
             Assert.Throws<InvalidDataException>(() => VectorWriter.WriteField(path, 3, 2, vectors));
-            Assert.Throws<InvalidDataException>(() => QuantisedVectorWriter.WriteInt8(path, 3, 2, vectors));
+            InvalidOperationException retired = Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteInt8(path, 3, 2, vectors));
+            Assert.Contains("Int8WriteRetired", retired.Message, StringComparison.Ordinal);
             Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteBBQ(path, 3, 2, vectors, new float[2]));
         }
         Assert.Throws<InvalidDataException>(() => VectorPresence.Create(3, new[] { 0, 0 }));
@@ -140,7 +150,9 @@ public sealed class VectorPresenceTests
         string path = Path.Combine(Path.GetTempPath(), $"vector-source-validation-{Guid.NewGuid():N}");
         var source = new InMemoryVectorSource(new Dictionary<int, ReadOnlyMemory<float>> { [0] = new float[2] }, 2);
         Assert.Throws<InvalidDataException>(() => VectorWriter.WriteField(path, 1, 2, source, new[] { 0, 0 }));
-        Assert.Throws<InvalidDataException>(() => QuantisedVectorWriter.WriteInt8(path, 1, 2, source, new[] { 0, 0 }));
+        InvalidOperationException retired = Assert.Throws<InvalidOperationException>(
+            () => QuantisedVectorWriter.WriteInt8(path, 1, 2, source, new[] { 0, 0 }));
+        Assert.Contains("Int8WriteRetired", retired.Message, StringComparison.Ordinal);
         Assert.Throws<InvalidOperationException>(() => QuantisedVectorWriter.WriteBBQ(path, 1, 2, source, new[] { 0, 0 }));
         Assert.False(File.Exists(path));
     }

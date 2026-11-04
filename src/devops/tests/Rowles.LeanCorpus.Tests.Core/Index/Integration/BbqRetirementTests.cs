@@ -1,5 +1,6 @@
 ﻿using System.Security.Cryptography;
 using System.Text.Json;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index.Integration;
 
@@ -119,7 +120,7 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
 
         Assert.True(descriptor.Evaluate(CodecLifecycleOperation.Read, source).IsAllowed);
         Assert.True(descriptor.Evaluate(CodecLifecycleOperation.RewriteSource, source).IsAllowed);
-        Assert.True(descriptor.Evaluate(CodecLifecycleOperation.Create, target: target).IsAllowed);
+        Assert.False(descriptor.Evaluate(CodecLifecycleOperation.Create, target: target).IsAllowed);
         Assert.True(descriptor.Evaluate(CodecLifecycleOperation.Migrate, source, target).IsAllowed);
         Assert.False(descriptor.Evaluate(CodecLifecycleOperation.Read, source with { RepresentationId = "unknown" }).IsAllowed);
     }
@@ -131,9 +132,8 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
         using var directory = new MMapDirectory(path);
         using (var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            VectorQuantisation = VectorQuantisation.Int8,
-            BuildHnswOnFlush = true,
-            HnswSeed = 739391L,
+            VectorQuantisation = VectorQuantisation.None,
+            BuildHnswOnFlush = false,
         }))
         {
             for (int docId = 0; docId < 2; docId++)
@@ -146,6 +146,8 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
             }
             writer.Commit();
         }
+
+        HistoricalInt8VectorFixtures.ReplaceFloat32SegmentsWithV3Tag1(path, "embedding");
 
         var before = Snapshot(path);
         var plan = IndexCodecMigrator.Plan(directory);
@@ -285,11 +287,11 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
     }
 
     [Fact]
-    public void WriterRecovery_PreservesSupportedInt8PendingCommitAfterCorruptPreviousCommit()
+    public void WriterRecovery_PreservesFloat32PendingCommitAfterCorruptPreviousCommit()
     {
         string path = Path.Combine(_fixture.Path, Guid.NewGuid().ToString("N"));
         using var directory = new MMapDirectory(path);
-        using (var writer = new IndexWriter(directory, new IndexWriterConfig { VectorQuantisation = VectorQuantisation.Int8 }))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { VectorQuantisation = VectorQuantisation.None }))
         {
             var document = new LeanDocument();
             document.Add(new StringField("id", "survivor"));
@@ -301,7 +303,7 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
         WritePending(path, committed.Generation + 1, committed.SegmentInfos);
         File.WriteAllText(committed.CommitFilePath, "corrupt previous commit");
 
-        using (var writer = new IndexWriter(directory, new IndexWriterConfig { VectorQuantisation = VectorQuantisation.Int8 })) { }
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { VectorQuantisation = VectorQuantisation.None })) { }
 
         using var searcher = new IndexSearcher(directory);
         Assert.Single(searcher.Search(new TermQuery("id", "survivor"), 1, TestContext.Current.CancellationToken).ScoreDocs);

@@ -41,9 +41,13 @@ flowchart TD
 
 A range query skips disjoint cells, accepts cells wholly inside the range, and checks individual values only in intersecting leaves. `BKDMaxLeafSize` trades tree depth against leaf scan work.
 
-## Vector values and HNSW
+## Vector values and historical HNSW
 
-Vectors are stored independently from the optional HNSW graph. This permits flat search when no graph exists. Float32 fields use exact scores over their stored vectors; quantised fields use approximate scores from their decoded representation.
+Vectors are stored independently from the optional HNSW graph. New Float32
+vectors are searched exactly, and historical Int8 vectors are searched exactly
+after decoding their stored values. New HNSW graph writes and Int8 writes are
+retired. Historical Float32 and Int8 graphs are ignored by these query routes;
+historical BBQ retains its read-only graph scorer.
 
 ```mermaid
 flowchart TD
@@ -58,7 +62,9 @@ flowchart TD
     N3 --> X
 ```
 
-Filtered vector search chooses between brute-force matching documents, HNSW with an allow-list, and post-filtered HNSW with retries. The thresholds and retry behaviour are described in [Filtered vector search](../advanced/08-filtered-vector-search.md).
+Current Float32 and historical Int8 filtered search applies the filter before
+scanning vectors. The historical BBQ route retains its prior graph behaviour.
+See [Filtered vector search](../advanced/08-filtered-vector-search.md).
 
 HNSW level numbering must remain coherent after document remapping. If `maxLevel` is the highest retained level, `levelCount` is `maxLevel + 1`.
 

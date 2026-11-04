@@ -165,7 +165,7 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         using var writer = new IndexWriter(target, new IndexWriterConfig
         {
             MaxBufferedDocs = 8,
-            VectorQuantisation = VectorQuantisation.Int8,
+            VectorQuantisation = VectorQuantisation.None,
         });
         var pending = new LeanDocument();
         pending.Add(new StringField("id", "pending"));
@@ -255,7 +255,7 @@ public sealed class PreV3BbqV2CompatibilityTests : IClassFixture<TestDirectoryFi
         using var writer = new IndexWriter(target, new IndexWriterConfig
         {
             MaxBufferedDocs = 8,
-            VectorQuantisation = VectorQuantisation.Int8,
+            VectorQuantisation = VectorQuantisation.None,
         });
         var pending = new LeanDocument();
         pending.Add(new StringField("id", "pending"));

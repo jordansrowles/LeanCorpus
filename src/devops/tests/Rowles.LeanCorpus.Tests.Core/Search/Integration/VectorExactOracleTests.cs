@@ -183,7 +183,7 @@ public sealed class VectorExactOracleTests(TestDirectoryFixture fixture) : IClas
     }
 
     [Fact]
-    public void VectorQuery_NegativeBoostReversesHnswCandidateDirection()
+    public void VectorQuery_NegativeBoostUsesExactRanking()
     {
         OracleDocument[] documents =
         [
@@ -193,10 +193,10 @@ public sealed class VectorExactOracleTests(TestDirectoryFixture fixture) : IClas
             new(3, [0f, -1f], "all", 1f),
         ];
 
-        using var directory = new MMapDirectory(SubDir(nameof(VectorQuery_NegativeBoostReversesHnswCandidateDirection)));
+        using var directory = new MMapDirectory(SubDir(nameof(VectorQuery_NegativeBoostUsesExactRanking)));
         using (var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = false,
             HnswBuildConfig = new HnswBuildConfig { M = 4, M0 = 8, EfConstruction = 16 },
             HnswSeed = 1L,
@@ -207,7 +207,7 @@ public sealed class VectorExactOracleTests(TestDirectoryFixture fixture) : IClas
         }
 
         using var searcher = new IndexSearcher(directory, ExactSearcherConfig());
-        var query = new VectorQuery("embedding", [1f, 0f], topK: 1, efSearch: 4) { Boost = -1f };
+        var query = new VectorQuery("embedding", [1f, 0f], topK: 1) { Boost = -1f };
         TopDocs results = searcher.Search(query, 1);
 
         Assert.Equal(2, SourceOrdinal(searcher, Assert.Single(results.ScoreDocs).DocId));
@@ -227,7 +227,7 @@ public sealed class VectorExactOracleTests(TestDirectoryFixture fixture) : IClas
             Assert.Equal(16, writerConfig.HnswBuildConfig.M);
             Assert.Equal(32, writerConfig.HnswBuildConfig.EffectiveM0);
             Assert.Equal(100, writerConfig.HnswBuildConfig.EfConstruction);
-            Assert.True(writerConfig.BuildHnswOnFlush);
+            Assert.False(writerConfig.BuildHnswOnFlush);
             Assert.True(writerConfig.NormaliseVectors);
             Assert.Equal(VectorQuantisation.None, writerConfig.VectorQuantisation);
             Assert.Null(writerConfig.HnswSeed);

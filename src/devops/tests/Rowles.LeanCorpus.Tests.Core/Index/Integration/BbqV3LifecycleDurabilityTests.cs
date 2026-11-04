@@ -195,10 +195,10 @@ public sealed class BbqV3LifecycleDurabilityTests : IClassFixture<TestDirectoryF
         MergePolicy = NoMergePolicy.Instance,
         MergeThreshold = 100,
         UseCompoundFile = useCompoundFile,
-        BuildHnswOnFlush = true,
+        BuildHnswOnFlush = false,
         HnswSeed = 42,
         NormaliseVectors = true,
-        VectorQuantisation = VectorQuantisation.Int8,
+        VectorQuantisation = VectorQuantisation.None,
     };
 
     private static float[] CreateVector(int id)

@@ -1,7 +1,6 @@
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
 using BenchmarkDotNet.Attributes;
-using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -11,7 +10,7 @@ using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
-/// <summary>Measures serial and parallel cold first-touch of independent vector/HNSW fields.</summary>
+/// <summary>Measures serial and parallel cold first-touch of independent vector fields.</summary>
 [MemoryDiagnoser]
 [MarkdownExporterAttribute.GitHub]
 [WarmupCount(2)]
@@ -41,10 +40,7 @@ public class VectorFirstTouchBenchmarks
         using (var directory = new MMapDirectory(_indexPath))
         using (var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
             DurableCommits = false,
-            HnswBuildConfig = new HnswBuildConfig { M = 8, M0 = 16, EfConstruction = 40 },
-            HnswSeed = 1L,
             MaxBufferedDocs = DocumentCount + 1,
             MergePolicy = NoMergePolicy.Instance,
             NormaliseVectors = true,
@@ -84,11 +80,11 @@ public class VectorFirstTouchBenchmarks
     [GlobalCleanup]
     public void Cleanup() => BenchmarkHelpers.DeleteDirectory(_indexPath);
 
-    [Benchmark(Baseline = true, Description = "Serial cold vector/HNSW first-touch")]
+    [Benchmark(Baseline = true, Description = "Serial cold exact-vector first-touch")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int SerialFirstTouch() => RunFirstTouch(parallel: false);
 
-    [Benchmark(Description = "Parallel cold vector/HNSW first-touch")]
+    [Benchmark(Description = "Parallel cold exact-vector first-touch")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int ParallelFirstTouch() => RunFirstTouch(parallel: true);
 

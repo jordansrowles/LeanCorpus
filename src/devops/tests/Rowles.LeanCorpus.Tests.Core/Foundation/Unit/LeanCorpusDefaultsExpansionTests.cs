@@ -55,7 +55,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
             Assert.Equal(4L * 1024 * 1024 * 1024, writer.MaxPendingMergeBytes);
             Assert.True(writer.NormaliseVectors);
             Assert.Equal(VectorQuantisation.None, writer.VectorQuantisation);
-            Assert.True(writer.BuildHnswOnFlush);
+            Assert.False(writer.BuildHnswOnFlush);
             Assert.Null(writer.HnswSeed);
             Assert.False(writer.TrackSequenceNumbers);
             Assert.False(writer.SoftDeletesEnabled);
@@ -123,7 +123,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
                 options.IndexWriter.MaxConcurrentMerges = 2;
                 options.IndexWriter.MaxPendingMergeBytes = 2_000_000;
                 options.IndexWriter.NormaliseVectors = false;
-                options.IndexWriter.VectorQuantisation = VectorQuantisation.Int8;
+                options.IndexWriter.VectorQuantisation = VectorQuantisation.None;
                 options.IndexWriter.BuildHnswOnFlush = false;
                 options.IndexWriter.HnswSeed = 42;
                 options.IndexWriter.TrackSequenceNumbers = true;
@@ -159,7 +159,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
             Assert.Equal(2, config.MaxConcurrentMerges);
             Assert.Equal(2_000_000, config.MaxPendingMergeBytes);
             Assert.False(config.NormaliseVectors);
-            Assert.Equal(VectorQuantisation.Int8, config.VectorQuantisation);
+            Assert.Equal(VectorQuantisation.None, config.VectorQuantisation);
             Assert.False(config.BuildHnswOnFlush);
             Assert.Equal(42, config.HnswSeed);
             Assert.True(config.TrackSequenceNumbers);

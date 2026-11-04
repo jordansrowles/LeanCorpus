@@ -18,6 +18,7 @@ using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 using Rowles.LeanCorpus.Util;
 
@@ -126,22 +127,28 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
     {
         var path = Path.Combine(_fixture.Path, name);
         Directory.CreateDirectory(path);
-        using var directory = new MMapDirectory(path);
-        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            VectorQuantisation = quantisation,
-            BuildHnswOnFlush = true,
-            HnswSeed = 739391L,
-        });
-        for (int i = 0; i < 2; i++)
+            VectorQuantisation = VectorQuantisation.None,
+            BuildHnswOnFlush = false,
+        }))
         {
-            var doc = new LeanDocument();
-            doc.Add(new TextField("body", "hello vector migration"));
-            doc.Add(new StringField("id", $"vector-{i}"));
-            doc.Add(new VectorField("embedding", new float[] { i + 1, i + 2, i + 3, i + 4 }));
-            writer.AddDocument(doc);
+            for (int i = 0; i < 2; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new TextField("body", "hello vector migration"));
+                doc.Add(new StringField("id", $"vector-{i}"));
+                doc.Add(new VectorField("embedding", new float[] { i + 1, i + 2, i + 3, i + 4 }));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
         }
-        writer.Commit();
+
+        if (quantisation == VectorQuantisation.Int8)
+            HistoricalInt8VectorFixtures.ReplaceFloat32SegmentsWithV3Tag1(path, "embedding");
+        if (name.Contains("hnsw", StringComparison.OrdinalIgnoreCase))
+            HistoricalHnswGraphFixtures.AttachToFloat32Index(path, seed: 739391L);
         return path;
     }
 

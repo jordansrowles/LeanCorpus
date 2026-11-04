@@ -88,8 +88,6 @@ internal static class BenchmarkSuiteRegistry
         Workload("similarity", typeof(SimilarityBenchmarks), true, false, "similarity"),
         Workload("async-index", typeof(AsyncIndexingBenchmarks), true, false, "async-index"),
         Workload("async-index-stress", typeof(AsyncIndexingCapacityOneStressBenchmarks), false, true, "async-index-stress"),
-        Workload("vq", typeof(VectorQuantisationBenchmarks), true, true, "vq"),
-        Workload("hnsw", typeof(HnswSearchBenchmarks), true, true, "hnsw"),
         Workload("hybrid", typeof(HybridSearchBenchmarks), true, false, "hybrid"),
         Workload("packed-int-codec", typeof(PackedIntCodecBenchmarks), false, true, "packed-int-codec"),
         Workload("codec-frame", typeof(CodecFrameBenchmarks), false, true, "codec-frame"),
@@ -316,8 +314,6 @@ internal static class BenchmarkSuiteRegistry
         ["query-cache"] = ["querycache"],
         ["function-score"] = ["functionscore"],
         ["collapse-facet"] = ["collapsefacet"],
-        ["vq"] = ["vectorquantisation"],
-        ["hnsw"] = ["hnsw-search"],
         ["vector-first-touch"] = ["vectorfirsttouch"],
         ["async-index"] = ["asyncindex"]
     };

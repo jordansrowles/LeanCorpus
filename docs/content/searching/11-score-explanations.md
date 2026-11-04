@@ -29,9 +29,14 @@ var explanation = searcher.Explain(query, results.ScoreDocs[0].DocId);
 Console.WriteLine(explanation);
 ```
 
-Vector explanations report cosine similarity and the selected execution strategy. Depending on the segment and filter, that may be flat search, HNSW candidate generation and rescoring, brute-force filtered search, HNSW pre-filtering, or HNSW post-filtering. For quantised fields, scores are approximate to the original Float32 vectors.
+New Float32 vectors and historical Int8 vectors use exact scans, restricted to
+documents that pass the query filter. Explanations identify `exact Float32
+scan` or `exact decoded Int8 scan`; an old HNSW graph on either representation
+is ignored. Int8 scoring is exact for the stored decoded values, not for the
+original Float32 vectors.
 
-Approximate traversal diagnostics can include `ef`, shortlist size, and graph node count. The final score uses the stored Float32 vector where available, or the quantised representation for Int8 and historical BBQ fields. BBQ-containing indexes remain readable but read-only to writers.
+Historical BBQ queries retain their existing scorer and graph route. BBQ-
+containing indexes remain readable but read-only to writers.
 
 ## Operational use
 

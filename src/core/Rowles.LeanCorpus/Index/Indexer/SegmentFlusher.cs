@@ -34,6 +34,9 @@ internal static class SegmentFlusher
         out int[]? inversePerm)
     {
         inversePerm = null;
+        if (config.BuildHnswOnFlush)
+            throw new InvalidOperationException(
+                "HnswGraphCreationRetired: new HNSW graph writes are not supported for 4.0; use exact Float32 vector search.");
         VectorCodecFiles.EnsureCanCreate(config.VectorQuantisation);
 
         // The detached batch is exclusively owned here, so sorting can safely

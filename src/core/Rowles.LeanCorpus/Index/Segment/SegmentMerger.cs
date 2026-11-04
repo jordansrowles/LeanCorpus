@@ -20,11 +20,8 @@ public sealed class SegmentMerger
     private readonly IMergePolicy _mergePolicy;
     private readonly int _skipInterval;
     private readonly double _softDeleteRetentionSeconds;
-    private readonly Diagnostics.IMetricsCollector _metrics;
-    private readonly HnswBuildConfig _hnswBuildConfig;
     private readonly bool _useCompoundFile;
     private readonly VectorQuantisation _destinationVectorQuantisation;
-    private readonly long? _hnswSeed;
 
     internal CodecCatalog FileCatalog { get; set; } = CodecCatalog.Default;
 
@@ -42,7 +39,7 @@ public sealed class SegmentMerger
     /// <param name="mergePolicy">The merge policy used to select segments for merging.</param>
     /// <param name="skipInterval">Postings skip interval used when writing the merged segment.</param>
     /// <param name="softDeleteRetentionSeconds">Minimum seconds to retain soft-deleted documents during merge.</param>
-    /// <param name="hnswBuildConfig">HNSW build configuration used when rebuilding vector graphs during merge.</param>
+    /// <param name="hnswBuildConfig">Retained for source compatibility; merged HNSW graph creation is retired.</param>
     /// <param name="metrics">Optional metrics collector. Defaults to <see cref="Diagnostics.NullMetricsCollector.Instance"/>.</param>
     /// <param name="useCompoundFile">Whether merged immutable codec files should be packed into a compound file.</param>
     public SegmentMerger(
@@ -73,11 +70,8 @@ public sealed class SegmentMerger
         _mergePolicy = mergePolicy ?? new TieredMergePolicy(DefaultMergeThreshold);
         _skipInterval = skipInterval;
         _softDeleteRetentionSeconds = softDeleteRetentionSeconds;
-        _hnswBuildConfig = hnswBuildConfig ?? new HnswBuildConfig();
-        _metrics = metrics ?? Diagnostics.NullMetricsCollector.Instance;
         _useCompoundFile = useCompoundFile;
         _destinationVectorQuantisation = destinationVectorQuantisation;
-        _hnswSeed = hnswSeed;
     }
 
     internal SegmentMerger(
@@ -102,7 +96,7 @@ public sealed class SegmentMerger
     /// <param name="mergeThreshold">Number of segments at one tier before a merge is triggered.</param>
     /// <param name="skipInterval">Postings skip interval used when writing the merged segment.</param>
     /// <param name="softDeleteRetentionSeconds">Minimum seconds to retain soft-deleted documents during merge.</param>
-    /// <param name="hnswBuildConfig">HNSW build configuration used when rebuilding vector graphs during merge.</param>
+    /// <param name="hnswBuildConfig">Retained for source compatibility; merged HNSW graph creation is retired.</param>
     /// <param name="metrics">Optional metrics collector. Defaults to <see cref="Diagnostics.NullMetricsCollector.Instance"/>.</param>
     public SegmentMerger(
         MMapDirectory directory,
@@ -247,7 +241,7 @@ public sealed class SegmentMerger
             using var spatial = new SegmentMergeSpatialWriter.State(plan.TotalDocs);
             SegmentMergeStoredPayloadWriter.Write(plan, FileCatalog, columns, vectors, spatial);
             SegmentMergeDocValuesWriter.Write(plan, columns);
-            var vectorWriter = new SegmentMergeVectorWriter(_directory, _hnswBuildConfig, _metrics, _hnswSeed);
+            var vectorWriter = new SegmentMergeVectorWriter();
             var vectorFields = vectorWriter.Write(plan, vectors);
             SegmentMergeSpatialWriter.Write(plan, columns, spatial);
             return SegmentMergeFinaliser.Finish(plan, vectorFields, _directory, FileCatalog, _useCompoundFile);

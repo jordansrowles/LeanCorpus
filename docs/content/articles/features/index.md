@@ -35,7 +35,7 @@ Baseline documentation: [Lucene.NET 4.8.0](https://lucenenet.apache.org/docs/4.8
 | Streaming search | ✔ | ❌ | ❌ | Asynchronous and segment-by-segment result streams with resource controls. |
 | Native AOT | ✔ | ❌ | ❌ | Trim-safe core and reflection-free serialisation paths. |
 | Source-generated document mapping | ✔ | ❌ | ❌ | Compile-time field descriptors and schema validation. |
-| Vector and hybrid search | ✔ | ❌ | ✔ | HNSW, filtering, quantisation, and reciprocal-rank fusion. |
+| Vector and hybrid search | ✔ | ❌ | ✔ | Exact Float32 search, historical quantised-vector reads, filtering, and reciprocal-rank fusion. |
 | Modern query families | ✔ | ◐ | ✔ | Includes intervals, function scoring, rescoring, and disjunction max. |
 | Faceting and aggregations | ✔ | ✔ | ✔ | Term, hierarchy, drill-sideways, range/date facets, histograms and numeric aggregations are available. |
 | Analysis and language support | ✔ | ✔ | ✔ | Broad core coverage with some specialised Java filters absent. |

@@ -105,9 +105,15 @@ For approximate vector search, report recall as well as latency. For cache work,
 
 The deterministic `leancorpus-vector` DataForge profile supports uniform, clustered, dense-neighbourhood, near-duplicate, quantisation-friendly, quantisation-hostile and anisotropic vectors. Anisotropic vectors scale component `i` by `1 / sqrt(i + 1)` for both indexed records and queries; this distribution leaves existing version 1 uniform datasets unchanged. Record and held-out query seeds are independent, and query seed and query count are part of benchmark dataset identity.
 
-HNSW benchmark setup checks four distinct held-out queries against exact cosine ground truth at K=1, 10 and 100 before timing. The gate requires complete result counts, mean recall of at least 0.90 at each K, and recall of at least 0.80 for every query at K=10. A failed query group, incomplete result, or fallback scan prevents the case from being timed as qualified. Float32 and Int8 are the supported HNSW benchmark representations; unsupported quantisation formats are rejected during setup.
+New HNSW and Int8 benchmark routes are retired because the frozen traversal
+and merge quality gates failed. Historical frozen rows remain in the external
+closeout evidence and must not be reclassified as passing. The exact Float32
+reference remains useful for query correctness and future research.
 
-The exact Float32 reference uses the independent score and ranking contract: score error must not exceed `1e-5`, every neighbour strictly above the Kth score by more than `1e-6` must be returned, and remaining results must belong to the boundary tie group. Sidecars identify this numerical contract and retain literal source-relative recall alongside it. ANN and exact Int8 continue to use the declared literal recall floors; accepting an exact Float32 boundary tie does not turn a failed ANN row into a pass. The pinned BVAL negative control is unchanged.
+The exact Float32 reference uses the independent score and ranking contract:
+score error must not exceed `1e-5`, every neighbour strictly above the Kth
+score by more than `1e-6` must be returned, and remaining results must belong
+to the boundary tie group. The pinned BVAL negative control is unchanged.
 
 ## Interpret results
 

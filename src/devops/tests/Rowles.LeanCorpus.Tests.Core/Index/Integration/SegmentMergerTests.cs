@@ -13,6 +13,7 @@ using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
@@ -113,7 +114,7 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
 
     /// <summary>
     /// Verifies compound source segments are merged through logical bounded inputs, including
-    /// postings, DocValues, stored fields, term vectors, vectors and HNSW graph seeding.
+    /// postings, DocValues, stored fields, term vectors and vectors.
     /// </summary>
     [Fact(DisplayName = "Merge: Reads Compound Sources Without Temporary Materialisation")]
     public void Merge_ReadsCompoundSources_WithoutTemporaryMaterialisation()
@@ -163,30 +164,27 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal([100L, 101L, 102L, 103L], reader.GetInt64DocValues("sequence")!);
         Assert.NotNull(reader.GetTermVectors(0));
         Assert.NotNull(reader.GetVector("embedding", 3));
-        Assert.NotNull(reader.GetHnswGraph("embedding"));
+        Assert.Null(reader.GetHnswGraph("embedding"));
         Assert.True(reader.TryGetBinaryDocValues("payload", 2, out var payload));
         Assert.Equal(new byte[] { 2, 3 }, payload[0]);
     }
 
-    [Fact(DisplayName = "Merge: Streams High-Dimension HNSW Vectors Without Retaining The Float Corpus")]
-    public void Merge_StreamsHighDimensionHnswVectorsWithinBoundedAllocation()
+    [Fact(DisplayName = "Merge: Streams High-Dimension Float32 Vectors Within Bounded Allocation")]
+    public void Merge_StreamsHighDimensionFloat32VectorsWithinBoundedAllocation()
     {
         const int documentCount = 4;
         const int dimension = 1_000_000;
         long floatCorpusBytes = (long)documentCount * dimension * sizeof(float);
-        var dir = SubDir(nameof(Merge_StreamsHighDimensionHnswVectorsWithinBoundedAllocation));
+        var dir = SubDir(nameof(Merge_StreamsHighDimensionFloat32VectorsWithinBoundedAllocation));
         using var mmap = new MMapDirectory(dir);
-        var hnswConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 };
 
         using (var writer = new IndexWriter(mmap, new IndexWriterConfig
         {
             MaxBufferedDocs = documentCount / 2,
             RamBufferSizeMB = 128,
             MergeThreshold = 100,
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
-            HnswSeed = 1L,
-            HnswBuildConfig = hnswConfig,
         }))
         {
             for (int docId = 0; docId < documentCount; docId++)
@@ -209,16 +207,15 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
         long allocatedBeforeMerge = GC.GetAllocatedBytesForCurrentThread();
         int nextOrdinal = sourceSegments.Count;
-        var merger = new SegmentMerger(mmap, mergeThreshold: 100, softDeleteRetentionSeconds: 0,
-            hnswBuildConfig: hnswConfig);
+        var merger = new SegmentMerger(mmap, mergeThreshold: 100, softDeleteRetentionSeconds: 0);
         SegmentInfo merged = Assert.IsType<SegmentInfo>(merger.MergeAll(sourceSegments, ref nextOrdinal));
         long mergeAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - allocatedBeforeMerge;
 
         Assert.True(mergeAllocatedBytes < floatCorpusBytes * 3 / 4,
             $"Merge allocated {mergeAllocatedBytes:N0} bytes for a {floatCorpusBytes:N0}-byte vector corpus; vector merge must use bounded file-backed buffers.");
-        Assert.Contains(merged.VectorFields, static field => field.FieldName == "embedding" && field.HasHnsw);
+        Assert.Contains(merged.VectorFields, static field => field.FieldName == "embedding" && !field.HasHnsw);
         using var reader = new SegmentReader(mmap, merged);
-        Assert.Equal(documentCount, reader.GetHnswGraph("embedding")!.NodeCount);
+        Assert.Null(reader.GetHnswGraph("embedding"));
         Assert.Equal(1f, reader.GetVector("embedding", 0)![0]);
     }
 
@@ -302,29 +299,26 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void AddIndexes_UsesDestinationQuantisationAndSkipsIncompatibleHnswSeeds(bool reverseSourceOrder)
+    public void AddIndexes_DropsHistoricalGraphsForExactDestination(bool reverseSourceOrder)
     {
         string sourceNone = CreateVectorSourceIndex("add_indexes_vectors_none", 128, normalised: true,
             VectorQuantisation.None, hnswSeed: 321);
-        string sourceInt8 = CreateVectorSourceIndex("add_indexes_vectors_int8", 128, normalised: true,
-            VectorQuantisation.Int8, hnswSeed: 322);
+        string sourceSecond = CreateVectorSourceIndex("add_indexes_vectors_second", 128, normalised: true,
+            VectorQuantisation.None, hnswSeed: 322);
         long sourceNoneSeed = ReadSingleVectorGraphSeed(sourceNone);
-        long sourceInt8Seed = ReadSingleVectorGraphSeed(sourceInt8);
-        string targetPath = SubDir($"{nameof(AddIndexes_UsesDestinationQuantisationAndSkipsIncompatibleHnswSeeds)}_{reverseSourceOrder}");
+        long sourceSecondSeed = ReadSingleVectorGraphSeed(sourceSecond);
+        string targetPath = SubDir($"{nameof(AddIndexes_DropsHistoricalGraphsForExactDestination)}_{reverseSourceOrder}");
         using var targetDirectory = new MMapDirectory(targetPath);
-        var hnswConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 };
-
         using (var writer = new IndexWriter(targetDirectory, new IndexWriterConfig
         {
             MergePolicy = NoMergePolicy.Instance,
             MergeThreshold = 100,
             NormaliseVectors = true,
-            VectorQuantisation = VectorQuantisation.Int8,
-            HnswBuildConfig = hnswConfig,
+            BuildHnswOnFlush = false,
         }))
         {
-            string firstSource = reverseSourceOrder ? sourceInt8 : sourceNone;
-            string secondSource = reverseSourceOrder ? sourceNone : sourceInt8;
+            string firstSource = reverseSourceOrder ? sourceSecond : sourceNone;
+            string secondSource = reverseSourceOrder ? sourceNone : sourceSecond;
             using (var sourceDirectory = new MMapDirectory(firstSource))
                 writer.AddIndexes(sourceDirectory);
             using (var sourceDirectory = new MMapDirectory(secondSource))
@@ -338,15 +332,14 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
             Assert.Equal(2, importedSegments.Count);
             for (int i = 0; i < importedSegments.Count; i++)
             {
-                Assert.Equal(VectorQuantisation.Int8, Assert.Single(importedSegments[i].VectorFields).Quantisation);
+                Assert.Equal(VectorQuantisation.None, Assert.Single(importedSegments[i].VectorFields).Quantisation);
                 using var reader = new SegmentReader(targetDirectory, importedSegments[i]);
-                bool sourceIsInt8 = reverseSourceOrder ? i == 0 : i == 1;
-                long sourceSeed = sourceIsInt8 ? sourceInt8Seed : sourceNoneSeed;
-                if (sourceIsInt8)
-                    Assert.Equal(sourceSeed, reader.GetHnswGraph("embedding")!.Seed);
-                else
-                    Assert.NotEqual(sourceSeed, reader.GetHnswGraph("embedding")!.Seed);
+                Assert.False(Assert.Single(importedSegments[i].VectorFields).HasHnsw);
+                Assert.Null(reader.GetHnswGraph("embedding"));
             }
+
+            Assert.Equal(sourceNoneSeed, ReadSingleVectorGraphSeed(sourceNone));
+            Assert.Equal(sourceSecondSeed, ReadSingleVectorGraphSeed(sourceSecond));
 
             Assert.Equal(2, writer.ForceMerge(1));
             writer.Commit();
@@ -354,71 +347,12 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
 
         SegmentInfo merged = Assert.Single(Directory.GetFiles(targetPath, "seg_*.seg")
             .Select(SegmentInfo.ReadFrom));
-        Assert.Equal(VectorQuantisation.Int8, Assert.Single(merged.VectorFields).Quantisation);
-        Assert.True(Assert.Single(merged.VectorFields).HasHnsw);
-        Assert.Single(Directory.GetFiles(targetPath, $"{merged.SegmentId}_v_*.vq"));
-        Assert.Empty(Directory.GetFiles(targetPath, $"{merged.SegmentId}_v_*.vec"));
+        Assert.Equal(VectorQuantisation.None, Assert.Single(merged.VectorFields).Quantisation);
+        Assert.False(Assert.Single(merged.VectorFields).HasHnsw);
+        Assert.Single(Directory.GetFiles(targetPath, $"{merged.SegmentId}_v_*.vec"));
+        Assert.Empty(Directory.GetFiles(targetPath, $"{merged.SegmentId}_v_*.vq"));
         using var mergedReader = new SegmentReader(targetDirectory, merged);
-        Assert.Equal(8, mergedReader.GetHnswGraph("embedding")!.NodeCount);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ForceMerge_UsesDestinationQuantisationRegardlessOfSourceOrder(bool reverseSourceOrder)
-    {
-        VectorQuantisation firstQuantisation = reverseSourceOrder
-            ? VectorQuantisation.Int8
-            : VectorQuantisation.None;
-        VectorQuantisation secondQuantisation = reverseSourceOrder
-            ? VectorQuantisation.None
-            : VectorQuantisation.Int8;
-        string targetPath = SubDir($"{nameof(ForceMerge_UsesDestinationQuantisationRegardlessOfSourceOrder)}_{reverseSourceOrder}");
-        using var targetDirectory = new MMapDirectory(targetPath);
-        var hnswConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 };
-        using var writer = new IndexWriter(targetDirectory, new IndexWriterConfig
-        {
-            MaxBufferedDocs = 10,
-            MergePolicy = NoMergePolicy.Instance,
-            MergeThreshold = 100,
-            BuildHnswOnFlush = true,
-            NormaliseVectors = true,
-            VectorQuantisation = firstQuantisation,
-            HnswBuildConfig = hnswConfig,
-        });
-
-        AddVectorDocuments(writer, firstDocumentId: 0, documentCount: 4);
-        writer.Commit();
-        writer.Config.VectorQuantisation = secondQuantisation;
-        AddVectorDocuments(writer, firstDocumentId: 4, documentCount: 4);
-        writer.Commit();
-
-        List<SegmentInfo> sourceSegments = Directory.GetFiles(targetPath, "seg_*.seg")
-            .Select(SegmentInfo.ReadFrom)
-            .OrderBy(static segment => SegmentOrdinal(segment.SegmentId))
-            .ToList();
-        Assert.Equal(2, sourceSegments.Count);
-        Assert.Equal(firstQuantisation, Assert.Single(sourceSegments[0].VectorFields).Quantisation);
-        Assert.Equal(secondQuantisation, Assert.Single(sourceSegments[1].VectorFields).Quantisation);
-
-        Dictionary<string, string> before = SnapshotFiles(targetPath);
-        writer.Config.VectorQuantisation = VectorQuantisation.BBQ;
-        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => writer.ForceMerge(1));
-        Assert.Contains("CodecReadOnly", exception.Message, StringComparison.Ordinal);
-        Assert.Equal(before, SnapshotFiles(targetPath));
-    }
-
-    private static void AddVectorDocuments(IndexWriter writer, int firstDocumentId, int documentCount)
-    {
-        for (int offset = 0; offset < documentCount; offset++)
-        {
-            int documentId = firstDocumentId + offset;
-            var vector = new float[128];
-            vector[documentId % vector.Length] = documentId + 1f;
-            var document = new LeanDocument();
-            document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
-            writer.AddDocument(document);
-        }
+        Assert.Null(mergedReader.GetHnswGraph("embedding"));
     }
 
     private string CreateVectorSourceIndex(
@@ -429,26 +363,28 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
         long hnswSeed)
     {
         string path = SubDir(name);
-        using var directory = new MMapDirectory(path);
-        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
         {
             MaxBufferedDocs = 10,
             MergeThreshold = 100,
             NormaliseVectors = normalised,
             VectorQuantisation = quantisation,
-            HnswSeed = hnswSeed,
-            HnswBuildConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 },
-        });
-
-        for (int docId = 0; docId < 4; docId++)
+            BuildHnswOnFlush = false,
+        }))
         {
-            var vector = new float[dimension];
-            vector[docId % dimension] = docId + 1f;
-            var document = new LeanDocument();
-            document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
-            writer.AddDocument(document);
+            for (int docId = 0; docId < 4; docId++)
+            {
+                var vector = new float[dimension];
+                vector[docId % dimension] = docId + 1f;
+                var document = new LeanDocument();
+                document.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vector)));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
         }
-        writer.Commit();
+        HistoricalHnswGraphFixtures.AttachToFloat32Index(path,
+            new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 }, seed: hnswSeed);
         return path;
     }
 
@@ -459,77 +395,6 @@ public sealed class SegmentMergerTests : IClassFixture<TestDirectoryFixture>
             .Select(SegmentInfo.ReadFrom));
         using var reader = new SegmentReader(directory, segment);
         return reader.GetHnswGraph("embedding")!.Seed;
-    }
-
-    [Theory]
-    [InlineData(VectorQuantisation.Int8)]
-    public void Merge_QuantisedHnswUsesFileBackedVectors(VectorQuantisation quantisation)
-    {
-        const int documentCount = 4;
-        var dir = SubDir($"{nameof(Merge_QuantisedHnswUsesFileBackedVectors)}_{quantisation}");
-        using var mmap = new MMapDirectory(dir);
-        var hnswConfig = new HnswBuildConfig { M = 2, M0 = 2, EfConstruction = 4 };
-        int dimension = 3;
-        ReadOnlyMemory<float>[] vectors =
-        [
-            MakeVector(dimension, (0, 1f)),
-            MakeVector(dimension, (0, 0.8f), (1, 0.2f)),
-            MakeVector(dimension, (1, 1f)),
-            MakeVector(dimension, (1, 0.2f), (2, 0.8f)),
-        ];
-
-        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
-        {
-            MaxBufferedDocs = documentCount / 2,
-            MergeThreshold = 100,
-            BuildHnswOnFlush = true,
-            NormaliseVectors = true,
-            VectorQuantisation = quantisation,
-            HnswSeed = 17L,
-            HnswBuildConfig = hnswConfig,
-        }))
-        {
-            for (int docId = 0; docId < vectors.Length; docId++)
-            {
-                var document = new LeanDocument();
-                document.Add(new VectorField("embedding", vectors[docId]));
-                writer.AddDocument(document);
-            }
-            writer.Commit();
-        }
-
-        List<SegmentInfo> sourceSegments = Directory.GetFiles(dir, "seg_*.seg")
-            .Select(SegmentInfo.ReadFrom)
-            .OrderBy(static segment => segment.SegmentId, StringComparer.Ordinal)
-            .ToList();
-        Assert.Equal(2, sourceSegments.Count);
-        int nextOrdinal = sourceSegments.Count;
-        var merger = new SegmentMerger(mmap, new TieredMergePolicy(100), SegmentMerger.DefaultSkipInterval,
-            softDeleteRetentionSeconds: 0, hnswBuildConfig: hnswConfig, useCompoundFile: false,
-            destinationVectorQuantisation: quantisation);
-        SegmentInfo merged = Assert.IsType<SegmentInfo>(merger.MergeAll(sourceSegments, ref nextOrdinal));
-
-        Assert.Contains(merged.VectorFields, field =>
-            field.FieldName == "embedding" && field.Quantisation == quantisation && field.HasHnsw);
-        Assert.Single(Directory.GetFiles(dir, $"{merged.SegmentId}_v_*.vq"));
-        Assert.Empty(Directory.GetFiles(dir, $"{merged.SegmentId}_v_*.vec"));
-
-        using var reader = new SegmentReader(mmap, merged);
-        Assert.Equal(documentCount, reader.GetHnswGraph("embedding")!.NodeCount);
-        for (int docId = 0; docId < documentCount; docId++)
-        {
-            float[] vector = Assert.IsType<float[]>(reader.GetVector("embedding", docId));
-            Assert.Equal(dimension, vector.Length);
-            Assert.All(vector, static value => Assert.True(float.IsFinite(value)));
-        }
-    }
-
-    private static float[] MakeVector(int dimension, params (int Index, float Value)[] components)
-    {
-        var vector = new float[dimension];
-        foreach ((int index, float value) in components)
-            vector[index] = value;
-        return vector;
     }
 
     /// <summary>

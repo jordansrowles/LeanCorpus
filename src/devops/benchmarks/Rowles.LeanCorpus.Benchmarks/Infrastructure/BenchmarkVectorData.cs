@@ -26,9 +26,9 @@ internal static class BenchmarkVectorData
 
     public static void ValidateSupportedQuantisation(VectorQuantisation quantisation)
     {
-        if (quantisation is not (VectorQuantisation.None or VectorQuantisation.Int8))
+        if (quantisation != VectorQuantisation.None)
             throw new NotSupportedException(
-                $"Vector benchmark creation supports Float32 and Int8; {quantisation} is not a supported output representation.");
+                $"Vector benchmark creation supports Float32 exact search only; {quantisation} writes are retired.");
     }
 
     public static BenchmarkVectorDataset Get(int count, int dimension)

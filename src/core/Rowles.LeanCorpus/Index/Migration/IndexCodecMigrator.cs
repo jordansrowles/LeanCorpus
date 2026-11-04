@@ -1232,11 +1232,12 @@ public static class IndexCodecMigrator
 
         if (behaviour == CodecMigrationBehaviour.Reframe)
         {
+            CodecRepresentationIdentity? sourceIdentity = null;
             CodecRepresentationIdentity? targetIdentity = null;
             if (context.Descriptor.LifecyclePolicy is not null)
             {
                 using var vector = QuantisedVectorReader.Open(context.SourcePath);
-                var sourceIdentity = vector.LifecycleIdentity;
+                sourceIdentity = vector.LifecycleIdentity;
                 targetIdentity = QuantisedVectorLifecyclePolicy.Identity(
                     context.Descriptor.WritableFormatVersion ?? throw new InvalidDataException("Quantised vector codec has no writable target version."),
                     vector.StorageKind);
@@ -1244,7 +1245,7 @@ public static class IndexCodecMigrator
                 if (!decision.IsAllowed)
                     throw new InvalidOperationException($"{decision.ReasonCode}: {decision.Explanation}");
             }
-            ReframeCodecFile(context.SourcePath, context.TargetPath, context.Descriptor, targetIdentity);
+            ReframeCodecFile(context.SourcePath, context.TargetPath, context.Descriptor, sourceIdentity, targetIdentity);
             return;
         }
 
@@ -1392,8 +1393,10 @@ public static class IndexCodecMigrator
                 throw new InvalidDataException("Quantised vector source body is internally inconsistent.");
         }
 
-        CodecFileWriter.WriteAtomically(context.TargetPath, context.Descriptor,
-            QuantisedVectorLifecyclePolicy.Identity(context.Descriptor.CurrentFormatVersion!.Value, storageKind), durable: true, output =>
+        CodecFileWriter.WriteMigratedAtomically(context.TargetPath, context.Descriptor,
+            QuantisedVectorLifecyclePolicy.Identity(frame.FormatVersion, storageKind),
+            QuantisedVectorLifecyclePolicy.Identity(context.Descriptor.CurrentFormatVersion!.Value, storageKind),
+            durable: true, output =>
         {
             output.WriteBytes(header, 0, header.Length);
             output.WriteBytes(presence, 0, presence.Length);
@@ -1691,6 +1694,7 @@ public static class IndexCodecMigrator
         string sourcePath,
         string targetPath,
         CodecFileDescriptor descriptor,
+        CodecRepresentationIdentity? sourceIdentity,
         CodecRepresentationIdentity? targetIdentity)
     {
         string temporaryPath = targetPath + ".tmp";
@@ -1699,7 +1703,7 @@ public static class IndexCodecMigrator
             using var input = new IndexInput(sourcePath);
             if (SupportsLegacyFraming(descriptor, CodecLegacyFraming.Headerless))
             {
-                WriteReframedFile(temporaryPath, descriptor, targetIdentity, bodyOutput =>
+                WriteReframedFile(temporaryPath, descriptor, sourceIdentity, targetIdentity, bodyOutput =>
                 {
                     long remaining = input.Length;
                     while (remaining > 0)
@@ -1713,7 +1717,7 @@ public static class IndexCodecMigrator
             else
             {
                 using var frame = CodecFileReader.OpenSupported(input, descriptor);
-                WriteReframedFile(temporaryPath, descriptor, targetIdentity, bodyOutput =>
+                WriteReframedFile(temporaryPath, descriptor, sourceIdentity, targetIdentity, bodyOutput =>
                 {
                     long remaining = frame.BodyLength;
                     while (remaining > 0)
@@ -1737,11 +1741,14 @@ public static class IndexCodecMigrator
     private static void WriteReframedFile(
         string path,
         CodecFileDescriptor descriptor,
+        CodecRepresentationIdentity? sourceIdentity,
         CodecRepresentationIdentity? identity,
         Action<CodecBodyOutput> writeBody)
     {
-        if (identity is { } target)
-            CodecFileWriter.WriteAtomically(path, descriptor, target, durable: true, writeBody);
+        if (sourceIdentity is { } source && identity is { } targetIdentity)
+            CodecFileWriter.WriteMigratedAtomically(path, descriptor, source, targetIdentity, durable: true, writeBody);
+        else if (identity is { } createIdentity)
+            CodecFileWriter.WriteAtomically(path, descriptor, createIdentity, durable: true, writeBody);
         else
             CodecFileWriter.WriteAtomically(path, descriptor, durable: true, writeBody);
     }

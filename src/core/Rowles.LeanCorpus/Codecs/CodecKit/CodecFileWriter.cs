@@ -70,6 +70,34 @@ public static class CodecFileWriter
             dropPageCache: dropPageCache);
     }
 
+    /// <summary>Writes a canonical target only when the catalogue permits this source-to-target migration.</summary>
+    internal static void WriteMigratedAtomically(
+        string path,
+        CodecFileDescriptor descriptor,
+        CodecRepresentationIdentity sourceIdentity,
+        CodecRepresentationIdentity targetIdentity,
+        bool durable,
+        Action<CodecBodyOutput> writeBody,
+        bool dropPageCache = false)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        if (descriptor.CurrentFraming != CodecFramingPolicy.Canonical || !descriptor.CurrentFormatVersion.HasValue)
+            throw new ArgumentException($"Codec format '{descriptor.FormatId}' is not a versioned canonical format.", nameof(descriptor));
+
+        var decision = descriptor.Evaluate(CodecLifecycleOperation.Migrate, sourceIdentity, targetIdentity);
+        if (!decision.IsAllowed)
+            throw new InvalidOperationException($"{decision.ReasonCode}: {decision.Explanation}");
+
+        WriteAtomically(
+            path,
+            descriptor.FormatId,
+            descriptor.CurrentFormatVersion.Value,
+            durable,
+            writeBody,
+            checksumAlgorithm: ToFrameChecksum(descriptor.ChecksumPolicy),
+            dropPageCache: dropPageCache);
+    }
+
     /// <summary>Writes and atomically publishes one complete canonical codec file.</summary>
     public static void WriteAtomically(
         string path,

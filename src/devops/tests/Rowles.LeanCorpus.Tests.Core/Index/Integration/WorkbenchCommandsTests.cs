@@ -134,8 +134,25 @@ public sealed class WorkbenchCommandsTests : IClassFixture<TestDirectoryFixture>
 
         Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
         Assert.StartsWith(
-            "The 'vector-bbq' preset is retired. New vector indexes support Float32 and Int8; use 'vector-hnsw' or 'vector-int8'.",
+            "The 'vector-bbq' preset is retired. New vector indexes support Float32 exact search only; historical Int8 and BBQ data remain readable.",
             error.ToString());
+        Assert.Empty(output.ToString());
+        Assert.False(Directory.Exists(path));
+    }
+
+    [Theory]
+    [InlineData("vector-hnsw")]
+    [InlineData("vector-int8")]
+    public void CreatePreset_RetiredVectorModesFailBeforeCreatingAnIndex(string preset)
+    {
+        string path = Path.Combine(_fixture.Path, $"workbench-retired-{preset}");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = IndexCheckerCli.Run(["create", "preset", preset, path, "--json"], output, error);
+
+        Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
+        Assert.Contains($"The '{preset}' preset is retired. New vector indexes support Float32 exact search only", error.ToString());
         Assert.Empty(output.ToString());
         Assert.False(Directory.Exists(path));
     }

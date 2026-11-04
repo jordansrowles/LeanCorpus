@@ -203,9 +203,7 @@ public class CompoundFileBenchmarks
             MaxBufferedDocs = 1_000,
             RamBufferSizeMB = 256,
             UseCompoundFile = useCompoundFile,
-            BuildHnswOnFlush = true,
             NormaliseVectors = true,
-            HnswSeed = 1L
         });
         int vectorDocumentCount = Math.Min(DocumentCount, 10_000);
         for (int i = 0; i < vectorDocumentCount; i++)

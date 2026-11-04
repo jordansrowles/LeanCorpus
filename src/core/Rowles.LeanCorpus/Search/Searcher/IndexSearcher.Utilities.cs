@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Threading;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Search.Aggregations;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
@@ -159,7 +160,10 @@ public sealed partial class IndexSearcher
         if (indexBoost != 1.0f)
             similarity *= indexBoost;
 
-        var graph = reader.GetHnswGraph(query.Field);
+        VectorQuantisation quantisation = fieldInfo?.Quantisation ?? VectorQuantisation.None;
+        bool usesHistoricalBbqGraph = quantisation == VectorQuantisation.BBQ;
+        bool retiredGraphIgnored = fieldInfo?.HasHnsw == true && !usesHistoricalBbqGraph;
+        var graph = usesHistoricalBbqGraph ? reader.GetHnswGraph(query.Field) : null;
         bool hasGraph = graph is not null && graph.NodeCount > 0;
         int availableCandidates = hasGraph ? graph!.NodeCount : reader.MaxDoc;
         int shortlistSize = query.GetShortlistSize(availableCandidates, reader.UsesBbqOsq(query.Field));
@@ -176,7 +180,7 @@ public sealed partial class IndexSearcher
             double selectivity = liveCount > 0 ? (double)matched / liveCount : 1.0;
 
             if (!hasGraph)
-                strategy = "flat-scan + filter";
+                strategy = ExactVectorStrategy(quantisation, retiredGraphIgnored, withFilter: true);
             else if (matched < 64 || selectivity < 0.005)
                 strategy = "brute-force on filter (highly selective)";
             else if (selectivity < 0.05)
@@ -192,13 +196,21 @@ public sealed partial class IndexSearcher
         }
         else
         {
-            strategy = hasGraph ? "HNSW two-phase" : "flat-scan";
+            strategy = hasGraph
+                ? "HNSW two-phase"
+                : ExactVectorStrategy(quantisation, retiredGraphIgnored, withFilter: false);
         }
 
         details.Add(new Explanation { Score = query.EfSearch, Description = $"efSearch={query.EfSearch}" });
         details.Add(new Explanation { Score = shortlistSize, Description = $"shortlistSize={shortlistSize} (topK*oversampling)" });
         if (hasGraph)
             details.Add(new Explanation { Score = graph!.NodeCount, Description = $"hnswNodeCount={graph.NodeCount}" });
+        if (retiredGraphIgnored)
+            details.Add(new Explanation
+            {
+                Score = 0f,
+                Description = "An existing HNSW graph was ignored because graph search is retired; persisted vectors were scanned exactly."
+            });
         if (query.Boost != 1.0f)
             details.Add(new Explanation { Score = query.Boost, Description = $"queryBoost={query.Boost}" });
         details.Add(new Explanation { Score = indexBoost, Description = $"indexBoost={indexBoost}" });
@@ -209,6 +221,24 @@ public sealed partial class IndexSearcher
             Description = $"cosine similarity for field '{query.Field}'; strategy: {strategy}",
             Details = details.ToArray()
         };
+    }
+
+    private static string ExactVectorStrategy(
+        VectorQuantisation quantisation,
+        bool retiredGraphIgnored,
+        bool withFilter)
+    {
+        string strategy = quantisation switch
+        {
+            VectorQuantisation.None => "exact Float32 scan",
+            VectorQuantisation.Int8 => "exact decoded Int8 scan",
+            _ => "flat-scan",
+        };
+        if (withFilter)
+            strategy += " + filter";
+        if (retiredGraphIgnored)
+            strategy += " (stored HNSW graph ignored because graph search is retired)";
+        return strategy;
     }
 
     /// <summary>

@@ -97,7 +97,7 @@ var ids = new Int64PointInSetQuery("accountId", [12L, 48L, 91L]);
 
 | Query | Use it for | Guide |
 |---|---|---|
-| `VectorQuery` | Exact or HNSW nearest-neighbour search, optionally filtered | [Vector search](../advanced/05-vector-search.md) |
+| `VectorQuery` | Exact Float32 or decoded historical Int8 nearest-neighbour search, optionally filtered | [Vector search](../advanced/05-vector-search.md) |
 | `BlockJoinQuery` | Parent documents whose child documents match | [Block join](../advanced/06-block-join.md) |
 | `MoreLikeThisQuery` | Documents similar to source text or a source document | [More Like This](../advanced/07-more-like-this.md) |
 | `GeoBoundingBoxQuery` | Points inside a latitude/longitude rectangle | [Geo search](../advanced/10-geo-search.md) |

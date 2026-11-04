@@ -44,9 +44,8 @@ internal sealed record HnswSearchBudgetMeasurement(
     int ShortlistSize);
 
 /// <summary>
-/// Measures HNSW search against an exact flat reference over the same vectors.
-/// The reference row is deliberately scalar because Lucene.NET 4.8 has no
-/// native vector or HNSW search API.
+/// Quarantined pre-remediation source retained for BVAL-09 audit provenance.
+/// The class is unregistered and its methods are not BenchmarkDotNet benchmarks.
 /// </summary>
 [MemoryDiagnoser]
 [MarkdownExporterAttribute.GitHub]
@@ -650,7 +649,6 @@ public class HnswSearchBenchmarks
             : Path.GetRelativePath(Path.GetFullPath(artifactRoot), path).Replace('\\', '/');
     }
 
-    [Benchmark(Baseline = true, Description = "Exact flat scan")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int FlatScan()
     {
@@ -659,7 +657,6 @@ public class HnswSearchBenchmarks
         return ResultChecksum(result);
     }
 
-    [Benchmark(Description = "HNSW two-phase")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int Hnsw()
     {
@@ -673,7 +670,6 @@ public class HnswSearchBenchmarks
         return checksum;
     }
 
-    [Benchmark(Description = "Reference scalar flat scan")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int Reference_ScalarFlatScan()
     {

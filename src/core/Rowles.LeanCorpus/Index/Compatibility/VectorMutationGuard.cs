@@ -5,7 +5,7 @@ using Rowles.LeanCorpus.Store;
 
 namespace Rowles.LeanCorpus.Index.Compatibility;
 
-/// <summary>Checks every quantised source before any index mutation, including deleted fields.</summary>
+/// <summary>Checks quantised sources before mutation; historical Int8 may only be rewritten to Float32 output.</summary>
 internal static class VectorMutationGuard
 {
     internal static void EnsureCanRewrite(MMapDirectory directory, IEnumerable<SegmentInfo> segments)

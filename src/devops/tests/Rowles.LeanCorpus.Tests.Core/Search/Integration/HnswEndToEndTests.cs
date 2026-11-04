@@ -52,7 +52,7 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         return vectors;
     }
 
-    [Fact(DisplayName = "HNSW: Search returns requested top K when efSearch is smaller")]
+    [Fact(DisplayName = "Exact vector search returns requested top K independent of efSearch")]
     public void Search_ReturnsRequestedTopK_WhenEfSearchIsSmaller()
     {
         const int documentCount = 128;
@@ -62,7 +62,7 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         var directory = new MMapDirectory(SubDir("hnsw_ef_below_top_k"));
         var config = new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
             HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
             HnswSeed = 1L,
@@ -88,7 +88,7 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(topK, results.ScoreDocs.Length);
     }
 
-    [Fact(DisplayName = "HNSW: Large top K and oversampling do not overflow the shortlist")]
+    [Fact(DisplayName = "Exact vector search handles large top K and oversampling")]
     public void Search_LargeTopKAndOversampling_DoNotOverflowShortlist()
     {
         const int documentCount = 128;
@@ -97,7 +97,7 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         var directory = new MMapDirectory(SubDir("hnsw_large_oversampling"));
         var config = new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
             HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
             HnswSeed = 1L,
@@ -129,13 +129,13 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(documentCount, results.TotalHits);
     }
 
-    [Fact(DisplayName = "HNSW: Search refills top K after deleting the nearest vector")]
+    [Fact(DisplayName = "Exact vector search skips a deleted nearest vector and refills top K")]
     public void Search_DeletedNearestVector_IsSkippedAndTopKIsRefilled()
     {
         var directory = new MMapDirectory(SubDir("hnsw_deleted_nearest_vector"));
         var config = new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
             HnswBuildConfig = new HnswBuildConfig { M = 4, M0 = 8, EfConstruction = 16 },
             HnswSeed = 7L,
@@ -176,13 +176,13 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
     /// <summary>
     /// Verifies the HNSW Search: Recall Against Flat Baseline scenario.
     /// </summary>
-    [Fact(DisplayName = "HNSW Search: Recall Against Flat Baseline")]
-    public void HnswSearch_RecallAgainstFlatBaseline()
+    [Fact(DisplayName = "Exact vector search matches the flat cosine oracle")]
+    public void ExactVectorSearch_MatchesFlatBaseline()
     {
         var dir = new MMapDirectory(SubDir("hnsw_e2e_recall"));
         var config = new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
             HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
             HnswSeed = 1337L,
@@ -221,7 +221,7 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         var found = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
         int overlap = found.Intersect(truth).Count();
         double recall = overlap / (double)topK;
-        Assert.True(recall >= 0.8, $"Recall {recall:F2} below 0.80 threshold.");
+        Assert.Equal(1d, recall);
     }
 
     /// <summary>
@@ -233,7 +233,7 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         var dir = new MMapDirectory(SubDir("hnsw_multi_field"));
         var cfg = new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
             HnswBuildConfig = new HnswBuildConfig { M = 8, M0 = 16, EfConstruction = 50 },
             HnswSeed = 7L,
@@ -259,19 +259,19 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         var resA = searcher.Search(new VectorQuery("vecA", [1f, 0f, 0f, 0f], topK: 1), 1, TestContext.Current.CancellationToken);
-        Assert.Equal(1, resA.TotalHits);
+        Assert.Equal(2, resA.TotalHits);
         Assert.Equal(0, resA.ScoreDocs[0].DocId);
 
         var resB = searcher.Search(new VectorQuery("vecB", [1f, 0f, 0f, 0f], topK: 1), 1, TestContext.Current.CancellationToken);
-        Assert.Equal(1, resB.TotalHits);
+        Assert.Equal(2, resB.TotalHits);
         Assert.Equal(1, resB.ScoreDocs[0].DocId);
     }
 
     /// <summary>
     /// Verifies the HNSW Disabled: Falls Back To Flat Scan scenario.
     /// </summary>
-    [Fact(DisplayName = "HNSW Disabled: Falls Back To Flat Scan")]
-    public void HnswDisabled_FallsBackToFlatScan()
+    [Fact(DisplayName = "Vector search uses exact scan")]
+    public void VectorSearch_UsesExactScan()
     {
         var dir = new MMapDirectory(SubDir("hnsw_disabled"));
         var cfg = new IndexWriterConfig { BuildHnswOnFlush = false };

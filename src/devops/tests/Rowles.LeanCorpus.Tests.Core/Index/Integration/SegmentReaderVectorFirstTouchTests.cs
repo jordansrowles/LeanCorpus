@@ -7,6 +7,7 @@ using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -109,10 +110,8 @@ public sealed class SegmentReaderVectorFirstTouchTests : IDisposable
         using (var directory = new MMapDirectory(_path))
         using (var writer = new IndexWriter(directory, new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             DurableCommits = false,
-            HnswBuildConfig = new HnswBuildConfig { M = 4, M0 = 8, EfConstruction = 16 },
-            HnswSeed = 1L,
             MaxBufferedDocs = DocumentCount + 1,
             MergePolicy = NoMergePolicy.Instance,
             NormaliseVectors = false,
@@ -128,7 +127,8 @@ public sealed class SegmentReaderVectorFirstTouchTests : IDisposable
             writer.Commit();
         }
 
-        return Assert.Single(IndexRecovery.RecoverLatestCommit(_path, cleanupOrphans: false)!.SegmentInfos);
+        return Assert.Single(HistoricalHnswGraphFixtures.AttachToFloat32Index(
+            _path, new HnswBuildConfig { M = 4, M0 = 8, EfConstruction = 16 }, seed: 1L));
     }
 
     private static float[] ExpectedVector(int field, int docId)

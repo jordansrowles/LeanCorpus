@@ -63,7 +63,7 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
         {
             IndexSort = new IndexSort(SortField.String("sort:id")),
             UseCompoundFile = compound,
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             HnswSeed = 311400,
             NormaliseVectors = false,
             MergePolicy = NoMergePolicy.Instance,
@@ -73,7 +73,7 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
             writer.Commit();
         }
         AssertSnapshotEqual(before, AssertCorpus(target, manifest, merged: true), merged: true);
-        AssertCurrentFormats(target, manifest);
+        AssertCurrentFormats(target, manifest, expectHistoricalGraphs: false);
         Release311Fixture.VerifyFiles(manifest, source);
     }
 
@@ -306,7 +306,7 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
         }).ToArray();
     }
 
-    private static void AssertCurrentFormats(string path, JsonElement manifest)
+    private static void AssertCurrentFormats(string path, JsonElement manifest, bool expectHistoricalGraphs = true)
     {
         using var directory = new MMapDirectory(path);
         // Migration retains original immutable bytes. After commit retention runs,
@@ -321,14 +321,16 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
             using ISegmentFileSource source = segment.IsCompoundFile
                 ? new CompoundSegmentFileSource(directory, segment.SegmentId)
                 : new LooseSegmentFileSource(directory, segment.SegmentId);
-            foreach (var (name, descriptor, version) in new[]
+            var expectedFiles = new List<(string Name, CodecFileDescriptor Descriptor, byte Version)>
             {
                 (segment.SegmentId + ".fdt", StoredFieldsCodecFiles.Data, 5),
                 (segment.SegmentId + ".fdx", StoredFieldsCodecFiles.Index, 5),
                 (segment.SegmentId + ".dvs", DocValuesCodecFiles.Sorted, 3),
                 (VectorFilePaths.VectorFile(segment.SegmentId, "embedding"), VectorCodecFiles.Float32, 2),
-                (VectorFilePaths.HnswFile(segment.SegmentId, "embedding"), VectorCodecFiles.Hnsw, 1),
-            })
+            };
+            if (expectHistoricalGraphs && segment.VectorFields.Any(static field => field.HasHnsw))
+                expectedFiles.Add((VectorFilePaths.HnswFile(segment.SegmentId, "embedding"), VectorCodecFiles.Hnsw, 1));
+            foreach (var (name, descriptor, version) in expectedFiles)
             {
                 using var input = source.OpenInput(name);
                 using var frame = CodecFileReader.OpenSupported(input, descriptor);

@@ -3,6 +3,7 @@ using System.Numerics;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Codecs.Postings;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Search.Geo;
 using Rowles.LeanCorpus.Search.Searcher.Internal;
@@ -1231,7 +1232,9 @@ public sealed partial class IndexSearcher
             ? new LiveDocsPostFilterMask(reader, queryFilterMask)
             : queryFilterMask;
 
-        var graph = reader.GetHnswGraph(query.Field);
+        bool usesHistoricalBbqGraph = fieldInfo.Quantisation == VectorQuantisation.BBQ;
+        bool retiredGraphIgnored = fieldInfo.HasHnsw && !usesHistoricalBbqGraph;
+        var graph = usesHistoricalBbqGraph ? reader.GetHnswGraph(query.Field) : null;
         bool hasGraph = graph is not null && graph.NodeCount > 0;
         int availableCandidates = hasGraph ? graph!.NodeCount : reader.MaxDoc;
         bool isBbqV3 = reader.UsesBbqOsq(query.Field);
@@ -1338,10 +1341,12 @@ public sealed partial class IndexSearcher
         // Flat-scan fallback (with optional filter).
         if (filterBitmap is not null)
         {
-            BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
+            int scannedVectors = BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
+            _config.Metrics.RecordVectorExactScan(scannedVectors, retiredGraphIgnored);
             return;
         }
 
+        int exactScannedVectors = 0;
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
             if (!reader.IsLive(docId)) continue;
@@ -1351,7 +1356,9 @@ public sealed partial class IndexSearcher
             similarity = ApplyVectorQueryBoost(query, similarity);
             similarity = ApplyFieldBoost(reader, docId, query.Field, similarity);
             collector.Collect(docBase + docId, similarity);
+            exactScannedVectors++;
         }
+        _config.Metrics.RecordVectorExactScan(exactScannedVectors, retiredGraphIgnored);
     }
 
     private int BruteForceFilter(

@@ -8,7 +8,7 @@ LeanCorpus has built-in instrumentation for metrics, tracing, and diagnostics. Y
 
 [`IMetricsCollector`](01-metrics.md) is the metrics interface. Two implementations ship in the box:
 
-- **`DefaultMetricsCollector`**: In-process counters with `Interlocked` updates. Call `GetSnapshot()` for search count, average latency, cache hit rate, flush and merge statistics, HNSW node visits, and a latency histogram with 8 buckets from sub-millisecond to 1+ second.
+- **`DefaultMetricsCollector`**: In-process counters with `Interlocked` updates. Call `GetSnapshot()` for search count, average latency, cache hit rate, flush and merge statistics, intentional exact vector scans and vectors scored, historical HNSW graph bypasses, and a latency histogram with 8 buckets from sub-millisecond to 1+ second.
 
 - **`MeterMetricsCollector`**: Publishes through `System.Diagnostics.Metrics` under the `Rowles.LeanCorpus` meter name. Compatible with OpenTelemetry's OTLP metrics exporter, Prometheus, and any `MeterListener`-based collector.
 

@@ -35,6 +35,9 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private readonly Counter<long> _hnswExhaustiveFallbacks;
     private readonly Counter<long> _hnswSelectiveFilterScans;
     private readonly Histogram<long> _hnswSelectiveFilterVectorsScanned;
+    private readonly Counter<long> _vectorExactScans;
+    private readonly Histogram<long> _vectorExactVectorsScanned;
+    private readonly Counter<long> _vectorRetiredHnswExactScans;
     private readonly Histogram<double> _hnswBuildDuration;
     private readonly Histogram<long> _hnswBuildSize;
 
@@ -78,6 +81,9 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private long _snHnswExhaustiveFallbackCount;
     private long _snHnswSelectiveFilterScanCount;
     private long _snHnswSelectiveFilterVectorsScanned;
+    private long _snVectorExactScanCount;
+    private long _snVectorExactVectorsScanned;
+    private long _snVectorRetiredHnswExactScanCount;
     private long _snHnswBuildCount;
     private long _snHnswBuildTotalMs;
     private long _snHnswNodesBuilt;
@@ -172,6 +178,16 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
         _hnswSelectiveFilterVectorsScanned = _meter.CreateHistogram<long>(
             "leancorpus.hnsw.search.selective_filter_vectors_scanned", unit: "{vector}",
             description: "Vectors scored by highly selective HNSW filter scans.");
+
+        _vectorExactScans = _meter.CreateCounter<long>(
+            "leancorpus.vector.search.exact_scans", unit: "{query}",
+            description: "Intentional exact vector scans, separate from HNSW underfill fallback scans.");
+        _vectorExactVectorsScanned = _meter.CreateHistogram<long>(
+            "leancorpus.vector.search.exact_scanned_vectors", unit: "{vector}",
+            description: "Vectors scored by intentional exact vector scans.");
+        _vectorRetiredHnswExactScans = _meter.CreateCounter<long>(
+            "leancorpus.vector.search.retired_hnsw_exact_scans", unit: "{query}",
+            description: "Exact vector scans that ignored an existing retired HNSW graph.");
 
         _hnswBuildDuration = _meter.CreateHistogram<double>(
             "leancorpus.hnsw.build.duration", unit: "ms",
@@ -298,6 +314,21 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     }
 
     /// <inheritdoc/>
+    public void RecordVectorExactScan(int vectorsScanned, bool retiredHnswGraphIgnored)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(vectorsScanned);
+        _vectorExactScans.Add(1);
+        _vectorExactVectorsScanned.Record(vectorsScanned);
+        Interlocked.Increment(ref _snVectorExactScanCount);
+        Interlocked.Add(ref _snVectorExactVectorsScanned, vectorsScanned);
+        if (retiredHnswGraphIgnored)
+        {
+            _vectorRetiredHnswExactScans.Add(1);
+            Interlocked.Increment(ref _snVectorRetiredHnswExactScanCount);
+        }
+    }
+
+    /// <inheritdoc/>
     public void RecordHnswBuild(TimeSpan elapsed, int nodes)
     {
         double ms = elapsed.TotalMilliseconds;
@@ -351,7 +382,10 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
             HnswSelectiveFilterVectorsScanned = Interlocked.Read(ref _snHnswSelectiveFilterVectorsScanned),
             HnswBuildCount = Interlocked.Read(ref _snHnswBuildCount),
             HnswBuildTotalMs = Interlocked.Read(ref _snHnswBuildTotalMs),
-            HnswNodesBuilt = Interlocked.Read(ref _snHnswNodesBuilt)
+            HnswNodesBuilt = Interlocked.Read(ref _snHnswNodesBuilt),
+            VectorExactScanCount = Interlocked.Read(ref _snVectorExactScanCount),
+            VectorExactVectorsScanned = Interlocked.Read(ref _snVectorExactVectorsScanned),
+            VectorRetiredHnswExactScanCount = Interlocked.Read(ref _snVectorRetiredHnswExactScanCount)
         };
     }
 

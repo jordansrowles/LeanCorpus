@@ -107,8 +107,7 @@
       "Benchmarks": [
         "TermQueryBenchmarks",
         "BooleanQueryBenchmarks",
-        "PhraseQueryBenchmarks",
-        "HnswSearchBenchmarks"
+        "PhraseQueryBenchmarks"
       ]
     },
     "CachingGraphEdges": {

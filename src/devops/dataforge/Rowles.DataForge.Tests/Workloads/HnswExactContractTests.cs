@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Rowles.DataForge.Workloads;
 using Rowles.LeanCorpus.Benchmarks;
 using Rowles.LeanCorpus.Codecs.Vectors;
@@ -10,59 +9,8 @@ namespace Rowles.DataForge.Tests.Workloads;
 public sealed class VectorBenchmarkProcessStateCollection;
 
 [Collection("Vector benchmark process state")]
-public sealed class HnswExactContractTests
+public sealed class ExactFloat32ContractTests
 {
-    [Fact]
-    public void NearDuplicateFloat32_ValidatesExactTiesAndStillRejectsLiteralAnnFailure()
-    {
-        var benchmark = new HnswSearchBenchmarks
-        {
-            DocCount = 300,
-            Dimension = 64,
-            Distribution = VectorDistribution.NearDuplicate,
-            QuerySeed = 42,
-            Quantisation = VectorQuantisation.None,
-        };
-        try
-        {
-            var failure = Assert.Throws<InvalidOperationException>(benchmark.Setup);
-            Assert.StartsWith("HNSW docCount=300", failure.Message);
-            Assert.Contains("mean recall@1", failure.Message);
-            string root = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR")!;
-            string hash = BenchmarkVectorData.Get(300, 64, VectorDistribution.NearDuplicate, 42, 42, 4)
-                .Identity.ContentSha256;
-            using JsonDocument exact = ReadQuality(root, "hnsw-exact", hash);
-            Assert.Equal("exact-float32-score-and-boundary-ties", exact.RootElement.GetProperty("qualityBasis").GetString());
-            Assert.True(exact.RootElement.GetProperty("qualityPassed").GetBoolean());
-            Assert.False(exact.RootElement.GetProperty("literalRecallSummary").GetProperty("passed").GetBoolean());
-            Assert.Equal(12, exact.RootElement.GetProperty("qualitySummary").GetProperty("results").GetArrayLength());
-            using JsonDocument graph = ReadQuality(root, "hnsw", hash);
-            Assert.Equal("literal-source-recall", graph.RootElement.GetProperty("qualityBasis").GetString());
-            Assert.False(graph.RootElement.GetProperty("qualityPassed").GetBoolean());
-        }
-        finally
-        {
-            benchmark.Cleanup();
-        }
-    }
-
-    [Fact]
-    public void NearDuplicateInt8_StillRejectsSourceRelativeExactQualityFailure()
-    {
-        var benchmark = new HnswSearchBenchmarks
-        {
-            DocCount = 300, Dimension = 64, Distribution = VectorDistribution.NearDuplicate,
-            QuerySeed = 42, Quantisation = VectorQuantisation.Int8,
-        };
-        try
-        {
-            var failure = Assert.Throws<InvalidOperationException>(benchmark.Setup);
-            Assert.StartsWith("Exact vector search quantisation=Int8", failure.Message);
-            Assert.Contains("mean recall@1", failure.Message);
-        }
-        finally { benchmark.Cleanup(); }
-    }
-
     [Fact]
     public void ExactBoundaryTie_AllowsAnEligibleNeighbourWithinTheFixedTolerance()
     {
@@ -142,19 +90,5 @@ public sealed class HnswExactContractTests
 
         Assert.Throws<InvalidOperationException>(() => BenchmarkVectorData.WriteVectorQualityGroup(
             dataset, "exact-evidence", scenario, new { }, queryResults, incomplete));
-    }
-
-    private static JsonDocument ReadQuality(string root, string benchmark, string corpusHash)
-    {
-        foreach (string path in Directory.GetFiles(Path.Combine(root, "vector-recall"), "*.json"))
-        {
-            var document = JsonDocument.Parse(File.ReadAllText(path));
-            if (document.RootElement.GetProperty("benchmark").GetString() == benchmark
-                && document.RootElement.GetProperty("contentSha256").GetString() == corpusHash
-                && document.RootElement.GetProperty("benchmarkParameters").GetProperty("quantisation").GetString() == "None")
-                return document;
-            document.Dispose();
-        }
-        throw new InvalidOperationException($"Missing {benchmark} evidence for {corpusHash}.");
     }
 }

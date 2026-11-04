@@ -77,7 +77,7 @@ public sealed class HnswFilteredTests : IClassFixture<TestDirectoryFixture>
     {
         var cfg = new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
             HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
             HnswSeed = 1L,
@@ -107,7 +107,7 @@ public sealed class HnswFilteredTests : IClassFixture<TestDirectoryFixture>
     {
         var cfg = new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
             HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
             HnswSeed = 2L,
@@ -128,7 +128,7 @@ public sealed class HnswFilteredTests : IClassFixture<TestDirectoryFixture>
         }
 
         var searcherMetrics = new DefaultMetricsCollector();
-        using var searcher = new IndexSearcher(dir, new IndexSearcherConfig { Metrics = searcherMetrics });
+        using var searcher = new IndexSearcher(dir, new IndexSearcherConfig { EnableQueryCache = false, Metrics = searcherMetrics });
         var query = new VectorQuery(
             "emb",
             vecs[5], // doc 5 should be the closest match (cos = 1)
@@ -143,8 +143,9 @@ public sealed class HnswFilteredTests : IClassFixture<TestDirectoryFixture>
         var metrics = searcherMetrics.GetSnapshot();
         Assert.Equal(0, metrics.HnswSearchCount);
         Assert.Equal(0, metrics.HnswExhaustiveFallbackCount);
-        Assert.Equal(1, metrics.HnswSelectiveFilterScanCount);
-        Assert.Equal(2, metrics.HnswSelectiveFilterVectorsScanned);
+        Assert.Equal(1, metrics.VectorExactScanCount);
+        Assert.Equal(2, metrics.VectorExactVectorsScanned);
+        Assert.Equal(0, metrics.HnswSearchCount);
     }
 
     /// <summary>

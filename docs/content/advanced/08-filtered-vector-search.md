@@ -1,6 +1,8 @@
 # Filtered vector search
 
-`VectorQuery` accepts a filter for tenant, category, visibility, date, or another document constraint. The filter is evaluated per segment, then LeanCorpus chooses a vector strategy from the segment's graph and filter selectivity.
+`VectorQuery` accepts a filter for tenant, category, visibility, date, or
+another document constraint. LeanCorpus resolves the filter per segment and
+scores only matching live documents that have a vector.
 
 ```csharp
 var filter = new BooleanQuery.Builder()
@@ -12,66 +14,44 @@ var query = new VectorQuery(
     field: "embedding",
     queryVector: embedding,
     topK: 20,
-    efSearch: 128,
-    oversamplingFactor: 2,
     filter: filter);
 
 var hits = searcher.Search(query, topN: 20);
 ```
 
-## Strategy selection
+## Current Float32 and historical Int8 strategy
+
+New Float32 indexes and historical Int8 indexes use an exact scan. The filter
+is applied before vector scoring, so unmatched documents are not scored. If a
+matching segment contains an old HNSW graph, that graph is ignored and the scan
+is reported as intentional exact work.
 
 ```mermaid
 flowchart TD
     F[Resolve filter to segment bitmap] --> Z{Any matches?}
     Z -->|No| E[Return no segment hits]
-    Z -->|Yes| G{HNSW graph present?}
-    G -->|No| Flat[Exact flat scan of matching vectors]
-    G -->|Yes| S{Matched docs and selectivity}
-    S -->|Fewer than 64 or below 0.5%| B[Exact brute-force scan of matches]
-    S -->|Below 5%| P[HNSW with allow-list pre-filter]
-    S -->|5% or more| H[HNSW traversal, post-filter, retry]
-    P --> R[Stored-representation rescore]
-    H --> R
-    B --> C[Collect top-N]
-    Flat --> C
-    R --> C
+    Z -->|Yes| V{Present live vector?}
+    V -->|No| S[Skip document]
+    V -->|Yes| C[Score stored Float32 or decoded Int8 value]
+    C --> T[Collect top-N]
 ```
 
-The thresholds are implementation choices, not API guarantees:
+The scan cost depends on the matching document count and vector dimension.
+For large result sets, measure the workload with realistic filters and corpus
+sizes.
 
-| Per-segment condition | Current strategy | Why |
-|---|---|---|
-| No HNSW graph | Exact flat scan | There is no approximate graph to traverse. |
-| Fewer than 64 matches, or selectivity below `0.005` | Exact scan of matching documents | Graph overhead is greater than checking the small candidate set. |
-| Selectivity below `0.05` | HNSW with allow-list | Traversal visits only permitted nodes. |
-| Selectivity `0.05` or higher | HNSW then post-filter | A broad allow-list would constrain traversal without saving enough work. |
+## Historical BBQ strategy
 
-Selectivity is calculated independently for each segment. One query can therefore use different strategies across the index.
+BBQ indexes retain their existing read and query behaviour, including the
+historical graph route and its stored-representation scorer. BBQ-containing
+indexes remain read-only to writers. New BBQ writes and migrations are not
+supported.
 
-## Post-filter retries
+`efSearch` and `oversamplingFactor` apply to that historical BBQ graph route.
+They do not affect Float32 exact scans or exact scans over decoded historical
+Int8 values. `Explain(VectorQuery, docId)` reports the selected strategy, and
+search metrics separate intentional exact scans from historical HNSW underfill
+fallbacks.
 
-Post-filtering may discard too many approximate candidates. Traversal can retry by doubling `ef`, up to three retries by default, until it has enough survivors or exhausts its retry policy.
-
-`topK * oversamplingFactor` determines the requested shortlist. Raising `efSearch` explores more graph nodes. Raising `oversamplingFactor` retains more candidates for rescoring. Both can improve recall at a latency cost, but they affect different stages.
-
-## Pre-filter recall
-
-An allow-list can disconnect useful graph routes because disallowed nodes cannot participate in traversal. That is why extremely selective filters use exact brute force and broad filters use post-filtering. Measure recall at the selectivity ranges your tenants or categories actually produce.
-
-## Rescoring
-
-HNSW produces a shortlist. LeanCorpus reads the stored representation and scores surviving candidates before collection. Float32 fields use their stored Float32 vectors; Int8 and historical BBQ fields use decoded quantised values and return approximate cosine scores. Query vectors are normalised for fields recorded as normalised. Invalid zero-length normalisation produces no matches. BBQ-containing indexes remain readable but are read-only to writers.
-
-Approximate traversal can omit a true neighbour before rescoring. Rescoring the shortlist does not make the overall search exhaustive or restore precision lost by quantisation.
-
-## Tuning
-
-- Start with the unfiltered vector settings that meet recall requirements.
-- Measure narrow, moderate, and broad filter selectivity separately.
-- Increase `efSearch` when traversal recall is weak.
-- Increase `oversamplingFactor` when filtering or rescoring leaves too few competitive candidates.
-- Use `Explain(VectorQuery, docId)` to confirm the selected strategy for a diagnostic document.
-- Compare latency, nodes visited, and recall, not latency alone.
-
-See [Vector search](05-vector-search.md), [Score explanations](../searching/11-score-explanations.md), and [Reciprocal rank fusion](04-rrf.md).
+See [Vector search](05-vector-search.md), [Score explanations](../searching/11-score-explanations.md),
+and [Reciprocal rank fusion](04-rrf.md).
