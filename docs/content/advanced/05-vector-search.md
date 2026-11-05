@@ -56,8 +56,9 @@ or change the exact decoded-vector scores. The merged segment has no HNSW graph.
 Historical BBQ representations remain readable with their existing scorer and
 query routing. Any committed BBQ field makes its entire index read-only to
 writers, including mixed indexes. New BBQ writes and BBQ migrations remain
-unsupported. Use a separate Float32 index built from the original embeddings
-when new vector indexing is required.
+unsupported. Build a separate Float32 index from the original documents and
+embeddings when new vector indexing is required; decoded BBQ values cannot
+recover the original components.
 
 ## Filtering and hybrid queries
 

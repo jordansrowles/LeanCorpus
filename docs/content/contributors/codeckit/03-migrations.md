@@ -109,10 +109,14 @@ BBQ-tagged `.vq` v1/v2 bodies have no migration route. Migration of any BBQ
 format, including a current-version no-op, is rejected before changing source
 files. Historical BBQ bodies remain readable and searchable with their existing
 scorers. Any committed BBQ field makes the entire containing index read-only to
-writers, including mixed indexes and all-deleted fields. New output is Float32
-or Int8 only. To continue indexing, create a separate index from original
-documents and embeddings; decoded BBQ data does not restore the original
-components.
+writers, including mixed indexes and all-deleted fields. To continue indexing,
+rebuild a separate Float32 index from original documents and embeddings;
+decoded BBQ data does not restore the original components.
+
+Historical Int8 remains distinct from BBQ retirement. Int8 `.vq` v1/v2 can be
+structurally migrated to v3/tag 1 without requantisation. A merge decodes
+historical Int8 values and writes Float32 `.vec` v2; it does not create new
+Int8 output.
 
 The `.vec` v1 and Int8 `.vq` v1 presence rewrites require persisted HNSW
 membership. Without it, planning reports `UnsupportedMigrationPath` and

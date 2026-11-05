@@ -52,11 +52,12 @@ Normal opens validate framing and bounds but do not scan a large body checksum. 
 | `leancorpus.vectors.quantised` | `.vq` | v1, v2, v3 | None | Int8 v1/v2 structural wrap into v3; BBQ unsupported |
 | `leancorpus.vectors.hnsw` | `.hnsw` | v1 | None | Historical reads only |
 
-The `.vq` migration rule is representation-specific. Historical Int8 bodies
-may be structurally wrapped into v3 without requantising their values. New
-Int8 writes and Int8 merge rewrites are retired. BBQ-tagged
-bodies remain readable but are rejected for migration; a current BBQ-containing
-index is read-only to the writer.
+The `.vq` migration rule is representation-specific. Historical Int8 v1/v2
+bodies may be structurally wrapped into v3/tag 1 without requantising their
+values. New Int8 encoding is retired. A normal merge may read historical Int8,
+decode its stored values and write Float32 `.vec` v2; it does not write Int8
+output. BBQ-tagged bodies remain readable but are rejected for migration; a
+current BBQ-containing index is read-only to the writer.
 
 The `.vec` v2 and `.vq` v2/v3 bodies start with `docCount:int32`,
 `dimension:int32`, and a format/quantisation byte. Bodies with persisted vector

@@ -259,7 +259,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Removed
 
-- Retire all BBQ creation, ingestion, import, merge and migration targets. Existing embeddings must be reindexed from originals into a separate Float32 or Int8 index.
+- Retire all BBQ creation, ingestion, import, merge and migration targets. Rebuild from the original documents and embeddings into a separate Float32 index when new vector indexing is required.
 
 - Remove the redundant public `BooleanQueryBuilder`; `QueryBuilder.Bool` now configures the existing `BooleanQuery.Builder` directly. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Remove lenient query parsing until deterministic clause-boundary recovery is defined; the existing constructor flag remains for compatibility and throws when set to `true`. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))

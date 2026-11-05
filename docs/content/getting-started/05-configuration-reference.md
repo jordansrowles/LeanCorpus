@@ -98,14 +98,13 @@ LeanCorpusDefaults.Configure(options =>
     options.IndexWriter.RamBufferSizeMB = 256;
     options.IndexWriter.MaxQueuedBytes = 1024L * 1024 * 1024;
     options.IndexWriter.DurableCommits = true;
-    options.IndexWriter.Hnsw.M = 24;
-
     options.IndexSearcher.ParallelSearch = true;
     options.IndexSearcher.QueryCache.Enabled = true;
     options.SearcherManager.RefreshInterval = TimeSpan.FromSeconds(1);
 
     options.JsonMapping.MaxDepth = 32;
     options.Search.MaxResultBytes = 32 * 1024 * 1024;
+    // Applies to historical BBQ graph search; Float32 and Int8 use exact scans.
     options.Search.Hnsw.Ef = 128;
 });
 
@@ -132,7 +131,7 @@ The default groups are deliberately scoped:
 | `JsonMapping` | New JSON mapping options | Field-name separator and mapping limits |
 | `Scoring` | New writer and searcher configurations | Default and per-field similarity factories |
 | `Diagnostics` | New writer and searcher configurations | Metrics, slow-query log, and analytics factories |
-| `Search` | New query options | Result-byte budget, timeout, and HNSW search settings |
+| `Search` | New query options | Result-byte budget, timeout, and HNSW settings for historical BBQ search; exact Float32 and Int8 scans ignore graphs |
 
 `Schema`, `IndexSort`, deletion or migration choices, destructive maintenance
 flags, `CancellationToken`, `TopK`, allow-lists, post-filters, and streamed

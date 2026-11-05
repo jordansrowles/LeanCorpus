@@ -70,7 +70,7 @@ internal static partial class IndexCreator
                 nameof(preset));
         if (normalisedPreset == "vector-bbq")
             throw new ArgumentException(
-                "The 'vector-bbq' preset is retired. New vector indexes support Float32 exact search only; historical Int8 and BBQ data remain readable.",
+                "The 'vector-bbq' preset is retired. Rebuild from the original documents and embeddings into a Float32 index; historical Int8 and BBQ data remain readable.",
                 nameof(preset));
         if (!SupportedPresets.Contains(normalisedPreset, StringComparer.Ordinal))
             throw new ArgumentException($"Unknown preset '{preset}'. Supported presets: {string.Join(", ", SupportedPresets)}.", nameof(preset));
@@ -186,7 +186,7 @@ internal static partial class IndexCreator
                 $"Recipe preset '{recipe.Preset}' is retired. New vector indexes support Float32 exact search only; historical Int8 and HNSW data remain readable.");
         if (recipe.Preset == "vector-bbq")
             throw new InvalidDataException(
-                "Recipe preset 'vector-bbq' is retired. Create a separate Float32 or Int8 index from the original documents and embeddings.");
+                "Recipe preset 'vector-bbq' is retired. Rebuild from the original documents and embeddings into a separate Float32 index.");
         if (!SupportedPresets.Contains(recipe.Preset, StringComparer.Ordinal))
             throw new InvalidDataException($"Recipe preset '{recipe.Preset}' is not registered.");
         IndexCreationResult result = recipe.Preset == "codec-migration-required"

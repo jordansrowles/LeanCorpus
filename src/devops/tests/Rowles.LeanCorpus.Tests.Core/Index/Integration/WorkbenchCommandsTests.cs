@@ -134,7 +134,7 @@ public sealed class WorkbenchCommandsTests : IClassFixture<TestDirectoryFixture>
 
         Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
         Assert.StartsWith(
-            "The 'vector-bbq' preset is retired. New vector indexes support Float32 exact search only; historical Int8 and BBQ data remain readable.",
+            "The 'vector-bbq' preset is retired. Rebuild from the original documents and embeddings into a Float32 index; historical Int8 and BBQ data remain readable.",
             error.ToString());
         Assert.Empty(output.ToString());
         Assert.False(Directory.Exists(path));
@@ -172,7 +172,7 @@ public sealed class WorkbenchCommandsTests : IClassFixture<TestDirectoryFixture>
 
         Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
         Assert.StartsWith(
-            "Recipe preset 'vector-bbq' is retired. Create a separate Float32 or Int8 index from the original documents and embeddings.",
+            "Recipe preset 'vector-bbq' is retired. Rebuild from the original documents and embeddings into a separate Float32 index.",
             error.ToString());
         Assert.Empty(output.ToString());
         Assert.False(Directory.Exists(outputPath));

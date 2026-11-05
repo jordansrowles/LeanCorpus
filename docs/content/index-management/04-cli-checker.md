@@ -76,7 +76,13 @@ before creating an index. New vectors use exact Float32 search. Historical
 Int8 vectors remain readable through exact decoded scoring, and historical BBQ
 indexes remain readable with their existing scorer but are read-only. See the
 [upgrade guide](../reference/upgrades.md) before rebuilding from original
-embeddings.
+documents and embeddings.
+
+Historical Int8 v1/v2 structural migration remains available when presence can
+be verified. A later merge decodes those stored values and writes Float32
+`.vec` v2; it does not create new Int8 encoding. For BBQ data, rebuild from
+the original documents and embeddings into a separate Float32 index. BBQ
+decoding does not recover the source embeddings.
 
 ```bash
 leancorpus-cli create preset vector-flat ./vector-index --seed 1234 --count 500 --dimension 64
@@ -190,9 +196,17 @@ leancorpus-cli.exe compat .\index --deep
 | `Compatible` | Can be read and written by this build |
 | `MigrationRecommended` | Readable, but a current-format rewrite is available |
 | `MigrationRequired` | Policy requires migration before open |
+| `ReadOnlyRetired` | Readable, but a retired representation such as BBQ blocks mutation and migration |
 | `UnsupportedFutureFormat` | At least one codec version is newer than this build |
 | `UnknownFormat` | A persistent file or declared frame identity is not in the active catalogue |
 | `Corrupt` | Validation found error-severity issues |
+
+`CanWrite` describes whether the index accepts supported writer operations; it
+does not mean every historical encoding can be created again. A current
+historical Int8 index can be writable because edits and merges emit Float32.
+BBQ-containing indexes report `ReadOnlyRetired`, remain readable, and reject
+mutation and migration. Historical Int8 v1/v2 structural migration remains
+available, and a merge writes decoded values as Float32 `.vec` v2.
 
 ## Migration
 

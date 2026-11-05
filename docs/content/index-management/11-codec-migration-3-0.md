@@ -102,9 +102,14 @@ reassociated with the migrated segment.
 BBQ-tagged `.vq` bodies remain readable and searchable, but 4.0 does not migrate
 them. Planning reports an unsupported path and stops before changing source
 files. Any committed BBQ field makes its whole index read-only to writers,
-including mixed indexes and all-deleted fields. To continue indexing, create a
-separate Float32 or Int8 index from original documents and embeddings; decoded
+including mixed indexes and all-deleted fields. To continue indexing, rebuild
+a separate Float32 index from the original documents and embeddings; decoded
 BBQ values do not restore the original components.
+
+This BBQ restriction does not retire historical Int8 migration or merge. Int8
+`.vq` v1/v2 can be structurally migrated to v3/tag 1 without requantisation.
+When a historical Int8 segment is merged, its decoded values are written as
+Float32 `.vec` v2. Neither path creates a new Int8 encoding.
 
 Without persisted HNSW membership, v1 presence cannot be reconstructed. Planning
 reports a non-executable action with `UnsupportedMigrationPath`; migration stops

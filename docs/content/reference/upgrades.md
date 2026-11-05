@@ -42,8 +42,13 @@ and BBQ fields whose documents have all been deleted.
 New vector output is Float32, searched exactly. New Int8 and HNSW graph writes
 are retired. Historical Int8 vectors remain readable and use exact scoring on
 their decoded stored values; this does not recover the source Float32 ranking.
-To keep indexing data from an old BBQ index, create a separate index from the
-original documents and embeddings. BBQ decoding cannot recover the original
-component magnitudes, so do not use decoded BBQ vectors as a substitute for the
-source embeddings. See [CodecKit migrations](../contributors/codeckit/03-migrations.md)
+Historical Int8 `.vq` v1/v2 can still be structurally migrated to v3/tag 1
+without requantisation. Merging historical Int8 decodes the stored values and
+writes Float32 `.vec` v2. These compatibility paths do not create new Int8
+encoding.
+
+To continue indexing data from an old BBQ index, rebuild a separate Float32
+index from the original documents and embeddings. BBQ decoding cannot recover
+the original component magnitudes, so do not use decoded BBQ vectors as a
+substitute for the source embeddings. See [CodecKit migrations](../contributors/codeckit/03-migrations.md)
 and [ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md).

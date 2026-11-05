@@ -104,7 +104,10 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
         Assert.True(descriptor.Evaluate(CodecLifecycleOperation.Read, source).IsAllowed);
         Assert.False(descriptor.Evaluate(CodecLifecycleOperation.Create, target: source with { Version = 3 }).IsAllowed);
         Assert.False(descriptor.Evaluate(CodecLifecycleOperation.RewriteSource, source).IsAllowed);
-        Assert.False(descriptor.Evaluate(CodecLifecycleOperation.Migrate, source, target).IsAllowed);
+        var migration = descriptor.Evaluate(CodecLifecycleOperation.Migrate, source, target);
+        Assert.False(migration.IsAllowed);
+        Assert.Contains("Float32", migration.Explanation, StringComparison.Ordinal);
+        Assert.DoesNotContain("or Int8 index", migration.Explanation, StringComparison.Ordinal);
         Assert.False(descriptor.Evaluate(CodecLifecycleOperation.Migrate, source, source).IsAllowed);
     }
 
@@ -150,6 +153,11 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
         HistoricalInt8VectorFixtures.ReplaceFloat32SegmentsWithV3Tag1(path, "embedding");
 
         var before = Snapshot(path);
+        var compatibility = IndexCompatibility.Check(directory);
+        Assert.Equal(IndexCompatibilityStatus.Compatible, compatibility.Status);
+        Assert.True(compatibility.CanRead);
+        Assert.True(compatibility.CanWrite);
+        Assert.False(compatibility.MustReject);
         var plan = IndexCodecMigrator.Plan(directory);
         Assert.True(plan.CanExecute, string.Join("; ", plan.Issues.Select(static issue => issue.Message)));
         Assert.All(plan.Actions, action => Assert.Equal(IndexCodecMigrationActionKind.NoOp, action.Kind));
@@ -210,7 +218,9 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
         Assert.False(result.CanMigrate);
         Assert.False(result.RequiresMigration);
         Assert.False(result.MustReject);
-        Assert.Contains(result.Issues, issue => issue.Code == IndexCheckIssueCodes.ReadOnlyRetiredCodec);
+        var retiredIssue = Assert.Single(result.Issues, issue => issue.Code == IndexCheckIssueCodes.ReadOnlyRetiredCodec);
+        Assert.Contains(retiredIssue.SuggestedActions, action => action.Contains("Float32", StringComparison.Ordinal));
+        Assert.DoesNotContain(retiredIssue.SuggestedActions, action => action.Contains("or Int8", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -337,6 +347,13 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
         Assert.True(json.RootElement.GetProperty("canRead").GetBoolean());
         Assert.False(json.RootElement.GetProperty("canWrite").GetBoolean());
         Assert.False(json.RootElement.GetProperty("canMigrate").GetBoolean());
+        var retiredIssue = json.RootElement.GetProperty("issues").EnumerateArray()
+            .Single(issue => issue.GetProperty("code").GetString() == IndexCheckIssueCodes.ReadOnlyRetiredCodec);
+        string[] suggestedActions = retiredIssue.GetProperty("suggestedActions").EnumerateArray()
+            .Select(static action => action.GetString()!)
+            .ToArray();
+        Assert.Contains(suggestedActions, action => action.Contains("Float32", StringComparison.Ordinal));
+        Assert.DoesNotContain(suggestedActions, action => action.Contains("or Int8", StringComparison.Ordinal));
         Assert.Equal(string.Empty, error.ToString());
         var before = Snapshot(path);
         output.GetStringBuilder().Clear();
@@ -360,7 +377,10 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
 
         var plan = IndexCodecMigrator.Plan(directory);
         Assert.False(plan.CanExecute);
-        Assert.Contains(plan.Issues, issue => issue.Message.Contains("ReadOnlyRetired", StringComparison.Ordinal));
+        var retiredIssue = Assert.Single(plan.Issues, issue => issue.Code == IndexCheckIssueCodes.ReadOnlyRetiredCodec);
+        Assert.Contains("ReadOnlyRetired", retiredIssue.Message, StringComparison.Ordinal);
+        Assert.Contains(retiredIssue.SuggestedActions, action => action.Contains("Float32", StringComparison.Ordinal));
+        Assert.DoesNotContain(retiredIssue.SuggestedActions, action => action.Contains("or Int8", StringComparison.Ordinal));
         var result = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions { DryRun = false, StagingDirectory = staging });
         Assert.False(result.Succeeded);
         Assert.Contains(result.Issues, issue => issue.Message.Contains("ReadOnlyRetired", StringComparison.Ordinal));

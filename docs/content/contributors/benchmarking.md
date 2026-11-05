@@ -105,10 +105,12 @@ For approximate vector search, report recall as well as latency. For cache work,
 
 The deterministic `leancorpus-vector` DataForge profile supports uniform, clustered, dense-neighbourhood, near-duplicate, quantisation-friendly, quantisation-hostile and anisotropic vectors. Anisotropic vectors scale component `i` by `1 / sqrt(i + 1)` for both indexed records and queries; this distribution leaves existing version 1 uniform datasets unchanged. Record and held-out query seeds are independent, and query seed and query count are part of benchmark dataset identity.
 
-New HNSW and Int8 benchmark routes are retired because the frozen traversal
-and merge quality gates failed. Historical frozen rows remain in the external
-closeout evidence and must not be reclassified as passing. The exact Float32
-reference remains useful for query correctness and future research.
+New HNSW, Int8 and BBQ benchmark routes remain retired after their frozen
+quality gates failed: HNSW traversal, Int8 source fidelity and merge stability,
+and BBQ retrieval. Historical frozen rows remain in the external closeout
+evidence and must not be reclassified as passing. The exact Float32 reference
+remains useful for query correctness and future research; this closeout makes
+no vector latency or throughput claim.
 
 The exact Float32 reference uses the independent score and ranking contract:
 score error must not exceed `1e-5`, every neighbour strictly above the Kth

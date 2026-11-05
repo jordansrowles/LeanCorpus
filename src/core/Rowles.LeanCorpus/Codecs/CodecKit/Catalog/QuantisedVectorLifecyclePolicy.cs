@@ -38,7 +38,7 @@ internal sealed class QuantisedVectorLifecyclePolicy : ICodecLifecyclePolicy
             if (!int8 && operation != CodecLifecycleOperation.Read)
                 return CodecLifecycleDecision.Denied("CodecReadOnly",
                     $"{value.FormatId} v{value.Version}/{value.RepresentationId}: {operation} is retired. " +
-                    "ReindexFromOriginalVectorsRequired: create a separate Float32 or Int8 index from original embeddings.");
+                    "ReindexFromOriginalVectorsRequired: rebuild a separate Float32 index from original documents and embeddings.");
         }
 
         if (operation == CodecLifecycleOperation.Migrate

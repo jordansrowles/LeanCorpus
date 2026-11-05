@@ -189,7 +189,7 @@ public static class IndexCodecMigrator
                         Code = IndexCheckIssueCodes.ReadOnlyRetiredCodec,
                         Message = $"ReadOnlyRetired: {decision.ReasonCode}: {decision.Explanation}",
                         FileName = file.FileName, SegmentId = file.SegmentId, IsRepairable = false,
-                        SuggestedActions = ["Reindex a separate Float32 or Int8 index from original embeddings."]
+                        SuggestedActions = ["Rebuild from original documents and embeddings into a separate Float32 index."]
                     });
             }
             catch (Exception exception) when (exception is IOException or InvalidDataException or ArgumentException or OverflowException)
