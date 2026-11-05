@@ -205,6 +205,14 @@ public sealed class CodecCatalogBuilder
             throw new InvalidOperationException(
                 $"Codec format '{file.FormatId}' current version {file.CurrentFormatVersion} is not registered.");
         }
+        if (newestWritable is null && current.IsReadable
+            && file.MigrationBehaviour == CodecMigrationBehaviour.Unsupported
+            && file.SupportedVersions.All(static version => version.MigrationBehaviour == CodecMigrationBehaviour.Unsupported))
+        {
+            if (current.Version != previousVersion)
+                throw new InvalidOperationException($"Retired codec format '{file.FormatId}' current version must be the latest known version.");
+            return;
+        }
         if (!current.IsReadable || !current.IsWritable)
             throw new InvalidOperationException($"Codec format '{file.FormatId}' current version must be readable and writable.");
         if (newestWritable is null || newestWritable.Version != current.Version)

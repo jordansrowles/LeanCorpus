@@ -132,7 +132,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | NumericField | ✔   `NumericField` | ✔ | ✔ | BKD-indexed, sorted-numeric DocValues sidecar |
 | Int64Field | ✔   `Int64Field` | ◐ | ✔ | Dedicated signed 64-bit field; Lucene.NET uses its older numeric field APIs. |
 | StoredField | ✔   `StoredField` | ✔ | ✔ | Stored-only, binary DocValues sidecar |
-| VectorField | ✔   `VectorField` | ❌ | ✔ | `float[]` for HNSW/kNN; Lucene.NET 4.8 has no vector-search API. |
+| VectorField | ✔   `VectorField` | ❌ | ✔ | `float[]` for exact cosine kNN; Lucene.NET 4.8 has no vector-search API. |
 | Byte-vector field | ❌ | ❌ | ✔ | Lucene (Java): `KnnByteVectorField`. |
 | Float and double range fields | ❌ | ❌ | ✔ | Lucene (Java): `FloatRange` / `DoubleRange` and their DocValues fields. |
 | IP-address field | ❌ | ❌ | ✔ | Lucene (Java): `InetAddressPoint`. |
@@ -170,7 +170,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Tiered merge policy | ✔   `TieredMergePolicy` | ✔ | ✔ | Count threshold per size tier |
 | Async indexing API | ✔   `AddDocumentAsync` / `AddDocumentsAsync` | ❌ | ❌ | LeanCorpus-native `ValueTask` indexing API; Lucene writers are synchronous. |
 | `IAsyncEnumerable` bulk ingestion | ✔   `AddDocumentsAsync(IAsyncEnumerable<>, batchSize)` | ❌ | ❌ | LeanCorpus-native streamed, bounded-batch ingestion. |
-| HNSW graph build config | ✔   `IndexWriterConfig.HnswBuildConfig` / `HnswSeed` / `BuildHnswOnFlush` | ❌ | ◐ | Per-index build configuration; Java Lucene exposes comparable construction parameters through vector formats. |
+| HNSW graph build config | ◐   `IndexWriterConfig.HnswBuildConfig` / `HnswSeed` / `BuildHnswOnFlush` | ❌ | ◐ | Members remain for source compatibility; new graph writes are retired. |
 | Vector normalisation at index time | ✔   `IndexWriterConfig.NormaliseVectors` | ❌ | ❌ | L2-normalises vectors so dot product equals cosine similarity. |
 | Soft deletes | ✔   `IndexWriter.SoftDeleteDocuments(TermQuery)` | ❌ | ✔ | Query form is currently term-query based; Lucene.NET 4.8 predates soft deletes. |
 | Sequence numbers / update-by-query | ✔   `NextSequenceNumber` / `TrackSequenceNumbers` / `UpdateDocuments(Query, LeanDocument)` | ◐ | ✔ | Sequence metadata is persisted and merged; update-by-query replaces matching documents atomically. |
@@ -304,7 +304,7 @@ Lucene (Java) refers to Lucene 10.3.1,
 |---|---|---|---|---|
 | FST term dictionary | ✔   `FSTBuilder` / `FSTReader` | ✔ | ✔ | |
 | BKD tree (numeric + geo) | ✔   `BKDTree` / `BKDReader` | ✔ | ✔ | |
-| HNSW vector graph | ✔   `HnswGraph` / `HnswGraphBuilder` / `HnswWriter` / `HnswReader` | ❌ | ✔ | Lucene.NET 4.8 has no vector-search API. |
+| HNSW vector graph | ◐   `HnswGraph` / `HnswGraphBuilder` / `HnswWriter` / `HnswReader` | ❌ | ✔ | Historical graphs remain readable; new index graph writes are retired. |
 | Block postings | ✔   `BlockPostingsWriter` / `PostingsReader` / `BlockPostingsEnum` | ✔ | ✔ | |
 | Stored fields | ✔   `StoredFieldsWriter` / `StoredFieldsReader` | ✔ | ✔ | |
 | Term vectors | ✔   `TermVectorsWriter` / `TermVectorsReader` | ✔ | ✔ | |
@@ -321,9 +321,9 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Per-field stored-field compression selection | ✔   `FieldCompressionPolicy` | ❌ | ❌ | Compression policy is selected per stored field; Lucene stored-field compression is selected at codec or segment level. |
 | Postings format variants (Direct, BlockTree) | ❌ | ✔ | ✔ | Backlog |
 | Chunked stored-field format | ❌ | ✔ | ✔ | Backlog |
-| Vector quantisation (Int8 / BBQ) | ✔   `IndexWriterConfig.VectorQuantisation` / `VectorQuantisation.Int8` / `VectorQuantisation.BBQ` | ❌ | ✔ | Int8 scalar and BBQ binary quantisation are wired through flush, merge, reader, and HNSW search. |
+| Vector quantisation (historical Int8 and BBQ read support) | ◐   `IndexWriterConfig.VectorQuantisation.Int8` | ❌ | ✔ | New Int8 writes are retired. Historical Int8 is searched exactly over decoded stored values; BBQ data keeps its historical scorer and BBQ-containing indexes are read-only. |
 | 4-bit scalar and product quantisation (PQ) | ❌ | ❌ | ✔ | Lucene (Java) vector formats; Backlog. |
-| Approximate kNN over filters | ✔   `VectorQuery` filter and `HnswSearchOptions` | ❌ | ✔ | Supports pre-filter and post-filter modes; Lucene.NET 4.8 has no vector-search API. |
+| Filtered kNN | ✔   `VectorQuery` filter | ❌ | ✔ | Exact Float32 and historical Int8 routes scan matching documents; Lucene.NET 4.8 has no vector-search API. |
 | NioFSDirectory equivalent | ❌ | ✔ | ✔ | Backlog |
 | Read-only directory wrapper | ❌ | ◐ | ◐ | Backlog; Lucene directories can be opened for reading or wrapped, but there is no matching first-class API. |
 | Object-store pluggable directory | ❌ | ❌ | ❌ | Backlog; none of the compared libraries includes a built-in object-store directory. |

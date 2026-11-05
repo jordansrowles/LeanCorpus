@@ -1,21 +1,20 @@
 using System.Buffers;
-using System.Runtime.InteropServices;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Util;
 
 namespace Rowles.LeanCorpus.Codecs.Vectors;
 
 /// <summary>
-/// Writes quantised dense vectors in the <c>.vq</c> format. Supports int8 scalar quantisation
-/// and Better Binary Quantisation (BBQ). The file format is self-describing: the quantisation
-/// type is encoded in the header so the reader can validate against segment metadata.
+/// Retained Int8 and BBQ write helpers for historical source compatibility. Their lifecycle policy
+/// rejects new files before creating output; historical files continue through <see cref="QuantisedVectorReader"/>.
 /// </summary>
 /// <remarks>
 /// File format:
 /// <code>
-/// Canonical CodecKit frame, body version 2:
+/// Canonical CodecKit frame, body version 3:
 /// [docCount:int32][dimension:int32]
-/// [quantisation:byte][presenceBitmap:ceil(docCount/8) bytes]
+/// [quantisation:byte][presenceBitmap:ceil(docCount/8) bytes][storageKind:byte]
 /// -- int8 (quantisation=1) --
 /// [min:float32][alpha:float32]
 /// per doc: [correction:float32]
@@ -28,7 +27,16 @@ namespace Rowles.LeanCorpus.Codecs.Vectors;
 /// </remarks>
 internal static class QuantisedVectorWriter
 {
-    private const float Epsilon = 1e-8f;
+    /// <summary>
+    /// Rejects creation of the retired experimental BBQ representation before touching files.
+    /// </summary>
+    internal static void WriteBBQOsqCanonical(
+        string filePath,
+        int docCount,
+        int dimension,
+        IVectorSource vectorsByDoc,
+        IReadOnlyList<int> vectorDocIds)
+        => throw VectorCodecFiles.RetiredBbqWrite();
 
     /// <summary>Writes Int8 vectors through bounded passes over a file-backed source.</summary>
     internal static void WriteInt8(
@@ -38,15 +46,14 @@ internal static class QuantisedVectorWriter
         IVectorSource vectorsByDoc,
         IReadOnlyList<int> vectorDocIds)
     {
+        VectorCodecFiles.EnsureCanCreate(VectorQuantisation.Int8);
         ValidateSource(docCount, dimension, vectorsByDoc, vectorDocIds);
         var presence = VectorPresence.Create(docCount, vectorDocIds);
         float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
         byte[] packedBuffer = ArrayPool<byte>.Shared.Rent(dimension);
         try
         {
-            float min = float.MaxValue;
-            float max = float.MinValue;
-            bool any = false;
+            float maximumMagnitude = 0f;
             Span<float> calibrationVector = vectorBuffer.AsSpan(0, dimension);
             foreach (int docId in vectorDocIds)
             {
@@ -54,30 +61,23 @@ internal static class QuantisedVectorWriter
                 for (int j = 0; j < dimension; j++)
                 {
                     float value = calibrationVector[j];
-                    if (value < min) min = value;
-                    if (value > max) max = value;
-                    any = true;
+                    if (!float.IsFinite(value))
+                        throw new InvalidDataException("Int8 vector input contains a non-finite component.");
+                    maximumMagnitude = MathF.Max(maximumMagnitude, MathF.Abs(value));
                 }
             }
 
-            if (!any)
-            {
-                min = 0f;
-                max = 1f;
-            }
-            else if (MathF.Abs(max - min) < Epsilon)
-            {
-                max = min + 1f;
-            }
-            float alpha = (max - min) / 255f;
+            (float min, float alpha) = ComputeInt8Parameters(maximumMagnitude);
 
-            CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
+            CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised,
+            VectorCodecFiles.QuantisedIdentity(QuantisedVectorStorageKind.LegacyInt8), durable: false, bodyOutput =>
             {
                 Span<float> vector = vectorBuffer.AsSpan(0, dimension);
                 bodyOutput.WriteInt32(docCount);
                 bodyOutput.WriteInt32(dimension);
                 bodyOutput.WriteByte((byte)VectorQuantisation.Int8);
                 bodyOutput.WriteBytes(presence, 0, presence.Length);
+                bodyOutput.WriteByte((byte)QuantisedVectorStorageKind.LegacyInt8);
                 bodyOutput.WriteSingle(min);
                 bodyOutput.WriteSingle(alpha);
 
@@ -112,6 +112,19 @@ internal static class QuantisedVectorWriter
         }
     }
 
+    /// <summary>Returns the v3 zero-centred scale and unsigned-byte offset for the observed magnitude.</summary>
+    internal static (float Min, float Alpha) ComputeInt8Parameters(float maximumMagnitude)
+    {
+        if (!float.IsFinite(maximumMagnitude) || maximumMagnitude < 0f)
+            throw new ArgumentOutOfRangeException(nameof(maximumMagnitude));
+
+        if (maximumMagnitude == 0f)
+            maximumMagnitude = 1f;
+
+        float alpha = MathF.Max(maximumMagnitude / 127f, float.Epsilon);
+        return (-128f * alpha, alpha);
+    }
+
     /// <summary>Writes BBQ vectors through bounded passes over a file-backed source.</summary>
     internal static void WriteBBQ(
         string filePath,
@@ -119,82 +132,7 @@ internal static class QuantisedVectorWriter
         int dimension,
         IVectorSource vectorsByDoc,
         IReadOnlyList<int> vectorDocIds)
-    {
-        ValidateSource(docCount, dimension, vectorsByDoc, vectorDocIds);
-        var presence = VectorPresence.Create(docCount, vectorDocIds);
-        int packedBytes = checked((dimension + 7) / 8);
-        float[] vectorBuffer = ArrayPool<float>.Shared.Rent(dimension);
-        float[] centroidBuffer = ArrayPool<float>.Shared.Rent(dimension);
-        byte[] packedBuffer = ArrayPool<byte>.Shared.Rent(packedBytes);
-        try
-        {
-            Span<float> calibrationVector = vectorBuffer.AsSpan(0, dimension);
-            Span<float> centroid = centroidBuffer.AsSpan(0, dimension);
-            centroid.Clear();
-            foreach (int docId in vectorDocIds)
-            {
-                vectorsByDoc.CopyVectorTo(docId, calibrationVector);
-                for (int j = 0; j < dimension; j++)
-                    centroid[j] += calibrationVector[j];
-            }
-            if (vectorDocIds.Count > 0)
-            {
-                float divisor = vectorDocIds.Count;
-                for (int j = 0; j < dimension; j++)
-                    centroid[j] /= divisor;
-            }
-
-            CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
-            {
-                Span<float> vector = vectorBuffer.AsSpan(0, dimension);
-                ReadOnlySpan<float> writtenCentroid = centroidBuffer.AsSpan(0, dimension);
-                bodyOutput.WriteInt32(docCount);
-                bodyOutput.WriteInt32(dimension);
-                bodyOutput.WriteByte((byte)VectorQuantisation.BBQ);
-                bodyOutput.WriteBytes(presence, 0, presence.Length);
-                for (int j = 0; j < dimension; j++)
-                    bodyOutput.WriteSingle(writtenCentroid[j]);
-
-                for (int docId = 0; docId < docCount; docId++)
-                {
-                    vectorsByDoc.CopyVectorTo(docId, vector);
-                    float correction1 = 0f;
-                    float correction2 = 0f;
-                    float correction3 = 0f;
-                    for (int j = 0; j < dimension; j++)
-                    {
-                        float residual = vector[j] - writtenCentroid[j];
-                        float sign = residual > 0f ? 1f : -1f;
-                        correction1 += residual;
-                        correction2 += sign * residual;
-                        correction3 += residual * residual;
-                    }
-                    bodyOutput.WriteSingle(correction1);
-                    bodyOutput.WriteSingle(correction2);
-                    bodyOutput.WriteSingle(correction3);
-                }
-
-                for (int docId = 0; docId < docCount; docId++)
-                {
-                    vectorsByDoc.CopyVectorTo(docId, vector);
-                    packedBuffer.AsSpan(0, packedBytes).Clear();
-                    for (int j = 0; j < dimension; j++)
-                    {
-                        if (vector[j] - writtenCentroid[j] <= 0f)
-                            continue;
-                        packedBuffer[j / 8] |= (byte)(1 << (j % 8));
-                    }
-                    bodyOutput.WriteBytes(packedBuffer, 0, packedBytes);
-                }
-            });
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(packedBuffer, clearArray: false);
-            ArrayPool<float>.Shared.Return(centroidBuffer, clearArray: false);
-            ArrayPool<float>.Shared.Return(vectorBuffer, clearArray: false);
-        }
-    }
+        => throw VectorCodecFiles.RetiredBbqWrite();
 
     private static void ValidateSource(
         int docCount,
@@ -215,10 +153,34 @@ internal static class QuantisedVectorWriter
         }
     }
 
+    private static void ValidateSparseSource(
+        int docCount,
+        int dimension,
+        IVectorSource vectorsByDoc,
+        IReadOnlyList<int> vectorDocIds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(docCount);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
+        ArgumentNullException.ThrowIfNull(vectorsByDoc);
+        ArgumentNullException.ThrowIfNull(vectorDocIds);
+        if (vectorsByDoc.Dimension != dimension)
+            throw new ArgumentException("Vector source dimensions do not match the destination field.", nameof(vectorsByDoc));
+
+        foreach (int docId in vectorDocIds)
+        {
+            if ((uint)docId >= (uint)docCount)
+                throw new ArgumentOutOfRangeException(nameof(vectorDocIds),
+                    $"Vector document ID {docId} is outside the destination document range.");
+            if (docId >= vectorsByDoc.Count)
+                throw new ArgumentOutOfRangeException(nameof(vectorDocIds),
+                    $"Vector source does not address present document {docId}.");
+        }
+    }
+
     /// <summary>
-    /// Writes int8 scalar-quantised vectors. Uses per-segment min/max to compute
-    /// a uniform scale factor (alpha), then quantises each float to [0, 255].
-    /// A per-vector correction float is stored for future exact reranking.
+    /// Writes int8 scalar-quantised vectors. Uses a per-segment zero-centred scale
+    /// and maps signed values to the existing unsigned-byte v3 representation.
+    /// A per-vector correction float is stored for rescoring the quantised values.
     /// </summary>
     internal static void WriteInt8(
         string filePath,
@@ -226,46 +188,37 @@ internal static class QuantisedVectorWriter
         int dimension,
         IReadOnlyDictionary<int, ReadOnlyMemory<float>> vectorsByDoc)
     {
+        VectorCodecFiles.EnsureCanCreate(VectorQuantisation.Int8);
         ArgumentOutOfRangeException.ThrowIfNegative(docCount);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
 
         VectorPresence.ValidateVectors(docCount, dimension, vectorsByDoc);
         var presence = VectorPresence.Create(docCount, vectorsByDoc.Keys);
 
-        // --- Pass 1: compute per-segment min / max ---
-        float min = float.MaxValue;
-        float max = float.MinValue;
-        bool any = false;
+        // --- Pass 1: compute the symmetric per-segment scale ---
+        float maximumMagnitude = 0f;
         foreach (var v in vectorsByDoc.Values)
         {
             var span = v.Span;
             for (int j = 0; j < span.Length; j++)
             {
                 float val = span[j];
-                if (val < min) min = val;
-                if (val > max) max = val;
-                any = true;
+                if (!float.IsFinite(val))
+                    throw new InvalidDataException("Int8 vector input contains a non-finite component.");
+                maximumMagnitude = MathF.Max(maximumMagnitude, MathF.Abs(val));
             }
         }
 
-        if (!any)
-        {
-            min = 0f;
-            max = 1f;
-        }
-        else if (Math.Abs(max - min) < Epsilon)
-        {
-            max = min + 1f; // avoid zero alpha
-        }
+        (float min, float alpha) = ComputeInt8Parameters(maximumMagnitude);
 
-        float alpha = (max - min) / 255f;
-
-        CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
+        CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised,
+            VectorCodecFiles.QuantisedIdentity(QuantisedVectorStorageKind.LegacyInt8), durable: false, bodyOutput =>
         {
         bodyOutput.WriteInt32(docCount);
         bodyOutput.WriteInt32(dimension);
         bodyOutput.WriteByte((byte)VectorQuantisation.Int8);
         bodyOutput.WriteBytes(presence, 0, presence.Length);
+        bodyOutput.WriteByte((byte)QuantisedVectorStorageKind.LegacyInt8);
         bodyOutput.WriteSingle(min);
         bodyOutput.WriteSingle(alpha);
 
@@ -328,82 +281,5 @@ internal static class QuantisedVectorWriter
         int dimension,
         IReadOnlyDictionary<int, ReadOnlyMemory<float>> vectorsByDoc,
         ReadOnlySpan<float> centroid)
-    {
-        ArgumentOutOfRangeException.ThrowIfNegative(docCount);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(dimension);
-        if (centroid.Length != dimension)
-            throw new ArgumentException($"Centroid dimension {centroid.Length} != {dimension}.", nameof(centroid));
-
-        int packedBytes = checked((dimension + 7) / 8);
-
-        VectorPresence.ValidateVectors(docCount, dimension, vectorsByDoc);
-        var presence = VectorPresence.Create(docCount, vectorsByDoc.Keys);
-        float[] centroidValues = centroid.ToArray();
-        CodecFileWriter.WriteAtomically(filePath, VectorCodecFiles.Quantised, durable: false, bodyOutput =>
-        {
-        bodyOutput.WriteInt32(docCount);
-        bodyOutput.WriteInt32(dimension);
-        bodyOutput.WriteByte((byte)VectorQuantisation.BBQ);
-        bodyOutput.WriteBytes(presence, 0, presence.Length);
-
-        // Write centroid
-        for (int j = 0; j < dimension; j++)
-            bodyOutput.WriteSingle(centroidValues[j]);
-
-        Span<float> zero = dimension <= 256 ? stackalloc float[dimension] : new float[dimension];
-        zero.Clear();
-
-        // Store each doc's packed bits so Pass 2 writes them without re-quantising.
-        var packedDocs = new List<byte[]>(docCount);
-        byte[] bitBuf = ArrayPool<byte>.Shared.Rent(packedBytes);
-        try
-        {
-            for (int docId = 0; docId < docCount; docId++)
-            {
-                ReadOnlySpan<float> span = zero;
-                if (vectorsByDoc.TryGetValue(docId, out var v))
-                    span = v.Span;
-
-                bitBuf.AsSpan(0, packedBytes).Clear();
-
-                // Compute error corrections and binary quantise
-                float corr1 = 0f;
-                float corr2 = 0f;
-                float corr3 = 0f;
-                for (int j = 0; j < dimension; j++)
-                {
-                    float residual = span[j] - centroidValues[j];
-                    if (residual > 0f)
-                    {
-                        int byteIdx = j / 8;
-                        int bitIdx = j % 8;
-                        bitBuf[byteIdx] |= (byte)(1 << bitIdx);
-                    }
-
-                    float sign = residual > 0f ? 1f : -1f;
-                    corr1 += residual;
-                    corr2 += sign * residual;
-                    corr3 += residual * residual;
-                }
-
-                bodyOutput.WriteSingle(corr1);
-                bodyOutput.WriteSingle(corr2);
-                bodyOutput.WriteSingle(corr3);
-
-                // Save packed bits for Pass 2.
-                var packed = new byte[packedBytes];
-                Array.Copy(bitBuf, 0, packed, 0, packedBytes);
-                packedDocs.Add(packed);
-            }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(bitBuf, clearArray: false);
-        }
-
-        // --- Pass 2: write bit-packed data (no re-quantisation) ---
-        foreach (var packed in packedDocs)
-            bodyOutput.WriteBytes(packed, 0, packed.Length);
-        });
-    }
+        => throw VectorCodecFiles.RetiredBbqWrite();
 }

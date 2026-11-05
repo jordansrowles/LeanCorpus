@@ -1,5 +1,4 @@
 using BenchmarkDotNet.Attributes;
-using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Indexer;
@@ -9,7 +8,7 @@ using IODirectory = System.IO.Directory;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
-/// <summary>Measures managed allocation and throughput for a high-dimensional HNSW merge.</summary>
+/// <summary>Measures managed allocation and throughput for a high-dimensional vector merge.</summary>
 [MemoryDiagnoser]
 [WarmupCount(1)]
 [IterationCount(3)]
@@ -18,7 +17,6 @@ public class VectorMergeMemoryBenchmarks
 {
     private const int DocumentCount = 1000;
     private const int VectorDimension = 768;
-    private readonly HnswBuildConfig _hnswConfig = new() { M = 4, M0 = 8, EfConstruction = 12 };
     private float[][] _vectors = [];
     private string _path = string.Empty;
     private List<SegmentInfo> _segments = [];
@@ -47,10 +45,7 @@ public class VectorMergeMemoryBenchmarks
             MaxBufferedDocs = DocumentCount / 2,
             RamBufferSizeMB = 512,
             MergeThreshold = int.MaxValue,
-            BuildHnswOnFlush = true,
             NormaliseVectors = true,
-            HnswBuildConfig = _hnswConfig,
-            HnswSeed = 1L,
         }))
         {
             for (int docId = 0; docId < DocumentCount; docId++)
@@ -77,7 +72,7 @@ public class VectorMergeMemoryBenchmarks
         _segments = [];
     }
 
-    [Benchmark(Description = "Merge 1000 768D HNSW vectors")]
+    [Benchmark(Description = "Merge 1000 768D exact vectors")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int MergeHighDimensionalVectors()
     {
@@ -85,8 +80,7 @@ public class VectorMergeMemoryBenchmarks
         var merger = new SegmentMerger(
             directory,
             mergeThreshold: 100,
-            softDeleteRetentionSeconds: 0,
-            hnswBuildConfig: _hnswConfig);
+            softDeleteRetentionSeconds: 0);
         int nextOrdinal = _segments.Count;
         return merger.MergeAll(_segments, ref nextOrdinal)?.DocCount ?? 0;
     }

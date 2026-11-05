@@ -3,6 +3,7 @@ using System.Numerics;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.PackedBkd;
 using Rowles.LeanCorpus.Codecs.Postings;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Search.Geo;
 using Rowles.LeanCorpus.Search.Searcher.Internal;
@@ -1210,6 +1211,10 @@ public sealed partial class IndexSearcher
     {
         if (!reader.HasVectors) return;
 
+        var fieldInfo = reader.Info.VectorFields.FirstOrDefault(f => f.FieldName == query.Field);
+        if (fieldInfo is null) return;
+        ValidateVectorQueryDimension(query, fieldInfo.Dimension);
+
         int docBase = reader.DocBase;
 
         // Resolve filter (if any) to a docId bitmap and choose a strategy.
@@ -1220,15 +1225,25 @@ public sealed partial class IndexSearcher
             if (filterBitmap.Cardinality == 0) return;
         }
 
-        var graph = reader.GetHnswGraph(query.Field);
+        Util.IBitSet? queryFilterMask = filterBitmap is null
+            ? null
+            : new Util.RoaringBitmapBitSet(filterBitmap);
+        Util.IBitSet? liveAwareMask = reader.HasDeletions
+            ? new LiveDocsPostFilterMask(reader, queryFilterMask)
+            : queryFilterMask;
+
+        bool usesHistoricalBbqGraph = fieldInfo.Quantisation == VectorQuantisation.BBQ;
+        bool retiredGraphIgnored = fieldInfo.HasHnsw && !usesHistoricalBbqGraph;
+        var graph = usesHistoricalBbqGraph ? reader.GetHnswGraph(query.Field) : null;
         bool hasGraph = graph is not null && graph.NodeCount > 0;
-        int shortlistSize = query.TopK * query.OversamplingFactor;
-        int efSearch = Math.Max(query.EfSearch, shortlistSize);
+        int availableCandidates = hasGraph ? graph!.NodeCount : reader.MaxDoc;
+        bool isBbqV3 = reader.UsesBbqOsq(query.Field);
+        int shortlistSize = query.GetShortlistSize(availableCandidates, isBbqV3);
+        int efSearch = hasGraph ? query.GetEffectiveEfSearch(graph!.NodeCount, isBbqV3) : query.EfSearch;
 
         // Pre-compute query vector (and normalised variant for normalised fields).
         var queryVec = query.QueryVector;
-        var fieldInfo = reader.Info.VectorFields.FirstOrDefault(f => f.FieldName == query.Field);
-        bool normalised = fieldInfo is not null && fieldInfo.Normalised;
+        bool normalised = fieldInfo.Normalised;
         float[]? normalisedQuery = null;
         if (normalised)
         {
@@ -1247,13 +1262,14 @@ public sealed partial class IndexSearcher
             // Highly selective: brute-force scan only matched docs (cheaper than graph traversal).
             if (matched < 64 || selectivity < 0.005)
             {
-                BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
+                int scannedVectors = BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
+                _config.Metrics.RecordHnswSelectiveFilterScan(scannedVectors);
                 return;
             }
 
             // Moderately selective: pre-filter via allow-list.
             // Loose: post-filter with retry.
-            var bitset = new Util.RoaringBitmapBitSet(filterBitmap);
+            var bitset = liveAwareMask!;
             var options = selectivity < 0.05
                 ? new HnswSearchOptions
                 {
@@ -1268,17 +1284,22 @@ public sealed partial class IndexSearcher
                     PostFilterMask = bitset,
                 };
 
-            var searchVec = normalisedQuery ?? queryVec;
+            float[] searchVec = PrepareVectorGraphQuery(query, queryVec, normalisedQuery);
             var hnswSw = System.Diagnostics.Stopwatch.StartNew();
             var shortlist = graph!.Search(searchVec, options.ToTraversalOptions(), out var stats);
             hnswSw.Stop();
-            _config.Metrics.RecordHnswSearch(hnswSw.Elapsed, stats.NodesVisited);
+            _config.Metrics.RecordHnswSearch(
+                hnswSw.Elapsed,
+                stats.NodesVisited,
+                stats.ScannedVectors,
+                stats.UsedExhaustiveFallback);
             foreach (var hit in shortlist)
             {
                 if (!reader.IsLive(hit.DocId)) continue;
                 var docVector = reader.GetVector(query.Field, hit.DocId);
                 if (docVector is null || docVector.Length == 0) continue;
                 float similarity = VectorQuery.CosineSimilarity(queryVec, docVector);
+                similarity = ApplyVectorQueryBoost(query, similarity);
                 similarity = ApplyFieldBoost(reader, hit.DocId, query.Field, similarity);
                 collector.Collect(docBase + hit.DocId, similarity);
             }
@@ -1292,12 +1313,17 @@ public sealed partial class IndexSearcher
             {
                 Ef = efSearch,
                 TopK = shortlistSize,
+                PostFilterMask = liveAwareMask,
             };
-            var searchVec = normalisedQuery ?? queryVec;
+            float[] searchVec = PrepareVectorGraphQuery(query, queryVec, normalisedQuery);
             var hnswSw = System.Diagnostics.Stopwatch.StartNew();
             var shortlist = graph!.Search(searchVec, options.ToTraversalOptions(), out var stats);
             hnswSw.Stop();
-            _config.Metrics.RecordHnswSearch(hnswSw.Elapsed, stats.NodesVisited);
+            _config.Metrics.RecordHnswSearch(
+                hnswSw.Elapsed,
+                stats.NodesVisited,
+                stats.ScannedVectors,
+                stats.UsedExhaustiveFallback);
             if (shortlist.Count == 0) return;
             foreach (var hit in shortlist)
             {
@@ -1305,6 +1331,7 @@ public sealed partial class IndexSearcher
                 var docVector = reader.GetVector(query.Field, hit.DocId);
                 if (docVector is null || docVector.Length == 0) continue;
                 float similarity = VectorQuery.CosineSimilarity(queryVec, docVector);
+                similarity = ApplyVectorQueryBoost(query, similarity);
                 similarity = ApplyFieldBoost(reader, hit.DocId, query.Field, similarity);
                 collector.Collect(docBase + hit.DocId, similarity);
             }
@@ -1314,22 +1341,27 @@ public sealed partial class IndexSearcher
         // Flat-scan fallback (with optional filter).
         if (filterBitmap is not null)
         {
-            BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
+            int scannedVectors = BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
+            _config.Metrics.RecordVectorExactScan(scannedVectors, retiredGraphIgnored);
             return;
         }
 
+        int exactScannedVectors = 0;
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
             if (!reader.IsLive(docId)) continue;
             var docVector = reader.GetVector(query.Field, docId);
             if (docVector is null || docVector.Length == 0) continue;
             float similarity = VectorQuery.CosineSimilarity(queryVec, docVector);
+            similarity = ApplyVectorQueryBoost(query, similarity);
             similarity = ApplyFieldBoost(reader, docId, query.Field, similarity);
             collector.Collect(docBase + docId, similarity);
+            exactScannedVectors++;
         }
+        _config.Metrics.RecordVectorExactScan(exactScannedVectors, retiredGraphIgnored);
     }
 
-    private void BruteForceFilter(
+    private int BruteForceFilter(
         VectorQuery query,
         SegmentReader reader,
         Util.RoaringBitmap filterBitmap,
@@ -1337,6 +1369,7 @@ public sealed partial class IndexSearcher
         int docBase,
         ref TopNCollector collector)
     {
+        int scannedVectors = 0;
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
             if (!filterBitmap.Contains(docId)) continue;
@@ -1344,9 +1377,12 @@ public sealed partial class IndexSearcher
             var docVector = reader.GetVector(query.Field, docId);
             if (docVector is null || docVector.Length == 0) continue;
             float similarity = VectorQuery.CosineSimilarity(queryVec, docVector);
+            similarity = ApplyVectorQueryBoost(query, similarity);
             similarity = ApplyFieldBoost(reader, docId, query.Field, similarity);
             collector.Collect(docBase + docId, similarity);
+            scannedVectors++;
         }
+        return scannedVectors;
     }
 
     private Util.RoaringBitmap ExecuteFilterToBitmap(
@@ -1812,6 +1848,23 @@ public sealed partial class IndexSearcher
             if (matches)
                 collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, field, boost));
         }
+    }
+
+    private sealed class LiveDocsPostFilterMask : Util.IBitSet
+    {
+        private readonly SegmentReader _reader;
+        private readonly Util.IBitSet? _queryFilter;
+
+        public LiveDocsPostFilterMask(SegmentReader reader, Util.IBitSet? queryFilter)
+        {
+            _reader = reader;
+            _queryFilter = queryFilter;
+        }
+
+        public int Cardinality => _queryFilter?.Cardinality ?? _reader.Info.LiveDocCount;
+
+        public bool Contains(int docId)
+            => _reader.IsLive(docId) && (_queryFilter?.Contains(docId) ?? true);
     }
 
     private static bool TryCreateGeoBounds(

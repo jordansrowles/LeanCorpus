@@ -336,25 +336,24 @@ public sealed class IndexWriterConfig
 
     /// <summary>
     /// Quantisation strategy for vector fields. <see cref="Codecs.Vectors.VectorQuantisation.None"/> (default)
-    /// stores raw float32 vectors. <see cref="Codecs.Vectors.VectorQuantisation.Int8"/> gives ~4× storage
-    /// reduction with minimal recall loss. <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> gives ~32×
-    /// reduction at some recall cost. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
+    /// stores raw float32 vectors. Historical <see cref="Codecs.Vectors.VectorQuantisation.Int8"/> and
+    /// <see cref="Codecs.Vectors.VectorQuantisation.BBQ"/> files remain readable, but both write paths are
+    /// retired. New vector indexes use Float32. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.
     /// </summary>
     public VectorQuantisation VectorQuantisation { get; set; } = VectorQuantisation.None;
 
     /// <summary>
-    /// Build an HNSW graph for every vector field at flush time. Disable to fall back to
-    /// flat brute-force scan (useful for tiny indices where the build overhead outweighs benefit).
-    /// Default: <c>true</c>.
+    /// Requests HNSW graph creation for every vector field at flush time. HNSW graph creation
+    /// is retired for 4.0; setting this property to <c>true</c> is rejected during writer
+    /// validation. Historical graph files remain readable. Default: <c>false</c>.
     /// </summary>
-    public bool BuildHnswOnFlush { get; set; } = true;
+    public bool BuildHnswOnFlush { get; set; }
 
-    /// <summary>HNSW build configuration applied to every vector field. See <see cref="Codecs.Hnsw.HnswBuildConfig"/>.</summary>
+    /// <summary>Retained for source compatibility; new HNSW graph creation is retired.</summary>
     public Codecs.Hnsw.HnswBuildConfig HnswBuildConfig { get; set; } = new();
 
     /// <summary>
-    /// Optional deterministic seed for HNSW graph construction. When null, a random seed is generated
-    /// per segment and persisted into the <c>.hnsw</c> file. Set explicitly for reproducible builds.
+    /// Retained for source compatibility; new HNSW graph creation is retired and this value is ignored.
     /// </summary>
     public long? HnswSeed { get; set; }
 
@@ -388,6 +387,15 @@ public sealed class IndexWriterConfig
     /// <exception cref="ArgumentException">Thrown when a property is invalid.</exception>
     internal void Validate()
     {
+        if (BuildHnswOnFlush)
+            throw new ArgumentException(
+                "HnswGraphCreationRetired: new HNSW graph writes are not supported for 4.0; use exact Float32 vector search.",
+                nameof(BuildHnswOnFlush));
+
+        var vectorDecision = VectorCodecFiles.CanCreate(VectorQuantisation);
+        if (!vectorDecision.IsAllowed)
+            throw new ArgumentException($"{vectorDecision.ReasonCode}: {vectorDecision.Explanation}", nameof(VectorQuantisation));
+
         if (RamBufferSizeMB < 0)
             throw new ArgumentException("RamBufferSizeMB must not be negative.", nameof(RamBufferSizeMB));
 

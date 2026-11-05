@@ -18,4 +18,29 @@ public sealed partial class IndexSearcher
 
         return score;
     }
+
+    private static float ApplyVectorQueryBoost(VectorQuery query, float score)
+        => query.Boost != 1.0f ? score * query.Boost : score;
+
+    private static float[] PrepareVectorGraphQuery(VectorQuery query, float[] queryVector, float[]? normalisedQuery)
+    {
+        float[] searchVector = normalisedQuery ?? queryVector;
+        if (query.Boost >= 0f)
+            return searchVector;
+
+        var reversed = new float[searchVector.Length];
+        for (int index = 0; index < searchVector.Length; index++)
+            reversed[index] = -searchVector[index];
+        return reversed;
+    }
+
+    private static void ValidateVectorQueryDimension(VectorQuery query, int fieldDimension)
+    {
+        if (query.QueryVector.Length != fieldDimension)
+        {
+            throw new ArgumentException(
+                $"Query vector dimension {query.QueryVector.Length} does not match vector field '{query.Field}' dimension {fieldDimension}.",
+                nameof(query));
+        }
+    }
 }

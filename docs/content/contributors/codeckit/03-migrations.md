@@ -89,20 +89,39 @@ LeanCorpus 3.0 reads supported formats from 2.0 onwards and can migrate supporte
 - [Validation and recovery](../../index-management/03-validation-recovery.md)
 - [Index checker CLI](../../index-management/04-cli-checker.md)
 
-## LeanCorpus 4.0 vector presence migration
+## LeanCorpus 4.0 vector migrations
 
-Float `.vec` and Int8/BBQ `.vq` bodies migrate from v1 to v2 by structural
-rewrite. The owning `.seg` metadata must declare a persisted HNSW graph for the
-field. The migrator validates graph membership, unique document IDs and document
-bounds, and inserts those presence bits into the vector data body. Dense vector
-bytes, quantisation parameters, corrections and packed bytes remain unchanged;
-legacy quantised vectors are never dequantised and requantised by migration.
-The HNSW body stays at v1 and is reassociated with the migrated segment.
+Float `.vec` v1 bodies migrate to v2 by structural rewrite. Their owning
+`.seg` metadata must declare a persisted HNSW graph for the field. The migrator
+validates graph membership, unique document IDs and document bounds, and inserts
+the reconstructed presence bitmap. Dense Float32 bytes remain unchanged.
 
-Without persisted HNSW membership, v1 presence cannot be reconstructed. Planning
-reports a non-executable action with `UnsupportedMigrationPath`; migration stops
-before changing source files. Non-zero dense contents are not presence evidence.
-Rebuild such indexes from the original documents instead.
+Int8 `.vq` v1 and v2 bodies migrate to v3 by adding the v3 storage-kind tag and
+preserving the encoded payload. For v1, the migrator reconstructs authoritative
+presence from the persisted HNSW graph, after validating membership, unique IDs
+and document bounds. For v2, it validates and copies the persisted presence
+bitmap; this path does not require HNSW access or rebuild presence from graph
+membership. Int8 values and parameters are copied without dequantisation or
+requantisation. The HNSW body stays at v1 and its scorer generation is resolved
+from the associated `.vq` storage kind.
+
+BBQ-tagged `.vq` v1/v2 bodies have no migration route. Migration of any BBQ
+format, including a current-version no-op, is rejected before changing source
+files. Historical BBQ bodies remain readable and searchable with their existing
+scorers. Any committed BBQ field makes the entire containing index read-only to
+writers, including mixed indexes and all-deleted fields. To continue indexing,
+rebuild a separate Float32 index from original documents and embeddings;
+decoded BBQ data does not restore the original components.
+
+Historical Int8 remains distinct from BBQ retirement. Int8 `.vq` v1/v2 can be
+structurally migrated to v3/tag 1 without requantisation. A merge decodes
+historical Int8 values and writes Float32 `.vec` v2; it does not create new
+Int8 output.
+
+The `.vec` v1 and Int8 `.vq` v1 presence rewrites require persisted HNSW
+membership. Without it, planning reports `UnsupportedMigrationPath` and
+migration stops before changing source files. Non-zero vector contents are not
+presence evidence.
 
 Compound members use the same staged rewrite and normal repacking protocol.
 Publication failure preserves the last committed source index and supports retry.
@@ -115,8 +134,9 @@ and HNSW membership through planning, migration, reopen and force merge. Both
 layouts physically sort on `sort:id`, preserving released metadata
 `String:sort:id:False` and sorted search results throughout. Acceptance checks
 the complete expected codec action set, with no index-sort rewrite.
-Focused vector tests additionally cover Int8 and BBQ rewrites. Vector v2 is a
-one-way persisted-format boundary; a 3.1.1 reader is not expected to open it.
+Focused vector tests additionally cover Int8 structural migration and BBQ
+migration denials. The resulting `.vec` v2 and `.vq` v3 formats are one-way
+persisted-format boundaries; a 3.1.1 reader is not expected to open them.
 
 Regenerate deliberately with `./devops data fixtures --version 3.1.1
 --scenario migration` using the pinned SDK and the isolated package source.

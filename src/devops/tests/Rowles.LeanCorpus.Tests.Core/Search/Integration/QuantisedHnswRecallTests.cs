@@ -1,4 +1,4 @@
-using Rowles.LeanCorpus.Codecs;
+﻿using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.Hnsw;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
@@ -44,110 +44,70 @@ public sealed class QuantisedHnswRecallTests : IClassFixture<TestDirectoryFixtur
         return vectors;
     }
 
-    [Fact(DisplayName = "Int8 Quantisation: HNSW search recall >= 75% against flat baseline")]
-    public void Int8Quantised_HnswRecall_AgainstFlatBaseline()
+    [Fact(DisplayName = "Retired BBQ cannot create a new HNSW index")]
+    public void BBQQuantised_NewHnswIndexIsRejected()
     {
-        var dir = new MMapDirectory(SubDir("int8_recall"));
-        var config = new IndexWriterConfig
+        string path = SubDir("bbq_retired");
+        using var directory = new MMapDirectory(path);
+        var exception = Assert.Throws<ArgumentException>(() => new IndexWriter(directory, new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
-            NormaliseVectors = true,
-            VectorQuantisation = VectorQuantisation.Int8,
-            HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
-            HnswSeed = 1337L,
-        };
-
-        const int n = 300;
-        const int dim = 32;
-        var vectors = BuildRandomVectors(n, dim, seed: 11);
-
-        using (var writer = new IndexWriter(dir, config))
-        {
-            for (int i = 0; i < n; i++)
-            {
-                var doc = new LeanDocument();
-                doc.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vectors[i])));
-                writer.AddDocument(doc);
-            }
-            writer.Commit();
-        }
-
-        var query = BuildRandomVectors(1, dim, seed: 99)[0];
-        const int topK = 10;
-
-        // Exact flat cosine baseline
-        var truth = Enumerable.Range(0, n)
-            .Select(i => (DocId: i, Score: VectorQuery.CosineSimilarity(query, vectors[i])))
-            .OrderByDescending(t => t.Score)
-            .Take(topK)
-            .Select(t => t.DocId)
-            .ToHashSet();
-
-        using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new VectorQuery("embedding", query, topK: topK, efSearch: 100), topK, TestContext.Current.CancellationToken);
-
-        Assert.True(results.TotalHits > 0, "Int8 HNSW search returned no hits.");
-        var found = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
-        int overlap = found.Intersect(truth).Count();
-        double recall = overlap / (double)topK;
-        Assert.True(recall >= 0.75, $"Int8 recall {recall:F2} below 0.75 threshold.");
-    }
-
-    [Fact(DisplayName = "BBQ Quantisation: HNSW search recall >= 70% against flat baseline")]
-    public void BBQQuantised_HnswRecall_AgainstFlatBaseline()
-    {
-        var dir = new MMapDirectory(SubDir("bbq_recall"));
-        var config = new IndexWriterConfig
-        {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
             VectorQuantisation = VectorQuantisation.BBQ,
             HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
             HnswSeed = 1337L,
-        };
-
-        const int n = 300;
-        const int dim = 32;
-        var vectors = BuildRandomVectors(n, dim, seed: 11);
-
-        using (var writer = new IndexWriter(dir, config))
-        {
-            for (int i = 0; i < n; i++)
-            {
-                var doc = new LeanDocument();
-                doc.Add(new VectorField("embedding", new ReadOnlyMemory<float>(vectors[i])));
-                writer.AddDocument(doc);
-            }
-            writer.Commit();
-        }
-
-        var query = BuildRandomVectors(1, dim, seed: 99)[0];
-        const int topK = 10;
-
-        var truth = Enumerable.Range(0, n)
-            .Select(i => (DocId: i, Score: VectorQuery.CosineSimilarity(query, vectors[i])))
-            .OrderByDescending(t => t.Score)
-            .Take(topK)
-            .Select(t => t.DocId)
-            .ToHashSet();
-
-        using var searcher = new IndexSearcher(dir);
-        var results = searcher.Search(new VectorQuery("embedding", query, topK: topK, efSearch: 100), topK, TestContext.Current.CancellationToken);
-
-        Assert.True(results.TotalHits > 0, "BBQ HNSW search returned no hits.");
-        var found = results.ScoreDocs.Select(sd => sd.DocId).ToHashSet();
-        int overlap = found.Intersect(truth).Count();
-        double recall = overlap / (double)topK;
-        Assert.True(recall >= 0.70, $"BBQ recall {recall:F2} below the declared 0.70 integration threshold.");
+        }));
+        Assert.Contains("CodecReadOnly", exception.Message);
+        Assert.Empty(Directory.GetFiles(path));
     }
 
-    [Fact(DisplayName = "Default (None): Unquantised vectors behave identically to baseline")]
-    public void NoneQuantisation_MatchesBaseline()
+    [Fact(DisplayName = "Legacy 32D BBQ recall remains a historical diagnostic")]
+    public void LegacyBbq32DRecall_RemainsAtTheRecordedDiagnosticValue()
+    {
+        const int n = 300;
+        const int dim = 32;
+        float[][] vectors = BuildRandomVectors(n, dim, seed: 11);
+        var vectorsByDoc = new Dictionary<int, ReadOnlyMemory<float>>(n);
+        for (int docId = 0; docId < n; docId++)
+        {
+            Assert.True(SimdVectorOps.NormaliseInPlace(vectors[docId]));
+            vectorsByDoc.Add(docId, vectors[docId]);
+        }
+
+        float[] centroid = new float[dim];
+        foreach (ReadOnlyMemory<float> vector in vectorsByDoc.Values)
+            for (int dimension = 0; dimension < dim; dimension++)
+                centroid[dimension] += vector.Span[dimension] / vectorsByDoc.Count;
+        var source = new BBQMemoryVectorSource(vectorsByDoc, dim, centroid);
+        using HnswGraph graph = HnswGraphBuilder.Build(
+            source,
+            Enumerable.Range(0, n).ToArray(),
+            new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },
+            seed: 1337L);
+        float[] query = BuildRandomVectors(1, dim, seed: 99)[0];
+        Assert.True(SimdVectorOps.NormaliseInPlace(query));
+        const int topK = 10;
+
+        HashSet<int> truth = Enumerable.Range(0, n)
+            .Select(docId => (DocId: docId, Score: VectorQuery.CosineSimilarity(query, vectors[docId])))
+            .OrderByDescending(static item => item.Score)
+            .Take(topK)
+            .Select(static item => item.DocId)
+            .ToHashSet();
+        IReadOnlyList<HnswSearchResult> candidates = graph.Search(query,
+            new HnswTraversalOptions { Ef = 100, TopK = topK });
+        double recall = candidates.Select(static item => item.DocId).Intersect(truth).Count() / (double)topK;
+
+        Assert.Equal(0.60, recall, precision: 2);
+    }
+
+    [Fact(DisplayName = "Default Float32 vector search matches exact baseline")]
+    public void NoneQuantisation_MatchesExactBaseline()
     {
         var dir = new MMapDirectory(SubDir("none_recall"));
         var config = new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = true,
             VectorQuantisation = VectorQuantisation.None,
             HnswBuildConfig = new HnswBuildConfig { M = 16, M0 = 32, EfConstruction = 100 },

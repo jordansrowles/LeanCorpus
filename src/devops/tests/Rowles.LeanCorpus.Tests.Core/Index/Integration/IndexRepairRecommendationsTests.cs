@@ -18,4 +18,15 @@ public sealed class IndexRepairRecommendationsTests
         foreach (var (name, code) in codes)
             Assert.NotEmpty(IndexRepairRecommendations.ForIssue(code));
     }
+
+    [Fact]
+    public void ForIssue_ReadOnlyRetiredCodec_RecommendsFloat32Only()
+    {
+        var actions = IndexRepairRecommendations.ForIssue(IndexCheckIssueCodes.ReadOnlyRetiredCodec);
+
+        Assert.Single(actions);
+        Assert.Equal(
+            "This codec is read-only in this build; rebuild from original documents and embeddings into a separate Float32 index.",
+            actions[0]);
+    }
 }

@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using Rowles.LeanCorpus.Codecs;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Codecs.CodecKit.Formats;
@@ -34,6 +34,10 @@ internal static class SegmentFlusher
         out int[]? inversePerm)
     {
         inversePerm = null;
+        if (config.BuildHnswOnFlush)
+            throw new InvalidOperationException(
+                "HnswGraphCreationRetired: new HNSW graph writes are not supported for 4.0; use exact Float32 vector search.");
+        VectorCodecFiles.EnsureCanCreate(config.VectorQuantisation);
 
         // The detached batch is exclusively owned here, so sorting can safely
         // reorder its metadata before physical publication.
@@ -201,24 +205,15 @@ internal static class SegmentFlusher
                 }
                 var quantisation = config.VectorQuantisation;
                 float int8Min = 0f, int8Alpha = 0f;
-                float[]? bbqCentroid = null;
 
                 if (quantisation == VectorQuantisation.None)
                 {
                     var vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
                     Codecs.Vectors.VectorWriter.WriteField(vecPath, docCount, dimension, perField, quantisation);
                 }
-                else
+                else if (quantisation == VectorQuantisation.Int8)
                 {
-                    switch (quantisation)
-                    {
-                        case VectorQuantisation.Int8:
-                            (int8Min, int8Alpha) = ComputeInt8Params(perField);
-                            break;
-                        case VectorQuantisation.BBQ:
-                            bbqCentroid = ComputeBBQCentroid(perField, dimension);
-                            break;
-                    }
+                    (int8Min, int8Alpha) = ComputeInt8Params(perField);
                 }
 
                 bool hasHnsw = false;
@@ -235,13 +230,6 @@ internal static class SegmentFlusher
                         Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, docCount, dimension, perField);
                         graph = Codecs.Hnsw.HnswGraphBuilder.Build(int8Source, docIds, config.HnswBuildConfig, config.HnswSeed);
                     }
-                    else if (quantisation == VectorQuantisation.BBQ)
-                    {
-                        var bbqSource = new Codecs.Vectors.BBQMemoryVectorSource(perField, dimension, bbqCentroid!);
-                        var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                        Codecs.Vectors.QuantisedVectorWriter.WriteBBQ(vqPath, docCount, dimension, perField, bbqCentroid!);
-                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(bbqSource, docIds, config.HnswBuildConfig, config.HnswSeed);
-                    }
                     else
                     {
                         var memSource = new Dictionary<int, ReadOnlyMemory<float>>(perField);
@@ -254,18 +242,10 @@ internal static class SegmentFlusher
                     Codecs.Hnsw.HnswWriter.Write(hnswPath, graph, dimension, config.NormaliseVectors);
                     hasHnsw = true;
                 }
-                else if (quantisation != VectorQuantisation.None)
+                else if (quantisation == VectorQuantisation.Int8)
                 {
                     var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                    switch (quantisation)
-                    {
-                        case VectorQuantisation.Int8:
-                            Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, docCount, dimension, perField);
-                            break;
-                        case VectorQuantisation.BBQ:
-                            Codecs.Vectors.QuantisedVectorWriter.WriteBBQ(vqPath, docCount, dimension, perField, bbqCentroid!);
-                            break;
-                    }
+                    Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, docCount, dimension, perField);
                 }
 
                 segInfo.VectorFields.Add(new VectorFieldInfo
@@ -1299,40 +1279,21 @@ internal static class SegmentFlusher
     internal static (float min, float alpha) ComputeInt8Params(
         IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField)
     {
-        float min = float.MaxValue;
-        float max = float.MinValue;
+        ArgumentNullException.ThrowIfNull(perField);
+        float maximumMagnitude = 0f;
         foreach (var v in perField.Values)
         {
             var span = v.Span;
             for (int j = 0; j < span.Length; j++)
             {
                 float val = span[j];
-                if (val < min) min = val;
-                if (val > max) max = val;
+                if (!float.IsFinite(val))
+                    throw new InvalidDataException("Int8 vector input contains a non-finite component.");
+                maximumMagnitude = MathF.Max(maximumMagnitude, MathF.Abs(val));
             }
         }
-        if (MathF.Abs(max - min) < 1e-8f) max = min + 1f;
-        return (min, (max - min) / 255f);
+        return Codecs.Vectors.QuantisedVectorWriter.ComputeInt8Parameters(maximumMagnitude);
     }
 
-    internal static float[] ComputeBBQCentroid(
-        IReadOnlyDictionary<int, ReadOnlyMemory<float>> perField,
-        int dimension)
-    {
-        float[] centroid = new float[dimension];
-        int count = 0;
-        foreach (var v in perField.Values)
-        {
-            var span = v.Span;
-            for (int j = 0; j < dimension; j++)
-                centroid[j] += span[j];
-            count++;
-        }
-        if (count > 0)
-        {
-            for (int j = 0; j < dimension; j++)
-                centroid[j] /= count;
-        }
-        return centroid;
-    }
+
 }

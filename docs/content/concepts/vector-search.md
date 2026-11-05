@@ -1,9 +1,16 @@
 # Vector search
 
-Use this page when your application already produces embeddings and needs local approximate nearest-neighbour search.
+LeanCorpus indexes application-generated embeddings and returns the nearest
+stored vectors. New 4.0 vector indexes use Float32 storage and exact cosine
+scans. Exact search gives the correct ranking for the persisted values, with
+work proportional to the number of vectors and their dimensions.
 
-LeanCorpus stores and searches vectors. It does not create embeddings, choose a model or send document text to an external service. Generate compatible vectors in your application, keep one dimension per field, then index them as `VectorField` values.
+Historical Int8 indexes remain readable and are searched exactly over their
+decoded stored values. This does not restore the original Float32 ranking.
+Historical BBQ indexes retain their existing scorer and query route, but an
+index containing BBQ data is read-only. New Int8, BBQ and HNSW graph writes are
+retired for 4.0.
 
-HNSW retrieves an approximate candidate set and exact cosine rescoring orders the shortlist. Apply an ordinary LeanCorpus filter when results must remain within a tenant, category or permission boundary. Measure recall and latency on your own corpus before enabling quantisation or changing HNSW budgets.
-
-See also: [Vector search guide](../advanced/05-vector-search.md), [Filtered vector search](../advanced/08-filtered-vector-search.md), and <xref:Rowles.LeanCorpus.Search.Queries.VectorQuery>.
+See the [vector search guide](../advanced/05-vector-search.md), [filtered
+vector search](../advanced/08-filtered-vector-search.md), and
+<xref:Rowles.LeanCorpus.Search.Queries.VectorQuery>.

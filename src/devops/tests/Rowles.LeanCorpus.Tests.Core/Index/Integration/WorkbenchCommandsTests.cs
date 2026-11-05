@@ -122,6 +122,62 @@ public sealed class WorkbenchCommandsTests : IClassFixture<TestDirectoryFixture>
         Assert.False(string.IsNullOrWhiteSpace(recipe.RootElement.GetProperty("recipeIdentity").GetString()));
     }
 
+    [Fact(DisplayName = "Workbench: retired BBQ preset is rejected before creating an index")]
+    public void CreatePreset_RetiredBbqReturnsStableErrorWithoutCreatingIndex()
+    {
+        string path = Path.Combine(_fixture.Path, "workbench-retired-bbq");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = IndexCheckerCli.Run(
+            ["create", "preset", "vector-bbq", path, "--json"], output, error);
+
+        Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
+        Assert.StartsWith(
+            "The 'vector-bbq' preset is retired. Rebuild from the original documents and embeddings into a Float32 index; historical Int8 and BBQ data remain readable.",
+            error.ToString());
+        Assert.Empty(output.ToString());
+        Assert.False(Directory.Exists(path));
+    }
+
+    [Theory]
+    [InlineData("vector-hnsw")]
+    [InlineData("vector-int8")]
+    public void CreatePreset_RetiredVectorModesFailBeforeCreatingAnIndex(string preset)
+    {
+        string path = Path.Combine(_fixture.Path, $"workbench-retired-{preset}");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = IndexCheckerCli.Run(["create", "preset", preset, path, "--json"], output, error);
+
+        Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
+        Assert.Contains($"The '{preset}' preset is retired. New vector indexes support Float32 exact search only", error.ToString());
+        Assert.Empty(output.ToString());
+        Assert.False(Directory.Exists(path));
+    }
+
+    [Fact(DisplayName = "Workbench: retired BBQ recipe cannot be reproduced into a new index")]
+    public void Reproduce_RetiredBbqRecipeReturnsStableErrorWithoutCreatingIndex()
+    {
+        string source = Path.Combine(_fixture.Path, "workbench-retired-bbq-recipe");
+        string metadata = Path.Combine(source, ".leancorpus");
+        string outputPath = Path.Combine(_fixture.Path, "workbench-retired-bbq-reproduction");
+        Directory.CreateDirectory(metadata);
+        File.WriteAllText(Path.Combine(metadata, "recipe.json"), "{\"schemaVersion\":1,\"preset\":\"vector-bbq\"}");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+
+        int exitCode = IndexCheckerCli.Run(["create", "reproduce", source, outputPath], output, error);
+
+        Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
+        Assert.StartsWith(
+            "Recipe preset 'vector-bbq' is retired. Rebuild from the original documents and embeddings into a separate Float32 index.",
+            error.ToString());
+        Assert.Empty(output.ToString());
+        Assert.False(Directory.Exists(outputPath));
+    }
+
     [Fact(DisplayName = "Workbench: recipe reproduction compares logically equal")]
     public void Reproduce_ProducesLogicallyEquivalentIndex()
     {

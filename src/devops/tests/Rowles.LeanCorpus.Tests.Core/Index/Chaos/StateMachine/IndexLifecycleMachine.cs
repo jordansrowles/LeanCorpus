@@ -1,4 +1,4 @@
-using FsCheck;
+﻿using FsCheck;
 using FsCheck.Experimental;
 using FsCheck.Fluent;
 
@@ -13,10 +13,7 @@ internal sealed class IndexLifecycleMachine : Machine<IndexHarness, IndexModel>
             .Select(static search => (Operation<IndexHarness, IndexModel>)new SearchOperation(search))
             .ToArray();
 
-    public IndexLifecycleMachine()
-        : base(MaxTraceLength)
-    {
-    }
+    public IndexLifecycleMachine() : base(MaxTraceLength) { }
 
     public override Arbitrary<Setup<IndexHarness, IndexModel>> Setup =>
         Arb.ToArbitrary(Gen.Fresh(static () => (Setup<IndexHarness, IndexModel>)new IndexLifecycleSetup()));
@@ -51,6 +48,7 @@ internal sealed class IndexLifecycleMachine : Machine<IndexHarness, IndexModel>
         if (updates.Length > 0)
             choices.Add((10, Gen.Elements(updates)));
 
+
         return Gen.Frequency(choices.ToArray());
     }
 
@@ -70,7 +68,6 @@ internal sealed class IndexLifecycleMachine : Machine<IndexHarness, IndexModel>
     private sealed class IndexLifecycleSetup : Setup<IndexHarness, IndexModel>
     {
         public override IndexModel Model() => IndexModel.Empty;
-
         public override IndexHarness Actual() => new();
     }
 

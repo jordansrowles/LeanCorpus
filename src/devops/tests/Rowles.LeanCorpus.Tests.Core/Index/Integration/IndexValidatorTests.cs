@@ -8,6 +8,7 @@ using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -329,14 +330,17 @@ public sealed class IndexValidatorTests : IClassFixture<TestDirectoryFixture>
     public void Check_MissingVectorAndHnswFiles_ReturnIssues()
     {
         var dir = new MMapDirectory(SubDir("val_missing_vector_hnsw"));
-        using var writer = new IndexWriter(dir, new IndexWriterConfig { BuildHnswOnFlush = true });
-        for (int i = 0; i < 2; i++)
+        using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
         {
-            var doc = new LeanDocument();
-            doc.Add(new VectorField("embedding", new ReadOnlyMemory<float>([i + 1f, 0f, 0f])));
-            writer.AddDocument(doc);
+            for (int i = 0; i < 2; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new VectorField("embedding", new ReadOnlyMemory<float>([i + 1f, 0f, 0f])));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
         }
-        writer.Commit();
+        HistoricalHnswGraphFixtures.AttachToFloat32Index(dir.DirectoryPath);
 
         var vecFile = Directory.GetFiles(dir.DirectoryPath, "*.vec").Single();
         var hnswFile = Directory.GetFiles(dir.DirectoryPath, "*.hnsw").Single();

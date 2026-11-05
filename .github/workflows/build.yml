@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main, '[0-9]*', 'stabilise/**', 'issue-97']
+    branches: [main, '[0-9]*', 'stabilise/**', 'issue-97', 'fix/bbq-retrieval-quality']
   pull_request: {}
   workflow_dispatch:
 
@@ -104,7 +104,7 @@ jobs:
           if-no-files-found: warn
 
   linux-tests:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/bbq-retrieval-quality' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -148,7 +148,7 @@ jobs:
           if-no-files-found: warn
 
   orchard-browser-linux:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/bbq-retrieval-quality' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright/dotnet:v1.63.0-noble
@@ -205,7 +205,7 @@ jobs:
           if-no-files-found: warn
 
   coverage:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/fix/bbq-retrieval-quality' || startsWith(github.ref, 'refs/heads/stabilise/') || startsWith(github.event.head_commit.message, '[deploy]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

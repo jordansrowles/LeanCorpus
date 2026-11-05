@@ -114,7 +114,7 @@ if (compatibility.CanMigrate)
 }
 ```
 
-Compatibility statuses: `Compatible`, `MigrationRecommended`, `MigrationRequired`, `UnsupportedFutureFormat`, `UnknownFormat`, `Corrupt`, `Empty`. The result also exposes `CanRead`, `CanWrite`, `CanValidate`, `CanMigrate`, `MustReject`, and `RequiresMigration`.
+Compatibility statuses: `Compatible`, `MigrationRecommended`, `MigrationRequired`, `ReadOnlyRetired`, `UnsupportedFutureFormat`, `UnknownFormat`, `Corrupt`, `Empty`. `ReadOnlyRetired` means the index is readable but a retired representation, such as committed BBQ, blocks mutation and migration. Historical Int8 is not covered by this status: current v3/tag-1 indexes can remain `Compatible` and `CanWrite` because permitted rewrites and merges emit Float32 rather than new Int8. Older Int8 bodies have an approved structural migration to v3/tag 1 when the required presence proof is available. The result also exposes `CanRead`, `CanWrite`, `CanValidate`, `CanMigrate`, `MustReject`, and `RequiresMigration`.
 
 `IndexCodecMigrator.Migrate` copies the index to a staging directory, rewrites older codec files, deep-validates the staged index, publishes the files back, and records `migration_state.json` markers:
 

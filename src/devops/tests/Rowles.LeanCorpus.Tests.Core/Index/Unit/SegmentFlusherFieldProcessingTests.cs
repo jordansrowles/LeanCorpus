@@ -1,4 +1,4 @@
-namespace Rowles.LeanCorpus.Tests.Core.Index;
+﻿namespace Rowles.LeanCorpus.Tests.Core.Index;
 
 /// <summary>
 /// Unit tests for the pure field-processing helpers in <see cref="SegmentFlusher"/>:
@@ -73,7 +73,7 @@ public sealed class SegmentFlusherFieldProcessingTests
     }
 
     [Fact]
-    public void ComputeInt8Params_ReturnsMinAndAlpha()
+    public void ComputeInt8Params_UsesZeroCentredSignedRange()
     {
         var perField = new Dictionary<int, ReadOnlyMemory<float>>
         {
@@ -83,8 +83,8 @@ public sealed class SegmentFlusherFieldProcessingTests
 
         var (min, alpha) = SegmentFlusher.ComputeInt8Params(perField);
 
-        Assert.Equal(-2f, min);
-        Assert.Equal(10f / 255f, alpha);
+        Assert.Equal(-128f * (8f / 127f), min);
+        Assert.Equal(8f / 127f, alpha);
     }
 
     [Fact]
@@ -97,30 +97,9 @@ public sealed class SegmentFlusherFieldProcessingTests
 
         var (min, alpha) = SegmentFlusher.ComputeInt8Params(perField);
 
-        Assert.Equal(5f, min);
-        Assert.Equal(1f / 255f, alpha);
+        Assert.Equal(-128f * (5f / 127f), min);
+        Assert.Equal(5f / 127f, alpha);
     }
 
-    [Fact]
-    public void ComputeBBQCentroid_AveragesPerDimension()
-    {
-        var perField = new Dictionary<int, ReadOnlyMemory<float>>
-        {
-            [0] = new float[] { 1f, 3f },
-            [1] = new float[] { 5f, 7f }
-        };
 
-        var centroid = SegmentFlusher.ComputeBBQCentroid(perField, 2);
-
-        Assert.Equal(new[] { 3f, 5f }, centroid);
-    }
-
-    [Fact]
-    public void ComputeBBQCentroid_EmptyInput_ReturnsZeroCentroid()
-    {
-        var centroid = SegmentFlusher.ComputeBBQCentroid(
-            new Dictionary<int, ReadOnlyMemory<float>>(), 3);
-
-        Assert.Equal(new float[] { 0f, 0f, 0f }, centroid);
-    }
 }

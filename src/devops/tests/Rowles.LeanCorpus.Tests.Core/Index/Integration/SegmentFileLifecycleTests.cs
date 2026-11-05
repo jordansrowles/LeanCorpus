@@ -9,6 +9,7 @@ using Rowles.LeanCorpus.Search.Scoring;
 using Rowles.LeanCorpus.Search.Searcher;
 using Rowles.LeanCorpus.Store;
 using Rowles.LeanCorpus.Tests.Shared.Fixtures;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -126,28 +127,30 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         Assert.False(File.Exists(temporaryFilePath));
     }
 
-    [Fact(DisplayName = "Merge: Removes All Consumed Loose Vector And HNSW Files")]
-    public void Merge_RemovesAllConsumedLooseVectorAndHnswFiles()
+    [Fact(DisplayName = "Merge: Removes Consumed Vector And Historical HNSW Files")]
+    public void Merge_RemovesConsumedVectorAndHistoricalHnswFiles()
     {
-        string path = SubDir(nameof(Merge_RemovesAllConsumedLooseVectorAndHnswFiles));
+        string path = SubDir(nameof(Merge_RemovesConsumedVectorAndHistoricalHnswFiles));
         using var directory = new MMapDirectory(path);
-        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
         {
             MaxBufferedDocs = 2,
             MergeThreshold = 100,
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             UseCompoundFile = false,
-        });
-
-        for (int i = 0; i < 4; i++)
+        }))
         {
-            var document = new LeanDocument();
-            document.Add(new StringField("id", $"doc-{i}"));
-            document.Add(new TextField("body", "merge vector lifecycle"));
-            document.Add(new VectorField("embedding", new ReadOnlyMemory<float>([i + 1f, 0f, 0f])));
-            writer.AddDocument(document);
+            for (int i = 0; i < 4; i++)
+            {
+                var document = new LeanDocument();
+                document.Add(new StringField("id", $"doc-{i}"));
+                document.Add(new TextField("body", "merge vector lifecycle"));
+                document.Add(new VectorField("embedding", new ReadOnlyMemory<float>([i + 1f, 0f, 0f])));
+                writer.AddDocument(document);
+            }
+            writer.Commit();
         }
-        writer.Commit();
+        HistoricalHnswGraphFixtures.AttachToFloat32Index(path);
 
         string[] sourceIds = Directory.GetFiles(path, "seg_*.seg")
             .Select(SegmentInfo.ReadFrom)
@@ -160,11 +163,13 @@ public sealed class SegmentFileLifecycleTests : IClassFixture<TestDirectoryFixtu
         Assert.Contains(consumedFiles, static file => file.EndsWith("_v_embedding.vec", StringComparison.Ordinal));
         Assert.Contains(consumedFiles, static file => file.EndsWith("_v_embedding.hnsw", StringComparison.Ordinal));
 
-        Assert.True(writer.ForceMerge(1) > 0);
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig { UseCompoundFile = false }))
+            Assert.True(writer.ForceMerge(1) > 0);
 
         Assert.All(consumedFiles, file => Assert.False(File.Exists(file), $"Consumed segment file remains: {file}"));
         using var searcher = new IndexSearcher(directory);
         Assert.Equal(4, searcher.Search(new TermQuery("body", "lifecycle"), 10, TestContext.Current.CancellationToken).TotalHits);
+        Assert.False(Assert.Single(searcher.GetSegmentReaders()).Info.VectorFields.Single().HasHnsw);
     }
 
     [Fact(DisplayName = "Whole Segment Deletion: Removes Deletion Generations")]

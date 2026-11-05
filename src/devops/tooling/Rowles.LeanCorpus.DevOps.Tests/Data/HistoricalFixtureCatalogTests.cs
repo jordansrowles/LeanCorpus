@@ -20,6 +20,15 @@ public sealed class HistoricalFixtureCatalogTests
         Assert.Equal("6a633412002f615c36579490b6f7b5be57e6b237778bb92bd24492b943d6060c", version.PackageAssemblySha256);
         Assert.Equal(new[] { "migration", "sparse-hnsw" }, version.Scenarios.Select(static scenario => scenario.Id).Order(StringComparer.Ordinal));
         Assert.True(File.Exists(Path.Combine(repositoryRoot, version.ProjectPath.Replace('/', Path.DirectorySeparatorChar))));
+
+        HistoricalFixtureBranchSnapshot snapshot = Assert.Single(catalog.BranchSnapshots);
+        Assert.Equal("pre-v3-bbq-v2", snapshot.Id);
+        Assert.Equal("fix/bbq-retrieval-quality", snapshot.SourceBranch);
+        Assert.Equal("3dab5b656c0077470cd216646ba085a04fa40ef3", snapshot.SourceCommit);
+        Assert.Equal(311031, snapshot.GenerationSeed);
+        Assert.Equal(128, snapshot.Dimension);
+        Assert.Equal(2, snapshot.BodyVersion);
+        Assert.Equal("189d29dbe1fe84cbd5806ab56c32babcada457efdb1c3ff5da9f6530b11f2b9c", snapshot.ArchiveSha256);
     }
 
     [Fact]
@@ -60,6 +69,21 @@ public sealed class HistoricalFixtureCatalogTests
         Assert.Throws<InvalidDataException>(() => HistoricalFixtureCatalog.Load(copiedRoot));
     }
 
+    [Fact]
+    public void RejectsAPreV3SnapshotHashPinThatDoesNotMatchTheCommittedArchive()
+    {
+        string repositoryRoot = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory).RepositoryRoot;
+        using var temporary = new TemporaryDirectory();
+        string copiedRoot = CopyCatalogFixture(repositoryRoot, temporary.Path);
+        string catalogPath = Path.Combine(copiedRoot, "src", "devops", "tests", "fixtures", "historical", "fixtures.json");
+        string catalog = File.ReadAllText(catalogPath).Replace(
+            "189d29dbe1fe84cbd5806ab56c32babcada457efdb1c3ff5da9f6530b11f2b9c",
+            new string('0', 64), StringComparison.Ordinal);
+        File.WriteAllText(catalogPath, catalog);
+
+        Assert.Throws<InvalidDataException>(() => HistoricalFixtureCatalog.Load(copiedRoot));
+    }
+
     private static string CopyCatalogFixture(string repositoryRoot, string destinationRoot)
     {
         string copiedRoot = destinationRoot;
@@ -70,8 +94,13 @@ public sealed class HistoricalFixtureCatalogTests
         string sourceIndexRoot = Path.Combine(repositoryRoot, "src", "devops", "tests", "Rowles.LeanCorpus.Tests.Shared", "Fixtures", "Indexes");
         string destinationIndexRoot = Path.Combine(copiedRoot, "src", "devops", "tests", "Rowles.LeanCorpus.Tests.Shared", "Fixtures", "Indexes");
         Directory.CreateDirectory(destinationIndexRoot);
-        foreach (string file in Directory.EnumerateFiles(sourceIndexRoot, "3.1.1-*"))
+        foreach (string file in Directory.EnumerateFiles(sourceIndexRoot, "*"))
+        {
+            if (!file.EndsWith(".fixture.b64", StringComparison.Ordinal) &&
+                !file.EndsWith(".manifest.json", StringComparison.Ordinal))
+                continue;
             File.Copy(file, Path.Combine(destinationIndexRoot, Path.GetFileName(file)));
+        }
         return copiedRoot;
     }
 

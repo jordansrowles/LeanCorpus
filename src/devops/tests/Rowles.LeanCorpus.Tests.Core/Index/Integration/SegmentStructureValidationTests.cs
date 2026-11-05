@@ -4,6 +4,7 @@ using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -102,8 +103,8 @@ public sealed class SegmentStructureValidationTests : IDisposable
         using (MMapDirectory writerDirectory = new(_path))
         using (var writer = new IndexWriter(writerDirectory, new IndexWriterConfig
         {
-            UseCompoundFile = compound,
-            BuildHnswOnFlush = true,
+            UseCompoundFile = false,
+            BuildHnswOnFlush = false,
             NormaliseVectors = false,
         }))
         {
@@ -117,7 +118,8 @@ public sealed class SegmentStructureValidationTests : IDisposable
             writer.Commit();
         }
 
-        info = Assert.Single(IndexRecovery.RecoverLatestCommit(_path, cleanupOrphans: false)!.SegmentInfos);
+        info = Assert.Single(HistoricalHnswGraphFixtures.AttachToFloat32Index(
+            _path, compound: compound));
         return new MMapDirectory(_path);
     }
 

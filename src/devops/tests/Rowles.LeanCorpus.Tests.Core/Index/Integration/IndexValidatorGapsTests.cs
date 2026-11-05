@@ -7,6 +7,7 @@ using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Core.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -674,19 +675,22 @@ public sealed class IndexValidatorGapsTests : IDisposable
     private static MMapDirectory BuildVectorIndex(string dir, bool normalised = true)
     {
         var mmap = new MMapDirectory(dir);
-        using var writer = new IndexWriter(mmap, new IndexWriterConfig
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             NormaliseVectors = normalised
-        });
-        for (int i = 0; i < 3; i++)
+        }))
         {
-            var doc = new LeanDocument();
-            doc.Add(new VectorField("embedding",
-                new ReadOnlyMemory<float>([i + 1f, 0f, 0f])));
-            writer.AddDocument(doc);
+            for (int i = 0; i < 3; i++)
+            {
+                var doc = new LeanDocument();
+                doc.Add(new VectorField("embedding",
+                    new ReadOnlyMemory<float>([i + 1f, 0f, 0f])));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
         }
-        writer.Commit();
+        HistoricalHnswGraphFixtures.AttachToFloat32Index(dir);
         return mmap;
     }
 

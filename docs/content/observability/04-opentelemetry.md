@@ -22,7 +22,12 @@ Activities are only allocated when a listener is attached.
 
 ## Metrics
 
-`leancorpus.search.duration`, `leancorpus.search.count`, `leancorpus.cache.hits`, `leancorpus.cache.misses`, `leancorpus.index.flush.duration`, `leancorpus.index.merge.duration`, `leancorpus.index.merge.segments`, `leancorpus.index.commit.duration`, `leancorpus.hnsw.search.duration`, `leancorpus.hnsw.search.nodes_visited`, `leancorpus.hnsw.build.duration`, `leancorpus.hnsw.build.nodes`.
+`leancorpus.search.duration`, `leancorpus.search.count`, `leancorpus.cache.hits`, `leancorpus.cache.misses`, `leancorpus.index.flush.duration`, `leancorpus.index.merge.duration`, `leancorpus.index.merge.segments`, `leancorpus.index.commit.duration`, `leancorpus.vector.search.exact_scans`, `leancorpus.vector.search.exact_scanned_vectors`, `leancorpus.vector.search.retired_hnsw_exact_scans`, `leancorpus.hnsw.search.duration`, `leancorpus.hnsw.search.nodes_visited`, `leancorpus.hnsw.build.duration`, `leancorpus.hnsw.build.nodes`.
+
+The vector counters report intentional exact scans. The retired-HNSW counter
+identifies exact scans where a historical graph was present and ignored.
+HNSW instruments remain for historical BBQ query execution and diagnostic
+compatibility.
 
 ## Wire it up
 

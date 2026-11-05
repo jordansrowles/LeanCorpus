@@ -876,6 +876,33 @@ internal sealed partial class SegmentReaderState
         return false;
     }
 
+    internal bool UsesBbqOsq(string fieldName)
+    {
+        if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState)
+            || !EnsureVectorReadersLoaded(fieldName, fieldState))
+            return false;
+
+        return fieldState.QuantisedVector?.StorageKind == QuantisedVectorStorageKind.BbqOsqCanonicalInt8;
+    }
+
+    internal VectorScoringGeneration GetVectorScoringGeneration(string fieldName)
+    {
+        VectorFieldInfo? field = _info.VectorFields.FirstOrDefault(candidate =>
+            string.Equals(candidate.FieldName, fieldName, StringComparison.Ordinal));
+        if (field is null)
+            throw new InvalidDataException($"Vector field '{fieldName}' has no segment metadata.");
+
+        return field.Quantisation switch
+        {
+            VectorQuantisation.None => VectorScoringGeneration.Float32,
+            VectorQuantisation.Int8 => VectorScoringGeneration.Int8Scalar,
+            VectorQuantisation.BBQ when UsesBbqOsq(fieldName) => VectorScoringGeneration.BbqOsqV3,
+            VectorQuantisation.BBQ => VectorScoringGeneration.LegacyBbqSign,
+            _ => throw new InvalidDataException(
+                $"Vector field '{fieldName}' has unsupported quantisation '{field.Quantisation}'."),
+        };
+    }
+
     private float[]? ReadVectorFromField(string fieldName, int docId)
     {
         if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState)

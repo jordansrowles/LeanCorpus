@@ -545,7 +545,7 @@ public sealed class ConfigurationLoaderTests
         suites["suiteMetadata"] = JsonNode.Parse("""
             {
               "query":{"DisplayName":"Term Query","Project":"core","Aliases":["shared"]},
-              "hnsw":{"DisplayName":"HNSW","Project":"core","Aliases":["shared"]}
+              "hybrid":{"DisplayName":"Hybrid","Project":"core","Aliases":["shared"]}
             }
             """);
         File.WriteAllText(path, suites.ToJsonString());

@@ -10,5 +10,6 @@ public enum VectorDistribution
     DenseNeighbourhood,
     NearDuplicate,
     QuantisationFriendly,
-    QuantisationHostile
+    QuantisationHostile,
+    Anisotropic
 }

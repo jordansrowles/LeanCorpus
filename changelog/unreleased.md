@@ -40,6 +40,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Added
 
+- Add representation-aware CodecKit lifecycle decisions and separate writable-target resolution, including readable retired formats with no writer. Descriptor-based framing rejects retired targets before emitting bytes.
+
 - Compose first-party physical indexes under an internal runtime with terminal close, operation and search leases, definitive health, and correlated resource diagnostics.
 - Add trace-correlated backup/restore filesystem measurements and a fixed-seed DevOps matrix; honour configured FsCheck iterations without reducing default coverage. Publish the completed diagnostic results and distinguish read-open timings from deletion.
 - Add a Spectre.Console CLI Workbench for interactive index browsing, search, analysis, Core-backed inspection, deterministic index creation, fingerprints and workload replay. ([49cfcd898](https://github.com/jordansrowles/LeanCorpus/commit/49cfcd8980793b428469c1df503196637cf1d834))
@@ -69,6 +71,12 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Apply query boosts to vector scores and explanations, reverse HNSW candidate direction for negative boosts, and reject query vectors whose dimensions do not match their indexed field.
+- Report HNSW graph visits, underfill scans and selective-filter exact scans separately in search metrics.
+- Support exact Float32 vector writes and search; retire new HNSW graph and Int8 writes after their frozen quality gates failed. Historical Int8 remains readable through exact decoded scoring, and historical BBQ retains its read-only scorer.
+- Default `BuildHnswOnFlush` to false and reject explicit graph creation before index side effects. Exact Float32 queries ignore historical graphs, Float32 merges do not recreate them, and metrics and score explanations report intentional exact scans.
+- Retire CLI and benchmark creation routes for new HNSW, Int8 and BBQ vectors while preserving historical vector readers, BBQ query compatibility, structural Int8 v1/v2-to-v3 migration, and exact Float32 materialisation when merging historical Int8 values.
+- Report readable retired indexes as `ReadOnlyRetired` in compatibility checks and the product CLI, with reindexing guidance rather than a migration recommendation.
 - Apply `FuzzyQuery.MaxExpansions` once across all search segments, with deterministic UTF-8 term-byte ordering for equal-distance ties; reuse one lazily compiled edit automaton across segment expansion misses.
 - Resolve edit-zero fuzzy queries through exact term lookup and return warm empty-expansion cache entries before constructing the edit automaton.
 - Reduce cold compilation time and allocation for small fuzzy automata with a bounded compact state representation; retain the existing compiler for larger automata.
@@ -106,6 +114,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Clarify that concurrent bulk indexing does not preserve input document-ID order and tracked sequence ranges describe flush generations. ([bcdcbc8ea](https://github.com/jordansrowles/LeanCorpus/commit/bcdcbc8ea72e7d921a5826ad743825268bcf8194))
 - Keep field-length bodies in the existing v2 VarInt format, validate encoded values before allocation, and accept only verified legacy zero padding. ([af6aacfa7](https://github.com/jordansrowles/LeanCorpus/commit/af6aacfa7d1128e0f8876ab1c6d1511cb62f7c25), [53b537956](https://github.com/jordansrowles/LeanCorpus/commit/53b53795698144c29ff52299d7c02d4141d06826))
 - Advance float and quantised vector bodies to v2 with per-document presence; migrate reconstructable v1 fields using persisted HNSW membership without changing vector payload bytes, and reject migration without authoritative presence. HNSW remains v1. ([2228d0d52](https://github.com/jordansrowles/LeanCorpus/commit/2228d0d5291cade5c00d9de5115a56c6e7658a23))
+- Retain tagged quantised vector bodies at v3 and preserve Int8 v1/v2 structural migration without requantisation or recovered-precision claims. All BBQ migration routes, including current-version no-op requests, are unsupported.
+- Preserve released sign-BBQ and known experimental one-bit v3 readers without reinterpreting storage tags. New BBQ research is deferred to LeanCorpus 5 and remains subject to independent qualification.
 - Replace path-owning `JapaneseTokeniser` construction with explicit `JapaneseDictionary` ownership; tokenisers borrow supplied dictionaries, and disposal waits for active tokenisation. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Replace repeated Thai and Chinese lexicon prefix hash probes with an allocation-free radix trie, reducing tokenisation time for long unknown runs. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Separate query-string lexing, syntax parsing and query compilation into internal stages while preserving escaped source text, parser budgets and the public API. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
@@ -141,7 +151,15 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- Use zero-centred Int8 calibration for new vectors so cosine ranking is not shifted by a segment-wide affine offset; retain the existing `.vq` v3 layout and reader semantics.
 - Reject non-empty HNSW files whose declared maximum level has no matching persisted layer.
+- Explore bounded equal-distance HNSW candidates at the level-zero search boundary and during upper-layer descent as bridges to closer results.
+- Read packed BBQ query-comparison words in persisted little-endian bit order, independent of host byte order.
+- Bound vector-query shortlist and HNSW retry arithmetic to available graph nodes, avoiding integer overflow for large topK, oversampling and efSearch values.
+- Apply live-document masks during HNSW candidate selection so deleted hits do not consume the requested top-K shortlist when live graph candidates remain.
+- Retry HNSW traversal from the persisted entry point when greedy descent underfills the requested top-K shortlist.
+- Complete an underfilled HNSW shortlist with candidates ranked by the graph's active distance metric.
+- Use scaled double-precision fallbacks when finite vectors exceed float squared-norm range, preserving cosine scores and normalisation for very small or large vectors.
 - Allow DevOps lease-marker readers to share delete on Windows so marker owners can release files during concurrent scans.
 - Bind overlapping mapped-input disposers to the cleanup attempt active at entry, preserve each attempt's outcome across retries, retain ownership after cleanup faults without asserting successful-cleanup invariants, and retry only unfinished pointer, accessor, mapping and owner-lease release stages.
 - Keep shared physical-index teardown independent of writer caller cancellation so async disposal completes or reports its own cleanup outcome.
@@ -240,6 +258,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Fix merge validation for Shape DocValues component trees, empty spatial aggregations after shape deletion, and WKT output for degenerate Geo and XY rectangles and Geo rectangles spanning longitude -180 to 180. ([4d0432e27](https://github.com/jordansrowles/LeanCorpus/commit/4d0432e27fb3027e6987009cde2fad5b41e2c1f0))
 
 ## Removed
+
+- Retire all BBQ creation, ingestion, import, merge and migration targets. Rebuild from the original documents and embeddings into a separate Float32 index when new vector indexing is required.
 
 - Remove the redundant public `BooleanQueryBuilder`; `QueryBuilder.Bool` now configures the existing `BooleanQuery.Builder` directly. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Remove lenient query parsing until deterministic clause-boundary recovery is defined; the existing constructor flag remains for compatibility and throws when set to `true`. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))

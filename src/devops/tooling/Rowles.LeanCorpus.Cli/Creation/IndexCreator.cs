@@ -36,7 +36,7 @@ internal static partial class IndexCreator
     private static readonly string[] SupportedPresets =
     [
         "minimal", "search-small", "search-medium", "realistic-mixed",
-        "vector-flat", "vector-hnsw", "vector-int8", "vector-bbq", "vector-filtered",
+        "vector-flat", "vector-filtered",
         "hybrid-balanced", "hybrid-text-heavy", "hybrid-vector-heavy", "multilingual",
         "compound", "non-compound", "many-small-segments", "delete-heavy",
         "codec-current", "codec-migration-required", "custom"
@@ -64,6 +64,14 @@ internal static partial class IndexCreator
         ArgumentException.ThrowIfNullOrWhiteSpace(preset);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         string normalisedPreset = preset.Trim().ToLowerInvariant();
+        if (normalisedPreset is "vector-hnsw" or "vector-int8")
+            throw new ArgumentException(
+                $"The '{normalisedPreset}' preset is retired. New vector indexes support Float32 exact search only; historical Int8 and HNSW data remain readable.",
+                nameof(preset));
+        if (normalisedPreset == "vector-bbq")
+            throw new ArgumentException(
+                "The 'vector-bbq' preset is retired. Rebuild from the original documents and embeddings into a Float32 index; historical Int8 and BBQ data remain readable.",
+                nameof(preset));
         if (!SupportedPresets.Contains(normalisedPreset, StringComparer.Ordinal))
             throw new ArgumentException($"Unknown preset '{preset}'. Supported presets: {string.Join(", ", SupportedPresets)}.", nameof(preset));
         if (normalisedPreset == "custom")
@@ -88,16 +96,29 @@ internal static partial class IndexCreator
             customSchema = DeserializeCustomSchema(schemaJson);
         bool compound = recipe?.Compound ?? (normalisedPreset == "custom" ? customSchema?.Compound ?? false : normalisedPreset == "compound");
         bool buildHnsw = recipe?.BuildHnsw ?? (normalisedPreset == "custom"
-            ? customSchema is not null && (customSchema.BuildHnsw || customSchema.Fields.Any(static field => field.Hnsw))
-            : normalisedPreset is not "vector-flat");
+            && customSchema is not null && (customSchema.BuildHnsw || customSchema.Fields.Any(static field => field.Hnsw)));
         VectorQuantisation quantisation = recipe is null
             ? normalisedPreset == "custom" ? ResolveCustomQuantisation(customSchema!) : normalisedPreset switch
             {
                 "vector-int8" => VectorQuantisation.Int8,
-                "vector-bbq" => VectorQuantisation.BBQ,
                 _ => VectorQuantisation.None
             }
             : ParseQuantisation(recipe.VectorQuantisation);
+        bool containsVectors = normalisedPreset is "vector-flat" or "vector-filtered"
+            or "hybrid-balanced" or "hybrid-text-heavy" or "hybrid-vector-heavy"
+            || normalisedPreset == "custom" && customSchema is not null
+                && (customSchema.BuildHnsw || customSchema.Fields.Any(static field =>
+                    field.Hnsw || string.Equals(field.Type, "vector", StringComparison.OrdinalIgnoreCase)));
+        if (quantisation == VectorQuantisation.Int8)
+            throw new InvalidOperationException(
+                "Int8WriteRetired: new Int8 vector writes are not supported for 4.0; create a Float32 index from original embeddings.");
+        if (quantisation == VectorQuantisation.BBQ)
+            throw new InvalidOperationException(
+                "CodecReadOnly: new BBQ vector writes are not supported for 4.0; create a Float32 index from original embeddings.");
+        if (buildHnsw && containsVectors)
+            throw new InvalidOperationException(
+                "HnswGraphCreationRetired: new HNSW graph writes are not supported for 4.0; use exact Float32 vector search.");
+        buildHnsw = false;
         bool manySmallSegments = recipe?.ManySmallSegments ?? normalisedPreset == "many-small-segments";
         bool deleteHeavy = recipe?.DeleteHeavy ?? normalisedPreset == "delete-heavy";
         IDataForgeProfileSelection selection;
@@ -110,10 +131,8 @@ internal static partial class IndexCreator
             selection = new CustomProfileSelection(new LeanCorpusSearchProfile(), customSchema,
                 new Dictionary<string, string>(StringComparer.Ordinal) { ["schemaJson"] = canonicalSchema });
         }
-        else if (normalisedPreset is "vector-flat" or "vector-hnsw" or "vector-int8" or "vector-bbq" or "vector-filtered")
+        else if (normalisedPreset is "vector-flat" or "vector-filtered")
         {
-            if (recipe is null)
-                buildHnsw = normalisedPreset != "vector-flat";
             selection = new VectorProfileSelection(new LeanCorpusVectorProfile(),
                 new Dictionary<string, string>(StringComparer.Ordinal)
                 {
@@ -162,6 +181,12 @@ internal static partial class IndexCreator
             ?? throw new InvalidDataException("The index recipe is empty or invalid.");
         if (recipe.SchemaVersion != RecipeSchemaVersion)
             throw new InvalidDataException($"Unsupported recipe schema version {recipe.SchemaVersion}.");
+        if (recipe.Preset is "vector-hnsw" or "vector-int8")
+            throw new InvalidDataException(
+                $"Recipe preset '{recipe.Preset}' is retired. New vector indexes support Float32 exact search only; historical Int8 and HNSW data remain readable.");
+        if (recipe.Preset == "vector-bbq")
+            throw new InvalidDataException(
+                "Recipe preset 'vector-bbq' is retired. Rebuild from the original documents and embeddings into a separate Float32 index.");
         if (!SupportedPresets.Contains(recipe.Preset, StringComparer.Ordinal))
             throw new InvalidDataException($"Recipe preset '{recipe.Preset}' is not registered.");
         IndexCreationResult result = recipe.Preset == "codec-migration-required"
@@ -191,7 +216,7 @@ internal static partial class IndexCreator
         "search-small" => 128,
         "search-medium" => 10_000,
         "realistic-mixed" => 2_048,
-        "vector-hnsw" or "vector-flat" or "vector-int8" or "vector-bbq" or "vector-filtered" => 128,
+        "vector-flat" or "vector-filtered" => 128,
         "hybrid-balanced" or "hybrid-text-heavy" or "hybrid-vector-heavy" => 128,
         "multilingual" => 24,
         "many-small-segments" => 64,

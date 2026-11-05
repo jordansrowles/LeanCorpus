@@ -101,6 +101,22 @@ The fuzzy `nohit-edit2` case uses a unique miss term on every measured invocatio
 
 For approximate vector search, report recall as well as latency. For cache work, include cold and warm cases. For indexing, include index size and merge or commit effects when they change.
 
+### Vector recall quality
+
+The deterministic `leancorpus-vector` DataForge profile supports uniform, clustered, dense-neighbourhood, near-duplicate, quantisation-friendly, quantisation-hostile and anisotropic vectors. Anisotropic vectors scale component `i` by `1 / sqrt(i + 1)` for both indexed records and queries; this distribution leaves existing version 1 uniform datasets unchanged. Record and held-out query seeds are independent, and query seed and query count are part of benchmark dataset identity.
+
+New HNSW, Int8 and BBQ benchmark routes remain retired after their frozen
+quality gates failed: HNSW traversal, Int8 source fidelity and merge stability,
+and BBQ retrieval. Historical frozen rows remain in the external closeout
+evidence and must not be reclassified as passing. The exact Float32 reference
+remains useful for query correctness and future research; this closeout makes
+no vector latency or throughput claim.
+
+The exact Float32 reference uses the independent score and ranking contract:
+score error must not exceed `1e-5`, every neighbour strictly above the Kth
+score by more than `1e-6` must be returned, and remaining results must belong
+to the boundary tie group. The pinned BVAL negative control is unchanged.
+
 ## Interpret results
 
 BenchmarkDotNet warnings are evidence, not decoration. Report denied process priority, unstable clocks, multimodal distributions, outliers, and short runs. Cross-machine or cross-runtime comparisons are directional unless the environment and workload are controlled.

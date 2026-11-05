@@ -12,6 +12,7 @@
 - Add an interactive Spectre.Console workbench for managed tests, benchmark suites and area/group selectors, DataForge qualification and recent run inspection.
 - Exercise managed DevOps bootstrap and `report all` on Linux ARM64 and macOS ARM64 in Build CI.
 - Add a managed, bounded sustained-workload command with versioned input and terminal evidence for ingestion, read-only search and mixed ingest/search refresh scenarios.
+- Add deterministic vector workload distributions, independent held-out query seeds and a four-query HNSW recall gate against exact cosine ground truth before timing; preserve existing version 1 uniform dataset outputs.
 - Add a separate explicit-only capacity-one async indexing benchmark and independently budgeted 1,000-document and 100,000-document stress strategies.
 - Verify exact committed document ID sets for concurrent and sequential indexing benchmark cases.
 - Add a directional FST build benchmark for sorted UTF-8 terms with setup-time serialized-index and exact-output verification.
@@ -87,7 +88,13 @@
 
 ## Fixed
 
+- Validate exact Float32 benchmark results against the documented score and boundary-tie contract; retain literal recall measurements and unchanged ANN and Int8 quality floors.
+
+- Invalidate HNSW benchmark fixtures when the Core implementation build changes, preventing reuse of indexes encoded by an older quantiser.
+- Write vector diagnostic sidecars to the managed test run directory and use platform temporary paths for direct execution.
+
 - Sum BenchmarkDotNet discovery counts across all emitted class groups so multi-project coverage inventories include every discovered case.
+- Let Int8 HNSW benchmark setup record quantised exact quality against Float32 truth without requiring identical top-document IDs.
 - Remove misleading BenchmarkDotNet ratio baselines between BM25F and Boolean queries, and between TermInSet and Boolean OR algorithms.
 - Pass operation cancellation through managed clean and configuration validation, including benchmark-host and solution-inventory checks.
 - Bound DevOps validation and workflow regular-expression matching to one second so pathological input fails promptly; resolve macOS hardware identity through `/usr/sbin/sysctl`.
@@ -138,6 +145,8 @@
 - Validate equivalent query ASTs at the parser guard limit and reject limit-plus-one input before timing, with valid parsing and rejection kept as separate benchmark operations.
 
 ## Removed
+
+- Remove the retired `vector-bbq` CLI preset and return a stable error for new creation or reproduction attempts; new vector presets use Float32 or Int8 output.
 
 - Retire the JSON API, Newsgroups, telemetry and Rowles.Text tokenisation demo applications, the legacy news downloader and machine-specific nightly benchmark runner; keep the Linux kernel code-search workload and its manual reproduction guide.
 

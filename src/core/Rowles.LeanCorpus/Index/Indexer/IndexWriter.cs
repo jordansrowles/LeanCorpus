@@ -2,10 +2,12 @@
 using System.Runtime.ExceptionServices;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
 using Rowles.LeanCorpus.Index.Backup;
 using Rowles.LeanCorpus.Index.Compatibility;
+using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Store;
@@ -382,6 +384,9 @@ public sealed partial class IndexWriter : IDisposable
                 .Select(static segment => segment.DeepCopy())
                 .ToList();
 
+            SegmentMerger.ValidateMergeSources(
+                sourceDirectory, sourceSegments, _config.CodecCatalog, _config.VectorQuantisation);
+
             var incomingDimensions = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (var segment in sourceSegments)
             {
@@ -411,7 +416,8 @@ public sealed partial class IndexWriter : IDisposable
                     var merger = new SegmentMerger(_directory, _config.MergePolicy, _config.PostingsSkipInterval,
                         _config.SoftDeleteRetentionSeconds, _config.HnswBuildConfig,
                         useCompoundFile: _config.UseCompoundFile,
-                        destinationVectorQuantisation: _config.VectorQuantisation)
+                        destinationVectorQuantisation: _config.VectorQuantisation,
+                        hnswSeed: _config.HnswSeed)
                     {
                         FileCatalog = _config.CodecCatalog
                     };
@@ -772,11 +778,13 @@ public sealed partial class IndexWriter : IDisposable
     internal void ValidateDocument(LeanDocument doc)
     {
         ArgumentNullException.ThrowIfNull(doc);
+        VectorCodecFiles.EnsureCanCreate(_config.VectorQuantisation);
         _config.Schema?.Validate(doc);
     }
 
     internal void ValidateDocuments(IReadOnlyList<LeanDocument> documents)
     {
+        VectorCodecFiles.EnsureCanCreate(_config.VectorQuantisation);
         if (_config.Schema is not { } schema)
         {
             for (int i = 0; i < documents.Count; i++)
@@ -842,6 +850,8 @@ public sealed partial class IndexWriter : IDisposable
 
     private void ValidateIncomingVectorDimensions(Dictionary<string, int> incoming)
     {
+        VectorCodecFiles.EnsureCanCreate(_config.VectorQuantisation);
+
         lock (_vectorDimensionLock)
         {
             EnsureVectorDimensionsMatch(incoming);

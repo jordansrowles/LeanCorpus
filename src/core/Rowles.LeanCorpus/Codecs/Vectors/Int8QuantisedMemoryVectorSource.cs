@@ -27,8 +27,8 @@ internal sealed class Int8QuantisedMemoryVectorSource : IVectorSource, IInt8Vect
     /// </summary>
     /// <param name="vectorsByDoc">Source vectors. Only entries whose key is in [0, docCount) are stored.</param>
     /// <param name="dimension">Fixed dimension of every vector.</param>
-    /// <param name="min">Per-segment minimum value across all dimensions.</param>
-    /// <param name="alpha">Per-segment scale factor: <c>(max - min) / 255</c>.</param>
+    /// <param name="min">Per-segment zero-point offset, normally <c>-128 * alpha</c>.</param>
+    /// <param name="alpha">Per-segment symmetric scale factor: <c>max(abs(value)) / 127</c>.</param>
     public Int8QuantisedMemoryVectorSource(
         IReadOnlyDictionary<int, ReadOnlyMemory<float>> vectorsByDoc,
         int dimension,

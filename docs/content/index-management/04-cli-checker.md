@@ -69,16 +69,29 @@ The geo query accepts a centre latitude and longitude in decimal degrees and a p
 
 ## Deterministic index creation
 
-Presets use DataForge as a library and write `.leancorpus/recipe.json` and `.leancorpus/dataforge-manifest.json` beside the index. The first catalogue includes `minimal`, `search-small`, `search-medium`, `realistic-mixed`, `vector-flat`, `vector-hnsw`, `vector-int8`, `vector-bbq`, `vector-filtered`, `hybrid-balanced`, `hybrid-text-heavy`, `hybrid-vector-heavy`, `multilingual`, `compound`, `non-compound`, `many-small-segments`, `delete-heavy`, `codec-current`, and the frozen `codec-migration-required` release fixture.
+Presets use DataForge as a library and write `.leancorpus/recipe.json` and `.leancorpus/dataforge-manifest.json` beside the index. The catalogue includes `minimal`, `search-small`, `search-medium`, `realistic-mixed`, `vector-flat`, `vector-filtered`, `hybrid-balanced`, `hybrid-text-heavy`, `hybrid-vector-heavy`, `multilingual`, `compound`, `non-compound`, `many-small-segments`, `delete-heavy`, `codec-current`, and the frozen `codec-migration-required` release fixture.
+
+`vector-hnsw`, `vector-int8`, and `vector-bbq` are retired and return an error
+before creating an index. New vectors use exact Float32 search. Historical
+Int8 vectors remain readable through exact decoded scoring, and historical BBQ
+indexes remain readable with their existing scorer but are read-only. See the
+[upgrade guide](../reference/upgrades.md) before rebuilding from original
+documents and embeddings.
+
+Historical Int8 v1/v2 structural migration remains available when presence can
+be verified. A later merge decodes those stored values and writes Float32
+`.vec` v2; it does not create new Int8 encoding. For BBQ data, rebuild from
+the original documents and embeddings into a separate Float32 index. BBQ
+decoding does not recover the source embeddings.
 
 ```bash
-leancorpus-cli create preset vector-hnsw ./vector-index --seed 1234 --count 500 --dimension 64
+leancorpus-cli create preset vector-flat ./vector-index --seed 1234 --count 500 --dimension 64
 leancorpus-cli create reproduce ./vector-index ./vector-index-recreated
 leancorpus-cli index diff ./vector-index ./vector-index-recreated --logical --json
 leancorpus-cli index fingerprint ./vector-index
 ```
 
-Custom schemas use deterministic Search-profile records as their value source. Supported field types are `text`, `keyword`, `double`, `int64`, `vector`, and `geoPoint`; keyword fields can use sorted DocValues or facet paths, and vector fields can request dimensions and HNSW. For example:
+Custom schemas use deterministic Search-profile records as their value source. Supported field types are `text`, `keyword`, `double`, `int64`, `vector`, and `geoPoint`; keyword fields can use sorted DocValues or facet paths. Vector fields use exact Float32 search; requesting HNSW is rejected. For example:
 
 ```json
 {
@@ -88,7 +101,7 @@ Custom schemas use deterministic Search-profile records as their value source. S
     { "name": "title", "type": "text", "source": "title", "stored": true, "positions": true },
     { "name": "category", "type": "keyword", "source": "category", "facet": true, "docValues": true },
     { "name": "price", "type": "double", "source": "price", "docValues": true },
-    { "name": "embedding", "type": "vector", "dimensions": 64, "hnsw": true },
+    { "name": "embedding", "type": "vector", "dimensions": 64 },
     { "name": "location", "type": "geoPoint" }
   ]
 }
@@ -183,9 +196,17 @@ leancorpus-cli.exe compat .\index --deep
 | `Compatible` | Can be read and written by this build |
 | `MigrationRecommended` | Readable, but a current-format rewrite is available |
 | `MigrationRequired` | Policy requires migration before open |
+| `ReadOnlyRetired` | Readable, but a retired representation such as BBQ blocks mutation and migration |
 | `UnsupportedFutureFormat` | At least one codec version is newer than this build |
 | `UnknownFormat` | A persistent file or declared frame identity is not in the active catalogue |
 | `Corrupt` | Validation found error-severity issues |
+
+`CanWrite` describes whether the index accepts supported writer operations; it
+does not mean every historical encoding can be created again. A current
+historical Int8 index can be writable because edits and merges emit Float32.
+BBQ-containing indexes report `ReadOnlyRetired`, remain readable, and reject
+mutation and migration. Historical Int8 v1/v2 structural migration remains
+available, and a merge writes decoded values as Float32 `.vec` v2.
 
 ## Migration
 

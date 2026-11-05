@@ -30,7 +30,7 @@ Built for modern .NET, Native AOT and large local search workloads.
 |---|---|
 | **Span-based analysis** | Ref-struct token pipeline designed to avoid per-token heap allocation during analysis. |
 | **Modern scoring** | BM25 (default), BM25+, BM25L, TF-IDF, Dirichlet, Jelinek-Mercer, and SIMD-accelerated cosine. Block-Max WAND for sublinear top-k. |
-| **Vector search built in** | HNSW graphs with pre/post-filtering and BBQ quantisation. Not a plugin. |
+| **Vector search built in** | Exact Float32 search for new vectors, exact search over historical decoded Int8 values, and read/search compatibility for historical BBQ. New HNSW, Int8 and BBQ writes are retired. Not a plugin. |
 | **Native AOT** | Trim-safe, publish-ready with `PublishAot`. Validated by a dedicated smoke-test suite. |
 | **LINQ queries** | `IQueryable<T>` provider translates expression trees to LeanCorpus queries. |
 | **Observability built in** | OpenTelemetry tracing and metrics, slow-query log, Aspire dashboard integration. |

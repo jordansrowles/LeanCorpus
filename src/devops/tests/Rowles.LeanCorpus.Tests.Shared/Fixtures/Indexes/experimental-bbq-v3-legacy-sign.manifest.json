@@ -1,0 +1,158 @@
+{
+  "archiveFile": "experimental-bbq-v3-legacy-sign.fixture.b64",
+  "archiveSha256": "9d99f8b29309b3741d8071d99338b5d9f651afb9926b8ba6b3849ad70f75fcbd",
+  "files": [
+    {
+      "length": 115,
+      "path": "index/seg_0_migrated_1.dic",
+      "sha256": "806b47d441567d30680e7b1134e000ea238443de7780f09a64b374c21df49a28"
+    },
+    {
+      "length": 143,
+      "path": "index/seg_0_migrated_1.dss",
+      "sha256": "dd11e234cd958e9be5e09df54c51ca6bd974eb627b16528dbf423edb512df5da"
+    },
+    {
+      "length": 155,
+      "path": "index/seg_0_migrated_1.dvb",
+      "sha256": "355190267e167559f7d9bc85bd9ba1785d8faa5e78c50b62c73e250d58b7538f"
+    },
+    {
+      "length": 99,
+      "path": "index/seg_0_migrated_1.dvs",
+      "sha256": "6f2316f2036da06481d3bfd8c7289f9c8861733fa2a8f532da76c7cd1cb635a0"
+    },
+    {
+      "length": 147,
+      "path": "index/seg_0_migrated_1.fdt",
+      "sha256": "1d7e6d3511d416fd7aee1aa293168a74fcb457a52f9e3c89dbd089a2dc309cb8"
+    },
+    {
+      "length": 92,
+      "path": "index/seg_0_migrated_1.fdx",
+      "sha256": "d7104d42a4f4d57357d0373c78cd319bedb38964a422e459ea8ba9212ac40ce9"
+    },
+    {
+      "length": 65,
+      "path": "index/seg_0_migrated_1.fln",
+      "sha256": "9ba7807d9dc9576b55a962ac2188a685253696566cdf6ba01a0e01f058c94d49"
+    },
+    {
+      "length": 54,
+      "path": "index/seg_0_migrated_1.nrm",
+      "sha256": "aa059da328f54fe5b01d757145cdaf90fef15d1a21f137e364b79db256076a70"
+    },
+    {
+      "length": 296,
+      "path": "index/seg_0_migrated_1.pos",
+      "sha256": "568f7fa99ecc0706a742dbf0326261ecec63fe91a65291b7f56bd517e95b8233"
+    },
+    {
+      "length": 579,
+      "path": "index/seg_0_migrated_1.seg",
+      "sha256": "924586d8b5696c3f8f28cf1f1c2460c1628a52d93b07babcbe006f48f0181c68"
+    },
+    {
+      "length": 114,
+      "path": "index/seg_0_migrated_1.stats.json",
+      "sha256": "c2ab2fb5629d133e21c9bdb886d23763ea7167e71ab1cdade4d7d12be8820f04"
+    },
+    {
+      "length": 196,
+      "path": "index/seg_0_migrated_1_v_embedding.hnsw",
+      "sha256": "f9aa30d4e18785c7a1913269a6bd23c5a38bcf8859617f925f352c03510e5b37"
+    },
+    {
+      "length": 807,
+      "path": "index/seg_0_migrated_1_v_embedding.vq",
+      "sha256": "71b0a50fa5fabad7c8f9a215bbff7794506e861d8e3e358c08f0041897f8225a"
+    },
+    {
+      "length": 209,
+      "path": "index/segments_2",
+      "sha256": "e2a578c9964f9790ccd981a4c537ffeb5b3408b91781dabb521a1ae403e51cc5"
+    },
+    {
+      "length": 141,
+      "path": "index/stats_2.json",
+      "sha256": "d755c6d8147a7e3f263951bc96cdd7a3ba9e2146badd652b56259d7979c9dab8"
+    }
+  ],
+  "fixtureId": "experimental-bbq-v3-legacy-sign",
+  "index": {
+    "committedGeneration": 2,
+    "dimension": 128,
+    "documentCount": 8,
+    "explicitZeroVectorDocumentIds": [
+      0
+    ],
+    "fieldName": "embedding",
+    "formatVersion": 3,
+    "layout": "loose",
+    "missingVectorDocumentIds": [
+      3,
+      5,
+      7
+    ],
+    "presentVectorDocumentIds": [
+      0,
+      1,
+      2,
+      4,
+      6
+    ],
+    "quantisationTag": 2,
+    "sourceBodyVersion": 2,
+    "storageKind": "LegacyBbqSign",
+    "storageKindTag": 2
+  },
+  "provenance": {
+    "captureProgramSha256": "f0f2ca4d860be7b3b94930c2eb67ef3f09a440ee06e5207d5bd2fe6ed5e7e962",
+    "captureProjectSha256": "5c7eea4b2f43c6ec30b211a6da6ceac7e9a69ef16a88b8602007d095aa1398d6",
+    "generatorSdk": "11.0.100-preview.7.26381.103",
+    "migration": "IndexCodecMigrator.Migrate on an isolated copy of the pinned loose v2 index",
+    "migratorAssemblySha256": "e5255f462bdfb8a870ed8130e43d04503ad95e0c642d6ec755c44c9115cd2fea",
+    "migratorCommit": "d2e32814ebbac1c07f097feba6dbee9bebd863f7",
+    "migratorRuntime": "Microsoft.NETCore.App 10.0.14",
+    "sourceArchiveSha256": "189d29dbe1fe84cbd5806ab56c32babcada457efdb1c3ff5da9f6530b11f2b9c",
+    "sourceCommit": "3dab5b656c0077470cd216646ba085a04fa40ef3",
+    "sourceFixture": "pre-v3-bbq-v2",
+    "sourceManifestSha256": "f71470b5cb9a53a80807bba3ffd4ba8390a08c09a90556c7348a80824bf4c726"
+  },
+  "query": {
+    "efSearch": 128,
+    "fieldName": "embedding",
+    "nonZeroComponents": [
+      {
+        "index": 0,
+        "value": 1.0
+      }
+    ],
+    "scoreDocBits": [
+      {
+        "docId": 1,
+        "scoreBits": "3DBCF005"
+      },
+      {
+        "docId": 6,
+        "scoreBits": "3DB73B95"
+      },
+      {
+        "docId": 2,
+        "scoreBits": "BDB2AC0A"
+      },
+      {
+        "docId": 0,
+        "scoreBits": "BDB335DA"
+      },
+      {
+        "docId": 4,
+        "scoreBits": "BDB335DA"
+      }
+    ],
+    "topK": 5,
+    "totalHits": 5
+  },
+  "schemaVersion": 1,
+  "status": "historical-v2-to-v3-sign-bbq-migration-read-fixture"
+}

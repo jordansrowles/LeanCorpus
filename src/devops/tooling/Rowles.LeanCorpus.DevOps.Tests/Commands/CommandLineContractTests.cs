@@ -411,6 +411,7 @@ public sealed class CommandLineContractTests
     [InlineData(new[] { "dataforge", "reference", "--help" }, "download")]
     [InlineData(new[] { "dataforge", "reference", "verify", "--help" }, "-ReferencePath")]
     [InlineData(new[] { "dataforge", "generate", "--help" }, "-Profile")]
+    [InlineData(new[] { "dataforge", "generate", "--help" }, "Anisotropic")]
     [InlineData(new[] { "dataforge", "profiles", "--help" }, "-Json")]
     public void DataForgeNestedHelpShowsTheSelectedCommandWithoutDispatch(string[] arguments, string expectedText)
     {

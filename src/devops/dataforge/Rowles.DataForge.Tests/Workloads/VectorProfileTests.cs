@@ -12,6 +12,7 @@ public sealed class VectorProfileTests
     [InlineData(VectorDistribution.NearDuplicate)]
     [InlineData(VectorDistribution.QuantisationFriendly)]
     [InlineData(VectorDistribution.QuantisationHostile)]
+    [InlineData(VectorDistribution.Anisotropic)]
     public void All_distributions_have_stable_prefixes_and_finite_non_zero_vectors(VectorDistribution distribution)
     {
         var profile = new LeanCorpusVectorProfile();
@@ -52,6 +53,25 @@ public sealed class VectorProfileTests
         Assert.Equal(10, filtered.NeighbourOrdinals.Length);
         Assert.All(filtered.NeighbourOrdinals, static ordinal => Assert.Equal(0, ordinal % 2));
         Assert.Equal(full.NeighbourOrdinals, VectorGroundTruth.Compute(records, query, 10).NeighbourOrdinals);
+    }
+
+    [Fact]
+    public void Anisotropic_distribution_scales_the_same_record_and_query_components()
+    {
+        var profile = new LeanCorpusVectorProfile();
+        var uniformOptions = Options(32, VectorDistribution.Uniform);
+        var anisotropicOptions = Options(32, VectorDistribution.Anisotropic);
+        VectorRecord uniform = profile.Generate(uniformOptions).First();
+        VectorRecord anisotropic = profile.Generate(anisotropicOptions).First();
+        VectorQueryCase uniformQuery = profile.GenerateQuery(uniformOptions, 0);
+        VectorQueryCase anisotropicQuery = profile.GenerateQuery(anisotropicOptions, 0);
+
+        for (var dimension = 0; dimension < uniform.Vector.Length; dimension++)
+        {
+            float scale = 1f / MathF.Sqrt(dimension + 1f);
+            Assert.Equal(uniform.Vector[dimension] * scale, anisotropic.Vector[dimension], precision: 7);
+            Assert.Equal(uniformQuery.Vector[dimension] * scale, anisotropicQuery.Vector[dimension], precision: 7);
+        }
     }
 
     [Fact]

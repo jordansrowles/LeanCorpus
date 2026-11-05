@@ -44,30 +44,49 @@ Frame version describes this outer structure. Body-format version describes the 
 
 Normal opens validate framing and bounds but do not scan a large body checksum. `IndexValidator` deep validation performs that scan. Materialising reads are constrained separately from the maximum permitted file size.
 
-## Vector data body v2
+## Vector data body versions
 
-| Format ID | Extension | Readable bodies | Writable body | v1 migration |
+| Format ID | Extension | Readable bodies | Writable body | Older-body migration |
 | --- | --- | --- | --- | --- |
 | `leancorpus.vectors.float32` | `.vec` | v1, v2 | v2 | Rewrite |
-| `leancorpus.vectors.quantised` | `.vq` | v1, v2 | v2 | Rewrite |
-| `leancorpus.vectors.hnsw` | `.hnsw` | v1 | v1 | Unchanged body |
+| `leancorpus.vectors.quantised` | `.vq` | v1, v2, v3 | None | Int8 v1/v2 structural wrap into v3; BBQ unsupported |
+| `leancorpus.vectors.hnsw` | `.hnsw` | v1 | None | Historical reads only |
 
-Both vector data bodies start with `docCount:int32`, `dimension:int32`, and a
-format/quantisation byte, followed by exactly `checked((docCount + 7) / 8)`
-presence bytes. Each document has one bit in increasing document-ID order,
-least-significant bit first. Unused high bits in the final byte must be zero.
-There is no independent bitmap-length field or presence sidecar.
+The `.vq` migration rule is representation-specific. Historical Int8 v1/v2
+bodies may be structurally wrapped into v3/tag 1 without requantising their
+values. New Int8 encoding is retired. A normal merge may read historical Int8,
+decode its stored values and write Float32 `.vec` v2; it does not write Int8
+output. BBQ-tagged bodies remain readable but are rejected for migration; a
+current BBQ-containing index is read-only to the writer.
 
-For `.vec`, the existing dense float32 payload follows the bitmap; historical
+The `.vec` v2 and `.vq` v2/v3 bodies start with `docCount:int32`,
+`dimension:int32`, and a format/quantisation byte. Bodies with persisted vector
+presence then contain exactly `checked((docCount + 7) / 8)` presence bytes.
+Each document has one bit in increasing document-ID order, least-significant
+bit first. Unused high bits in the final byte must be zero. There is no
+independent bitmap-length field or presence sidecar.
+
+For `.vec`, the existing dense Float32 payload follows the bitmap; historical
 Int8 data-format bodies retain their min/alpha parameters before dense bytes.
-For `.vq`, the bitmap precedes the existing Int8 min/alpha or BBQ centroid,
-per-document corrections and dense packed payload. Quantisation semantics and
-`docId * stride` addressing remain unchanged.
+For `.vq` v1/v2, payload layout and legacy quantisation semantics remain
+unchanged. `.vq` v3 adds a `storageKind` tag after presence so the reader can
+distinguish Int8, historical sign-BBQ, and experimental OSQ with canonical
+Int8. Historical v3 writers emitted the Int8 representation; current semantic
+writers do not emit `.vq` files. The historical OSQ
+body stores its format tag, segment centroid and squared norm, per-document
+OSQ correction fields and packed one-bit codes, then per-document canonical
+Int8 metadata and codes. Its readers remain for historical indexes; no current
+writer, migration or merge emits that representation. Fixed-stride offsets
+and body lengths are checked before access. The `.hnsw` scorer generation is
+resolved from the associated `.vq` storage kind; `.hnsw` remains v1.
 
 A set bit means the document explicitly supplied a vector, including an all-zero
-vector. A clear bit means padding, which search, reranking and merge skip before
-accessing vector values. Merge remaps presence alongside live documents and index
-sort order, then builds HNSW only from present destination IDs.
+vector. A clear bit means padding, which search and reranking skip before
+accessing vector values. Float32 merges preserve vector presence alongside
+live documents and index sort order, but do not create HNSW graphs. A merge
+reads historical Int8 vectors as decoded Float32 values and writes `.vec` v2;
+it does not requantise into `.vq`. An index containing any BBQ representation
+is rejected before merge mutation.
 
 ## Supported historical framing
 

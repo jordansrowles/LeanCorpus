@@ -95,8 +95,6 @@ internal sealed record DataForgeQualificationPlan(IReadOnlyList<DataForgeQualifi
         AddTest(steps, "Server integration net11.0", "server-integration", "net11.0");
 
         AddBenchmark(steps, "synthetic-benchmarks", "Term search smoke", "query", "fast");
-        AddBenchmark(steps, "synthetic-benchmarks", "HNSW smoke", "hnsw", "fast");
-        AddBenchmark(steps, "synthetic-benchmarks", "Vector quantisation smoke", "vq", "fast");
         AddBenchmark(steps, "synthetic-benchmarks", "Hybrid search smoke", "hybrid", "fast");
         AddBenchmark(steps, "synthetic-benchmarks", "Rowles.Text multilingual smoke", "text", "fast",
             benchmarkArguments: ["--filter", "*MultiLanguageAnalysisBenchmarks*"]);

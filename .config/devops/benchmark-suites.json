@@ -1,8 +1,7 @@
 {
   "schemaVersion": 1,
   "data": {
-    "vector-first-touch": "VectorFirstTouchBenchmarks -- serial and parallel cold vector/HNSW first touch",
-    "hnsw": "HnswSearchBenchmarks",
+    "vector-first-touch": "VectorFirstTouchBenchmarks -- serial and parallel cold exact-vector first touch",
     "analysis-parity": "AnalyserParityBenchmarks",
     "all": "All primary benchmark suites",
     "segment-reader-cache": "SegmentReaderCacheBenchmarks",
@@ -30,7 +29,6 @@
     "span": "SpanQueryBenchmarks",
     "nearest": "SpatialNearestBenchmarks",
     "codec-migration": "CodecMigrationBenchmarks",
-    "vq": "VectorQuantisationBenchmarks",
     "indexsort": "IndexSortIndex/Search",
     "function-score": "FunctionScoreQueryBenchmarks",
     "highlighter": "HighlighterBenchmarks",
@@ -100,12 +98,6 @@
         "vectorfirsttouch"
       ],
       "ExplicitOnly": true
-    },
-    "hnsw": {
-      "Aliases": [
-        "hnsw-search"
-      ],
-      "IncludeWithExplicit": true
     },
     "analysis-parity": {
       "DisplayName": "Analysis parity",
@@ -255,13 +247,6 @@
       ],
       "ExplicitOnly": true,
       "ControlledCorpusOnly": false
-    },
-    "vq": {
-      "DisplayName": "Vector queries",
-      "Aliases": [
-        "vectorquantisation"
-      ],
-      "IncludeWithExplicit": true
     },
     "indexsort": {},
     "function-score": {

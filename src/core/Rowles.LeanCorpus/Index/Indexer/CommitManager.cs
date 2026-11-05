@@ -264,7 +264,11 @@ internal static class CommitManager
         IndexOpenGuard.EnsureNoBlockingMigration(directory, config.CompatibilityMode);
         var recovery = IndexRecovery.RecoverLatestCommit(
             directory.DirectoryPath,
-            catalog: config.CodecCatalog);
+            cleanupOrphans: true,
+            catalog: config.CodecCatalog,
+            beforeMutation: state => VectorMutationGuard.EnsureCanRewrite(directory, state.SegmentInfos));
+        if (recovery is not null)
+            VectorMutationGuard.EnsureCanRewrite(directory, recovery.SegmentInfos);
         var occupiedSegmentIds = SegmentFileSet.FindSegmentIds(directory.ListAll(), config.CodecCatalog);
         writer.InitialiseNextSegmentOrdinal(GetNextSegmentOrdinal(
             (recovery?.SegmentIds ?? []).Concat(occupiedSegmentIds)));
@@ -405,7 +409,8 @@ internal static class CommitManager
             var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
                 writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
                 useCompoundFile: writer.Config.UseCompoundFile,
-                destinationVectorQuantisation: writer.Config.VectorQuantisation)
+                destinationVectorQuantisation: writer.Config.VectorQuantisation,
+                hnswSeed: writer.Config.HnswSeed)
             {
                 FileCatalog = writer.Config.CodecCatalog
             };
@@ -488,7 +493,8 @@ internal static class CommitManager
                 var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy, writer.Config.PostingsSkipInterval,
                     writer.Config.SoftDeleteRetentionSeconds, writer.Config.HnswBuildConfig,
                     useCompoundFile: writer.Config.UseCompoundFile,
-                    destinationVectorQuantisation: writer.Config.VectorQuantisation)
+                    destinationVectorQuantisation: writer.Config.VectorQuantisation,
+                    hnswSeed: writer.Config.HnswSeed)
                 {
                     FileCatalog = writer.Config.CodecCatalog
                 };

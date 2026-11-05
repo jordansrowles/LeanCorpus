@@ -21,6 +21,16 @@ public sealed class IndexLifecycleStateMachineTests
         FsCheckStateMachine.ToProperty(new IndexLifecycleMachine());
 
     [Property(
+        DisplayName = "Retired BBQ lifecycle remains readable and rejects every mutation attempt",
+        Replay = "14854304604442296793,3998140771831394483",
+        MaxTest = 20,
+        StartSize = 1,
+        EndSize = 30,
+        Parallelism = 1)]
+    public Property Retired_bbq_lifecycle_rejects_mutations_and_preserves_reads() =>
+        FsCheckStateMachine.ToProperty(new RetiredCodecLifecycleMachine());
+
+    [Property(
         DisplayName = "Index lifecycle replays the Windows async shutdown seed",
         Replay = "14854304604442296793,3998140771831394483",
         MaxTest = 30, StartSize = 1, EndSize = 30, Parallelism = 1)]

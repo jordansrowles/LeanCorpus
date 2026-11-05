@@ -11,11 +11,11 @@ Return to the [feature comparison overview](index.md) for status definitions and
 
 | Feature | LeanCorpus | Lucene.NET 4.8 | Java Lucene | Notes |
 | --- | :---: | :---: | :---: | --- |
-| Float-vector fields and k-nearest-neighbour queries | ✔ | ❌ | ✔ | HNSW-backed approximate search. |
-| Filtered approximate kNN | ✔ | ❌ | ✔ | Pre-filter and post-filter modes. |
-| HNSW build configuration | ✔ | ❌ | ◐ | Per-index graph parameters and deterministic seed support. |
+| Float-vector fields and k-nearest-neighbour queries | ✔ | ❌ | ✔ | Exact cosine search over stored Float32 vectors. |
+| Filtered vector kNN | ✔ | ❌ | ✔ | Exact scan of documents matching the filter. |
+| HNSW build configuration | ◐ | ❌ | ◐ | Historical graph readers remain; new graph writes are retired. |
 | Vector normalisation | ✔ | ❌ | ◐ | Optional index-time L2 normalisation. |
-| Int8 and binary vector quantisation | ✔ | ❌ | ✔ | Scalar and binary quantisation across indexing and search. |
+| Int8 vector quantisation; historical BBQ read support | ◐ | ❌ | ✔ | Historical Int8 and BBQ data can be read; new Int8 writes are retired and BBQ-containing indexes are read-only. |
 | Four-bit and product quantisation | ❌ | ❌ | ✔ | Not currently available. |
 | SIMD vector operations | ✔ | ❌ | ◐ | Runtime-vectorised .NET implementation using `Vector<T>`. |
 | Reciprocal-rank fusion | ✔ | ❌ | ◐ | Native query form for lexical and vector result fusion. |

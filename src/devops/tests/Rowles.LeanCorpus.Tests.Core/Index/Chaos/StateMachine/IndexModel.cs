@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Globalization;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index.Chaos.StateMachine;
@@ -110,6 +110,7 @@ internal sealed record IndexModel(
         CreateDocumentMap(),
         CreateDocumentMap(),
         0);
+
 
     public IndexModel Add(ModelDocument document) => this with
     {

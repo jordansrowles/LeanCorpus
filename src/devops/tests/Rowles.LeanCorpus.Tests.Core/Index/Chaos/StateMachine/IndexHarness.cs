@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Rowles.LeanCorpus.Tests.Core.Infrastructure;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index.Chaos.StateMachine;
@@ -25,7 +25,7 @@ internal sealed class IndexHarness : IDisposable
 
     public void AddBatch(IReadOnlyList<ModelDocument> documents)
     {
-        Writer.AddDocuments(documents.Select(static document => document.ToLeanDocument()).ToArray());
+        Writer.AddDocuments(documents.Select(document => document.ToLeanDocument()).ToArray());
     }
 
     public void AddAsync(ModelDocument document)
@@ -35,7 +35,7 @@ internal sealed class IndexHarness : IDisposable
 
     public void AddBatchAsync(IReadOnlyList<ModelDocument> documents)
     {
-        Writer.AddDocumentsAsync(documents.Select(static document => document.ToLeanDocument()).ToArray())
+        Writer.AddDocumentsAsync(documents.Select(document => document.ToLeanDocument()).ToArray())
             .AsTask()
             .GetAwaiter()
             .GetResult();
@@ -70,6 +70,12 @@ internal sealed class IndexHarness : IDisposable
     }
 
     public void AssertCommitted(IReadOnlyDictionary<string, ModelDocument> expected)
+        => AssertCommittedDocuments(expected);
+
+    public void AssertCommitted(IndexModel model)
+        => AssertCommittedDocuments(model.Committed);
+
+    private void AssertCommittedDocuments(IReadOnlyDictionary<string, ModelDocument> expected)
     {
         var actual = ReadDocuments(new MatchAllDocsQuery(), expected.Count);
 
@@ -167,6 +173,8 @@ internal sealed class IndexHarness : IDisposable
     private static IndexWriterConfig CreateWriterConfig() => new()
     {
         MaxBufferedDocs = 3,
-        MergePolicy = NoMergePolicy.Instance
+        MergePolicy = NoMergePolicy.Instance,
+        VectorQuantisation = VectorQuantisation.None,
+        HnswSeed = 42,
     };
 }

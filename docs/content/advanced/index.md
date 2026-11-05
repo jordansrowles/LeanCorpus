@@ -17,10 +17,10 @@ Use this section after ordinary indexing and searching work. Read the result-sha
 
 | Feature | What it does | When to use it |
 |---|---|---|
-| [Vector search](05-vector-search.md) | Approximate nearest neighbour over dense float vectors using HNSW graphs | Semantic search, embeddings, similarity |
-| [Filtered vector search](08-filtered-vector-search.md) | Vector ANN with a pre-filter or post-filter query | Scoped semantic search |
+| [Vector search](05-vector-search.md) | Exact cosine search over new Float32 indexes and decoded historical Int8 data | Semantic search, embeddings, similarity |
+| [Filtered vector search](08-filtered-vector-search.md) | Exact vector scoring over matching live documents | Scoped semantic search |
 
-Vectors can be quantised with BBQ (Better Binary Quantisation) for 32x compression with minimal recall loss. The quantised query path operates in int8 for speed.
+New Int8 and HNSW graph writes are retired for 4.0. Historical Int8 remains readable; historical BBQ remains readable with its existing scorer, but any index containing BBQ is read-only. See the [vector search guide](05-vector-search.md) and [ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md).
 
 ## Specialised queries
 

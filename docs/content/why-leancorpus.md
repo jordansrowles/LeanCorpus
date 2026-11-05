@@ -12,7 +12,7 @@ LeanCorpus is a .NET-native full-text search engine designed for applications th
 
 **You deploy with Native AOT.** The core library is trim-safe and validated with a dedicated AOT smoke-test suite. Publish as a single native binary with no JIT.
 
-**You want modern scoring and vectors.** BM25+, BM25L, language-model similarities, HNSW vector search with BBQ quantisation, and Block-Max WAND are built in. These are not plugins or add-ons.
+**You want modern scoring and vector search.** BM25+, BM25L, language-model similarities, exact Float32 vector search, and Block-Max WAND are built in. Historical Int8 and BBQ indexes remain readable; BBQ-containing indexes are read-only.
 
 **You need observability.** OpenTelemetry tracing and metrics, structured slow-query logging, and Aspire dashboard integration are first-class features.
 
@@ -43,7 +43,7 @@ The repository includes benchmark cases against Lucene.Net 4.8 as an external ba
 | **Platform** | `net10.0`, `net11.0` | `net462`, `netstandard2.0`, `net6.0` |
 | **AOT** | Native AOT, trim-safe | Not supported |
 | **Allocation** | Zero-allocation span-based analysis | Per-token heap allocation |
-| **Vectors** | HNSW + BBQ/Int8 quantisation, built in | Not available |
+| **Vectors** | Exact Float32 search; historical Int8 and BBQ read support | Not available |
 | **Scoring** | BM25+, BM25L, WAND, SIMD cosine | Classic + LM, expression-based scoring |
 | **Modern queries** | Intervals, RRF, CombinedFields, FunctionScore | Not available |
 | **Observability** | OpenTelemetry, metrics, slow-query log | Not available |

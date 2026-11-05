@@ -86,7 +86,8 @@ internal static class MergeScheduler
             var merger = new SegmentMerger(writer.Directory, writer.Config.MergePolicy,
                 writer.Config.PostingsSkipInterval, writer.Config.SoftDeleteRetentionSeconds,
                 writer.Config.HnswBuildConfig, useCompoundFile: writer.Config.UseCompoundFile,
-                destinationVectorQuantisation: writer.Config.VectorQuantisation)
+                destinationVectorQuantisation: writer.Config.VectorQuantisation,
+                hnswSeed: writer.Config.HnswSeed)
             {
                 FileCatalog = writer.Config.CodecCatalog
             };

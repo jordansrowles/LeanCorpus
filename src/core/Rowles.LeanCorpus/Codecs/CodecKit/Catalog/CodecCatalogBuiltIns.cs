@@ -117,7 +117,10 @@ internal static class CodecCatalogBuiltIns
             CodecFramingPolicy.Canonical,
             CodecChecksumPolicy.XxHash64,
             currentMigrationBehaviour,
-            [CodecFileMatcher.ExtensionWithTrailingSuffix(extension, ".tmp")]);
+            [CodecFileMatcher.ExtensionWithTrailingSuffix(extension, ".tmp")])
+        {
+            LifecyclePolicy = formatId == "leancorpus.vectors.quantised" ? QuantisedVectorLifecyclePolicy.Instance : null
+        };
     }
 
     private static CodecFileDescriptor VersionlessFile(

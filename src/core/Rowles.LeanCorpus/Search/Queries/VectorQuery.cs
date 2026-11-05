@@ -1,11 +1,15 @@
-﻿using System.Numerics;
-using System.Runtime.InteropServices;
+﻿using Rowles.LeanCorpus.Search.Simd;
 
 namespace Rowles.LeanCorpus.Search.Queries;
 
 /// <summary>
 /// ANN search over vector data using HNSW when available, with a flat SIMD fallback.
 /// </summary>
+/// <remarks>
+/// The query vector must have the same dimension as the selected vector field. Search and
+/// explanation throw <see cref="ArgumentException"/> when the dimensions differ.
+/// <see cref="Rowles.LeanCorpus.Search.Query.Boost"/> is applied to final vector scores and their explanations.
+/// </remarks>
 public sealed class VectorQuery : Query
 {
     /// <inheritdoc/>
@@ -21,13 +25,16 @@ public sealed class VectorQuery : Query
     /// HNSW search-time candidate pool size (the <c>ef</c> parameter). Larger values increase recall at
     /// the cost of latency. Uses <see cref="LeanCorpusDefaults"/>'s HNSW search default when one is
     /// configured; otherwise defaults to <c>max(64, 4 * topK)</c>. Search raises the effective pool to
-    /// at least <c>topK * OversamplingFactor</c> so a smaller <c>ef</c> cannot cap the requested shortlist.
+    /// the requested oversampled shortlist, capped at the available graph nodes.
     /// </summary>
     public int EfSearch { get; }
 
     /// <summary>
-    /// Exact-rerank oversampling factor. The HNSW shortlist returns <c>topK * OversamplingFactor</c>
-    /// candidates which are then exactly rescored. Default: 1 (no oversampling).
+    /// Effective candidate oversampling factor. The public value remains <c>1</c> when the
+    /// constructor's automatic default is used. BBQ v3 HNSW search resolves that default to a
+    /// three-times shortlist; other representations use one. Explicit values are clamped to at
+    /// least one. Quantised scores use the decoded stored representation and can differ from
+    /// cosine similarity over the original Float32 vectors.
     /// </summary>
     public int OversamplingFactor { get; }
 
@@ -39,14 +46,14 @@ public sealed class VectorQuery : Query
     /// <param name="queryVector">The query vector for similarity comparison.</param>
     /// <param name="topK">Maximum number of nearest neighbours to return. Default: 10.</param>
     /// <param name="efSearch">HNSW <c>ef</c> parameter. <c>0</c> selects an automatic default.</param>
-    /// <param name="oversamplingFactor">Multiplier for the HNSW shortlist before exact rerank.</param>
+    /// <param name="oversamplingFactor">Multiplier for the HNSW candidate shortlist before scoring. Omit this argument for the automatic policy: BBQ v3 uses three, while other representations use one. Passing the former default literal <c>1</c> explicitly keeps one-times oversampling.</param>
     /// <param name="filter">Optional pre-filter query that constrains the candidate set.</param>
     public VectorQuery(
         string field,
         float[] queryVector,
         int topK = 10,
         int efSearch = 0,
-        int oversamplingFactor = 1,
+        int oversamplingFactor = -1,
         Query? filter = null)
     {
         Field = field;
@@ -55,16 +62,37 @@ public sealed class VectorQuery : Query
         EfSearch = efSearch > 0
             ? efSearch
             : ResolveDefaultEf(topK);
+        IsOversamplingAutomatic = oversamplingFactor == -1;
         OversamplingFactor = Math.Max(1, oversamplingFactor);
         Filter = filter;
     }
+
+    internal bool IsOversamplingAutomatic { get; }
 
     private static int ResolveDefaultEf(int topK)
     {
         var configured = LeanCorpusDefaults.GetSnapshot().Search.Hnsw.Ef;
         return configured.IsSet && configured.Value > 0
             ? configured.Value
-            : Math.Max(64, 4 * topK);
+            : (int)Math.Min(int.MaxValue, Math.Max(64L, 4L * topK));
+    }
+
+    internal int GetShortlistSize(int availableCandidates, bool isBbqV3 = false)
+    {
+        if (availableCandidates <= 0 || TopK <= 0)
+            return 0;
+
+        int factor = IsOversamplingAutomatic && isBbqV3 ? 3 : OversamplingFactor;
+        long requested = (long)TopK * factor;
+        return (int)Math.Min(requested, availableCandidates);
+    }
+
+    internal int GetEffectiveEfSearch(int availableCandidates, bool isBbqV3 = false)
+    {
+        if (availableCandidates <= 0)
+            return 0;
+
+        return Math.Min(Math.Max(EfSearch, GetShortlistSize(availableCandidates, isBbqV3)), availableCandidates);
     }
 
     /// <inheritdoc/>
@@ -100,51 +128,5 @@ public sealed class VectorQuery : Query
     /// Computes cosine similarity between two vectors using SIMD where available.
     /// </summary>
     public static float CosineSimilarity(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
-    {
-        if (a.Length != b.Length || a.Length == 0)
-            return 0f;
-
-        float dot = 0f, normA = 0f, normB = 0f;
-
-        int i = 0;
-
-#if NET11_0_OR_GREATER
-        // .NET 11: Vector hardware acceleration is guaranteed on all supported targets
-        if (a.Length >= Vector<float>.Count)
-#else
-        if (Vector.IsHardwareAccelerated && a.Length >= Vector<float>.Count)
-#endif
-        {
-            var vDot = Vector<float>.Zero;
-            var vNormA = Vector<float>.Zero;
-            var vNormB = Vector<float>.Zero;
-
-            int simdEnd = a.Length - (a.Length % Vector<float>.Count);
-            var spanA = MemoryMarshal.Cast<float, Vector<float>>(a[..simdEnd]);
-            var spanB = MemoryMarshal.Cast<float, Vector<float>>(b[..simdEnd]);
-
-            for (int j = 0; j < spanA.Length; j++)
-            {
-                vDot += spanA[j] * spanB[j];
-                vNormA += spanA[j] * spanA[j];
-                vNormB += spanB[j] * spanB[j];
-            }
-
-            dot = Vector.Dot(vDot, Vector<float>.One);
-            normA = Vector.Dot(vNormA, Vector<float>.One);
-            normB = Vector.Dot(vNormB, Vector<float>.One);
-            i = simdEnd;
-        }
-
-        // Scalar remainder
-        for (; i < a.Length; i++)
-        {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
-        }
-
-        float denom = MathF.Sqrt(normA) * MathF.Sqrt(normB);
-        return denom > 0f ? dot / denom : 0f;
-    }
+        => SimdVectorOps.CosineSimilarity(a, b);
 }

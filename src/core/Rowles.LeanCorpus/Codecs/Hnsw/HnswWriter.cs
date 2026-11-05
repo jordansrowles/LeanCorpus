@@ -12,6 +12,7 @@ internal static class HnswWriter
     public static void Write(string filePath, HnswGraph graph, int dimension, bool normalised)
     {
         ArgumentNullException.ThrowIfNull(graph);
+        VectorCodecFiles.EnsureCanCreate(graph.Quantisation);
         if (!graph.IsReadOnly)
             throw new InvalidOperationException("HnswGraph must be frozen before writing.");
 

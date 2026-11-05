@@ -102,8 +102,12 @@ objects.
 Writer defaults such as `CompressionPolicy`, `StoredFieldBlockSize`,
 `PostingsSkipInterval`, `VectorQuantisation`, HNSW build parameters,
 `TrackSequenceNumbers`, and `SoftDeletesEnabled` affect newly written segment
-representation or persisted metadata. They do not replace the codec and
-segment metadata used to read an existing index.
+representation or persisted metadata. New vectors use Float32, while new Int8,
+BBQ and HNSW graph writes are retired; selecting Int8 or BBQ, or setting
+`BuildHnswOnFlush` to `true`, is rejected. HNSW build parameters remain for
+source compatibility and do not create graphs.
+These settings do not replace the codec and segment metadata used to read an
+existing index.
 
 Factories create fresh analysis, policy, scoring, or diagnostic instances for
 each receiving configuration. Stop-word lists and factory mappings are copied

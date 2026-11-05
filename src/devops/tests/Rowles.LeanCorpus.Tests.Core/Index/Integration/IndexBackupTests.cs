@@ -293,8 +293,18 @@ public sealed class IndexBackupTests : IClassFixture<TestDirectoryFixture>
         Assert.Equal(2, delta.Manifest.ChainDepth);
         Assert.NotNull(delta.Manifest.ParentManifestSha256);
         Assert.Equal(64, delta.Manifest.ParentManifestSha256!.Length);
-        Assert.Contains(delta.Manifest.Files, static file => !file.PresentInBackup);
-        Assert.True(delta.CopiedFiles.Count < full.CopiedFiles.Count);
+        var reusedFiles = delta.Manifest.Files.Where(static file => !file.PresentInBackup).ToArray();
+        Assert.NotEmpty(reusedFiles);
+        var fullFilesByName = full.Manifest.Files.ToDictionary(static file => file.FileName, StringComparer.Ordinal);
+        foreach (var reused in reusedFiles)
+        {
+            Assert.True(fullFilesByName.TryGetValue(reused.FileName, out var previous));
+            Assert.Equal(previous!.Length, reused.Length);
+            Assert.Equal(previous.Crc32, reused.Crc32);
+        }
+        Assert.Equal(
+            delta.Manifest.Files.Where(static file => file.PresentInBackup).Select(static file => file.FileName).Order(StringComparer.Ordinal),
+            delta.CopiedFiles.Order(StringComparer.Ordinal));
         Assert.Throws<InvalidDataException>(() => IndexBackup.ValidateBackup(deltaPath));
         Assert.Equal(delta.Manifest.CommitGeneration, IndexBackup.ValidateBackup([fullPath, deltaPath]).CommitGeneration);
         Assert.Throws<InvalidDataException>(() => IndexBackup.Restore(deltaPath, restorePath, cancellationToken: TestContext.Current.CancellationToken));

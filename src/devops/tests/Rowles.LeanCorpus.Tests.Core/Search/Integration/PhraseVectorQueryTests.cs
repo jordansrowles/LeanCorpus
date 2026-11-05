@@ -218,6 +218,22 @@ public sealed class PhraseVectorQueryTests
         Assert.Equal(Math.Max(64, 4 * 5), q.EfSearch);
     }
 
+    [Fact(DisplayName = "VectorQuery: Large defaults and oversampled shortlists are bounded safely")]
+    public void VectorQuery_LargeDefaultsAndOversampledShortlists_DoNotOverflow()
+    {
+        var q = new VectorQuery(
+            "vec",
+            [1f, 0f],
+            topK: int.MaxValue,
+            efSearch: 0,
+            oversamplingFactor: int.MaxValue);
+
+        Assert.Equal(int.MaxValue, q.EfSearch);
+        Assert.Equal(17, q.GetShortlistSize(17));
+        Assert.Equal(17, q.GetEffectiveEfSearch(17));
+        Assert.Equal(0, q.GetShortlistSize(0));
+    }
+
     [Fact(DisplayName = "VectorQuery: EfSearch Uses Explicit Value When Positive")]
     public void VectorQuery_EfSearch_UsesExplicitValue()
     {
@@ -314,6 +330,28 @@ public sealed class PhraseVectorQueryTests
     {
         var result = VectorQuery.CosineSimilarity([0f, 0f], [1f, 1f]);
         Assert.Equal(0f, result);
+    }
+
+    [Fact(DisplayName = "CosineSimilarity: Very Small Non-Zero Vectors Match Expected Similarity")]
+    public void CosineSimilarity_OnVerySmallNonZeroVectors_MatchesExpectedSimilarity()
+    {
+        var a = new float[] { 1e-23f, 1e-23f };
+        var b = new float[] { 2e-23f, 0f };
+
+        float result = VectorQuery.CosineSimilarity(a, b);
+
+        Assert.Equal(1f / MathF.Sqrt(2f), result, 6);
+    }
+
+    [Fact(DisplayName = "CosineSimilarity: Very Large Finite Vectors Match Expected Similarity")]
+    public void CosineSimilarity_OnVeryLargeFiniteVectors_MatchesExpectedSimilarity()
+    {
+        var a = new float[] { 1e23f, 1e23f };
+        var b = new float[] { 2e23f, 0f };
+
+        float result = VectorQuery.CosineSimilarity(a, b);
+
+        Assert.Equal(1f / MathF.Sqrt(2f), result, 6);
     }
 
     [Fact(DisplayName = "CosineSimilarity: Long Vectors Exercise SIMD Path")]

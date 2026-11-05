@@ -86,10 +86,11 @@ public sealed class SparseVector311MigrationAcceptanceTests : IDisposable
             .Where(action => action.FileName?.EndsWith(vectorExtension, StringComparison.Ordinal) == true)
             .ToArray();
         Assert.Equal(2, vectorActions.Length);
+        byte currentVersion = quantisation == VectorQuantisation.None ? (byte)2 : (byte)3;
         Assert.All(vectorActions, action =>
         {
             Assert.Equal((byte)1, action.FromVersion);
-            Assert.Equal((byte)2, action.ToVersion);
+            Assert.Equal(currentVersion, action.ToVersion);
             Assert.Equal(IndexCodecMigrationActionKind.Rewrite, action.Kind);
             Assert.True(action.CanExecute, action.ReasonCannotExecute);
         });
@@ -122,7 +123,7 @@ public sealed class SparseVector311MigrationAcceptanceTests : IDisposable
         foreach (SegmentInfo segmentInfo in migratedSegments)
         {
             using var reader = new SegmentReader(directory, segmentInfo);
-            AssertVectorFileVersion(directory, segmentInfo, quantisation, vectorExtension, expectedVersion: 2);
+            AssertVectorFileVersion(directory, segmentInfo, quantisation, vectorExtension, expectedVersion: currentVersion);
             Assert.Equal(new[] { 0, 1 }, reader.GetHnswGraph("embedding")!.GetNodesAtLevel(0).Order().ToArray());
             Assert.False(reader.HasVector("embedding", 2));
         }
@@ -144,8 +145,14 @@ public sealed class SparseVector311MigrationAcceptanceTests : IDisposable
         Assert.Equal(compound, mergedInfo.IsCompoundFile);
         using (var mergedReader = new SegmentReader(directory, mergedInfo))
         {
-            Assert.Equal(new[] { 0, 1, 3, 4 }, mergedReader.GetHnswGraph("embedding")!.GetNodesAtLevel(0).Order().ToArray());
-            AssertVectorFileVersion(directory, mergedInfo, quantisation, vectorExtension, expectedVersion: 2);
+            Assert.Null(mergedReader.GetHnswGraph("embedding"));
+            if (quantisation == VectorQuantisation.Int8)
+            {
+                Assert.Equal(VectorQuantisation.None, Assert.Single(mergedInfo.VectorFields).Quantisation);
+                AssertVectorFileVersion(directory, mergedInfo, VectorQuantisation.None, ".vec", expectedVersion: 2);
+            }
+            else
+                AssertVectorFileVersion(directory, mergedInfo, VectorQuantisation.None, vectorExtension, expectedVersion: currentVersion);
         }
 
         IndexCheckResult afterMergeValidation = IndexValidator.Check(directory, new IndexCheckOptions { Deep = true });
@@ -155,12 +162,12 @@ public sealed class SparseVector311MigrationAcceptanceTests : IDisposable
     private static IndexWriterConfig CreateMergeConfig(VectorQuantisation quantisation, bool compound)
         => new()
         {
-            BuildHnswOnFlush = true,
+            BuildHnswOnFlush = false,
             HnswSeed = 42,
             MergePolicy = NoMergePolicy.Instance,
             NormaliseVectors = false,
             UseCompoundFile = compound,
-            VectorQuantisation = quantisation,
+            VectorQuantisation = VectorQuantisation.None,
         };
 
     private static VectorDocumentState[] CaptureVectorState(string path)

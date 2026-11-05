@@ -43,6 +43,19 @@ public sealed class QueryCacheGapsTests
         Assert.NotNull(cache.TryGet(q, 5));
     }
 
+    [Fact(DisplayName = "Cache: Automatic BBQ oversampling has a distinct query identity")]
+    public void Cache_VectorQuery_AutomaticAndExplicitOneHaveDistinctIdentities()
+    {
+        var cache = new QueryCache(50);
+        var automatic = new VectorQuery("embedding", [0.1f, 0.2f, 0.3f], topK: 5);
+        var explicitOne = new VectorQuery("embedding", [0.1f, 0.2f, 0.3f], topK: 5, oversamplingFactor: 1);
+        var result = new TopDocs(1, [new ScoreDoc(7, 0.5f)]);
+
+        cache.Put(automatic, 5, result);
+
+        Assert.Null(cache.TryGet(explicitOne, 5));
+    }
+
     /// <summary>Verifies VectorQuery with a filter can be stored and retrieved from cache.</summary>
     [Fact(DisplayName = "Cache: VectorQuery With Filter Stored And Retrieved")]
     public void Cache_VectorQuery_WithFilter_StoredAndRetrieved()

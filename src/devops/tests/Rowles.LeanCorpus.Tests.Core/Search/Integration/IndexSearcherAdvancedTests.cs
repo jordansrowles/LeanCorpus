@@ -233,7 +233,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
         var dir = SubDir("vec_query");
         using var mmap = new MMapDirectory(dir);
 
-        using (var writer = new IndexWriter(mmap, new IndexWriterConfig { BuildHnswOnFlush = true }))
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig { BuildHnswOnFlush = false }))
         {
             for (int i = 0; i < 5; i++)
             {

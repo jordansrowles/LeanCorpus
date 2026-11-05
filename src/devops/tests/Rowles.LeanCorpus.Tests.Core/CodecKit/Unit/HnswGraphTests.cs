@@ -260,6 +260,227 @@ public sealed class HnswGraphTests
         Assert.Equal(2, Assert.Single(results).DocId);
     }
 
+    [Fact(DisplayName = "HNSW search explores a boundary-tied bridge to a closer BBQ node")]
+    public void SearchLayer_ExploresBoundaryTieToCloserBBQNode()
+    {
+        var vectors = new Dictionary<int, ReadOnlyMemory<float>>
+        {
+            [0] = new float[] { 1f, -1f },
+            [1] = new float[] { 1f, -1f },
+            [2] = new float[] { 1f, 1f },
+        };
+        var source = new BBQMemoryVectorSource(vectors, 2, new float[2]);
+        var level = new HnswGraph.FrozenLevel([0, 1, 2], [[1], [2], []]);
+        using var graph = HnswGraph.FromFrozen(
+            source,
+            new HnswBuildConfig { M = 2, EfConstruction = 4 },
+            seed: 1,
+            [level],
+            entryPoint: 0,
+            maxLevel: 0,
+            nodeCount: 3);
+
+        var results = graph.Search([1f, 1f], new HnswTraversalOptions { Ef = 1, TopK = 1 });
+
+        Assert.Equal(2, Assert.Single(results).DocId);
+    }
+
+    [Fact(DisplayName = "HNSW allow-list search crosses a boundary-tied excluded BBQ bridge")]
+    public void AllowListSearch_ExploresBoundaryTieToEligibleCloserBBQNode()
+    {
+        var vectors = new Dictionary<int, ReadOnlyMemory<float>>
+        {
+            [0] = new float[] { 1f, -1f },
+            [1] = new float[] { 1f, -1f },
+            [2] = new float[] { 1f, 1f },
+        };
+        var source = new BBQMemoryVectorSource(vectors, 2, new float[2]);
+        var level = new HnswGraph.FrozenLevel([0, 1, 2], [[1], [2], []]);
+        using var graph = HnswGraph.FromFrozen(
+            source,
+            new HnswBuildConfig { M = 2, EfConstruction = 4 },
+            seed: 1,
+            [level],
+            entryPoint: 0,
+            maxLevel: 0,
+            nodeCount: 3);
+        var allowedDocuments = new RoaringBitmap();
+        allowedDocuments.Add(0);
+        allowedDocuments.Add(2);
+
+        var results = graph.Search([1f, 1f], new HnswTraversalOptions
+        {
+            Ef = 1,
+            TopK = 1,
+            AllowList = new RoaringBitmapBitSet(allowedDocuments),
+        });
+
+        Assert.Equal(2, Assert.Single(results).DocId);
+    }
+
+    [Fact(DisplayName = "HNSW greedy descent crosses a tie plateau to a closer upper-layer node")]
+    public void GreedyDescent_ExploresBoundaryTieToCloserNodeAtUpperLayer()
+    {
+        var vectors = new Dictionary<int, float[]>
+        {
+            [0] = Normalise([0f, 1f]),
+            [1] = Normalise([0f, 1f]),
+            [2] = Normalise([1f, 0f]),
+            [3] = Normalise([-1f, 0f]),
+        };
+        var source = MakeSource(vectors, dimension: 2);
+        var baseLevel = new HnswGraph.FrozenLevel([0, 1, 2, 3], [[1, 3], [0], [3], [0, 2]]);
+        var upperLevel = new HnswGraph.FrozenLevel([0, 1, 2], [[1], [0, 2], [1]]);
+        using var graph = HnswGraph.FromFrozen(
+            source,
+            new HnswBuildConfig { M = 2, EfConstruction = 4 },
+            seed: 1,
+            [baseLevel, upperLevel],
+            entryPoint: 0,
+            maxLevel: 1,
+            nodeCount: 4);
+
+        var results = graph.Search([1f, 0f], new HnswTraversalOptions { Ef = 1, TopK = 1 });
+
+        Assert.Equal(2, Assert.Single(results).DocId);
+    }
+
+    [Fact(DisplayName = "HNSW search restarts from the persisted entry point when greedy descent underfills")]
+    public void Search_RestartsFromEntryPoint_WhenGreedyStartCannotFillTopK()
+    {
+        var vectors = new Dictionary<int, ReadOnlyMemory<float>>
+        {
+            [0] = new float[] { -1f, -1f },
+            [1] = new float[] { 1f, 1f },
+            [2] = new float[] { 1f, 1f },
+            [3] = new float[] { 1f, 1f },
+        };
+        var source = new BBQMemoryVectorSource(vectors, 2, new float[2]);
+        var baseLevel = new HnswGraph.FrozenLevel([0, 1, 2, 3], [[2, 3], [2], [], []]);
+        var upperLevel = new HnswGraph.FrozenLevel([0, 1], [[1], []]);
+        using var graph = HnswGraph.FromFrozen(
+            source,
+            new HnswBuildConfig { M = 2, EfConstruction = 4 },
+            seed: 1,
+            [baseLevel, upperLevel],
+            entryPoint: 0,
+            maxLevel: 1,
+            nodeCount: 4);
+
+        var results = graph.Search(
+            [1f, 1f],
+            new HnswTraversalOptions { Ef = 4, TopK = 3 },
+            out HnswSearchStats stats);
+
+        Assert.Equal(3, results.Count);
+        Assert.Contains(3, results.Select(static result => result.DocId));
+        Assert.Equal(5, stats.NodesVisited);
+        Assert.Equal(0, stats.ScannedVectors);
+        Assert.False(stats.UsedExhaustiveFallback);
+    }
+
+    [Fact(DisplayName = "HNSW fills TopK with the graph metric when directed reachability underfills")]
+    public void Search_FillsTopKByMetricScan_WhenDirectedComponentUnderfills()
+    {
+        var vectors = new Dictionary<int, ReadOnlyMemory<float>>
+        {
+            [0] = new float[] { 1f, 1f },
+            [1] = new float[] { 1f, -1f },
+            [2] = new float[] { -1f, 1f },
+            [3] = new float[] { -1f, -1f },
+        };
+        var source = new BBQMemoryVectorSource(vectors, 2, new float[2]);
+        var level = new HnswGraph.FrozenLevel([0, 1, 2, 3], [[1], [], [], []]);
+        using var graph = HnswGraph.FromFrozen(
+            source,
+            new HnswBuildConfig { M = 2, EfConstruction = 4 },
+            seed: 1,
+            [level],
+            entryPoint: 0,
+            maxLevel: 0,
+            nodeCount: 4);
+
+        var results = graph.Search(
+            [1f, 1f],
+            new HnswTraversalOptions { Ef = 4, TopK = 3 },
+            out HnswSearchStats stats);
+
+        Assert.Equal(new[] { 0, 1, 2 }, results.Select(static result => result.DocId));
+        Assert.Equal(2, stats.NodesVisited);
+        Assert.Equal(4, stats.ScannedVectors);
+        Assert.True(stats.UsedExhaustiveFallback);
+        Assert.Equal(HnswExhaustiveFallbackReason.UnderfilledAfterTraversal, stats.FallbackReason);
+    }
+
+    [Fact(DisplayName = "HNSW complete graph result does not use exhaustive fallback")]
+    public void Search_CompleteGraphDoesNotUseExhaustiveFallback()
+    {
+        var vectors = new Dictionary<int, float[]>
+        {
+            [0] = [1f, 0f],
+            [1] = [0f, 1f],
+            [2] = [-1f, 0f],
+        };
+        var source = MakeSource(vectors, dimension: 2);
+        var level = new HnswGraph.FrozenLevel([0, 1, 2], [[1, 2], [0, 2], [0, 1]]);
+        using var graph = HnswGraph.FromFrozen(
+            source,
+            new HnswBuildConfig { M = 2, EfConstruction = 4 },
+            seed: 1,
+            [level],
+            entryPoint: 0,
+            maxLevel: 0,
+            nodeCount: 3);
+
+        var results = graph.Search(
+            [1f, 0f],
+            new HnswTraversalOptions { Ef = 3, TopK = 2 },
+            out HnswSearchStats stats);
+
+        Assert.Equal(new[] { 0, 1 }, results.Select(static result => result.DocId));
+        Assert.Equal(3, stats.NodesVisited);
+        Assert.Equal(0, stats.ScannedVectors);
+        Assert.False(stats.UsedExhaustiveFallback);
+        Assert.Equal(HnswExhaustiveFallbackReason.None, stats.FallbackReason);
+    }
+
+    [Fact(DisplayName = "HNSW: Maximal efSearch is bounded during post-filter retries")]
+    public void Search_MaximalEfSearch_PostFilterVisitsEachNodeOnce()
+    {
+        var vectors = new Dictionary<int, float[]>
+        {
+            [0] = Normalise([1f, 0f]),
+            [1] = Normalise([0f, 1f]),
+            [2] = Normalise([-1f, 0f]),
+        };
+        var source = MakeSource(vectors, dimension: 2);
+        var level = new HnswGraph.FrozenLevel([0, 1, 2], [[1], [2], []]);
+        using var graph = HnswGraph.FromFrozen(
+            source,
+            new HnswBuildConfig { M = 2, EfConstruction = 4 },
+            seed: 1,
+            [level],
+            entryPoint: 0,
+            maxLevel: 0,
+            nodeCount: 3);
+        var onlyLastDocument = new RoaringBitmap();
+        onlyLastDocument.Add(2);
+
+        var results = graph.Search(
+            [1f, 0f],
+            new HnswTraversalOptions
+            {
+                Ef = int.MaxValue,
+                TopK = 2,
+                MaxPostFilterRetries = 3,
+                PostFilterMask = new RoaringBitmapBitSet(onlyLastDocument),
+            },
+            out HnswSearchStats stats);
+
+        Assert.Equal(2, Assert.Single(results).DocId);
+        Assert.Equal(3, stats.NodesVisited);
+    }
+
     private static void AssertEntryPointPresentAtEveryLayer(HnswGraph graph)
     {
         for (int level = 0; level <= graph.MaxLevel; level++)
@@ -298,6 +519,24 @@ public sealed class HnswGraphTests
 [Area(TestArea.CodecKit)]
 public sealed class BBQDistanceComputerTests
 {
+    [Fact(DisplayName = "BBQ query distance reads packed bytes in persisted little-endian bit order")]
+    public void QueryDistance_UsesPersistedBitOrderForFullWord()
+    {
+        const int dimension = 64;
+        var query = new float[dimension];
+        var centroid = new float[dimension];
+        var storedBits = new byte[dimension / 8];
+        for (int byteIndex = 0; byteIndex < storedBits.Length; byteIndex++)
+        {
+            byte pattern = (byte)(1 << byteIndex);
+            storedBits[byteIndex] = pattern;
+            for (int bitIndex = 0; bitIndex < 8; bitIndex++)
+                query[(byteIndex * 8) + bitIndex] = (pattern & (1 << bitIndex)) != 0 ? 1f : -1f;
+        }
+
+        Assert.Equal(-dimension, BBQDistanceComputer.Distance(query, centroid, storedBits, dimension));
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(7)]
@@ -333,6 +572,42 @@ public sealed class BBQDistanceComputerTests
 
         float expected = -(2f * matching - dim);
         Assert.Equal(expected, BBQDistanceComputer.Distance(query, centroid, bits, dim));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(63)]
+    [InlineData(64)]
+    [InlineData(65)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(129)]
+    public void QueryAndStoredDistance_AgreeForEncodedQuery(int dim)
+    {
+        var centroid = new float[dim];
+        var query = new float[dim];
+        var other = new float[dim];
+        for (int index = 0; index < dim; index++)
+        {
+            centroid[index] = ((index % 3) - 1) * 0.125f;
+            query[index] = centroid[index] + ((index % 5) - 2) * 0.25f;
+            other[index] = centroid[index] + ((index % 7) - 3) * 0.125f;
+        }
+
+        var vectors = new Dictionary<int, ReadOnlyMemory<float>>
+        {
+            [0] = query,
+            [1] = other,
+        };
+        var source = new BBQMemoryVectorSource(vectors, dim, centroid);
+
+        float queryDistance = BBQDistanceComputer.Distance(query, centroid, source.GetRawVector(1), dim);
+        float storedDistance = BBQDistanceComputer.Distance(source.GetRawVector(0), source.GetRawVector(1), dim);
+
+        Assert.Equal(storedDistance, queryDistance);
     }
 
     [Theory]
