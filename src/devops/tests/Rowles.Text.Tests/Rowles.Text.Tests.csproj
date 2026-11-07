@@ -18,6 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Analysis\PositionGapCases.cs" Link="Analysis\PositionGapCases.cs" />
     <Compile Include="..\Rowles.LeanCorpus.Tests.Core\Metadata\TestMetadata.cs" Link="Metadata\TestMetadata.cs" />
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Infrastructure\MaterialisingTokenSink.cs" Link="Infrastructure\MaterialisingTokenSink.cs" />
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Diagnostics\LeanCorpusTestDiagnostics.cs" Link="Diagnostics\LeanCorpusTestDiagnostics.cs" />
