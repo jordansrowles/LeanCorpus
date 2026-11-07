@@ -52,3 +52,41 @@ index from the original documents and embeddings. BBQ decoding cannot recover
 the original component magnitudes, so do not use decoded BBQ vectors as a
 substitute for the source embeddings. See [CodecKit migrations](../contributors/codeckit/03-migrations.md)
 and [ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md).
+
+## Reindexing for preserved stop-word positions
+
+LeanCorpus 4.0 and Rowles.Text 2.0 preserve position gaps when analysis removes
+stop words. For example, `said the government` retains a gap between `said` and
+`government`, so it no longer matches the exact phrase `"said government"`.
+Query analysis follows the same rule: `"said the government"` uses positions
+0 and 2.
+
+Existing indexes must be rebuilt from the original text to receive corrected
+positions. Removed positions cannot be recovered from postings, so codec
+migration cannot repair them. Retain the original index or a backup, build a
+separate index from source text with the corrected analyser, verify representative
+phrase queries, then switch the application to that index.
+
+Until reindexed, quoted phrases containing stop words can miss old segments
+because query analysis now preserves gaps that those segments collapsed. Old
+segments also retain false positives for phrases without stop words. A mixed
+index can therefore return different phrase matches from old and new segments.
+There is no per-segment query compatibility shim.
+
+New flushes record `PositionContract` in `.seg` metadata. An absent marker means
+legacy; the marker describes the writer's position contract, not the analyser
+used. A merge keeps the marker only when every source is marked. Codec migration
+carries the existing value and never stamps an old segment as corrected.
+
+Index checks, format inspection, compatibility reports and migration plans emit
+warning `LLIDX052` with `ReindexRecommended` guidance for unmarked segments. The
+index **may be affected**, since it might not have used stop-word removal. This
+warning does not change compatibility status, block an otherwise executable
+migration, or prevent strict writers from appending to mixed indexes. Other
+codec compatibility requirements still apply.
+
+Inspection records observed legacy segments in
+`leancorpus.index.position_contract.legacy_segments`, tagged with
+`index.legacy_segment_count`; repeated inspections count repeated observations.
+Term score explanations also include the warning for an unmarked segment,
+without changing the score. See [ADR043](../articles/ADRs/ADR043-position-increments-survive-token-removal.md).

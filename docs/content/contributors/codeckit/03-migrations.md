@@ -145,3 +145,26 @@ The deprecated `data migration-fixtures-311` alias remains during migration to
 the catalog command. Ordinary tests never invoke a generator or download the
 historical package. See `src/devops/tests/fixtures/historical/README.md` for both scenarios,
 package and assembly pins, and archive generation details.
+
+## Position contracts require reindexing, not codec migration
+
+The stop-word position correction in LeanCorpus 4.0 and Rowles.Text 2.0 is an
+analysis contract change. `.pos` retains its format version and the codec
+catalogue is unchanged. Old postings have already lost the removed positions;
+there is no body rewrite that can reconstruct them. Rebuild from the original
+text for corrected phrase behaviour.
+
+The additive nullable `PositionContract` in `.seg` records whether a segment was
+written under the preserved-gap contract. Absent means legacy. Only flush stamps
+it; merges retain it only when every source is marked. Sidecar migration and
+metadata copies preserve the existing value and never convert legacy positions
+into corrected ones. Spatial field metadata is also retained during sidecar
+migration.
+
+`LLIDX052` is a `ReindexRecommended` warning, not a migration action or a codec
+lifecycle restriction. It does not change an otherwise `Compatible` status or
+make an executable migration non-executable. Other codec requirements still
+apply. See the [upgrade guide](../../reference/upgrades.md#reindexing-for-preserved-stop-word-positions)
+for the mixed-index query behaviour until reindexing, and
+[ADR043](../../articles/ADRs/ADR043-position-increments-survive-token-removal.md)
+for the position and marker rules.
