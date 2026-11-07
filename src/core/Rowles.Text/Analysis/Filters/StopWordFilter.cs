@@ -6,6 +6,13 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// Removes common English stop words from a token list using a frozen set
 /// for fast, allocation-free lookups.
 /// </summary>
+/// <remarks>
+/// A removed token transfers its position increment to the next retained token, so removing
+/// a stop word leaves a gap in the positions instead of closing it. Removed tokens at the end
+/// of the input emit nothing. The pending total is per-call state: <see cref="Analysers.Analyser"/>
+/// gives every call its own clone and calls <see cref="Finish"/> at the end of each document.
+/// An instance must not be shared between threads when it is called directly.
+/// </remarks>
 public sealed class StopWordFilter : ISpanTokenFilter, IReusableAnalysisFilter
 {
     /// <summary>
@@ -99,10 +106,18 @@ public sealed class StopWordFilter : ISpanTokenFilter, IReusableAnalysisFilter
 
     private readonly FrozenSet<string> _stopWords;
 
+    // Increments of tokens removed since the last emitted token.
+    private int _skippedPositions;
+
     /// <summary>
     /// Initialises a new <see cref="StopWordFilter"/> using the default English stop word list.
     /// </summary>
-    public StopWordFilter() : this(null) { }
+    public StopWordFilter() : this((IEnumerable<string>?)null) { }
+
+    private StopWordFilter(FrozenSet<string> stopWords)
+    {
+        _stopWords = stopWords;
+    }
 
     /// <summary>
     /// Initialises a new <see cref="StopWordFilter"/> with a custom stop word list.
@@ -130,8 +145,27 @@ public sealed class StopWordFilter : ISpanTokenFilter, IReusableAnalysisFilter
         byte[]? payload,
         ISpanTokenSink sink)
     {
-        if (!IsStopWord(text))
-            sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+        ArgumentNullException.ThrowIfNull(sink);
+
+        if (IsStopWord(text))
+        {
+            // Keep the removed token's distance so the next retained token lands after the gap.
+            _skippedPositions = checked(_skippedPositions + positionIncrement);
+            return;
+        }
+
+        int skipped = _skippedPositions;
+        _skippedPositions = 0;
+        sink.Add(text, startOffset, endOffset, type, checked(positionIncrement + skipped), payload);
     }
 
+    /// <inheritdoc/>
+    public void Finish(ISpanTokenSink sink)
+    {
+        // Trailing removals emit nothing, and their total must not reach the next document.
+        _skippedPositions = 0;
+    }
+
+    /// <inheritdoc/>
+    public ISpanTokenFilter Clone() => new StopWordFilter(_stopWords);
 }

@@ -51,7 +51,7 @@ public class StandardAnalyserTests
         Assert.Equal(string.Empty, result);
     }
 
-    [Fact(DisplayName = "Analyse: Stop-word filtering preserves following UTF-16 token metadata")]
+    [Fact(DisplayName = "Analyse: Stop-word filtering preserves following UTF-16 token metadata and the removed position")]
     public void Analyse_StopWordFilteringPreservesFollowingTokenMetadata()
     {
         const string input = "THE ÉCHO";
@@ -64,7 +64,8 @@ public class StandardAnalyserTests
         Assert.Equal(4, token.StartOffset);
         Assert.Equal(input.Length, token.EndOffset);
         Assert.Equal(Token.DefaultType, token.Type);
-        Assert.Equal(1, token.PositionIncrement);
+        // The removed leading "THE" keeps its position, so the next token starts at position 2.
+        Assert.Equal(2, token.PositionIncrement);
         Assert.Equal(1, token.PositionLength);
         Assert.Null(token.Payload);
     }
