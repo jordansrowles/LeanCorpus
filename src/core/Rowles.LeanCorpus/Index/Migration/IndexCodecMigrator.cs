@@ -910,6 +910,7 @@ public static class IndexCodecMigrator
                     FieldNames = info.FieldNames,
                     IndexSortFields = info.IndexSortFields,
                     VectorFields = info.VectorFields,
+                    SpatialFields = info.SpatialFields,
                     DelGeneration = info.DelGeneration,
                     MinSequenceNumber = info.MinSequenceNumber,
                     MaxSequenceNumber = info.MaxSequenceNumber,
