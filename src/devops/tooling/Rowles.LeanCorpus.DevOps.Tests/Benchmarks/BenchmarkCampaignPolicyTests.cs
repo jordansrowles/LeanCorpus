@@ -12,6 +12,75 @@ namespace Rowles.LeanCorpus.DevOps.Tests.Benchmarks;
 public sealed class BenchmarkCampaignPolicyTests
 {
     [Theory]
+    [InlineData("CommandFailure", true)]
+    [InlineData("Timeout", false)]
+    [InlineData("Cancelled", false)]
+    [InlineData("InfrastructureFailure", false)]
+    [InlineData("ValidationFailure", false)]
+    public void Only_an_ordinary_child_failure_lets_a_campaign_continue(string outcome, bool expected)
+        => Assert.Equal(expected, BenchmarkCommandService.ContinuesCampaignAfterChildFailure(Enum.Parse<OutcomeKind>(outcome)));
+
+    [Fact]
+    public async Task A_failed_middle_project_does_not_stop_the_remaining_projects_and_the_run_still_fails()
+    {
+        using var checkout = new CampaignCheckout();
+        var runner = new ScriptedProcessRunner(static (target, phase) =>
+            phase == "run" && target == "core" ? OutcomeKind.CommandFailure : OutcomeKind.Success);
+
+        var result = await checkout.RunAsync(runner);
+
+        Assert.Equal(OutcomeKind.CommandFailure, result.CommandResult.Outcome);
+        Assert.Equal(
+            ["compression:build", "compression:run", "core:build", "core:run", "text:build", "text:run"],
+            runner.Calls.Where(static call => !call.EndsWith(":run-skipped", StringComparison.Ordinal)).ToArray());
+    }
+
+    [Fact]
+    public async Task A_build_failure_still_stops_the_campaign()
+    {
+        using var checkout = new CampaignCheckout();
+        var runner = new ScriptedProcessRunner(static (target, phase) =>
+            phase == "build" && target == "core" ? OutcomeKind.CommandFailure : OutcomeKind.Success);
+
+        var result = await checkout.RunAsync(runner);
+
+        Assert.Equal(OutcomeKind.CommandFailure, result.CommandResult.Outcome);
+        Assert.DoesNotContain(runner.Calls, static call => call.StartsWith("text:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_timeout_still_stops_the_campaign()
+    {
+        using var checkout = new CampaignCheckout();
+        var runner = new ScriptedProcessRunner(static (target, phase) =>
+            phase == "run" && target == "core" ? OutcomeKind.Timeout : OutcomeKind.Success);
+
+        var result = await checkout.RunAsync(runner);
+
+        Assert.Equal(OutcomeKind.Timeout, result.CommandResult.Outcome);
+        Assert.DoesNotContain(runner.Calls, static call => call.StartsWith("text:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_later_stopping_failure_replaces_an_earlier_case_failure()
+    {
+        using var checkout = new CampaignCheckout();
+        var runner = new ScriptedProcessRunner(static (target, phase) => phase == "run"
+            ? target switch
+            {
+                "compression" => OutcomeKind.CommandFailure,
+                "core" => OutcomeKind.Timeout,
+                _ => OutcomeKind.Success
+            }
+            : OutcomeKind.Success);
+
+        var result = await checkout.RunAsync(runner);
+
+        Assert.Equal(OutcomeKind.Timeout, result.CommandResult.Outcome);
+        Assert.DoesNotContain(runner.Calls, static call => call.StartsWith("text:", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData("compression")]
     [InlineData("core")]
     [InlineData("text")]
