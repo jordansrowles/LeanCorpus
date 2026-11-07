@@ -432,6 +432,29 @@ internal static class BenchmarkRunReportBuilder
             && double.IsFinite(operationsPerSecond) && operationsPerSecond > 0;
     }
 
+    /// <summary>The runtime tiered PGO variable that managed DevOps sets for every benchmark child.</summary>
+    internal const string TieredPgoVariable = "DOTNET_TieredPGO";
+
+    /// <summary>
+    /// Combines job environment variables with the tiered PGO setting inherited from the process.
+    /// The inherited value is recorded only when the job did not set it, and is never invented when absent.
+    /// </summary>
+    internal static Dictionary<string, string> ResolveEnvironmentVariables(
+        IEnumerable<KeyValuePair<string, string>> jobVariables,
+        Func<string, string?> processLookup)
+    {
+        var environmentVariables = jobVariables
+            .GroupBy(static variable => variable.Key, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Last().Value, StringComparer.Ordinal);
+        if (!environmentVariables.ContainsKey(TieredPgoVariable)
+            && processLookup(TieredPgoVariable) is { Length: > 0 } inherited)
+        {
+            environmentVariables[TieredPgoVariable] = inherited;
+        }
+
+        return environmentVariables;
+    }
+
     private static BenchmarkCaseIdentitySource BuildIdentitySource(BenchmarkCase benchmarkCase)
     {
         var descriptor = benchmarkCase.Descriptor;
@@ -445,9 +468,10 @@ internal static class BenchmarkRunReportBuilder
                 static item => item.Name,
                 static item => Convert.ToString(item.Value, CultureInfo.InvariantCulture) ?? string.Empty,
                 StringComparer.Ordinal);
-        var environmentVariables = job.Environment.EnvironmentVariables
-            .GroupBy(static variable => variable.Key, StringComparer.Ordinal)
-            .ToDictionary(static group => group.Key, static group => group.Last().Value, StringComparer.Ordinal);
+        var environmentVariables = ResolveEnvironmentVariables(
+            job.Environment.EnvironmentVariables
+                .Select(static variable => new KeyValuePair<string, string>(variable.Key, variable.Value)),
+            Environment.GetEnvironmentVariable);
 
         return new BenchmarkCaseIdentitySource(
             descriptor.Type.FullName ?? descriptor.Type.Name,

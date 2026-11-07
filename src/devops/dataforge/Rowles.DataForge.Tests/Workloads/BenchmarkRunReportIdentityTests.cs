@@ -15,6 +15,37 @@ public sealed class BenchmarkRunReportIdentityTests
     private const string FixturePath = ".config/devops/benchmark-correctness-fixtures/bval-14-report-job-runtime-identity.json";
 
     [Fact]
+    public void Inherited_tiered_pgo_is_recorded_when_the_job_does_not_set_it()
+    {
+        var environment = BenchmarkRunReportBuilder.ResolveEnvironmentVariables(
+            [new KeyValuePair<string, string>("OTHER", "x")],
+            name => name == "DOTNET_TieredPGO" ? "1" : null);
+
+        Assert.Equal("1", environment["DOTNET_TieredPGO"]);
+        Assert.Equal("x", environment["OTHER"]);
+    }
+
+    [Fact]
+    public void Job_tiered_pgo_wins_over_the_inherited_value()
+    {
+        var environment = BenchmarkRunReportBuilder.ResolveEnvironmentVariables(
+            [new KeyValuePair<string, string>("DOTNET_TieredPGO", "0")],
+            static _ => "1");
+
+        Assert.Equal("0", environment["DOTNET_TieredPGO"]);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void Absent_tiered_pgo_is_never_invented(string? inherited)
+    {
+        var environment = BenchmarkRunReportBuilder.ResolveEnvironmentVariables([], _ => inherited);
+
+        Assert.DoesNotContain("DOTNET_TieredPGO", environment.Keys);
+    }
+
+    [Fact]
     public void Fixture_preserves_full_identity_and_every_terminal_or_intermediate_report()
     {
         using var fixture = LoadFixture();
