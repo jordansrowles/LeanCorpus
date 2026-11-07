@@ -68,6 +68,7 @@ internal static class SegmentFlusher
             DocCount = docCount,
             LiveDocCount = docCount,
             CommitGeneration = commitGeneration,
+            PositionContract = SegmentInfo.CurrentPositionContract,
             FieldNames = fieldNames,
             SpatialFields = source.SpatialFieldKinds
                 .OrderBy(static pair => pair.Key, StringComparer.Ordinal)

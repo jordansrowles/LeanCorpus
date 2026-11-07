@@ -906,6 +906,7 @@ public static class IndexCodecMigrator
                     CodecBytes = new Dictionary<string, long>(info.CodecBytes, StringComparer.Ordinal),
                     CommitGeneration = info.CommitGeneration,
                     IsCompoundFile = info.IsCompoundFile,
+                    PositionContract = info.PositionContract,
                     FieldNames = info.FieldNames,
                     IndexSortFields = info.IndexSortFields,
                     VectorFields = info.VectorFields,
