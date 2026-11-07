@@ -20,6 +20,10 @@ public sealed class PositionGapTests
         => PositionGapCases.IncrementsSumToTheOriginalPosition(input);
 
     [Fact]
+    public void AllAffectedAnalysersMatchTheSharedOutput()
+        => PositionGapCases.AllAffectedAnalysersMatchTheSharedOutput();
+
+    [Fact]
     public void StandardAnalyser_OffsetsAreUnchanged()
         => PositionGapCases.StandardAnalyser_OffsetsAreUnchanged();
 

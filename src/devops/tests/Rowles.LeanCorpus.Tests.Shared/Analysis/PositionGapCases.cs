@@ -84,6 +84,69 @@ internal static class PositionGapCases
         }
     }
 
+    private static readonly string[] ParityInputs =
+    [
+        "said the government",
+        "THE ÉCHO and the café",
+        "the a an cat sat on the mat of",
+        "Running foxes jumped over the lazy dogs in the warm sun",
+    ];
+
+    /// <summary>
+    /// The terms, position increments and offsets that every analyser affected by the position contract must
+    /// produce. This table is compiled into both the standalone Rowles.Text tests and the Core tests, so the
+    /// two builds of the shared analysis source are held to the same output.
+    /// </summary>
+    private static readonly string ParityGolden = """
+        StandardAnalyser | said the government => said:1:0-4 government:2:9-19
+        StandardAnalyser | THE ÉCHO and the café => écho:2:4-8 café:3:17-21
+        StandardAnalyser | the a an cat sat on the mat of => cat:4:9-12 sat:1:13-16 mat:3:24-27
+        StandardAnalyser | Running foxes jumped over the lazy dogs in the warm sun => running:1:0-7 foxes:1:8-13 jumped:1:14-20 over:1:21-25 lazy:2:30-34 dogs:1:35-39 warm:3:47-51 sun:1:52-55
+        StemmerAnalyser | said the government => said:1:0-4 govern:2:9-19
+        StemmerAnalyser | THE ÉCHO and the café => écho:2:4-8 café:3:17-21
+        StemmerAnalyser | the a an cat sat on the mat of => cat:4:9-12 sat:1:13-16 mat:3:24-27
+        StemmerAnalyser | Running foxes jumped over the lazy dogs in the warm sun => run:1:0-7 fox:1:8-13 jump:1:14-20 over:1:21-25 lazi:2:30-34 dog:1:35-39 warm:3:47-51 sun:1:52-55
+        StemmedAnalyser | said the government => said:1:0-4 govern:2:9-19
+        StemmedAnalyser | THE ÉCHO and the café => écho:2:4-8 café:3:17-21
+        StemmedAnalyser | the a an cat sat on the mat of => cat:4:9-12 sat:1:13-16 mat:3:24-27
+        StemmedAnalyser | Running foxes jumped over the lazy dogs in the warm sun => run:1:0-7 fox:1:8-13 jump:1:14-20 over:1:21-25 lazi:2:30-34 dog:1:35-39 warm:3:47-51 sun:1:52-55
+        LanguageAnalyser(en) | said the government => said:1:0-4 govern:2:9-19
+        LanguageAnalyser(en) | THE ÉCHO and the café => écho:2:4-8 café:3:17-21
+        LanguageAnalyser(en) | the a an cat sat on the mat of => cat:4:9-12 sat:1:13-16 mat:3:24-27
+        LanguageAnalyser(en) | Running foxes jumped over the lazy dogs in the warm sun => run:1:0-7 fox:1:8-13 jump:1:14-20 over:1:21-25 lazi:2:30-34 dog:1:35-39 warm:3:47-51 sun:1:52-55
+        IcuAnalyser | said the government => said:1:0-4 government:2:9-19
+        IcuAnalyser | THE ÉCHO and the café => écho:2:4-8 café:3:17-21
+        IcuAnalyser | the a an cat sat on the mat of => cat:4:9-12 sat:1:13-16 mat:3:24-27
+        IcuAnalyser | Running foxes jumped over the lazy dogs in the warm sun => running:1:0-7 foxes:1:8-13 jumped:1:14-20 over:1:21-25 lazy:2:30-34 dogs:1:35-39 warm:3:47-51 sun:1:52-55
+        """.ReplaceLineEndings("\n");
+
+    internal static string DumpParityOutput()
+    {
+        var analysers = new (string Name, Func<IAnalyser> Create)[]
+        {
+            ("StandardAnalyser", static () => new StandardAnalyser()),
+            ("StemmerAnalyser", static () => StemmerAnalyser.Porter()),
+            ("StemmedAnalyser", static () => new StemmedAnalyser()),
+            ("LanguageAnalyser(en)", static () => AnalyserFactory.Create("en")),
+            ("IcuAnalyser", static () => new IcuAnalyser()),
+        };
+        var lines = new List<string>();
+        foreach (var (name, create) in analysers)
+        {
+            foreach (string input in ParityInputs)
+            {
+                var tokens = Run(create(), input)
+                    .Select(static token => $"{token.Text}:{token.PositionIncrement}:{token.StartOffset}-{token.EndOffset}");
+                lines.Add($"{name} | {input} => {string.Join(' ', tokens)}");
+            }
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    internal static void AllAffectedAnalysersMatchTheSharedOutput()
+        => Assert.Equal(ParityGolden, DumpParityOutput());
+
     internal static void IncrementsSumToTheOriginalPosition(NonEmptyArray<byte> input)
     {
         string[] words = input.Get.Select(static value => WordPool[value % WordPool.Length]).ToArray();
