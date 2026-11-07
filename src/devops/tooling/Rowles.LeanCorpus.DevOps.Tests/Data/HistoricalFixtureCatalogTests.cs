@@ -62,7 +62,7 @@ public sealed class HistoricalFixtureCatalogTests
         string copiedRoot = CopyCatalogFixture(repositoryRoot, temporary.Path);
         string catalogPath = Path.Combine(copiedRoot, "src", "devops", "tests", "fixtures", "historical", "fixtures.json");
         string catalog = File.ReadAllText(catalogPath).Replace(
-            "657007c6f4d09eb317fe2903861c0ce1820cf672b2a7c5d2833035ea349a2299",
+            "ecbffc14996b10374beb92d86a71648ad470c0c4c23889647e4950a72574830f",
             new string('0', 64), StringComparison.Ordinal);
         File.WriteAllText(catalogPath, catalog);
 

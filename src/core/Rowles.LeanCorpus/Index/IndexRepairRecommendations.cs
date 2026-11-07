@@ -41,6 +41,9 @@ internal static class IndexRepairRecommendations
             IndexCheckIssueCodes.UnsupportedFutureCodecVersion =>
                 ["Open the index with a newer LeanCorpus build that supports this codec version, or restore an index written by a supported build."],
 
+            IndexCheckIssueCodes.PositionContractNotRecorded =>
+                ["Reindex from the original text for correct phrase behaviour; codec migration cannot recover removed positions."],
+
             IndexCheckIssueCodes.ReadOnlyRetiredCodec =>
                 ["This codec is read-only in this build; rebuild from original documents and embeddings into a separate Float32 index."],
 

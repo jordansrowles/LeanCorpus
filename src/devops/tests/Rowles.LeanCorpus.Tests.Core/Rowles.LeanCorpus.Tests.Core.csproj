@@ -27,6 +27,12 @@
     <ProjectReference Include="..\..\tooling\Rowles.LeanCorpus.Cli\Rowles.LeanCorpus.Cli.csproj" />
   </ItemGroup>
 
+  <!-- Run identical position-gap fixtures against standalone and source-included analysis. -->
+  <ItemGroup>
+    <Compile Include="..\Rowles.Text.Tests\Analysers\PositionGapTests.cs"
+             Link="Analysis\PositionGapTests.cs" />
+  </ItemGroup>
+
   <!-- Shared infrastructure: xunit-agnostic fixtures sourced into this project. -->
   <ItemGroup>
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\TestDirectoryFixture.cs"

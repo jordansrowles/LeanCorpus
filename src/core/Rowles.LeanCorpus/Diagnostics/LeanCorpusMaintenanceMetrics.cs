@@ -7,6 +7,17 @@ internal static class LeanCorpusMaintenanceMetrics
 {
     internal static readonly Meter Meter = new("Rowles.LeanCorpus");
 
+    private static readonly Counter<long> LegacyPositionSegments = Meter.CreateCounter<long>(
+        "leancorpus.index.position_contract.legacy_segments",
+        unit: "{segment}",
+        description: "Unmarked segments observed during inspection; reindexing from original text is recommended.");
+
+    internal static void RecordLegacyPositionSegments(int segmentCount)
+    {
+        var tags = new TagList { { "index.legacy_segment_count", segmentCount } };
+        LegacyPositionSegments.Add(segmentCount, tags);
+    }
+
     private static readonly Counter<long> FormatInspectCount = Meter.CreateCounter<long>(
         "leancorpus.index.format.inspect.count",
         unit: "{operation}",

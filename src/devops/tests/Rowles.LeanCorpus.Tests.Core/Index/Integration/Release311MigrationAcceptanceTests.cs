@@ -22,6 +22,7 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
         string source = Path.Combine(_root, "source");
         JsonElement manifest = Release311Fixture.Extract(compound, source);
         CorpusSnapshot before = AssertCorpus(source, manifest, merged: false);
+        AssertLegacyPositions(source, migrated: false);
         AssertLegacyVectorVersionPolicy(source, accepts: true);
         byte[][] originalGraphs = CaptureHnswBodies(source);
         using (var directory = new MMapDirectory(source))
@@ -58,6 +59,7 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
         for (int segment = 0; segment < originalGraphs.Length; segment++)
             Assert.Equal(originalGraphs[segment], migratedGraphs[segment]);
         AssertCurrentFormats(target, manifest);
+        AssertLegacyPositions(target, migrated: true);
         using (var directory = new MMapDirectory(target))
         using (var writer = new IndexWriter(directory, new IndexWriterConfig
         {
@@ -76,6 +78,7 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
         // writer emits an exact-only segment after merge, so verify its graph is absent.
         AssertSnapshotEqual(before, AssertCorpus(target, manifest, merged: true, expectHistoricalGraphs: false), merged: true);
         AssertCurrentFormats(target, manifest, expectHistoricalGraphs: false);
+        AssertLegacyPositions(target, migrated: true, merged: true);
         Release311Fixture.VerifyFiles(manifest, source);
     }
 
@@ -132,6 +135,41 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
         }
         AssertSnapshotEqual(before, AssertCorpus(path, manifest, merged: false));
         AssertCurrentFormats(path, manifest);
+    }
+
+    private static void AssertLegacyPositions(string path, bool migrated, bool merged = false)
+    {
+        using var directory = new MMapDirectory(path);
+        var compatibility = IndexCompatibility.Check(directory);
+        var plan = IndexCodecMigrator.Plan(directory);
+        if (!merged)
+        {
+            Assert.Equal(migrated ? IndexCompatibilityStatus.Compatible : IndexCompatibilityStatus.MigrationRecommended,
+                compatibility.Status);
+            Assert.True(plan.CanExecute);
+        }
+        else
+        {
+            // As AssertCurrentFormats documents, retention can leave old orphan codec
+            // bodies. The current committed segment must remain executable and legacy.
+            var committedPlan = IndexCodecMigrator.Plan(plan.Inventory with { OrphanFiles = [] });
+            Assert.True(committedPlan.CanExecute);
+            Assert.Empty(committedPlan.Actions);
+        }
+        Assert.All(Directory.GetFiles(path, "*.seg"), file => Assert.Null(SegmentInfo.ReadFrom(file).PositionContract));
+        var warnings = compatibility.Issues.Where(issue => issue.Code == "LLIDX052").ToArray();
+        Assert.Equal(compatibility.Inventory.Segments.Count, warnings.Length);
+        Assert.All(warnings, issue =>
+        {
+            Assert.Equal(IndexCheckSeverity.Warning, issue.Severity);
+            Assert.Contains("original text", issue.Message);
+        });
+        using var searcher = new IndexSearcher(directory);
+        var parser = new Rowles.LeanCorpus.Search.Parsing.QueryParser("body", new Rowles.LeanCorpus.Analysis.Analysers.StandardAnalyser());
+        Assert.Equal(1, searcher.Search(parser.Parse("\"said government\""), 10,
+            TestContext.Current.CancellationToken).TotalHits);
+        Assert.Equal(0, searcher.Search(parser.Parse("\"said the government\""), 10,
+            TestContext.Current.CancellationToken).TotalHits);
     }
 
     private static void AssertPlan(IndexCodecMigrationPlan plan, JsonElement manifest)

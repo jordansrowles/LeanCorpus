@@ -147,7 +147,7 @@ public sealed class FileSystemMeasurementTests
         return new WeakReference(input);
     }
     [Fact]
-    public void Queued_finaliser_deletion_keeps_the_test_trace()
+    public async Task Queued_finaliser_deletion_keeps_the_test_trace()
     {
         using var fixture = new TestDirectoryFixture();
         string inputPath = Path.Combine(fixture.Path, "input.bin");
@@ -155,7 +155,9 @@ public sealed class FileSystemMeasurementTests
         using var directory = new MMapDirectory(fixture.Path);
         using var measurement = new BackupRestoreMeasurement(Path.Combine(fixture.Path, "queued-delete.json"), 1, 3);
         var traceId = Activity.Current!.TraceId;
-        using var completed = new ManualResetEventSlim();
+        var deleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        directory.FileLifetimeStateForTesting.AfterFinaliserDeleteCallbackForTesting = () => deleted.TrySetResult();
         using var listener = new ActivityListener
         {
             ShouldListenTo = source => source.Name == "Rowles.LeanCorpus.FileSystem",
@@ -164,7 +166,7 @@ public sealed class FileSystemMeasurementTests
             ActivityStopped = activity =>
             {
                 if (activity.OperationName == "delete.finaliser" && activity.TraceId == traceId)
-                    completed.Set();
+                    completed.TrySetResult();
             }
         };
         ActivitySource.AddActivityListener(listener);
@@ -175,9 +177,11 @@ public sealed class FileSystemMeasurementTests
         GC.WaitForPendingFinalizers();
         GC.Collect();
         Assert.False(reference.IsAlive);
-        Assert.True(SpinWait.SpinUntil(() => !File.Exists(inputPath), TimeSpan.FromSeconds(3)));
-        Assert.True(completed.Wait(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken),
-            "Queued finaliser deletion did not retain its test trace.");
+        // The finaliser queues deletion to the pool. Await it without occupying a worker
+        // that the callback needs, including when the pool is busy with other tests.
+        await deleted.Task.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken);
+        Assert.False(File.Exists(inputPath));
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
     }
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]

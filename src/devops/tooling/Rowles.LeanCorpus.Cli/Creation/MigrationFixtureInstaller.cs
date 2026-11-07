@@ -10,8 +10,8 @@ namespace Rowles.LeanCorpus.Cli.Creation;
 internal static class MigrationFixtureInstaller
 {
     private const string ResourcePrefix = "Rowles.LeanCorpus.Cli.Fixtures.Migration.3.1.1-release-loose";
-    private const string ArchiveSha256 = "657007c6f4d09eb317fe2903861c0ce1820cf672b2a7c5d2833035ea349a2299";
-    private const string ManifestSha256 = "793ee7380213b809767a5f918ecb11ae34ffa9834a213f0015102c79bfddc2a9";
+    private const string ArchiveSha256 = "ecbffc14996b10374beb92d86a71648ad470c0c4c23889647e4950a72574830f";
+    private const string ManifestSha256 = "8d07f44cf2c62a95d541b2d0fca9e2f9a1659b685705d626a2270e9c842c1194";
 
     internal static JsonDocument ExtractRelease311Loose(string destinationPath)
     {

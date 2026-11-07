@@ -36,6 +36,29 @@ public sealed class PositionGapIndexTests : IClassFixture<TestDirectoryFixture>
         ("deleted", "said the government"),
     ];
 
+    [Fact(DisplayName = "Postings: gap-free analysis leaves position bytes unchanged")]
+    public void GapFreeAnalysisKeepsPositionBytes()
+    {
+        byte[] WritePositions(string name, IAnalyser analyser)
+        {
+            string path = SubDir(name);
+            using (var directory = new MMapDirectory(path))
+            using (var writer = new IndexWriter(directory, new IndexWriterConfig { DefaultAnalyser = analyser }))
+            {
+                var document = new LeanDocument();
+                document.Add(new TextField("body", "said government café government"));
+                writer.AddDocument(document);
+                writer.Commit();
+            }
+            return File.ReadAllBytes(Assert.Single(Directory.GetFiles(path, "*.pos")));
+        }
+
+        // With no stop words, this is the pre-contract unit-increment path.
+        byte[] unitPositions = WritePositions("unit_positions", new StandardAnalyser(stopWords: []));
+        byte[] correctedPositions = WritePositions("corrected_positions", new StandardAnalyser());
+        Assert.Equal(unitPositions, correctedPositions);
+    }
+
     [Theory(DisplayName = "Parse: a quoted phrase keeps the position of a removed stop word")]
     [InlineData("said government", new[] { 0, 1 })]
     [InlineData("said the government", new[] { 0, 2 })]

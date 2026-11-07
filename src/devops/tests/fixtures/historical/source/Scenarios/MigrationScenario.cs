@@ -32,7 +32,8 @@ internal static class MigrationScenario
         {
             var stored = new SortedDictionary<string, string[]>(StringComparer.Ordinal)
             {
-                ["id"] = [$"doc-{id:00}"], ["body"] = [$"migration shared document number {id}"],
+                ["id"] = [$"doc-{id:00}"],
+                ["body"] = [id == 0 ? "migration shared document number 0 said the government" : $"migration shared document number {id}"],
                 ["empty"] = [""], ["small"] = [$"small-{id}"], ["unicode"] = [unicode],
             };
             if (id == 3) stored["large"] = [string.Concat(Enumerable.Repeat(unicode + " large stored value ", 4096))];

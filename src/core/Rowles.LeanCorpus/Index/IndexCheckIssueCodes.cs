@@ -160,4 +160,6 @@ public static class IndexCheckIssueCodes
 
     /// <summary>A readable codec representation is retired from every mutation route.</summary>
     public const string ReadOnlyRetiredCodec = "LLIDX051";
+    /// <summary>A segment predates the preserved position-increment contract.</summary>
+    public const string PositionContractNotRecorded = "LLIDX052";
 }

@@ -21,6 +21,12 @@ default; an existing output directory is rejected.
 scenario. See `src/devops/tests/fixtures/historical/README.md` for scenario descriptions,
 package-source isolation, archive format and baseline pins.
 
+The migration scenario was deliberately regenerated for ADR043 using the same
+pinned 3.1.1 package, SDK and seed. Live document `doc-00` now also contains
+`said the government`, demonstrating collapsed legacy stop-word positions before
+and after codec migration and force merge. The catalogue, loader and CLI fixture
+hash pins were updated together; ordinary tests still never regenerate fixtures.
+
 The migration scenario includes analysed and exact text, empty/small/large/
 Unicode stored values, numeric/binary/sorted DocValues with missing values,
 legacy Geo points, physical index sorting on `sort:id`, an explicit zero vector,

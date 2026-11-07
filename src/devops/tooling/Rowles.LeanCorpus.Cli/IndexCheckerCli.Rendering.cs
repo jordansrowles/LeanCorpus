@@ -83,6 +83,11 @@ public static partial class IndexCheckerCli
                 writer.WriteLine($"    location: {file.PhysicalLocation}");
             }
         }
+        foreach (var issue in inventory.Issues)
+        {
+            writer.WriteLine(FormatIssue(issue));
+            WriteSuggestedActions(writer, issue, indent: "  ");
+        }
     }
 
     private static void WriteCompatibilityText(TextWriter writer, IndexCompatibilityResult result)

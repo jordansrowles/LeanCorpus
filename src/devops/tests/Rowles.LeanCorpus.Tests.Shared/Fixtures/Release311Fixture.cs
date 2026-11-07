@@ -11,8 +11,8 @@ public static class Release311Fixture
     {
         string layout = compound ? "compound" : "loose";
         string expectedHash = compound
-            ? "1705cdef8fe294abe63cdfe4d6fc83516e430d698c6ea3252543f523d978e055"
-            : "793ee7380213b809767a5f918ecb11ae34ffa9834a213f0015102c79bfddc2a9";
+            ? "16d3fbb3831c187130718ad5fa6a246c22aa7af7ad61adc51d6239ad746560ae"
+            : "8d07f44cf2c62a95d541b2d0fca9e2f9a1659b685705d626a2270e9c842c1194";
         using Stream resource = typeof(Release311Fixture).Assembly.GetManifestResourceStream(
             $"Rowles.LeanCorpus.Tests.Shared.Fixtures.Indexes.3.1.1-release-{layout}.manifest.json")
             ?? throw new InvalidDataException("Release fixture manifest is missing.");
