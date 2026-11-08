@@ -297,7 +297,7 @@ public sealed partial class IndexSearcher
         int[] queryPositions = query.PositionSpan.ToArray();
 
         // Streaming merge: iterate leader, advance followers
-        while (postingsArr[leaderIdx].MoveNextUnchecked(out int docId, out int leaderTf))
+        while (postingsArr[leaderIdx].MoveNextUnchecked(out int docId, out _))
         {
             if (hasDeletions && !reader.IsLive(docId)) continue;
 
@@ -340,13 +340,12 @@ public sealed partial class IndexSearcher
             {
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
                     ? fieldLengths.Value.Span[docId] : 1;
-                // Sum scores across all terms using the leader's term frequency
-                // as an estimate of the phrase frequency.
+                // Sum scores across all terms using the computed phrase frequency.
                 float score = 0;
                 for (int i = 0; i < termCount; i++)
                 {
                     var (f1, f2, f3) = termFactors[i];
-                    score += ScoreTerm(f1, f2, f3, leaderTf, docLength, query.Field);
+                    score += ScoreTerm(f1, f2, f3, phraseFrequency, docLength, query.Field);
                 }
                 if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                 collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
