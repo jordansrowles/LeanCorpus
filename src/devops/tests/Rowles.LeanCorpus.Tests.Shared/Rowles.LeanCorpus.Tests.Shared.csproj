@@ -12,6 +12,8 @@
     <EmbeddedResource Include="Fixtures/Indexes/*.fixture.b64" />
     <EmbeddedResource Include="Fixtures/Indexes/*.manifest.json" />
     <Compile Remove="Diagnostics/*.cs" />
+    <!-- Linked into the Text and Core test projects, which reference FsCheck; this project does not. -->
+    <Compile Remove="Analysis/*.cs" />
   </ItemGroup>
 
 </Project>
