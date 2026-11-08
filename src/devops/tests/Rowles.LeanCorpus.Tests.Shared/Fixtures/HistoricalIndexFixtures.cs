@@ -94,10 +94,10 @@ public static class HistoricalIndexFixtures
                 "ebaec3b42819af4c35049e589d75fc682dd4b6169ad85fbf2e7b7197e066a961"),
             HistoricalIndexFixture.Version311ReleaseLoose => new(
                 prefix + "3.1.1-release-loose.fixture.b64",
-                "657007c6f4d09eb317fe2903861c0ce1820cf672b2a7c5d2833035ea349a2299"),
+                "ecbffc14996b10374beb92d86a71648ad470c0c4c23889647e4950a72574830f"),
             HistoricalIndexFixture.Version311ReleaseCompound => new(
                 prefix + "3.1.1-release-compound.fixture.b64",
-                "e3adfcba53955611f65282e3080f19035d15fa1ed2b8612f110de4d1b60c79a2"),
+                "52991bcbe7a5dc553fed239dcbc291f11074220d09bca2ca1077c2d1357e5166"),
             HistoricalIndexFixture.PreV3BbqV2 => new(
                 prefix + "pre-v3-bbq-v2.fixture.b64",
                 "189d29dbe1fe84cbd5806ab56c32babcada457efdb1c3ff5da9f6530b11f2b9c"),

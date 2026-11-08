@@ -10,10 +10,9 @@
     <TieredPGO>true</TieredPGO>
     <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
-  <!-- Benchmark projects: disable PGO and Server GC to avoid measurement artifacts (zero allocation tracking, timing noise) -->
+  <!-- Benchmark projects: disable Server GC to avoid measurement artifacts. Tiered PGO is left at its runtime default and is set explicitly by managed DevOps for benchmark children. -->
   <PropertyGroup Condition="'$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Benchmarks.Compression' Or '$(MSBuildProjectName)' == 'Rowles.Text.Benchmarks' Or '$(MSBuildProjectName)' == 'Rowles.LeanCorpus.Profiling'">
     <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
-    <TieredPGO>false</TieredPGO>
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
 

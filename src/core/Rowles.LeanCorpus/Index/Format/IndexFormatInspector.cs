@@ -51,6 +51,9 @@ public static class IndexFormatInspector
                 activity?.SetTag("index.segment_count", inventory.Segments.Count);
                 activity?.SetTag("index.orphan_file_count", inventory.OrphanFiles.Count);
                 activity?.SetTag("index.issue_count", inventory.Issues.Count);
+                int legacySegments = inventory.Issues.Count(static issue => issue.Code == IndexCheckIssueCodes.PositionContractNotRecorded);
+                activity?.SetTag("index.legacy_segment_count", legacySegments);
+                LeanCorpusMaintenanceMetrics.RecordLegacyPositionSegments(legacySegments);
                 activity?.SetTag("index.has_unsupported_future_format", inventory.HasUnsupportedFutureFormat);
             }
 
@@ -261,6 +264,13 @@ public static class IndexFormatInspector
                     segmentId,
                     false));
             }
+        }
+
+        if (segmentInfo is { HasPositionContract: false })
+        {
+            var issue = PositionContractCompatibility.CreateIssue(segmentId);
+            issues.Add(issue);
+            warnings.Add(issue.Message);
         }
 
         var requiredExtensions = segmentInfo?.IsCompoundFile == true

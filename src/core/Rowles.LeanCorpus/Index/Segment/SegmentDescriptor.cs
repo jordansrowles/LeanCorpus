@@ -21,6 +21,7 @@ public sealed class SegmentDescriptor
         CodecBytes = new ReadOnlyDictionary<string, long>(snapshot.CodecBytes);
         CommitGeneration = snapshot.CommitGeneration;
         IsCompoundFile = snapshot.IsCompoundFile;
+        HasPositionContract = snapshot.HasPositionContract;
         FieldNames = snapshot.FieldNames.AsReadOnly();
         IndexSortFields = snapshot.IndexSortFields?.AsReadOnly();
         VectorFields = snapshot.VectorFields.AsReadOnly();
@@ -30,6 +31,8 @@ public sealed class SegmentDescriptor
         MaxSequenceNumber = snapshot.MaxSequenceNumber;
         EarliestSoftDeleteTimestamp = snapshot.EarliestSoftDeleteTimestamp;
     }
+
+    internal bool HasPositionContract { get; }
 
     /// <summary>Gets the unique segment identifier.</summary>
     public string SegmentId { get; }

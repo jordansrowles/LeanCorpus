@@ -26,6 +26,12 @@ Before comparing results, record:
 
 Per-operation allocation is only comparable when each operation performs the same work. Resident memory, memory-mapped pages, managed allocation, and index size are separate measurements.
 
+## Runtime configuration and failures
+
+The managed host runs every benchmark child with `DOTNET_TieredPGO=1` and records the setting in the run manifest and in report rows. Runs from before this setting was recorded did not capture it, so compare them with care.
+
+A campaign continues after a benchmark child fails, so a failed project no longer prevents later projects, such as Rowles.Text, from running. The overall result stays `Failed`. Only a build failure, a timeout or cancellation stops the campaign at once.
+
 ## Short sustained workload checks
 
 The managed benchmark command can run a bounded correctness smoke for `ingest-throughput`, `search-readonly` or `ingest-search-refresh`. Use `--dry` to inspect the selected engines and resource limits without building or running the worker:

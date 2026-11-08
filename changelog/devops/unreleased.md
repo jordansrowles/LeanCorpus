@@ -31,6 +31,9 @@
 
 ## Changed
 
+- Run benchmark children with tiered PGO explicitly enabled and record the setting in the run manifest and report rows.
+- Continue benchmark campaigns after case-level failures and still report an overall failure, so Rowles.Text is no longer skipped when Core fails; build failures, timeouts and cancellation still stop at once.
+- Include Rowles.Text in the explicit benchmark selector.
 - Expand the managed workbench with typed clean/build/pack/distribute and test/coverage/AOT/report flows; benchmark suite, workload, remote, qualification-summary and catalogue routes; and DataForge profile, generation, reference, inspection, verification and reproduction routes. All selections use the managed parser and handlers, with recent-run elapsed time and lazy repository metadata.
 - Replace the universal benchmark timeout with validated strategy budgets, separate build/project deadlines and an aggregate CLI override; retain budget provenance and recoverable case coverage for interrupted runs.
 - Add local wrapper help for DataForge commands, including wrapper-only qualification guidance, and add canonical `fixtures` and `corpus` routes while retaining deprecated `data` aliases.

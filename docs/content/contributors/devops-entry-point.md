@@ -210,6 +210,12 @@ Local BenchmarkDotNet arguments follow `--`. Remote SSH/tmux and affected-source
 workflows also use the managed host; release qualification remains separate
 from implementation.
 
+Benchmark children run with `DOTNET_TieredPGO=1`, which the managed host sets
+in their environment and records in the run manifest. A campaign continues
+after a benchmark child fails and still ends `Failed`. It stops at once only
+on a build failure, a timeout or cancellation, so one failed project no longer
+prevents the later projects, such as Rowles.Text, from running.
+
 `all` excludes explicit-only workloads. The capacity-one async stress case is
 available as `async-index-stress` with its own `async-stress` (1,000-document,
 30-minute) strategy. The 100,000-document deep case uses

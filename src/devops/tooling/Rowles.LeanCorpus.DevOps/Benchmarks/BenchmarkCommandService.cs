@@ -763,6 +763,7 @@ internal sealed class BenchmarkCommandService(
         {
             ["suite"] = plan.Suite,
             ["strategy"] = plan.Strategy,
+            ["tieredPgo"] = TieredPgoValue,
             ["framework"] = plan.Framework,
             ["dataset"] = plan.Dataset,
             ["documentCount"] = plan.DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
@@ -957,9 +958,19 @@ internal sealed class BenchmarkCommandService(
                         process.Outcome == OutcomeKind.Timeout ? "Interrupted" : "Failed", process.RawExitCode,
                         Relative(runDirectory, projectDirectory), process.Failure, BuildDuration: build.Duration,
                         RunDuration: process.Duration, TimeoutSource: projectTimeoutSource));
-                    failure = process.Outcome;
-                    failureDetails = process.Failure ?? $"Benchmark target '{invocationName}' exited with code {process.RawExitCode}.";
-                    break;
+                    var childFailureDetails = process.Failure ?? $"Benchmark target '{invocationName}' exited with code {process.RawExitCode}.";
+                    if (!ContinuesCampaignAfterChildFailure(process.Outcome))
+                    {
+                        // A stopping failure is the more severe outcome, so it replaces an earlier case failure.
+                        failure = process.Outcome;
+                        failureDetails = childFailureDetails;
+                        break;
+                    }
+
+                    failure ??= process.Outcome;
+                    failureDetails ??= childFailureDetails;
+                    progress?.Invoke($"Benchmark target {invocationName} failed; continuing with the remaining targets. The run will report a failure.");
+                    continue;
                 }
 
                 var resultError = ValidateResults(invocation.ProjectKey, projectDirectory);
@@ -1073,7 +1084,21 @@ internal sealed class BenchmarkCommandService(
         return identity;
     }
 
-    private IReadOnlyDictionary<string, string?> BuildEnvironment(
+    /// <summary>
+    /// Whether the campaign carries on after a benchmark child ends unsuccessfully. Only an ordinary
+    /// non-zero exit continues. Timeouts, cancellation and infrastructure problems stop the campaign,
+    /// and continuing never changes the overall failure.
+    /// </summary>
+    internal static bool ContinuesCampaignAfterChildFailure(OutcomeKind outcome)
+        => outcome == OutcomeKind.CommandFailure;
+
+    /// <summary>The runtime tiered PGO variable that every benchmark child receives.</summary>
+    internal const string TieredPgoVariable = "DOTNET_TieredPGO";
+
+    /// <summary>Tiered PGO is enabled for benchmark children, matching the runtime default.</summary>
+    internal const string TieredPgoValue = "1";
+
+    internal IReadOnlyDictionary<string, string?> BuildEnvironment(
         RunManifest manifest,
         string artifactDirectory,
         BenchmarkCommandOptions options,
@@ -1101,7 +1126,8 @@ internal sealed class BenchmarkCommandService(
                 : string.Empty,
             ["BENCH_SOURCE_COMMIT"] = manifest.SourceCommit ?? options.SourceCommit ?? string.Empty,
             ["BENCH_SOURCE_REF"] = options.SourceRef ?? manifest.SourceBranch ?? string.Empty,
-            ["BENCH_SOURCE_MANIFEST"] = sourceManifest
+            ["BENCH_SOURCE_MANIFEST"] = sourceManifest,
+            [TieredPgoVariable] = TieredPgoValue
         };
     }
 

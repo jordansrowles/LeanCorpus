@@ -171,6 +171,9 @@ public static class IndexValidator
             return;
         }
 
+        if (!info.HasPositionContract)
+            result.AddIssue(PositionContractCompatibility.CreateIssue(segmentId));
+
         if (!string.IsNullOrEmpty(info.SegmentId) && !string.Equals(info.SegmentId, segmentId, StringComparison.Ordinal))
         {
             result.AddIssue(

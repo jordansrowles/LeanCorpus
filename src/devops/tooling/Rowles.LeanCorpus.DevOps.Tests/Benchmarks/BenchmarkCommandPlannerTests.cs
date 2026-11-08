@@ -332,8 +332,8 @@ public sealed class BenchmarkCommandPlannerTests
 
         var plan = BenchmarkCommandPlanner.Create(Options(suite: "all-with-explicit"), configuration, checkout.RepositoryRoot);
 
-        Assert.Equal(["core"], plan.Invocations.Select(static invocation => invocation.ProjectKey));
-        Assert.Contains("all-with-explicit", plan.Invocations[0].Arguments);
+        Assert.Equal(["core", "text"], plan.Invocations.Select(static invocation => invocation.ProjectKey));
+        Assert.Contains("all-with-explicit", plan.Invocations.Single(static invocation => invocation.ProjectKey == "core").Arguments);
     }
 
     [Fact]

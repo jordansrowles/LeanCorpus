@@ -38,7 +38,13 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 > **Rowles.Text release boundary:** LeanCorpus 3.1.1 compiled the Rowles.Text analysis sources directly into the Core package while the standalone Rowles.Text package remained at 1.0.0. A few Rowles.Text 2.0 notes therefore describe functionality that LeanCorpus users already received in 3.1.1; those entries are called out explicitly below.
 
+## Compatibility
+
+- The preserved stop-word position contract affects both LeanCorpus 4.0.0 and Rowles.Text 2.0.0 through shared analysis source. Reindex existing content from the original text for corrected phrase behaviour. Codec migration cannot recover removed positions; `.pos` and catalogue versions are unchanged. Unmarked segments remain readable and can be mixed with new segments, with LLIDX052 reindex guidance.
+
 ## Added
+
+- Segments record whether they were written under the position contract, and index checks report LLIDX052 for older segments.
 
 - Add representation-aware CodecKit lifecycle decisions and separate writable-target resolution, including readable retired formats with no writer. Descriptor-based framing rejects retired targets before emitting bytes.
 
@@ -150,6 +156,9 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Return `CharFilterResult` from `ICharFilter` with public `OffsetCorrectionMap` support for composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the previous character-filter API in Rowles.Text and source-included Core analysis. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 
 ## Fixed
+
+- Analysis now preserves position gaps when stop words are removed, so phrase queries no longer match across removed words. Existing indexes must be reindexed from source text to benefit.
+- Preserve spatial field metadata when migrating segment sidecars.
 
 - Use zero-centred Int8 calibration for new vectors so cosine ranking is not shifted by a segment-wide affine offset; retain the existing `.vq` v3 layout and reader semantics.
 - Reject non-empty HNSW files whose declared maximum level has no matching persisted layer.

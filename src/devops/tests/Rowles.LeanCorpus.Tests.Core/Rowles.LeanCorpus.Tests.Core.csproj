@@ -27,6 +27,10 @@
     <ProjectReference Include="..\..\tooling\Rowles.LeanCorpus.Cli\Rowles.LeanCorpus.Cli.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Analysis\PositionGapCases.cs" Link="Analysis\PositionGapCases.cs" />
+  </ItemGroup>
+
   <!-- Shared infrastructure: xunit-agnostic fixtures sourced into this project. -->
   <ItemGroup>
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\TestDirectoryFixture.cs"

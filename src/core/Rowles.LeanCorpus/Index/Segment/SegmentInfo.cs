@@ -47,6 +47,20 @@ public sealed class SegmentInfo
     /// </summary>
     public bool IsCompoundFile { get; set; }
 
+    /// <summary>The position contract written by this version: removed tokens keep their positions.</summary>
+    internal const int CurrentPositionContract = 1;
+
+    /// <summary>
+    /// Gets the position contract this segment was written under, or null for a legacy segment.
+    /// A value means the segment was written after analysis began preserving the positions of removed
+    /// tokens. It does not record which analyser was used, so a legacy segment only "may be affected".
+    /// Only a flush sets it. A merged segment carries it only when every source segment does.
+    /// </summary>
+    public int? PositionContract { get; init; }
+
+    /// <summary>Gets whether this segment was written under the preserved-position contract.</summary>
+    internal bool HasPositionContract => PositionContract is > 0;
+
     /// <summary>Gets the names of all indexed fields present in this segment.</summary>
     public List<string> FieldNames { get; init; } = [];
 
@@ -133,6 +147,7 @@ public sealed class SegmentInfo
         CodecBytes = new Dictionary<string, long>(CodecBytes, StringComparer.Ordinal),
         CommitGeneration = CommitGeneration,
         IsCompoundFile = IsCompoundFile,
+        PositionContract = PositionContract,
         FieldNames = [.. FieldNames],
         IndexSortFields = IndexSortFields is null ? null : [.. IndexSortFields],
         VectorFields = VectorFields.Select(static field => new VectorFieldInfo
@@ -179,6 +194,8 @@ public sealed class SegmentInfo
             throw new InvalidDataException($"Segment '{SegmentId}' has negative CommitGeneration={CommitGeneration}.");
         if (DelGeneration is < 0)
             throw new InvalidDataException($"Segment '{SegmentId}' has negative DelGeneration={DelGeneration}.");
+        if (PositionContract is <= 0)
+            throw new InvalidDataException($"Segment '{SegmentId}' has invalid PositionContract={PositionContract}.");
         if (EarliestSoftDeleteTimestamp is < 0)
             throw new InvalidDataException($"Segment '{SegmentId}' has a negative earliest soft-delete timestamp.");
         if (MinSequenceNumber.HasValue != MaxSequenceNumber.HasValue)

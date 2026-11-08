@@ -25,6 +25,10 @@ internal static class SegmentMergeFinaliser
             DocCount = plan.TotalDocs,
             LiveDocCount = mergedLiveDocs?.LiveCount ?? plan.TotalDocs,
             CommitGeneration = plan.CommitGeneration,
+            // A merge never launders collapsed positions: it is marked only when every source is.
+            PositionContract = plan.Segments.All(static segment => segment.HasPositionContract)
+                ? SegmentInfo.CurrentPositionContract
+                : null,
             FieldNames = plan.FieldNames.ToList(),
             IndexSortFields = plan.IndexSortFields?.ToList(),
             VectorFields = mergedVectorFields,

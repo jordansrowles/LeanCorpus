@@ -39,13 +39,18 @@ public sealed class StandardAnalyser : IThreadLocalAnalyser, ITermNormaliser
 
         _tokeniser.TokeniseOffsets(input, _offsetBuf);
 
+        // A removed stop word keeps its position: the next retained token carries the gap.
+        int skippedPositions = 0;
         for (int i = 0; i < _offsetBuf.Count; i++)
         {
             var (start, end) = _offsetBuf[i];
             var span = input.Slice(start, end - start);
 
             if (_stopWordFilter.IsStopWord(span))
+            {
+                skippedPositions++;
                 continue;
+            }
 
             int len = end - start;
             if (len > _lowerBuf.Length)
@@ -54,7 +59,8 @@ public sealed class StandardAnalyser : IThreadLocalAnalyser, ITermNormaliser
             AsciiCharInspector.AsciiToLower(span, _lowerBuf.AsSpan(0, len));
             var lowerSpan = _lowerBuf.AsSpan(0, len);
 
-            sink.Add(lowerSpan, start, end);
+            sink.Add(lowerSpan, start, end, Token.DefaultType, 1 + skippedPositions);
+            skippedPositions = 0;
         }
     }
 

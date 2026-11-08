@@ -3,6 +3,7 @@ using System.Threading;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.Vectors;
+using Rowles.LeanCorpus.Index;
 using Rowles.LeanCorpus.Search.Aggregations;
 using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
@@ -122,7 +123,9 @@ public sealed partial class IndexSearcher
                 new Explanation { Score = docLength, Description = $"fieldLength={docLength}" },
                 new Explanation { Score = avgDocLength, Description = $"avgFieldLength={avgDocLength:F2}" },
                 new Explanation { Score = query.Boost, Description = $"queryBoost={query.Boost}" },
-                new Explanation { Score = indexBoost, Description = $"indexBoost={indexBoost}" }
+                new Explanation { Score = indexBoost, Description = $"indexBoost={indexBoost}" },
+                ..(reader.Info.HasPositionContract ? Array.Empty<Explanation>() :
+                    [new Explanation { Score = 0, Description = $"{IndexCheckIssueCodes.PositionContractNotRecorded}: {PositionContractCompatibility.CreateIssue(reader.Info.SegmentId).Message}" }])
             ]
         };
     }
