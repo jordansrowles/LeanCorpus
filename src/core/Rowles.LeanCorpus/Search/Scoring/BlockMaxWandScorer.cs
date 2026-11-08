@@ -149,7 +149,7 @@ internal sealed class BlockMaxWandScorer
         /// </summary>
         public TermScorer(BlockPostingsEnum postings,
             float f1, float f2, float f3,
-            Func<float, float, float, int, int, float> lmScore,
+            Func<float, float, float, float, int, float> lmScore,
             float avgDl,
             ReadOnlyMemory<int>? fieldLengths = null, float[]? fieldBoosts = null)
         {

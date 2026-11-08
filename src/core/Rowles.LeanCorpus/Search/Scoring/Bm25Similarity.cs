@@ -15,6 +15,6 @@ public sealed class Bm25Similarity : ISimilarity
         => Bm25Scorer.PrecomputeFactors(totalDocCount, docFreq, avgDocLength);
 
     /// <inheritdoc/>
-    public float ScorePrecomputed(float factor1, float factor2, int termFreq, int docLength)
+    public float ScorePrecomputed(float factor1, float factor2, float termFreq, int docLength)
         => Bm25Scorer.ScorePrecomputed(factor1, factor2, termFreq, docLength);
 }

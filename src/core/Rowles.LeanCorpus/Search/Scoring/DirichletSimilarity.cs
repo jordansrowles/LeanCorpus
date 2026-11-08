@@ -43,7 +43,7 @@ public sealed class DirichletSimilarity : ISimilarity
     }
 
     /// <inheritdoc/>
-    public float ScorePrecomputed(float factor1, float factor2, int termFreq, int docLength)
+    public float ScorePrecomputed(float factor1, float factor2, float termFreq, int docLength)
     {
         // Deprecated for LM; call ScoreLmPrecomputed instead.
         return ScoreLmPrecomputed(0f, factor2, 0f, termFreq, docLength);
@@ -62,7 +62,7 @@ public sealed class DirichletSimilarity : ISimilarity
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public float ScoreLmPrecomputed(float factor1, float mu, float collectionProb, int termFreq, int docLength)
+    public float ScoreLmPrecomputed(float factor1, float mu, float collectionProb, float termFreq, int docLength)
     {
         // Dirichlet: P(t|d) = (tf + μ · P(t|C)) / (|d| + μ)
         float numerator = termFreq + mu * collectionProb;

@@ -58,7 +58,7 @@ public sealed class TfIdfDoubleNormSimilarity : ISimilarity
     }
 
     /// <inheritdoc/>
-    public float ScorePrecomputed(float factor1, float factor2, int termFreq, int docLength)
+    public float ScorePrecomputed(float factor1, float factor2, float termFreq, int docLength)
     {
         float idf = factor1;
         float sDivAvgDL = factor2;

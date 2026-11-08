@@ -17,7 +17,7 @@ public interface ISimilarity
     (float Factor1, float Factor2) PrecomputeFactors(int totalDocCount, int docFreq, float avgDocLength);
 
     /// <summary>Scores using precomputed factors for hot-path scoring.</summary>
-    float ScorePrecomputed(float factor1, float factor2, int termFreq, int docLength);
+    float ScorePrecomputed(float factor1, float factor2, float termFreq, int docLength);
 
     /// <summary>
     /// Precomputes factors including collection-level term statistics for language-model similarities.
@@ -36,6 +36,6 @@ public interface ISimilarity
     /// Default delegates to <see cref="ScorePrecomputed"/>, ignoring <paramref name="collectionProb"/>.
     /// </summary>
     float ScoreLmPrecomputed(float factor1, float factor2, float collectionProb,
-        int termFreq, int docLength)
+        float termFreq, int docLength)
         => ScorePrecomputed(factor1, factor2, termFreq, docLength);
 }
