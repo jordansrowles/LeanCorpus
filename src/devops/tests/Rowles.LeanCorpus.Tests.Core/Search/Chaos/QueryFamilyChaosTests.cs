@@ -95,6 +95,88 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
         }
     }
 
+    [Fact(DisplayName = "PhraseQuery Chaos: results and scores are invariant across segments and merge")]
+    public void PhraseQuery_ResultsAndScores_AreInvariantAcrossSegmentsAndMerge()
+    {
+        var path = CreateIsolatedPath("phrase_topology");
+        try
+        {
+            using var directory = new MMapDirectory(path);
+            var documents = new (string Id, string Body)[]
+            {
+                ("doc-0", "aa bb cc aa bb"),
+                ("doc-1", "aa xx bb cc"),
+                ("doc-2", "aa bb xx cc"),
+                ("doc-3", "aa yy bb zz cc"),
+                ("doc-4", "cc bb aa"),
+                ("doc-5", "aa bb"),
+                ("doc-6", "xx yy zz")
+            };
+
+            using (var writer = new IndexWriter(directory, new IndexWriterConfig
+            {
+                MaxBufferedDocs = 1,
+                MergePolicy = NoMergePolicy.Instance
+            }))
+            {
+                foreach (var (id, body) in documents)
+                {
+                    var document = new LeanDocument();
+                    document.Add(new StringField("id", id));
+                    document.Add(new TextField("body", body));
+                    writer.AddDocument(document);
+                    writer.Commit();
+                }
+
+                Assert.Equal(documents.Length, writer.GetNrtSegments().Count);
+            }
+
+            PhraseQuery[] queries =
+            [
+                new PhraseQuery("body", "aa", "bb"),
+                new PhraseQuery("body", 2, "aa", "bb"),
+                new PhraseQuery("body", 2, "aa", "bb", "cc")
+            ];
+            PhraseSearchSnapshot[] segmentedResults = queries.Select(query => SearchPhrase(directory, query)).ToArray();
+
+            using (var writer = new IndexWriter(directory, new IndexWriterConfig { MergePolicy = NoMergePolicy.Instance }))
+            {
+                Assert.True(writer.ForceMerge(1) > 0);
+                writer.Commit();
+                Assert.Single(writer.GetNrtSegments());
+            }
+
+            PhraseSearchSnapshot[] mergedResults = queries.Select(query => SearchPhrase(directory, query)).ToArray();
+            for (int i = 0; i < queries.Length; i++)
+            {
+                Assert.Equal(segmentedResults[i].TotalHits, mergedResults[i].TotalHits);
+                Assert.Equal(segmentedResults[i].Hits, mergedResults[i].Hits);
+            }
+        }
+        finally
+        {
+            DeleteDirectoryBestEffort(path);
+        }
+    }
+
+    private static PhraseSearchSnapshot SearchPhrase(MMapDirectory directory, PhraseQuery query)
+    {
+        using var searcher = new IndexSearcher(directory);
+        var results = searcher.Search(query, 100, TestContext.Current.CancellationToken);
+        var hits = results.ScoreDocs
+            .Select(scoreDoc => new PhraseHit(
+                searcher.GetStoredFields(scoreDoc.DocId)["id"][0],
+                scoreDoc.Score))
+            .OrderBy(static hit => hit.Id, StringComparer.Ordinal)
+            .ToArray();
+
+        return new PhraseSearchSnapshot(results.TotalHits, hits);
+    }
+
+    private sealed record PhraseSearchSnapshot(int TotalHits, PhraseHit[] Hits);
+
+    private sealed record PhraseHit(string Id, float Score);
+
     private static MMapDirectory BuildNumericIndex(string path)
     {
         var directory = new MMapDirectory(path);
