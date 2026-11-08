@@ -1,5 +1,3 @@
-using System.Buffers;
-
 namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>
@@ -13,6 +11,242 @@ public sealed partial class IndexSearcher
         if (query.TermSpan.IsEmpty) return;
         ExecutePhraseQueryWithPositionEnums(query, reader, globalDFs, ref collector);
     }
+
+    internal static float ComputePhraseFrequency(
+        IReadOnlyList<int[]> positions,
+        IReadOnlyList<int> queryPositions,
+        int slop)
+    {
+        ArgumentNullException.ThrowIfNull(positions);
+        ArgumentNullException.ThrowIfNull(queryPositions);
+
+        int termCount = positions.Count;
+        if (termCount == 0 || termCount != queryPositions.Count || slop < 0)
+            return 0f;
+
+        for (int i = 0; i < termCount; i++)
+        {
+            if (positions[i] is null || positions[i].Length == 0)
+                return 0f;
+        }
+
+        if (slop == 0)
+            return CountExactPhraseFrequency(positions, queryPositions);
+
+        if (termCount == 1)
+            return CountUniquePositions(positions[0]);
+
+        var cursors = new int[termCount];
+        if (!ResolvePositionCollisions(positions, queryPositions, cursors))
+            return 0f;
+
+        var offsets = new long[termCount];
+        float frequency = 0f;
+        while (true)
+        {
+            ComputeOffsetsAndEnd(positions, queryPositions, cursors, offsets, out long end);
+            FindSmallestAndNextOffset(offsets, queryPositions, out int smallestSlot, out int secondSmallestSlot);
+            long next = offsets[secondSmallestSlot];
+            long smallestMatchLength = end - offsets[smallestSlot];
+
+            while (true)
+            {
+                cursors[smallestSlot]++;
+                if (cursors[smallestSlot] >= positions[smallestSlot].Length ||
+                    !ResolvePositionCollisions(positions, queryPositions, cursors))
+                {
+                    AddSloppyFrequency(ref frequency, smallestMatchLength, slop);
+                    return frequency;
+                }
+
+                ComputeOffsetsAndEnd(positions, queryPositions, cursors, offsets, out end);
+                long smallestOffset = offsets[smallestSlot];
+                if (smallestOffset > next)
+                    break;
+
+                long matchLength = end - smallestOffset;
+                if (matchLength < smallestMatchLength)
+                    smallestMatchLength = matchLength;
+            }
+
+            AddSloppyFrequency(ref frequency, smallestMatchLength, slop);
+        }
+    }
+
+    private static float CountExactPhraseFrequency(
+        IReadOnlyList<int[]> positions,
+        IReadOnlyList<int> queryPositions)
+    {
+        int termCount = positions.Count;
+        var selectedPositions = new int[termCount];
+        var cursors = new int[termCount];
+        long frequency = 0;
+
+        int[] firstTermPositions = positions[0];
+        for (int startIndex = 0; startIndex < firstTermPositions.Length; startIndex++)
+        {
+            int startPosition = firstTermPositions[startIndex];
+            if (startIndex > 0 && startPosition == firstTermPositions[startIndex - 1])
+                continue;
+
+            selectedPositions[0] = startPosition;
+            bool matches = true;
+            for (int termIndex = 1; termIndex < termCount; termIndex++)
+            {
+                long expectedPosition = (long)startPosition + queryPositions[termIndex] - queryPositions[0];
+                if (expectedPosition is < int.MinValue or > int.MaxValue)
+                {
+                    matches = false;
+                    break;
+                }
+
+                int[] termPositions = positions[termIndex];
+                int cursor = cursors[termIndex];
+                while (cursor < termPositions.Length && termPositions[cursor] < expectedPosition)
+                    cursor++;
+                cursors[termIndex] = cursor;
+                if (cursor >= termPositions.Length || termPositions[cursor] != expectedPosition)
+                {
+                    matches = false;
+                    break;
+                }
+
+                selectedPositions[termIndex] = termPositions[cursor];
+            }
+
+            if (!matches)
+                continue;
+
+            bool usesDistinctPositions = true;
+            for (int i = 0; i < selectedPositions.Length && usesDistinctPositions; i++)
+            {
+                for (int j = 0; j < i; j++)
+                {
+                    if (selectedPositions[i] == selectedPositions[j])
+                    {
+                        usesDistinctPositions = false;
+                        break;
+                    }
+                }
+            }
+
+            if (usesDistinctPositions)
+                frequency++;
+        }
+
+        return frequency;
+    }
+
+    private static float CountUniquePositions(int[] positions)
+    {
+        int uniqueCount = 0;
+        int previousPosition = 0;
+        for (int i = 0; i < positions.Length; i++)
+        {
+            if (i == 0 || positions[i] != previousPosition)
+                uniqueCount++;
+            previousPosition = positions[i];
+        }
+
+        return uniqueCount;
+    }
+
+    private static bool ResolvePositionCollisions(
+        IReadOnlyList<int[]> positions,
+        IReadOnlyList<int> queryPositions,
+        int[] cursors)
+    {
+        while (true)
+        {
+            int slotToAdvance = -1;
+            for (int i = 0; i < positions.Count; i++)
+            {
+                for (int j = i + 1; j < positions.Count; j++)
+                {
+                    if (positions[i][cursors[i]] != positions[j][cursors[j]])
+                        continue;
+
+                    int candidate = queryPositions[i] > queryPositions[j]
+                        ? i
+                        : queryPositions[j] > queryPositions[i]
+                            ? j
+                            : Math.Max(i, j);
+                    if (slotToAdvance < 0 ||
+                        queryPositions[candidate] > queryPositions[slotToAdvance] ||
+                        (queryPositions[candidate] == queryPositions[slotToAdvance] && candidate > slotToAdvance))
+                    {
+                        slotToAdvance = candidate;
+                    }
+                }
+            }
+
+            if (slotToAdvance < 0)
+                return true;
+
+            cursors[slotToAdvance]++;
+            if (cursors[slotToAdvance] >= positions[slotToAdvance].Length)
+                return false;
+        }
+    }
+
+    private static void ComputeOffsetsAndEnd(
+        IReadOnlyList<int[]> positions,
+        IReadOnlyList<int> queryPositions,
+        int[] cursors,
+        long[] offsets,
+        out long end)
+    {
+        end = long.MinValue;
+        for (int i = 0; i < positions.Count; i++)
+        {
+            long offset = (long)positions[i][cursors[i]] - queryPositions[i];
+            offsets[i] = offset;
+            if (offset > end)
+                end = offset;
+        }
+    }
+
+    private static void FindSmallestAndNextOffset(
+        long[] offsets,
+        IReadOnlyList<int> queryPositions,
+        out int smallestSlot,
+        out int secondSmallestSlot)
+    {
+        smallestSlot = -1;
+        secondSmallestSlot = -1;
+        for (int i = 0; i < offsets.Length; i++)
+        {
+            if (smallestSlot < 0 || ComesBefore(i, smallestSlot, offsets, queryPositions))
+            {
+                secondSmallestSlot = smallestSlot;
+                smallestSlot = i;
+            }
+            else if (secondSmallestSlot < 0 || ComesBefore(i, secondSmallestSlot, offsets, queryPositions))
+            {
+                secondSmallestSlot = i;
+            }
+        }
+    }
+
+    private static bool ComesBefore(
+        int leftSlot,
+        int rightSlot,
+        long[] offsets,
+        IReadOnlyList<int> queryPositions)
+    {
+        if (offsets[leftSlot] != offsets[rightSlot])
+            return offsets[leftSlot] < offsets[rightSlot];
+        if (queryPositions[leftSlot] != queryPositions[rightSlot])
+            return queryPositions[leftSlot] < queryPositions[rightSlot];
+        return leftSlot < rightSlot;
+    }
+
+    private static void AddSloppyFrequency(ref float frequency, long matchLength, int slop)
+    {
+        if (matchLength <= slop)
+            frequency += 1f / ((float)matchLength + 1f);
+    }
+
     private void ExecutePhraseQueryWithPositionEnums(PhraseQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
@@ -60,6 +294,7 @@ public sealed partial class IndexSearcher
                 : 0;
             termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
         }
+        int[] queryPositions = query.PositionSpan.ToArray();
 
         // Streaming merge: iterate leader, advance followers
         while (postingsArr[leaderIdx].MoveNextUnchecked(out int docId, out int leaderTf))
@@ -91,8 +326,17 @@ public sealed partial class IndexSearcher
                 }
             }
 
-            if (hasAllPositions && HasPositionsWithinSlopSpan(
-                    postingsArr, termCount, query.PositionSpan, slop))
+            float phraseFrequency = 0f;
+            if (hasAllPositions)
+            {
+                var slotPositions = new int[termCount][];
+                for (int i = 0; i < termCount; i++)
+                    slotPositions[i] = postingsArr[i].GetCurrentPositionsUnchecked().ToArray();
+
+                phraseFrequency = ComputePhraseFrequency(slotPositions, queryPositions, slop);
+            }
+
+            if (phraseFrequency > 0f)
             {
                 int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
                     ? fieldLengths.Value.Span[docId] : 1;
@@ -339,191 +583,6 @@ public sealed partial class IndexSearcher
             if (j >= positions1.Count)
                 return false;
             if (positions1[j] <= upper)
-                return true;
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Checks whether positions from all terms form a valid phrase within the given slop,
-    /// using ReadOnlySpan positions from PostingsEnum.
-    /// </summary>
-    private static bool HasPositionsWithinSlopSpan(
-        Span<PostingsEnum> postings,
-        int termCount,
-        ReadOnlySpan<int> expectedPositions,
-        int slop)
-    {
-        if (termCount == 1) return true;
-
-        // For 2 terms (common case): O(n+m) two-pointer merge on sorted positions
-        if (termCount == 2)
-        {
-            var pos0 = postings[0].GetCurrentPositionsUnchecked();
-            var pos1 = postings[1].GetCurrentPositionsUnchecked();
-            return HasTwoTermPositionsWithinSlop(
-                pos0, pos1, expectedPositions[1] - expectedPositions[0], slop);
-        }
-
-        // 3-term specialisation: direct span access, zero allocation (matches 2-term path)
-        if (termCount == 3)
-        {
-            var pos0 = postings[0].GetCurrentPositionsUnchecked();
-            var pos1 = postings[1].GetCurrentPositionsUnchecked();
-            var pos2 = postings[2].GetCurrentPositionsUnchecked();
-            return HasThreeTermPositionsWithinSlop(
-                pos0,
-                pos1,
-                pos2,
-                expectedPositions[1] - expectedPositions[0],
-                expectedPositions[2] - expectedPositions[1],
-                slop);
-        }
-
-        // General N-term case (4+ terms): chained two-pointer with ArrayPool
-        var rentedArrays = new int[termCount][];
-        Span<int> lengths = stackalloc int[termCount];
-        Span<int> cursors = stackalloc int[termCount];
-
-        try
-        {
-            for (int i = 0; i < termCount; i++)
-            {
-                var span = postings[i].GetCurrentPositionsUnchecked();
-                if (span.IsEmpty) return false;
-                var rented = ArrayPool<int>.Shared.Rent(span.Length);
-                span.CopyTo(rented);
-                rentedArrays[i] = rented;
-                lengths[i] = span.Length;
-                cursors[i] = 0;
-            }
-
-            // Drive on the first term's positions; chain-advance subsequent terms
-            int[] p0 = rentedArrays[0];
-            int p0Len = lengths[0];
-
-            for (int i = 0; i < p0Len; i++)
-            {
-                int chainPos = p0[i];
-                bool matched = true;
-
-                for (int t = 1; t < termCount; t++)
-                {
-                    int target = chainPos + expectedPositions[t] - expectedPositions[t - 1];
-                    int lo = target - slop;
-                    int hi = target + slop;
-                    int[] pt = rentedArrays[t];
-                    int ptLen = lengths[t];
-                    ref int cursor = ref cursors[t];
-
-                    // Advance cursor past positions below the lower bound
-                    while (cursor < ptLen && pt[cursor] < lo)
-                        cursor++;
-
-                    if (cursor >= ptLen) { matched = false; break; }
-                    if (pt[cursor] > hi) { matched = false; break; }
-
-                    // Chain: next term's target is relative to where we matched
-                    chainPos = pt[cursor];
-                }
-
-                if (matched) return true;
-            }
-
-            return false;
-        }
-        finally
-        {
-            for (int i = 0; i < termCount; i++)
-            {
-                if (rentedArrays[i] != null)
-                    ArrayPool<int>.Shared.Return(rentedArrays[i]);
-            }
-        }
-    }
-
-    private static bool HasTwoTermPositionsWithinSlop(
-        ReadOnlySpan<int> pos0,
-        ReadOnlySpan<int> pos1,
-        int expectedDelta,
-        int slop)
-    {
-        int j = 0;
-        for (int i = 0; i < pos0.Length; i++)
-        {
-            int target = pos0[i] + expectedDelta;
-            int lowerBound = target - slop;
-            int upperBound = target + slop;
-            while (j < pos1.Length && pos1[j] < lowerBound)
-                j++;
-            if (j >= pos1.Length) break;
-            if (pos1[j] <= upperBound)
-                return true;
-        }
-        return false;
-    }
-
-    private static bool HasThreeTermPositionsWithinSlop(
-        ReadOnlySpan<int> pos0,
-        ReadOnlySpan<int> pos1,
-        ReadOnlySpan<int> pos2,
-        int firstExpectedDelta,
-        int secondExpectedDelta,
-        int slop)
-    {
-        int j = 0, k = 0;
-        for (int i = 0; i < pos0.Length; i++)
-        {
-            int target1 = pos0[i] + firstExpectedDelta;
-            int lo1 = target1 - slop;
-            int hi1 = target1 + slop;
-            while (j < pos1.Length && pos1[j] < lo1)
-                j++;
-            if (j >= pos1.Length) break;
-            if (pos1[j] > hi1) continue;
-
-            int target2 = pos1[j] + secondExpectedDelta;
-            int lo2 = target2 - slop;
-            int hi2 = target2 + slop;
-            while (k < pos2.Length && pos2[k] < lo2)
-                k++;
-            if (k >= pos2.Length) break;
-            if (pos2[k] <= hi2)
-                return true;
-        }
-        return false;
-    }
-
-    private static bool HasManyTermPositionsWithinSlop(IReadOnlyList<int[]> positions, int slop)
-    {
-        var cursors = new int[positions.Count];
-        var firstPositions = positions[0];
-        for (int i = 0; i < firstPositions.Length; i++)
-        {
-            int chainPos = firstPositions[i];
-            bool matched = true;
-
-            for (int t = 1; t < positions.Count; t++)
-            {
-                int target = chainPos + 1;
-                int lo = target - slop;
-                int hi = target + slop;
-                var termPositions = positions[t];
-                ref int cursor = ref cursors[t];
-                while (cursor < termPositions.Length && termPositions[cursor] < lo)
-                    cursor++;
-
-                if (cursor >= termPositions.Length || termPositions[cursor] > hi)
-                {
-                    matched = false;
-                    break;
-                }
-
-                chainPos = termPositions[cursor];
-            }
-
-            if (matched)
                 return true;
         }
 
