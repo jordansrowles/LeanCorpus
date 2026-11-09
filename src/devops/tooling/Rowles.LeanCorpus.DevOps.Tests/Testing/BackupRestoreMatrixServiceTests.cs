@@ -175,7 +175,7 @@ public sealed class BackupRestoreMatrixServiceTests
 
     private sealed class MatrixCheckout : IDisposable
     {
-        private MatrixCheckout(string root)
+        internal MatrixCheckout(string root)
         {
             Root = root;
             ProjectPath = Path.Combine(root, "src", "tests", "Fake.Core.Tests.csproj");

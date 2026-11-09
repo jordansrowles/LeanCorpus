@@ -85,7 +85,7 @@ public sealed class PackageConsumerProjectWriterTests
 
     private sealed class TemporaryRepository : IDisposable
     {
-        private TemporaryRepository(string root) => Root = root;
+        internal TemporaryRepository(string root) => Root = root;
 
         public string Root { get; }
 

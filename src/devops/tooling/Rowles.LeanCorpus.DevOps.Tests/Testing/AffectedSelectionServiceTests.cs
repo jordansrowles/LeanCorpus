@@ -222,7 +222,7 @@ public sealed class AffectedSelectionServiceTests
     {
         private readonly string _path;
 
-        private TemporaryGitRepository(string path) => _path = Path = path;
+        internal TemporaryGitRepository(string path) => _path = Path = path;
 
         public string Path { get; }
         public string Head => File.ReadAllText(System.IO.Path.Combine(Path, ".git", "refs", "heads", "main")).Trim();

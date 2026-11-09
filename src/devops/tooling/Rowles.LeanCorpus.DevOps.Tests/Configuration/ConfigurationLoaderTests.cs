@@ -722,7 +722,7 @@ public sealed class ConfigurationLoaderTests
     {
         private readonly string _sourceRoot;
 
-        private TemporaryConfiguration(string path, string sourceRoot)
+        internal TemporaryConfiguration(string path, string sourceRoot)
         {
             Path = path;
             _sourceRoot = sourceRoot;

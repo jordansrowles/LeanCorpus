@@ -297,7 +297,7 @@ public sealed class TestExecutorTests
         private readonly Dictionary<string, string> _targetPaths = new(StringComparer.Ordinal);
         private readonly List<string> _appHosts = [];
 
-        private TemporaryCheckout(string root)
+        internal TemporaryCheckout(string root)
         {
             Root = root;
             Directory.CreateDirectory(Path.Combine(root, ".git"));

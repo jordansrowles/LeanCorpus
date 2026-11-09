@@ -160,7 +160,7 @@ public sealed class BuildServiceTests
 
     private sealed class TemporaryCheckout : IDisposable
     {
-        private TemporaryCheckout(string root, CheckoutIdentity identity)
+        internal TemporaryCheckout(string root, CheckoutIdentity identity)
         {
             Root = root;
             Identity = identity;

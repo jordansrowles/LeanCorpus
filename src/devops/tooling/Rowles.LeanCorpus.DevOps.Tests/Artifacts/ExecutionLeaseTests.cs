@@ -51,7 +51,7 @@ public sealed class ExecutionLeaseTests
 
     private sealed class TemporaryRoot : IDisposable
     {
-        private TemporaryRoot(string path) => Path = path;
+        internal TemporaryRoot(string path) => Path = path;
 
         public string Path { get; }
 

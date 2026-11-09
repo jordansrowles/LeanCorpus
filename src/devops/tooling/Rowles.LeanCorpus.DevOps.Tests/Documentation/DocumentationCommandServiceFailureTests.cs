@@ -144,7 +144,7 @@ public sealed class DocumentationCommandServiceFailureTests
 
     private sealed class TemporaryCheckout : IDisposable
     {
-        private TemporaryCheckout(string root) => Root = root;
+        internal TemporaryCheckout(string root) => Root = root;
 
         public string Root { get; }
 

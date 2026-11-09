@@ -81,7 +81,7 @@ public sealed class TestPreparationServiceTests
 
     private sealed class TemporaryCheckout : IDisposable
     {
-        private TemporaryCheckout(string root)
+        internal TemporaryCheckout(string root)
         {
             Root = root;
             ProjectPath = Path.Combine("src", "devops", "Fake.Tests", "Fake.Tests.csproj");

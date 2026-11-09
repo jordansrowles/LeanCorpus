@@ -1194,7 +1194,7 @@ public sealed class CommandLineContractTests
 
     private sealed class TemporaryConfigCheckout : IDisposable
     {
-        private TemporaryConfigCheckout(string root) => Root = root;
+        internal TemporaryConfigCheckout(string root) => Root = root;
 
         public string Root { get; }
 

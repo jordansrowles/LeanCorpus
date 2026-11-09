@@ -64,7 +64,7 @@ public sealed class PackageConsumerAssetsVerifierTests
 
     private sealed class TemporaryConsumerDirectory : IDisposable
     {
-        private TemporaryConsumerDirectory(string root)
+        internal TemporaryConsumerDirectory(string root)
         {
             Root = root;
             CacheRoot = Path.Combine(root, "isolated cache");

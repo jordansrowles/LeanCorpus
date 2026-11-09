@@ -55,7 +55,7 @@ public sealed class PackageConsumerValidationServiceTests
 
     private sealed class TemporaryCheckout : IDisposable
     {
-        private TemporaryCheckout(string root)
+        internal TemporaryCheckout(string root)
         {
             Root = root;
             PackageDirectory = Path.Combine(root, "artifacts/package/release");

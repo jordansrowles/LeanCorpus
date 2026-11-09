@@ -36,7 +36,7 @@ public sealed class RepositoryProjectCatalogTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private TemporaryDirectory(string path) => Path = path;
+        internal TemporaryDirectory(string path) => Path = path;
 
         public string Path { get; }
 
