@@ -464,7 +464,8 @@ public sealed class BenchmarkCaseCoverageTests
                     continue;
                 foreach (var type in UnequalLuceneDirectoryTypes)
                 {
-                    if (System.Text.RegularExpressions.Regex.IsMatch(line, $@"\b{type}\b"))
+                    if (System.Text.RegularExpressions.Regex.IsMatch(line, $@"\b{type}\b",
+                            System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
                         offenders.Add($"{Path.GetRelativePath(benchmarkRoot, file)}:{index + 1}: {line.Trim()}");
                 }
             }

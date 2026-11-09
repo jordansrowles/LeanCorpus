@@ -73,7 +73,7 @@ public sealed class PhraseSlopSemanticsTests : IClassFixture<TestDirectoryFixtur
         EndSize = 16)]
     public void PhraseQuery_GeneratedDistinctTermSearchesAgreeWithReference(int seed)
     {
-        var random = new Random(seed);
+        var random = new Random(seed); // NOSONAR: S2245, a seeded generator makes each FsCheck case reproducible; nothing here is security-sensitive.
         int documentLength = random.Next(2, 13);
         string[] documentTokens = new string[documentLength];
         for (int i = 0; i < documentTokens.Length; i++)
@@ -165,7 +165,7 @@ public sealed class PhraseSlopSemanticsTests : IClassFixture<TestDirectoryFixtur
                     maximumOffset = Math.Max(maximumOffset, offset);
                 }
 
-                return maximumOffset - minimumOffset <= slop;
+                return (long)maximumOffset - minimumOffset <= slop;
             }
 
             foreach (int position in positions[slot])
