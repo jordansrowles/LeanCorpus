@@ -21,6 +21,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Measures block-join indexing throughput without mixing it with query timings.
+/// Units: <see cref="BlockCount"/> blocks, each one parent and three children, so four
+/// physical documents per block. Both engines use the matched field profile.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -101,21 +103,26 @@ public class BlockJoinIndexBenchmarks
         LeanIndexWriter writer,
         IReadOnlyList<(string ParentTitle, string[] ChildBodies)> blocks)
     {
-        foreach (var (parentTitle, childBodies) in blocks)
+        // Matched field profile (ADR045): child body is indexed but not stored and type has no
+        // DocValues, as in the Lucene.NET fixture.
+        for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
         {
+            var (parentTitle, childBodies) = blocks[blockIndex];
             var block = new List<LeanDocument>();
 
-            foreach (var childBody in childBodies)
+            for (int childIndex = 0; childIndex < childBodies.Length; childIndex++)
             {
                 var child = new LeanDocument();
-                child.Add(new LeanTextField("body", childBody));
-                child.Add(new LeanStringField("type", "child"));
+                child.Add(new LeanStringField("id", ChildId(blockIndex, childIndex), stored: true, boost: 1.0f, storeDocValues: false));
+                child.Add(new LeanTextField("body", childBodies[childIndex], stored: false));
+                child.Add(new LeanStringField("type", "child", stored: true, boost: 1.0f, storeDocValues: false));
                 block.Add(child);
             }
 
             var parent = new LeanDocument();
+            parent.Add(new LeanStringField("id", ParentId(blockIndex), stored: true, boost: 1.0f, storeDocValues: false));
             parent.Add(new LeanTextField("title", parentTitle));
-            parent.Add(new LeanStringField("type", "parent"));
+            parent.Add(new LeanStringField("type", "parent", stored: true, boost: 1.0f, storeDocValues: false));
             block.Add(parent);
 
             writer.AddDocumentBlock(block);
@@ -126,15 +133,17 @@ public class BlockJoinIndexBenchmarks
         Lucene.Net.Index.IndexWriter writer,
         IReadOnlyList<(string ParentTitle, string[] ChildBodies)> blocks)
     {
-        foreach (var (parentTitle, childBodies) in blocks)
+        for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
         {
+            var (parentTitle, childBodies) = blocks[blockIndex];
             var block = new List<Lucene.Net.Documents.Document>();
 
-            foreach (var childBody in childBodies)
+            for (int childIndex = 0; childIndex < childBodies.Length; childIndex++)
             {
                 var child = new Lucene.Net.Documents.Document
                 {
-                    new LuceneTextField("body", childBody, Field.Store.NO),
+                    new LuceneStringField("id", ChildId(blockIndex, childIndex), Field.Store.YES),
+                    new LuceneTextField("body", childBodies[childIndex], Field.Store.NO),
                     new LuceneStringField("type", "child", Field.Store.YES)
                 };
                 block.Add(child);
@@ -142,6 +151,7 @@ public class BlockJoinIndexBenchmarks
 
             var parent = new Lucene.Net.Documents.Document
             {
+                new LuceneStringField("id", ParentId(blockIndex), Field.Store.YES),
                 new LuceneTextField("title", parentTitle, Field.Store.YES),
                 new LuceneStringField("type", "parent", Field.Store.YES)
             };
@@ -151,11 +161,78 @@ public class BlockJoinIndexBenchmarks
         }
     }
 
+    /// <summary>Stable logical ID of a block's parent document.</summary>
+    internal static string ParentId(int blockIndex)
+        => string.Concat("p", blockIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>Stable logical ID of a child document.</summary>
+    internal static string ChildId(int blockIndex, int childIndex)
+        => string.Concat("c", blockIndex.ToString(System.Globalization.CultureInfo.InvariantCulture), "-",
+            childIndex.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+    /// <summary>
+    /// Derives the parents whose live children contain <paramref name="term"/> as a whitespace
+    /// token, independently of both engines. Deleted parents and deleted children are excluded.
+    /// </summary>
+    internal static string[] ExpectedParents(
+        IReadOnlyList<(string ParentTitle, string[] ChildBodies)> blocks,
+        string term,
+        IReadOnlySet<string>? deletedIds = null)
+    {
+        ArgumentNullException.ThrowIfNull(blocks);
+        var parents = new List<string>();
+        for (int blockIndex = 0; blockIndex < blocks.Count; blockIndex++)
+        {
+            if (deletedIds?.Contains(ParentId(blockIndex)) == true)
+                continue;
+            var children = blocks[blockIndex].ChildBodies;
+            for (int childIndex = 0; childIndex < children.Length; childIndex++)
+            {
+                if (deletedIds?.Contains(ChildId(blockIndex, childIndex)) == true)
+                    continue;
+                if (children[childIndex].Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                    .Any(token => string.Equals(token.ToLowerInvariant(), term, StringComparison.Ordinal)))
+                {
+                    parents.Add(ParentId(blockIndex));
+                    break;
+                }
+            }
+        }
+
+        return parents.Order(StringComparer.Ordinal).ToArray();
+    }
+
+    /// <summary>
+    /// Fails unless the results are exactly the expected parents: no child results, no duplicate
+    /// parents and an exact total. Tie policy: parent scores are not compared and order is
+    /// ignored, because Lucene.NET <c>ScoreMode.None</c> gives every parent the same score.
+    /// </summary>
+    internal static void ValidateParents(string engine, IReadOnlyList<string> expectedParents, IReadOnlyList<string> actualIds, int totalHits)
+    {
+        ArgumentNullException.ThrowIfNull(expectedParents);
+        ArgumentNullException.ThrowIfNull(actualIds);
+        BenchmarkFixtureEvidence.RequireWork("blockjoin", "parents", engine, totalHits);
+        var children = actualIds.Where(static id => !id.StartsWith('p')).Take(5).ToArray();
+        if (children.Length != 0)
+            throw new InvalidOperationException($"Block join on {engine} returned child documents: {string.Join(",", children)}.");
+        var duplicates = actualIds.GroupBy(static id => id, StringComparer.Ordinal).Where(static group => group.Count() > 1)
+            .Select(static group => group.Key).Take(5).ToArray();
+        if (duplicates.Length != 0)
+            throw new InvalidOperationException($"Block join on {engine} returned duplicate parents: {string.Join(",", duplicates)}.");
+        if (totalHits != expectedParents.Count || actualIds.Count != expectedParents.Count)
+            throw new InvalidOperationException(
+                $"Block join on {engine} returned {totalHits} total and {actualIds.Count} parents; the generated children give {expectedParents.Count}.");
+        if (!actualIds.Order(StringComparer.Ordinal).SequenceEqual(expectedParents, StringComparer.Ordinal))
+            throw new InvalidOperationException($"Block join on {engine} returned a different parent set from the generated children.");
+    }
+
 
 }
 
 /// <summary>
 /// Measures the hot block-join query path on prebuilt indexes.
+/// Units: <see cref="BlockCount"/> blocks of four physical documents. Setup proves the parent
+/// set against the generated child bodies on both engines.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -193,6 +270,33 @@ public class BlockJoinSearchBenchmarks
         _blocks = BenchmarkData.BuildParentChildBlocks(BlockCount, ChildrenPerBlock);
         BuildLeanIndex();
         BuildLuceneIndex();
+        ProveParents();
+    }
+
+    private void ProveParents()
+    {
+        int documents = BlockCount * (ChildrenPerBlock + 1);
+        BenchmarkFixtureEvidence.RecordProfile(TopologyFixture, "both engines", new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["blocks"] = BlockCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["parents"] = BlockCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["children"] = (BlockCount * ChildrenPerBlock).ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["documents"] = documents.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["child body"] = "indexed, not stored",
+            ["type"] = "indexed, stored, no DocValues"
+        });
+
+        string[] expected = BlockJoinIndexBenchmarks.ExpectedParents(_blocks, "said");
+        int limit = Math.Max(1, BlockCount);
+        var lean = _leanSearcher!.Search(new Rowles.LeanCorpus.Search.Queries.BlockJoinQuery(new LeanTermQuery("body", "said")), limit);
+        BlockJoinIndexBenchmarks.ValidateParents("LeanCorpus", expected,
+            lean.ScoreDocs.Select(hit => _leanSearcher.GetStoredFields(hit.DocId)["id"][0]).ToArray(), lean.TotalHits);
+
+        var lucene = _luceneSearcher!.Search(new ToParentBlockJoinQuery(
+            new Lucene.Net.Search.TermQuery(new Term("body", "said")), _luceneParentFilter!, Lucene.Net.Search.Join.ScoreMode.None), limit);
+        BlockJoinIndexBenchmarks.ValidateParents("Lucene.NET", expected,
+            lucene.ScoreDocs.Select(hit => _luceneReader!.Document(hit.Doc).Get("id")
+                ?? throw new InvalidOperationException("A Lucene.NET block-join result has no id.")).ToArray(), lucene.TotalHits);
     }
 
     [GlobalCleanup]

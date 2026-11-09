@@ -70,4 +70,90 @@ public sealed class FixtureWorkloadProofTests
         // The timed query matched nothing.
         Assert.Throws<InvalidOperationException>(() => FunctionScoreQueryBenchmarks.ValidateModeTopK("LeanCorpus", "Multiply", [], prices, [], 0));
     }
+
+    [Fact]
+    public void Block_join_gate_rejects_duplicate_child_and_wrong_parents()
+    {
+        string[] expected = ["p0", "p2"];
+        BlockJoinIndexBenchmarks.ValidateParents("LeanCorpus", expected, ["p2", "p0"], 2);
+
+        Assert.Throws<InvalidOperationException>(() => BlockJoinIndexBenchmarks.ValidateParents("LeanCorpus", expected, ["p0", "p0"], 2));
+        Assert.Throws<InvalidOperationException>(() => BlockJoinIndexBenchmarks.ValidateParents("LeanCorpus", expected, ["p0", "c2-1"], 2));
+        Assert.Throws<InvalidOperationException>(() => BlockJoinIndexBenchmarks.ValidateParents("LeanCorpus", expected, ["p0", "p1"], 2));
+        Assert.Throws<InvalidOperationException>(() => BlockJoinIndexBenchmarks.ValidateParents("LeanCorpus", expected, ["p0", "p2"], 3));
+    }
+
+    [Theory]
+    [InlineData(1_000)]
+    [InlineData(3)]
+    public void Block_join_returns_the_derived_parents_on_both_engines(int maxBufferedDocs)
+    {
+        (string ParentTitle, string[] ChildBodies)[] blocks =
+        [
+            ("no match", ["alpha beta", "gamma", "delta"]),
+            ("one match", ["alpha", "said beta", "gamma"]),
+            ("many matches", ["said", "said alpha", "beta said"]),
+            ("deleted child", ["alpha", "said only", "beta"]),
+            ("deleted parent", ["said", "alpha", "beta"]),
+            ("partly deleted", ["said one", "said two", "gamma"])
+        ];
+        var deleted = new HashSet<string>(StringComparer.Ordinal)
+        {
+            BlockJoinIndexBenchmarks.ChildId(3, 1),
+            BlockJoinIndexBenchmarks.ParentId(4),
+            BlockJoinIndexBenchmarks.ChildId(5, 0)
+        };
+        string[] expected = BlockJoinIndexBenchmarks.ExpectedParents(blocks, "said", deleted);
+        Assert.Equal(["p1", "p2", "p5"], expected);
+
+        string root = Path.Combine(Path.GetTempPath(), "leancorpus-blockjoin-proof-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string leanPath = Path.Combine(root, "lean");
+            Directory.CreateDirectory(leanPath);
+            using (var directory = new LeanMMapDirectory(leanPath))
+            {
+                using (var writer = new LeanIndexWriter(directory, new LeanIndexWriterConfig { MaxBufferedDocs = maxBufferedDocs, RamBufferSizeMB = 64 }))
+                {
+                    BlockJoinIndexBenchmarks.IndexLeanBlocks(writer, blocks);
+                    writer.Commit();
+                    foreach (var id in deleted)
+                        writer.DeleteDocuments(new LeanTermQuery("id", id));
+                    writer.Commit();
+                }
+
+                using var searcher = new LeanIndexSearcher(directory);
+                var hits = searcher.Search(new LeanBlockJoinQuery(new LeanTermQuery("body", "said")), 100);
+                BlockJoinIndexBenchmarks.ValidateParents("LeanCorpus", expected,
+                    hits.ScoreDocs.Select(hit => searcher.GetStoredFields(hit.DocId)["id"][0]).ToArray(), hits.TotalHits);
+            }
+
+            string lucenePath = Path.Combine(root, "lucene");
+            Directory.CreateDirectory(lucenePath);
+            using (var directory = new Lucene.Net.Store.MMapDirectory(new DirectoryInfo(lucenePath)))
+            {
+                using (var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48))
+                using (var writer = new IndexWriter(directory, new IndexWriterConfig(LuceneVersion.LUCENE_48, analyser) { MaxBufferedDocs = Math.Max(2, maxBufferedDocs) }))
+                {
+                    BlockJoinIndexBenchmarks.IndexLuceneBlocks(writer, blocks);
+                    writer.Commit();
+                    foreach (var id in deleted)
+                        writer.DeleteDocuments(new Term("id", id));
+                    writer.Commit();
+                }
+
+                using var reader = DirectoryReader.Open(directory);
+                var searcher = new IndexSearcher(reader);
+                var parents = new FixedBitSetCachingWrapperFilter(new QueryWrapperFilter(new TermQuery(new Term("type", "parent"))));
+                var hits = searcher.Search(new ToParentBlockJoinQuery(new TermQuery(new Term("body", "said")), parents, ScoreMode.None), 100);
+                BlockJoinIndexBenchmarks.ValidateParents("Lucene.NET", expected,
+                    hits.ScoreDocs.Select(hit => reader.Document(hit.Doc).Get("id")).ToArray(), hits.TotalHits);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 }
