@@ -24,7 +24,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Compares parallel multi-segment search against sequential search.
-/// The index is force-flushed multiple times to produce multiple segments.
+/// The index is force-flushed multiple times to produce multiple segments. Both engines use
+/// memory-mapped storage and flush by document count only, so each builds the requested segment count.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -57,6 +58,8 @@ public class ParallelSearchBenchmarks
     private static LuceneMMapDirectory? s_luceneDirectory;
     private static LuceneDirectoryReader? s_luceneReader;
     private static LuceneIndexSearcher? s_luceneSearcher;
+    private static LuceneIndexSearcher? s_luceneExecutorSearcher;
+    private static int s_expectedHits;
 
     [GlobalSetup]
     public void Setup()
@@ -105,6 +108,16 @@ public class ParallelSearchBenchmarks
         return s_luceneSearcher!.Search(query, TopN).TotalHits;
     }
 
+    [Benchmark(Description = "Lucene.NET phrase executor")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_ExecutorSearch()
+    {
+        var query = new LucenePhraseQuery();
+        query.Add(new LuceneTerm("body", "government"));
+        query.Add(new LuceneTerm("body", "market"));
+        return s_luceneExecutorSearcher!.Search(query, TopN).TotalHits;
+    }
+
     /// <summary>Release static Lucene.NET resources.</summary>
     public static void CleanupLuceneResources()
     {
@@ -130,7 +143,8 @@ public class ParallelSearchBenchmarks
             new Rowles.LeanCorpus.Index.Indexer.IndexWriterConfig
             {
                 MaxBufferedDocs = docsPerSegment,
-                RamBufferSizeMB = 256,
+                RamBufferSizeMB = 0,
+                RamPerThreadHardLimitMB = 0,
                 MergePolicy = Rowles.LeanCorpus.Index.Indexer.NoMergePolicy.Instance,
             });
         for (int i = 0; i < documents.Length; i++)
@@ -163,6 +177,7 @@ public class ParallelSearchBenchmarks
         var luceneConfig = new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser)
         {
             MaxBufferedDocs = docsPerSegment,
+            RAMBufferSizeMB = Lucene.Net.Index.IndexWriterConfig.DISABLE_AUTO_FLUSH,
             MergePolicy = Lucene.Net.Index.NoMergePolicy.NO_COMPOUND_FILES,
         };
         using var lw = new Lucene.Net.Index.IndexWriter(
@@ -181,10 +196,28 @@ public class ParallelSearchBenchmarks
         lw.Commit();
         s_luceneReader = LuceneDirectoryReader.Open(s_luceneDirectory);
         s_luceneSearcher = new LuceneIndexSearcher(s_luceneReader);
+        s_luceneExecutorSearcher = new LuceneIndexSearcher(s_luceneReader, System.Threading.Tasks.TaskScheduler.Default);
 
         string fixture = string.Create(System.Globalization.CultureInfo.InvariantCulture,
             $"parallel-{documents.Length}-segments-{SegmentCount}");
-        BenchmarkFixtureEvidence.RecordLeanCorpus(fixture, directory, s_sequentialSearcher);
-        BenchmarkFixtureEvidence.RecordLucene(fixture, s_luceneDirectory, s_luceneReader);
+        var leanTopology = BenchmarkFixtureEvidence.RecordLeanCorpus(fixture, directory, s_sequentialSearcher);
+        var luceneTopology = BenchmarkFixtureEvidence.RecordLucene(fixture, s_luceneDirectory, s_luceneReader);
+        int expectedSegments = (documents.Length + docsPerSegment - 1) / docsPerSegment;
+        if (leanTopology.SegmentCount != expectedSegments || luceneTopology.SegmentCount != expectedSegments)
+            throw new InvalidOperationException(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Parallel fixture expected {expectedSegments} segments for {documents.Length} documents at {docsPerSegment} per segment, but LeanCorpus has {leanTopology.SegmentCount} and Lucene.NET {luceneTopology.SegmentCount}."));
+
+        s_expectedHits = (int)BenchmarkFixtureEvidence.RequireWork(
+            fixture, "phrase government market", BenchmarkFixtureEvidence.LeanCorpusEngine, LeanCorpus_SequentialSearch());
+        AssertHits(fixture, "LeanCorpus parallel", LeanCorpus_ParallelSearch());
+        AssertHits(fixture, "Lucene.NET sequential", LuceneNet_SequentialSearch());
+        AssertHits(fixture, "Lucene.NET executor", LuceneNet_ExecutorSearch());
+    }
+
+    private static void AssertHits(string fixture, string row, int hits)
+    {
+        if (hits != s_expectedHits)
+            throw new InvalidOperationException(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"{fixture} row '{row}' returned {hits} hits; LeanCorpus sequential returned {s_expectedHits}."));
     }
 }

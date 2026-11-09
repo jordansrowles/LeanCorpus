@@ -146,6 +146,7 @@
 - Compare HNSW and quantised vector results with exact cosine ground truth at K=1, 10 and 100; enforce the fixture-pinned 0.9 recall floor and record score, rank and quantisation errors before timing.
 - Record accepted documents and indexed tokens for each token-budget mode, and limit baseline ratios to the same-work variants.
 - Validate equivalent query ASTs at the parser guard limit and reject limit-plus-one input before timing, with valid parsing and rejection kept as separate benchmark operations.
+- Head-to-head benchmarks now use equal storage, record topology and fail when a case does no work.
 
 ## Removed
 
