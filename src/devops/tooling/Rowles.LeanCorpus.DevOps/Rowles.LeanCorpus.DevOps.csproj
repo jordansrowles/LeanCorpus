@@ -90,4 +90,8 @@
     <None Include="../../../../LICENCE" Pack="true" PackagePath="/" />
     <None Include="Licenses/**/*" Pack="true" PackagePath="licenses/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\tests\Rowles.LeanCorpus.Tests.Shared\Fixtures\RepositoryTemporaryStorage.cs" Link="Artifacts\RepositoryTemporaryStorage.cs" />
+  </ItemGroup>
+
 </Project>

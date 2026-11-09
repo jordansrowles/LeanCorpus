@@ -51,7 +51,6 @@ internal sealed class ArtifactPaths
         BuildRoot = Path.Combine(ArtifactRoot, "build");
         BuildRunRoot = Path.Combine(BuildRoot, "runs");
         DevOpsRoot = Path.Combine(ArtifactRoot, "devops");
-        TemporaryRoot = Path.Combine(ArtifactRoot, "tmp", "devops");
         RootApphostPath = Path.Combine(RepositoryRoot, OperatingSystem.IsWindows() ? "devops.exe" : "devops");
     }
 
@@ -65,28 +64,27 @@ internal sealed class ArtifactPaths
 
     public string DevOpsRoot { get; }
 
-    /// <summary>Repository-owned temporary storage for DevOps operations (ADR046): <c>artifacts/tmp/devops</c>.</summary>
-    public string TemporaryRoot { get; }
+    /// <summary>
+    /// Repository-owned temporary storage for DevOps operations (ADR046): <c>artifacts/tmp/devops</c>,
+    /// or <c>devops</c> under a validated <c>LEANCORPUS_TEMP_ROOT</c>, as for tests and benchmarks.
+    /// </summary>
+    public string TemporaryRoot
+    {
+        get
+        {
+            var overrideRoot = Environment.GetEnvironmentVariable(Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.RootOverrideVariable);
+            return string.IsNullOrWhiteSpace(overrideRoot)
+                ? Path.Combine(ArtifactRoot, "tmp", "devops")
+                : Path.Combine(Path.GetFullPath(overrideRoot), "devops");
+        }
+    }
 
     /// <summary>
-    /// Creates a unique, owner-only directory under <see cref="TemporaryRoot"/> for one operation.
+    /// Creates a new, unique, owner-only directory under <see cref="TemporaryRoot"/> for one operation,
+    /// validating the temporary and area roots exactly as the shared helper does.
     /// </summary>
     public string CreateTemporaryDirectory(string prefix)
-    {
-        ArgumentNullException.ThrowIfNull(prefix);
-        CreateOwnerOnly(TemporaryRoot);
-        var path = Path.Combine(TemporaryRoot, string.Concat(prefix, Guid.NewGuid().ToString("N")));
-        CreateOwnerOnly(path);
-        return path;
-    }
-
-    private static void CreateOwnerOnly(string path)
-    {
-        if (OperatingSystem.IsWindows())
-            Directory.CreateDirectory(path);
-        else
-            Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-    }
+        => Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.CreateDirectoryUnder(RepositoryRoot, "devops", prefix).Release();
 
     public string RootApphostPath { get; }
 

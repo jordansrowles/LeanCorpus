@@ -2,8 +2,16 @@ using Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 namespace Rowles.LeanCorpus.Tests.Core.Foundation.Unit;
 
+/// <summary>Serialises tests that change <c>LEANCORPUS_TEMP_ROOT</c>.</summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class RepositoryTemporaryStorageCollection
+{
+    public const string Name = "Repository temporary storage";
+}
+
 [Category(TestCategory.Unit)]
 [Area(TestArea.Foundation)]
+[Collection(RepositoryTemporaryStorageCollection.Name)]
 public sealed class RepositoryTemporaryStorageTests
 {
     [Fact]
@@ -85,6 +93,66 @@ public sealed class RepositoryTemporaryStorageTests
         string link = Path.Combine(parent.Path, "link");
         Directory.CreateSymbolicLink(link, parent.Path);
         Assert.Throws<InvalidOperationException>(() => RepositoryTemporaryStorage.ResolveTemporaryRoot(repository, link));
+    }
+
+    [Fact]
+    public void New_path_is_unique_and_not_created()
+    {
+        string first = RepositoryTemporaryStorage.NewPath("tests", "new_");
+        string second = RepositoryTemporaryStorage.NewPath("tests", "new_");
+
+        Assert.NotEqual(first, second);
+        Assert.False(Directory.Exists(first));
+        Assert.Equal(RepositoryTemporaryStorage.GetAreaRoot("tests"), Path.GetDirectoryName(first));
+    }
+
+    [Fact]
+    public void Existing_permissive_area_root_is_tightened_to_owner_only()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        using var fakeRepository = RepositoryTemporaryStorage.CreateDirectory("tests", "fake_repo_");
+        string areaRoot = Path.Combine(fakeRepository.Path, "artifacts", "tmp", "tests");
+        Directory.CreateDirectory(areaRoot);
+        File.SetUnixFileMode(areaRoot, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+            | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+
+        string? previous = Environment.GetEnvironmentVariable(RepositoryTemporaryStorage.RootOverrideVariable);
+        Environment.SetEnvironmentVariable(RepositoryTemporaryStorage.RootOverrideVariable, null);
+        try
+        {
+            using var directory = RepositoryTemporaryStorage.CreateDirectoryUnder(fakeRepository.Path, "tests");
+
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(areaRoot));
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+                File.GetUnixFileMode(Path.Combine(fakeRepository.Path, "artifacts", "tmp")));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(RepositoryTemporaryStorage.RootOverrideVariable, previous);
+        }
+    }
+
+    [Fact]
+    public void Linked_area_root_is_rejected()
+    {
+        using var fakeRepository = RepositoryTemporaryStorage.CreateDirectory("tests", "fake_repo_");
+        using var target = RepositoryTemporaryStorage.CreateDirectory("tests", "link_target_");
+        string tmpRoot = Path.Combine(fakeRepository.Path, "artifacts", "tmp");
+        Directory.CreateDirectory(tmpRoot);
+        Directory.CreateSymbolicLink(Path.Combine(tmpRoot, "tests"), target.Path);
+
+        string? previous = Environment.GetEnvironmentVariable(RepositoryTemporaryStorage.RootOverrideVariable);
+        Environment.SetEnvironmentVariable(RepositoryTemporaryStorage.RootOverrideVariable, null);
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => RepositoryTemporaryStorage.CreateDirectoryUnder(fakeRepository.Path, "tests"));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(RepositoryTemporaryStorage.RootOverrideVariable, previous);
+        }
     }
 
     [Fact]

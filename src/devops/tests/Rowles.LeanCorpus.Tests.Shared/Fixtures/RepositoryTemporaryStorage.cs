@@ -60,7 +60,7 @@ internal static class RepositoryTemporaryStorage
         ArgumentNullException.ThrowIfNull(prefix);
         string areaRoot = GetAreaRoot(repositoryRoot, area);
         string path = Path.Combine(areaRoot, string.Concat(prefix, Guid.NewGuid().ToString("N")));
-        CreateOwnerOnly(path);
+        CreateNewOwnerOnly(path);
         return new RepositoryTemporaryDirectory(path);
     }
 
@@ -89,28 +89,36 @@ internal static class RepositoryTemporaryStorage
 
     /// <summary>
     /// Returns the parent of the area directories: <paramref name="overrideRoot"/> when it is set and
-    /// valid, otherwise <c>&lt;repository root&gt;/artifacts/tmp</c>.
+    /// valid, otherwise <c>&lt;repository root&gt;/artifacts/tmp</c>. Neither may be a symbolic link. An
+    /// override must already be owner-only; the default root is created or tightened to owner-only.
     /// </summary>
     public static string ResolveTemporaryRoot(string repositoryRoot, string? overrideRoot)
     {
         if (string.IsNullOrWhiteSpace(overrideRoot))
-            return Path.Combine(Path.GetFullPath(repositoryRoot), "artifacts", "tmp");
-
-        string root = Path.GetFullPath(overrideRoot);
-        var directory = new DirectoryInfo(root);
-        if (!directory.Exists)
-            throw new InvalidOperationException($"{RootOverrideVariable} '{root}' does not exist. Create it, owner-only, before running.");
-        if (directory.LinkTarget is not null)
-            throw new InvalidOperationException($"{RootOverrideVariable} '{root}' is a symbolic link. Use the real directory.");
-        if (!OperatingSystem.IsWindows())
         {
-            const UnixFileMode groupOrOther = UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
-                | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
-            if ((File.GetUnixFileMode(root) & groupOrOther) != 0)
-                throw new InvalidOperationException($"{RootOverrideVariable} '{root}' must be owner-only (chmod 700).");
+            string defaultRoot = Path.Combine(Path.GetFullPath(repositoryRoot), "artifacts", "tmp");
+            EnsureSecureDirectory(defaultRoot, "The repository temporary root");
+            return defaultRoot;
         }
 
+        string root = Path.GetFullPath(overrideRoot);
+        if (!Directory.Exists(root))
+            throw new InvalidOperationException($"{RootOverrideVariable} '{root}' does not exist. Create it, owner-only, before running.");
+        RejectLink(root, RootOverrideVariable);
+        if (HasGroupOrOtherAccess(root))
+            throw new InvalidOperationException($"{RootOverrideVariable} '{root}' must be owner-only (chmod 700).");
         return root;
+    }
+
+    /// <summary>
+    /// Returns a new unique path in <paramref name="area"/> without creating it, for code that creates
+    /// the directory itself. The area root is owner-only, so anything created beneath it is private to
+    /// the current user even when created with default permissions.
+    /// </summary>
+    public static string NewPath(string area, string prefix = "")
+    {
+        ArgumentNullException.ThrowIfNull(prefix);
+        return Path.Combine(GetAreaRoot(area), string.Concat(prefix, Guid.NewGuid().ToString("N")));
     }
 
     private static string GetAreaRoot(string repositoryRoot, string area)
@@ -121,13 +129,45 @@ internal static class RepositoryTemporaryStorage
 
         string tmpRoot = ResolveTemporaryRoot(repositoryRoot, Environment.GetEnvironmentVariable(RootOverrideVariable));
         string areaRoot = Path.Combine(tmpRoot, area);
-        if (!Directory.Exists(areaRoot))
+        EnsureSecureDirectory(areaRoot, $"Temporary storage area '{area}'");
+        return areaRoot;
+    }
+
+    /// <summary>
+    /// Creates <paramref name="path"/> owner-only, or validates an existing one: it must not be a
+    /// symbolic link or reparse point, and on Unix any group or other access is removed. Tightening a
+    /// directory owned by another user fails, so a foreign directory is never trusted.
+    /// </summary>
+    public static void EnsureSecureDirectory(string path, string description)
+    {
+        if (!Directory.Exists(path))
         {
-            Directory.CreateDirectory(tmpRoot);
-            CreateOwnerOnly(areaRoot);
+            if (File.Exists(path) || new FileInfo(path).LinkTarget is not null)
+                throw new InvalidOperationException($"{description} '{path}' exists but is not a directory.");
+            CreateOwnerOnly(path);
         }
 
-        return areaRoot;
+        RejectLink(path, description);
+        if (!OperatingSystem.IsWindows() && HasGroupOrOtherAccess(path))
+            File.SetUnixFileMode(path, OwnerOnly);
+    }
+
+    private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
+    private static void RejectLink(string path, string description)
+    {
+        var info = new DirectoryInfo(path);
+        if (info.LinkTarget is not null || info.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            throw new InvalidOperationException($"{description} '{path}' is a symbolic link or reparse point. Use a real directory.");
+    }
+
+    private static bool HasGroupOrOtherAccess(string path)
+    {
+        if (OperatingSystem.IsWindows())
+            return false;
+        const UnixFileMode groupOrOther = UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+            | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+        return (File.GetUnixFileMode(path) & groupOrOther) != 0;
     }
 
     private static void CreateOwnerOnly(string path)
@@ -135,7 +175,16 @@ internal static class RepositoryTemporaryStorage
         if (OperatingSystem.IsWindows())
             Directory.CreateDirectory(path);
         else
-            Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Directory.CreateDirectory(path, OwnerOnly);
+    }
+
+    private static void CreateNewOwnerOnly(string path)
+    {
+        if (Directory.Exists(path) || File.Exists(path))
+            throw new IOException($"Temporary directory '{path}' already exists; refusing to reuse it.");
+        CreateOwnerOnly(path);
+        if (!OperatingSystem.IsWindows() && HasGroupOrOtherAccess(path))
+            File.SetUnixFileMode(path, OwnerOnly);
     }
 }
 

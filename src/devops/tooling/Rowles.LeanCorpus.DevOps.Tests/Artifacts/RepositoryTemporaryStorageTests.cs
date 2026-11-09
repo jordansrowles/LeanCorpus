@@ -26,7 +26,10 @@ public sealed class RepositoryTemporaryStorageTests
         var second = paths.CreateTemporaryDirectory("probe-");
         try
         {
-            Assert.Equal(Path.Combine(paths.ArtifactRoot, "tmp", "devops"), paths.TemporaryRoot);
+            var overrideRoot = Environment.GetEnvironmentVariable(RepositoryTemporaryStorage.RootOverrideVariable);
+            Assert.Equal(string.IsNullOrWhiteSpace(overrideRoot)
+                ? Path.Combine(paths.ArtifactRoot, "tmp", "devops")
+                : Path.Combine(Path.GetFullPath(overrideRoot), "devops"), paths.TemporaryRoot);
             Assert.StartsWith(paths.TemporaryRoot + Path.DirectorySeparatorChar, first, StringComparison.Ordinal);
             Assert.NotEqual(first, second);
             Assert.True(Directory.Exists(first));
