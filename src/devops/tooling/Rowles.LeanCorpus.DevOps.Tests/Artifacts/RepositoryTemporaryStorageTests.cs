@@ -10,7 +10,8 @@ public sealed class RepositoryTemporaryStorageTests
         using var first = RepositoryTemporaryStorage.CreateDirectory("devops-tests", "link_");
         using var second = RepositoryTemporaryStorage.CreateDirectory("devops-tests", "link_");
 
-        var areaRoot = Path.Combine(RepositoryTemporaryStorage.RepositoryRoot, "artifacts", "tmp", "devops-tests") + Path.DirectorySeparatorChar;
+        var areaRoot = Path.Combine(RepositoryTemporaryStorage.ResolveTemporaryRoot(RepositoryTemporaryStorage.RepositoryRoot,
+            Environment.GetEnvironmentVariable(RepositoryTemporaryStorage.RootOverrideVariable)), "devops-tests") + Path.DirectorySeparatorChar;
         Assert.StartsWith(areaRoot, first.Path, StringComparison.Ordinal);
         Assert.NotEqual(first.Path, second.Path);
         if (!OperatingSystem.IsWindows())

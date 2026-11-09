@@ -11,7 +11,9 @@ public sealed class RepositoryTemporaryStorageTests
     {
         using var directory = RepositoryTemporaryStorage.CreateDirectory("tests", "probe_");
 
-        string expectedRoot = Path.Combine(RepositoryTemporaryStorage.RepositoryRoot, "artifacts", "tmp", "tests") + Path.DirectorySeparatorChar;
+        string temporaryRoot = RepositoryTemporaryStorage.ResolveTemporaryRoot(
+            RepositoryTemporaryStorage.RepositoryRoot, Environment.GetEnvironmentVariable(RepositoryTemporaryStorage.RootOverrideVariable));
+        string expectedRoot = Path.Combine(temporaryRoot, "tests") + Path.DirectorySeparatorChar;
         Assert.StartsWith(expectedRoot, directory.Path, StringComparison.Ordinal);
         Assert.StartsWith("probe_", Path.GetFileName(directory.Path), StringComparison.Ordinal);
         Assert.True(Directory.Exists(directory.Path));
@@ -58,6 +60,31 @@ public sealed class RepositoryTemporaryStorageTests
     public void Unknown_area_is_rejected()
     {
         Assert.Throws<ArgumentException>(() => RepositoryTemporaryStorage.CreateDirectory("scratch"));
+    }
+
+    [Fact]
+    public void Override_root_is_used_only_when_it_is_an_existing_owner_only_directory()
+    {
+        using var parent = RepositoryTemporaryStorage.CreateDirectory("tests", "override_");
+        string repository = RepositoryTemporaryStorage.RepositoryRoot;
+
+        Assert.Equal(Path.Combine(repository, "artifacts", "tmp"), RepositoryTemporaryStorage.ResolveTemporaryRoot(repository, null));
+        Assert.Equal(parent.Path, RepositoryTemporaryStorage.ResolveTemporaryRoot(repository, parent.Path));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            RepositoryTemporaryStorage.ResolveTemporaryRoot(repository, Path.Combine(parent.Path, "missing")));
+
+        if (OperatingSystem.IsWindows())
+            return;
+
+        string open = Path.Combine(parent.Path, "open");
+        Directory.CreateDirectory(open);
+        File.SetUnixFileMode(open, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        Assert.Throws<InvalidOperationException>(() => RepositoryTemporaryStorage.ResolveTemporaryRoot(repository, open));
+
+        string link = Path.Combine(parent.Path, "link");
+        Directory.CreateSymbolicLink(link, parent.Path);
+        Assert.Throws<InvalidOperationException>(() => RepositoryTemporaryStorage.ResolveTemporaryRoot(repository, link));
     }
 
     [Fact]

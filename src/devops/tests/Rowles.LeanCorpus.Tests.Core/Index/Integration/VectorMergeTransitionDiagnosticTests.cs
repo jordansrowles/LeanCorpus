@@ -17,7 +17,7 @@ public sealed class VectorMergeTransitionDiagnosticTests : IDisposable
 {
     private const int Dimension = 4;
     private const int TopK = 10;
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"vector-merge-transition-{Guid.NewGuid():N}");
+    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"vector-merge-transition-{Guid.NewGuid():N}");
 
     public VectorMergeTransitionDiagnosticTests() => Directory.CreateDirectory(_path);
 
@@ -89,7 +89,7 @@ public sealed class VectorMergeTransitionDiagnosticTests : IDisposable
 
         string? diagnosticDirectory = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
         if (string.IsNullOrWhiteSpace(diagnosticDirectory))
-            diagnosticDirectory = Path.GetTempPath();
+            diagnosticDirectory = RepositoryTemporaryStorage.GetAreaRoot("tests");
         Directory.CreateDirectory(diagnosticDirectory);
         File.WriteAllText(
             Path.Combine(diagnosticDirectory, "leancorpus-vector-merge-transition-diagnostic.json"),

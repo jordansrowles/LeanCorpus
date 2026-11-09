@@ -26,7 +26,7 @@ public sealed class IndexStatsPersistenceTests : IDisposable
 
     public IndexStatsPersistenceTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), $"ll_stats_{Guid.NewGuid():N}");
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll_stats_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_dir);
     }
 

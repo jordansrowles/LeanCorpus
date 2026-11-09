@@ -14,7 +14,7 @@ public sealed class IndexedCodecTests : IDisposable
 
     public IndexedCodecTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_idx_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_idx_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_dir);
     }
 

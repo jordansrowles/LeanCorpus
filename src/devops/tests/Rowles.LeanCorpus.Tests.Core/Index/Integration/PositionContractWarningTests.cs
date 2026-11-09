@@ -10,7 +10,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Search)]
 public sealed class PositionContractWarningTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), "position-warning-" + Guid.NewGuid().ToString("N"));
+    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "position-warning-" + Guid.NewGuid().ToString("N"));
     public void Dispose() => TestDirectoryFixture.TryDeleteDirectory(_path);
 
     private void Build(bool legacy, bool compound = false)

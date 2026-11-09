@@ -14,7 +14,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class SpatialShapeQueryTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"lc_shape_query_{Guid.NewGuid():N}");
+    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc_shape_query_{Guid.NewGuid():N}");
 
     public void Dispose() => TestDirectoryFixture.TryDeleteDirectory(_path);
 

@@ -12,7 +12,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search.XY;
 public sealed class XYPointQueryTests : IDisposable
 {
     private readonly string _directoryPath = Path.Combine(
-        Path.GetTempPath(), "leancorpus_xy_query_" + Guid.NewGuid().ToString("N")[..8]);
+        RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus_xy_query_" + Guid.NewGuid().ToString("N")[..8]);
 
     public void Dispose()
         => TestDirectoryFixture.TryDeleteDirectory(_directoryPath);

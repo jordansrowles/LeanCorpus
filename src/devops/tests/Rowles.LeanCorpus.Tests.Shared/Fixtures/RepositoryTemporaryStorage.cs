@@ -2,12 +2,19 @@ namespace Rowles.LeanCorpus.Tests.Shared.Fixtures;
 
 /// <summary>
 /// Allocates repository-owned temporary directories under
-/// <c>&lt;repository root&gt;/artifacts/tmp/&lt;area&gt;/&lt;prefix&gt;&lt;32 hex&gt;</c> (ADR046).
+/// <c>&lt;repository root&gt;/artifacts/tmp/&lt;area&gt;/&lt;prefix&gt;&lt;32 hex&gt;</c> (ADR046), or under a
+/// validated owner-only <see cref="RootOverrideVariable"/> directory.
 /// Each directory is unique, owner-only on Unix and removed on dispose. This file has no
 /// LeanCorpus dependency so projects that do not reference Tests.Shared can link it as source.
 /// </summary>
 internal static class RepositoryTemporaryStorage
 {
+    /// <summary>
+    /// Optional override for the parent of the area directories, for example an owner-only directory on
+    /// a RAM disk. It must already exist, must not be a symbolic link and, on Unix, must be owner-only.
+    /// </summary>
+    public const string RootOverrideVariable = "LEANCORPUS_TEMP_ROOT";
+
     /// <summary>The marker file that identifies the repository root.</summary>
     public const string RootMarker = ".config/devops/test-suites.json";
 
@@ -80,13 +87,39 @@ internal static class RepositoryTemporaryStorage
         }
     }
 
+    /// <summary>
+    /// Returns the parent of the area directories: <paramref name="overrideRoot"/> when it is set and
+    /// valid, otherwise <c>&lt;repository root&gt;/artifacts/tmp</c>.
+    /// </summary>
+    public static string ResolveTemporaryRoot(string repositoryRoot, string? overrideRoot)
+    {
+        if (string.IsNullOrWhiteSpace(overrideRoot))
+            return Path.Combine(Path.GetFullPath(repositoryRoot), "artifacts", "tmp");
+
+        string root = Path.GetFullPath(overrideRoot);
+        var directory = new DirectoryInfo(root);
+        if (!directory.Exists)
+            throw new InvalidOperationException($"{RootOverrideVariable} '{root}' does not exist. Create it, owner-only, before running.");
+        if (directory.LinkTarget is not null)
+            throw new InvalidOperationException($"{RootOverrideVariable} '{root}' is a symbolic link. Use the real directory.");
+        if (!OperatingSystem.IsWindows())
+        {
+            const UnixFileMode groupOrOther = UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+                | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+            if ((File.GetUnixFileMode(root) & groupOrOther) != 0)
+                throw new InvalidOperationException($"{RootOverrideVariable} '{root}' must be owner-only (chmod 700).");
+        }
+
+        return root;
+    }
+
     private static string GetAreaRoot(string repositoryRoot, string area)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
         if (!Areas.Contains(area, StringComparer.Ordinal))
             throw new ArgumentException($"'{area}' is not a repository temporary storage area. Use one of: {string.Join(", ", Areas)}.", nameof(area));
 
-        string tmpRoot = Path.Combine(Path.GetFullPath(repositoryRoot), "artifacts", "tmp");
+        string tmpRoot = ResolveTemporaryRoot(repositoryRoot, Environment.GetEnvironmentVariable(RootOverrideVariable));
         string areaRoot = Path.Combine(tmpRoot, area);
         if (!Directory.Exists(areaRoot))
         {

@@ -25,7 +25,7 @@ public sealed class IndexValidatorGapsTests : IDisposable
 
     public IndexValidatorGapsTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "ll_ivg_" + Guid.NewGuid().ToString("N")[..8]);
+        _root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_ivg_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_root);
     }
 

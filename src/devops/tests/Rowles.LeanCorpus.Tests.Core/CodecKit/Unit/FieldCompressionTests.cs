@@ -25,7 +25,7 @@ public class FieldCompressionTests : IDisposable
 
     public FieldCompressionTests()
     {
-        _baseDir = Path.Combine(Path.GetTempPath(), "compress_tests_" + Guid.NewGuid().ToString("N"));
+        _baseDir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "compress_tests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_baseDir);
     }
 

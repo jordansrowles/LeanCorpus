@@ -17,7 +17,7 @@ public sealed class SegmentReaderGapsTests: IDisposable
 
     public SegmentReaderGapsTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_sr_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_sr_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_dir);
     }
 

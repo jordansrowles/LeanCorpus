@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class IndexFileInspectorTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"ll-ifi-{Guid.NewGuid():N}");
+    private readonly string _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-ifi-{Guid.NewGuid():N}");
 
     public IndexFileInspectorTests() => Directory.CreateDirectory(_dir);
 

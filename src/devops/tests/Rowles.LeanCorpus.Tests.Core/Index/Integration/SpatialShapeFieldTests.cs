@@ -358,7 +358,7 @@ public sealed class SpatialShapeFieldTests
 
     private static string CreateDirectoryPath()
     {
-        string path = Path.Combine(Path.GetTempPath(), "leancorpus-spatial-shapes", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-spatial-shapes", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
     }

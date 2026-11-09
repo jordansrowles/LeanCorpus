@@ -14,7 +14,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class IndexWriterCommitAuditRegressionTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), $"ll-writer-audit-{Guid.NewGuid():N}");
+    private readonly string _root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-writer-audit-{Guid.NewGuid():N}");
 
     public IndexWriterCommitAuditRegressionTests() => Directory.CreateDirectory(_root);
 

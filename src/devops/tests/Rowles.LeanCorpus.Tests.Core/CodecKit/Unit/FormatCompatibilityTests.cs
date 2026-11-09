@@ -31,7 +31,7 @@ public sealed class FormatCompatibilityTests : IDisposable
     public FormatCompatibilityTests()
     {
         _tempDirectory = Path.Combine(
-            Path.GetTempPath(),
+            RepositoryTemporaryStorage.GetAreaRoot("tests"),
             "LeanCorpus_FormatCompatibilityTests",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDirectory);

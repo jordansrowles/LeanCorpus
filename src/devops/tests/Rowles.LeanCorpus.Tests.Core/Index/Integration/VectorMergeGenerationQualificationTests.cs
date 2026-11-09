@@ -15,7 +15,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 public sealed class VectorMergeGenerationQualificationTests : IDisposable
 {
     private const int Dimension = 4;
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"vector-merge-generations-{Guid.NewGuid():N}");
+    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"vector-merge-generations-{Guid.NewGuid():N}");
 
     public VectorMergeGenerationQualificationTests() => Directory.CreateDirectory(_path);
 

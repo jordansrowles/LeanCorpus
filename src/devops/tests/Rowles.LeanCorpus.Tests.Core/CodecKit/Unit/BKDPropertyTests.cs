@@ -12,7 +12,7 @@ public sealed class BKDPropertyTests
 {
     private static string TempPath(string name)
     {
-        var dir = Path.Combine(Path.GetTempPath(), "leancorpus-bkd-prop", Guid.NewGuid().ToString("N"));
+        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-bkd-prop", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         return Path.Combine(dir, name + ".bkd");
     }

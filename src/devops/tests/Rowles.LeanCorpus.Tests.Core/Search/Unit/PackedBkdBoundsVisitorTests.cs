@@ -14,7 +14,7 @@ public sealed class PackedBkdBoundsVisitorTests
     [Fact(DisplayName = "Packed bounds visitor includes edges and deduplicates a dateline union")]
     public void GeoDatelineUnion_IncludesEdgesExcludesGreenwichAndDeduplicatesDocuments()
     {
-        string path = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bounds-" + Guid.NewGuid().ToString("N") + ".pbkd");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-packed-bounds-" + Guid.NewGuid().ToString("N") + ".pbkd");
         using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(maxPointsPerLeaf: 2));
         AppendGeo(buffer, 0, -175, 0);
         AppendGeo(buffer, 0, 175, 0);
@@ -43,7 +43,7 @@ public sealed class PackedBkdBoundsVisitorTests
     [Fact(DisplayName = "Packed bounds visitor matches inclusive XY rectangle edges")]
     public void XYRectangle_IncludesBothInclusiveEdges()
     {
-        string path = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bounds-" + Guid.NewGuid().ToString("N") + ".pbkd");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-packed-bounds-" + Guid.NewGuid().ToString("N") + ".pbkd");
         using var buffer = new PackedBkdFieldBuffer(PackedBkdConfig.Point2D(maxPointsPerLeaf: 2));
         AppendXy(buffer, 0, 1, 2);
         AppendXy(buffer, 1, 2, 3);

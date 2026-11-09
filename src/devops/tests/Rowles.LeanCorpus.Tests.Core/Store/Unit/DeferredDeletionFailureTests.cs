@@ -9,7 +9,7 @@ public sealed class DeferredDeletionFailureTests
     [Fact]
     public void FailedDeferredDeleteRetainsItsPendingOwnershipUntilCleanupSucceeds()
     {
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-deferred-failure", Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-deferred-failure", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string path = Path.Combine(root, "retired.bin");
         File.WriteAllText(path, "retired input");

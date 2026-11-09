@@ -14,7 +14,7 @@ public sealed class PhysicalIndexRuntimeSmokeTests
     [Trait("Area", "Index")]
     public async Task PhysicalRuntimeDrainsItsSearcherAndReopensUnderNativeAot()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"lc-aot-runtime-{Guid.NewGuid():N}");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("aot"), $"lc-aot-runtime-{Guid.NewGuid():N}");
         var runtime = Open(path);
         PhysicalIndexRuntime.PhysicalSearcherLease? lease = null;
         try

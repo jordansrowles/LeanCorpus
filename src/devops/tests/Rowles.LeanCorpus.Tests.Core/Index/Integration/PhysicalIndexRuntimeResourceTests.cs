@@ -260,5 +260,5 @@ public sealed class PhysicalIndexRuntimeResourceTests
     private static PhysicalIndexRuntime Open(string path, IndexWriterConfig? config = null) => new(path,
         config ?? new IndexWriterConfig { DurableCommits = false }, new SearcherManagerConfig { RefreshInterval = TimeSpan.FromHours(1) });
     private static LeanDocument Document(string value) { var document = new LeanDocument(); document.Add(new TextField("body", value)); return document; }
-    private static string NewPath() => Path.Combine(Path.GetTempPath(), "leancorpus-runtime-resources", Guid.NewGuid().ToString("N"));
+    private static string NewPath() => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-runtime-resources", Guid.NewGuid().ToString("N"));
 }

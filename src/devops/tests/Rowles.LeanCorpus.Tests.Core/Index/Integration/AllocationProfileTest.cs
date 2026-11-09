@@ -28,7 +28,7 @@ public class AllocationProfileTest : IDisposable
     public AllocationProfileTest(ITestOutputHelper output)
     {
         _output = output;
-        _path = Path.Combine(Path.GetTempPath(), $"leancorpus-alloc-{Guid.NewGuid():N}");
+        _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"leancorpus-alloc-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_path);
         _dir = new MMapDirectory(_path);
 
@@ -178,7 +178,7 @@ public class AllocationProfileTest : IDisposable
     [Fact(DisplayName = "Indexing 10 K: Allocation Under 50 MB")]
     public void Indexing10K_AllocationUnder50MB()
     {
-        var testPath = Path.Combine(Path.GetTempPath(), $"leancorpus-idx-alloc-{Guid.NewGuid():N}");
+        var testPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"leancorpus-idx-alloc-{Guid.NewGuid():N}");
         Directory.CreateDirectory(testPath);
 
         try

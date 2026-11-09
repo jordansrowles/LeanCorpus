@@ -402,7 +402,7 @@ public sealed class RoaringBitmapTests
         for (int i = 0; i < 100; i++)
             rb.Add(i * 7);
 
-        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"roaring_test_{Guid.NewGuid():N}.bin");
         try
         {
             rb.Serialise(path);
@@ -429,7 +429,7 @@ public sealed class RoaringBitmapTests
         for (int i = 0; i < 5000; i++)
             rb.Add(i);
 
-        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"roaring_test_{Guid.NewGuid():N}.bin");
         try
         {
             rb.Serialise(path);
@@ -455,7 +455,7 @@ public sealed class RoaringBitmapTests
             rb.Add(i);
         rb.OptimiseRuns();
 
-        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"roaring_test_{Guid.NewGuid():N}.bin");
         try
         {
             rb.Serialise(path);
@@ -483,7 +483,7 @@ public sealed class RoaringBitmapTests
         rb.Add(131072);
         rb.Add(200000);
 
-        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"roaring_test_{Guid.NewGuid():N}.bin");
         try
         {
             rb.Serialise(path);
@@ -506,7 +506,7 @@ public sealed class RoaringBitmapTests
     {
         var rb = new RoaringBitmap();
 
-        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"roaring_test_{Guid.NewGuid():N}.bin");
         try
         {
             rb.Serialise(path);
@@ -526,7 +526,7 @@ public sealed class RoaringBitmapTests
         var rb = new RoaringBitmap();
         for (int i = 0; i < 100; i++) rb.Add(i * 3);
 
-        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"roaring_test_{Guid.NewGuid():N}.bin");
         try
         {
             rb.Serialise(path);
@@ -549,7 +549,7 @@ public sealed class RoaringBitmapTests
         var rb = new RoaringBitmap();
         for (int i = 0; i < 100; i++) rb.Add(i * 3);
 
-        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"roaring_test_{Guid.NewGuid():N}.bin");
         try
         {
             rb.Serialise(path);
@@ -568,7 +568,7 @@ public sealed class RoaringBitmapTests
     [Fact(DisplayName = "Deserialise: Rejects Bad Magic")]
     public void Deserialise_RejectsBadMagic()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"roaring_test_{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"roaring_test_{Guid.NewGuid():N}.bin");
         try
         {
             File.WriteAllBytes(path, new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 });

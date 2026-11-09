@@ -24,7 +24,7 @@ public sealed class IndexInputEdgeCaseTests : IDisposable
 
     public IndexInputEdgeCaseTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_iie_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_iie_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_dir);
     }
 

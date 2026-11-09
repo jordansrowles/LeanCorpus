@@ -17,7 +17,7 @@ public class MetricsTests : IDisposable
 
     public MetricsTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "metrics_tests_" + Guid.NewGuid().ToString("N"));
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "metrics_tests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
     }
 

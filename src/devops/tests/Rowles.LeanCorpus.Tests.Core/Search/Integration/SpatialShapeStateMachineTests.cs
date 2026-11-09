@@ -16,7 +16,7 @@ public sealed class SpatialShapeStateMachineTests : IDisposable
 {
     private const int ReplaySeed = 0x7032_034;
     private readonly string _path = Path.Combine(
-        Path.GetTempPath(), "leancorpus_shape_model_" + Guid.NewGuid().ToString("N"));
+        RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus_shape_model_" + Guid.NewGuid().ToString("N"));
 
     public void Dispose() => TestDirectoryFixture.TryDeleteDirectory(_path);
 

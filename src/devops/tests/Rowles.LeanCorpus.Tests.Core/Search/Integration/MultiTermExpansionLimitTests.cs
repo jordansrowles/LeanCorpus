@@ -13,7 +13,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class MultiTermExpansionLimitTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), "multi-term-limit-" + Guid.NewGuid().ToString("N"));
+    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "multi-term-limit-" + Guid.NewGuid().ToString("N"));
     public MultiTermExpansionLimitTests() => Directory.CreateDirectory(_path);
     public void Dispose() => Directory.Delete(_path, true);
 

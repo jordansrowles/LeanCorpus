@@ -15,7 +15,7 @@ public class NumericAggregationTests : IDisposable
 
     public NumericAggregationTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "agg_tests_" + Guid.NewGuid().ToString("N"));
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "agg_tests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
     }
 

@@ -222,7 +222,7 @@ public sealed class TelemetryExecutionStoreTests
 
     private static string NewDirectory()
     {
-        string path = Path.Combine(Path.GetTempPath(), "leancorpus-telemetry-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-telemetry-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
     }

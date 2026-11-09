@@ -10,7 +10,7 @@ public sealed class SegmentReaderLeaseFailureTests
     [Fact]
     public void Dispose_AccountingFailureStillReleasesOperationAndDirectoryLeases()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"ll-reader-lease-failure-{Guid.NewGuid():N}");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-reader-lease-failure-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         try
         {

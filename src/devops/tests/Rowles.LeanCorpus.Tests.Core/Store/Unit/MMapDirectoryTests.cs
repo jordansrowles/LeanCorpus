@@ -182,7 +182,7 @@ public sealed class MMapDirectoryTests : IClassFixture<TestDirectoryFixture>
     public void MMapDirectory_RelativePath_RetainsConstructionDirectory()
     {
         var originalCurrentDirectory = Environment.CurrentDirectory;
-        var root = Path.Combine(Path.GetTempPath(), "LeanCorpus_Tests", Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "LeanCorpus_Tests", Guid.NewGuid().ToString("N"));
         var constructionDirectory = Path.Combine(root, "construction");
         var changedDirectory = Path.Combine(root, "changed");
         Directory.CreateDirectory(constructionDirectory);

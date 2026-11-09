@@ -15,7 +15,7 @@ public sealed class PostingsEnumGapsTests : IDisposable
 
     public PostingsEnumGapsTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "pe_gaps_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "pe_gaps_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_dir);
     }
 

@@ -17,7 +17,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class IndexSnapshotTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"ll-snap-{Guid.NewGuid():N}");
+    private readonly string _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-snap-{Guid.NewGuid():N}");
 
     public IndexSnapshotTests() => Directory.CreateDirectory(_dir);
 

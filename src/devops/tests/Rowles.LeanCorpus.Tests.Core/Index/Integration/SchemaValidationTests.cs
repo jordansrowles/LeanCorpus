@@ -111,7 +111,7 @@ public sealed class SchemaValidationTests
     [Fact(DisplayName = "IndexWriter: Batch Paths Validate Schema Before Indexing")]
     public async Task IndexWriter_BatchPaths_ValidateSchemaBeforeIndexing()
     {
-        using var directory = new Rowles.LeanCorpus.Store.MMapDirectory(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        using var directory = new Rowles.LeanCorpus.Store.MMapDirectory(Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString("N")));
         var schema = new IndexSchema()
             .Add(new FieldMapping("title", FieldType.Text) { IsRequired = true });
         using var writer = new IndexWriter(directory, new IndexWriterConfig { Schema = schema });

@@ -21,7 +21,7 @@ public class IndexWriterReuseTests
     [Fact(DisplayName = "Multiple Flushes: Reuse Buffers Produce Correct Results")]
     public void MultipleFlushes_ReuseBuffers_ProduceCorrectResults()
     {
-        var dir = Path.Combine(Path.GetTempPath(), $"ll_reuse_{Guid.NewGuid():N}");
+        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll_reuse_{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
 
         try
@@ -67,7 +67,7 @@ public class IndexWriterReuseTests
     [Fact(DisplayName = "Phrase Query: After Multiple Flushes Finds Correct Phrases")]
     public void PhraseQuery_AfterMultipleFlushes_FindsCorrectPhrases()
     {
-        var dir = Path.Combine(Path.GetTempPath(), $"ll_phrase_reuse_{Guid.NewGuid():N}");
+        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll_phrase_reuse_{Guid.NewGuid():N}");
         Directory.CreateDirectory(dir);
 
         try

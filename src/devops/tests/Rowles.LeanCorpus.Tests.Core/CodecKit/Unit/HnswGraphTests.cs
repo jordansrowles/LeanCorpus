@@ -197,7 +197,7 @@ public sealed class HnswGraphTests
             .ToDictionary(static id => id, _ => Normalise(RandomVector(random, dimension)));
         var source = MakeSource(vectors, dimension);
         var config = new HnswBuildConfig { M = 4, EfConstruction = 12 };
-        var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hnsw-entry-" + Guid.NewGuid().ToString("N") + ".hnsw");
+        var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "hnsw-entry-" + Guid.NewGuid().ToString("N") + ".hnsw");
 
         using var graph = new HnswGraph(source, config, seed: 19);
         var observedPromotion = false;

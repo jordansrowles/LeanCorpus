@@ -29,7 +29,7 @@ public sealed class PlatformFileSystemTests
     [Fact(DisplayName = "Dirty files: an older sync cannot clear a concurrent rewrite")]
     public void DirtyFileTracker_MarkSynced_PreservesNewerVersion()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"lc_dirty_{Guid.NewGuid():N}");
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc_dirty_{Guid.NewGuid():N}");
         string path = Path.Combine(directory, "seg_0.pos");
         DirtyFileTracker.MarkWritten(path);
         var original = Assert.Single(DirtyFileTracker.Snapshot(directory, static _ => true));
@@ -44,7 +44,7 @@ public sealed class PlatformFileSystemTests
     [Fact(DisplayName = "Dirty files: move transfers dirtiness to the published path")]
     public void DirtyFileTracker_Move_TransfersDirtyState()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"lc_dirty_{Guid.NewGuid():N}");
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc_dirty_{Guid.NewGuid():N}");
         string temporary = Path.Combine(directory, "seg_0.pos.tmp");
         string published = Path.Combine(directory, "seg_0.pos");
         DirtyFileTracker.MarkWritten(temporary);
@@ -60,7 +60,7 @@ public sealed class PlatformFileSystemTests
     [Fact(DisplayName = "Dirty files: deleting a directory forgets nested files only")]
     public void DirtyFileTracker_ForgetDirectory_RemovesNestedFilesOnly()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lc_dirty_{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc_dirty_{Guid.NewGuid():N}");
         string nestedDirectory = Path.Combine(root, "nested");
         string siblingDirectory = root + "-sibling";
         string nestedFile = Path.Combine(nestedDirectory, "seg_0.pos");
@@ -78,7 +78,7 @@ public sealed class PlatformFileSystemTests
     [Fact(DisplayName = "Tracked index write: close automatically registers the file")]
     public void CreateTrackedIndexFile_Dispose_RegistersDirtyFile()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"lc_tracked_{Guid.NewGuid():N}");
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc_tracked_{Guid.NewGuid():N}");
         string path = Path.Combine(directory, "seg_0.pos");
         Directory.CreateDirectory(directory);
         try
@@ -98,7 +98,7 @@ public sealed class PlatformFileSystemTests
     [Fact(DisplayName = "Untracked diagnostic write: does not enter commit durability state")]
     public void OpenAppendText_DiagnosticWrite_DoesNotRegisterDirtyFile()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"lc_untracked_{Guid.NewGuid():N}");
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc_untracked_{Guid.NewGuid():N}");
         string path = Path.Combine(directory, "slow-query.log");
         Directory.CreateDirectory(directory);
         try
@@ -163,7 +163,7 @@ public sealed class PlatformFileSystemTests
             nativeCalls++;
             return DirectorySyncResult.Unsupported;
         });
-        string root = Path.GetPathRoot(Path.GetFullPath(Path.GetTempPath()))!;
+        string root = Path.GetPathRoot(Path.GetFullPath(RepositoryTemporaryStorage.GetAreaRoot("tests")))!;
 
         var first = fileSystem.SyncDirectory(Path.Combine(root, "one"));
         var second = fileSystem.SyncDirectory(Path.Combine(root, "two"));

@@ -10,7 +10,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs.CodecKit;
 [Area(TestArea.CodecKit)]
 public sealed class DocValuesCanonicalFrameTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "LeanCorpus_DocValuesFrame", Guid.NewGuid().ToString("N"));
+    private readonly string _directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "LeanCorpus_DocValuesFrame", Guid.NewGuid().ToString("N"));
 
     public DocValuesCanonicalFrameTests() => Directory.CreateDirectory(_directory);
 

@@ -15,7 +15,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class RankingProfilesAndRulesTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"lc_ranking_{Guid.NewGuid():N}");
+    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc_ranking_{Guid.NewGuid():N}");
     public RankingProfilesAndRulesTests() => Directory.CreateDirectory(_path);
     public void Dispose() => TestDirectoryFixture.TryDeleteDirectory(_path);
 

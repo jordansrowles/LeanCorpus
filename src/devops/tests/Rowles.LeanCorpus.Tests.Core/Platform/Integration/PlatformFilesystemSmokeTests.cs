@@ -10,7 +10,7 @@ public sealed class PlatformFilesystemSmokeTests
     [Fact]
     public void Mapped_file_can_be_read_renamed_and_deleted_after_disposal()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"leancorpus-platform-filesystem-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"leancorpus-platform-filesystem-{Guid.NewGuid():N}");
         const string sourceName = "mapped.bin";
         const string renamedName = "mapped-renamed.bin";
         const string deleteName = "delete-through-directory.bin";

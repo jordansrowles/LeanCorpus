@@ -22,7 +22,7 @@ public sealed class PhysicalIndexRuntimeProcessTests
             return;
         }
 
-        string path = Path.Combine(Path.GetTempPath(), "leancorpus-process-ownership", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-process-ownership", Guid.NewGuid().ToString("N"));
         var runtime = Open(path);
         try
         {
@@ -42,7 +42,7 @@ public sealed class PhysicalIndexRuntimeProcessTests
 
     private static async Task RunProbeAsync(string path, bool blocked)
     {
-        string results = Path.Combine(Path.GetTempPath(), "leancorpus-process-probe-results", Guid.NewGuid().ToString("N"));
+        string results = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-process-probe-results", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(results);
         var start = new ProcessStartInfo(Environment.ProcessPath!)
         {

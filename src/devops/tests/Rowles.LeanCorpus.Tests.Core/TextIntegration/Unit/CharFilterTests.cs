@@ -16,7 +16,7 @@ public class CharFilterTests : IDisposable
 
     public CharFilterTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "charfilter_tests_" + Guid.NewGuid().ToString("N"));
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "charfilter_tests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
     }
 

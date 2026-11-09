@@ -26,7 +26,7 @@ public class CommitDurabilityTests : IDisposable
 
     public CommitDurabilityTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), $"ll_durable_{Guid.NewGuid():N}");
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll_durable_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_dir);
     }
 

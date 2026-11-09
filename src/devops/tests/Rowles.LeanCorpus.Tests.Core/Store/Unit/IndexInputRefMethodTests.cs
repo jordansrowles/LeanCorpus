@@ -27,7 +27,7 @@ public sealed class IndexInputRefMethodTests : IDisposable
 
     public IndexInputRefMethodTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_iir_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_iir_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_dir);
     }
 

@@ -13,7 +13,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class SegmentReaderQueryLeaseTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"ll-query-lease-{Guid.NewGuid():N}");
+    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-query-lease-{Guid.NewGuid():N}");
 
     [Fact(DisplayName = "Segment Reader Query Lease: Rejects Cross Thread Disposal And Restores Outer Reader")]
     public void NestedReaders_CrossThreadDisposalIsRejected_OuterScopeIsRestored()

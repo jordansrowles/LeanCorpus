@@ -37,6 +37,14 @@ Repository-owned code allocates temporary storage under
   it never falls back to operating-system temporary storage. The DevOps tool
   uses its existing `ArtifactPaths` root (`ArtifactPaths.TemporaryRoot`,
   `artifacts/tmp/devops`) because it runs against an explicit `--repo`.
+- **Optional override.** `LEANCORPUS_TEMP_ROOT` can replace
+  `<repository root>/artifacts/tmp` as the parent of the area directories, for
+  example to keep fsync-heavy tests on a developer's RAM disk. It must already
+  exist, must not be a symbolic link and, on Unix, must have no group or other
+  permission bits; otherwise creation throws. A writable owner-only directory
+  belongs to the current user (or the user is root), so the shared-directory
+  exposure does not return. The override is never inferred from `TMP`, `TEMP` or
+  `TMPDIR`.
 - **Creation** uses a new GUID per directory. On Unix the directory is created
   owner-only (read, write and execute for the user). Directories are never
   shared between tests or processes.
@@ -89,6 +97,11 @@ and the explicit register keeps the genuine exceptions reviewable.
   alter measured I/O.
 - New code that selects operating-system temporary storage in these projects
   fails the architecture tests unless it is registered with a reason.
+- Local test I/O moves off any RAM-disk `/tmp`. On a host where `/tmp` is tmpfs,
+  durable-commit tests can be several times slower on disk; the backup
+  state-machine test went from 17 seconds to beyond the 100-second hang timeout.
+  `LEANCORPUS_TEMP_ROOT` restores RAM-disk speed without restoring shared paths.
+  Hosted CI runners already use disk-backed temporary storage.
 - Literal `/tmp` strings, which are mostly test inputs, are not covered.
 - Library code, including the Server libraries and `src/examples`, is
   unchanged.

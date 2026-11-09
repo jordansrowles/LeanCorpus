@@ -17,7 +17,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class StableSearchSessionTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"lc_session_{Guid.NewGuid():N}");
+    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc_session_{Guid.NewGuid():N}");
     public StableSearchSessionTests() { Directory.CreateDirectory(_path); Seed(12); }
     public void Dispose() => TestDirectoryFixture.TryDeleteDirectory(_path);
 

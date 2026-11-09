@@ -33,4 +33,9 @@
     <Content Include="..\..\..\..\lexicons\japanese.jlc" Link="lexicons\japanese.jlc" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\RepositoryTemporaryStorage.cs" Link="Infrastructure\RepositoryTemporaryStorage.cs" />
+    <Using Include="Rowles.LeanCorpus.Tests.Shared.Fixtures" />
+  </ItemGroup>
+
 </Project>

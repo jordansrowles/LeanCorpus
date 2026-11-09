@@ -9,7 +9,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Store;
 public sealed class MMapLifetimeTests : IDisposable
 {
     private readonly string _path = Path.Combine(
-        Path.GetTempPath(), "ll_mmap_lifetime_" + Guid.NewGuid().ToString("N"));
+        RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_mmap_lifetime_" + Guid.NewGuid().ToString("N"));
 
     [Fact(DisplayName = "IndexInput: Dispose Waits For Active Mapping Lease")]
     public void Dispose_ActiveMappingLease_WaitsBeforeUnmapping()

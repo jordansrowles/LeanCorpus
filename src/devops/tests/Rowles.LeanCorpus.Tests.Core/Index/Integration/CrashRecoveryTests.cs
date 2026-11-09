@@ -23,7 +23,7 @@ public class CrashRecoveryTests : IDisposable
 
     public CrashRecoveryTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), $"ll_recovery_{Guid.NewGuid():N}");
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll_recovery_{Guid.NewGuid():N}");
         Directory.CreateDirectory(_dir);
     }
 
@@ -566,7 +566,7 @@ public class CrashRecoveryTests : IDisposable
     [Fact(DisplayName = "Recovery Result: Null For Empty Directory")]
     public void RecoveryResult_Null_ForEmptyDirectory()
     {
-        var emptyDir = Path.Combine(Path.GetTempPath(), $"ll_empty_{Guid.NewGuid():N}");
+        var emptyDir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll_empty_{Guid.NewGuid():N}");
         Directory.CreateDirectory(emptyDir);
         try
         {

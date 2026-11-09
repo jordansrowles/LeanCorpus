@@ -19,7 +19,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search.Geo;
 [Area(TestArea.Search)]
 public sealed class GeoQueryTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), "leancorpus_geo_" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly string _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus_geo_" + Guid.NewGuid().ToString("N")[..8]);
 
     public void Dispose()
     {

@@ -16,7 +16,7 @@ public class FieldLengthTests : IDisposable
 
     public FieldLengthTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "fln_tests_" + Guid.NewGuid().ToString("N"));
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "fln_tests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
     }
 

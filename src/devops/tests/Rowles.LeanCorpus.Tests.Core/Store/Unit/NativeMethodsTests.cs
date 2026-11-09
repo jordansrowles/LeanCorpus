@@ -19,7 +19,7 @@ public sealed class NativeMethodsTests : IDisposable
 
     public NativeMethodsTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "lc_nm_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "lc_nm_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_dir);
     }
 

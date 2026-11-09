@@ -19,7 +19,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index.Migration;
 public sealed class SparseVector311MigrationAcceptanceTests : IDisposable
 {
     private readonly string _path = Path.Combine(
-        Path.GetTempPath(), $"sparse-vector-311-migration-{Guid.NewGuid():N}");
+        RepositoryTemporaryStorage.GetAreaRoot("tests"), $"sparse-vector-311-migration-{Guid.NewGuid():N}");
 
     public SparseVector311MigrationAcceptanceTests() => Directory.CreateDirectory(_path);
 

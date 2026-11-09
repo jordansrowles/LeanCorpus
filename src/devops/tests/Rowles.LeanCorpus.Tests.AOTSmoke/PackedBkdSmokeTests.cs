@@ -20,7 +20,7 @@ public sealed class PackedBkdSmokeTests
     [Fact]
     public void SpatialPointQueriesAndNearestSortsRunUnderNativeAot()
     {
-        string directoryPath = Path.Combine(Path.GetTempPath(), $"lc-aot-spatial-{Guid.NewGuid():N}");
+        string directoryPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("aot"), $"lc-aot-spatial-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directoryPath);
         try
         {
@@ -65,7 +65,7 @@ public sealed class PackedBkdSmokeTests
     [Fact]
     public void PackedBkdRoundTripsUnderNativeAot()
     {
-        string directory = Path.Combine(Path.GetTempPath(), $"lc-aot-packed-bkd-{Guid.NewGuid():N}");
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("aot"), $"lc-aot-packed-bkd-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         try
         {
@@ -90,7 +90,7 @@ public sealed class PackedBkdSmokeTests
     [Fact]
     public void GeoAndXYShapeIndexingAndRelationsRunUnderNativeAot()
     {
-        string directoryPath = Path.Combine(Path.GetTempPath(), $"lc-aot-shapes-{Guid.NewGuid():N}");
+        string directoryPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("aot"), $"lc-aot-shapes-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directoryPath);
         try
         {
@@ -166,7 +166,7 @@ public sealed class PackedBkdSmokeTests
         Assert.True(GeoSimplifier.Simplify(geoLine, 1_500).Points.Count >= 2);
         Assert.True(XYSimplifier.Simplify(xyLine, 0.2f).Points.Count >= 2);
 
-        string directoryPath = Path.Combine(Path.GetTempPath(), $"lc-aot-spatial-metadata-{Guid.NewGuid():N}");
+        string directoryPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("aot"), $"lc-aot-spatial-metadata-{Guid.NewGuid():N}");
         Directory.CreateDirectory(directoryPath);
         try
         {

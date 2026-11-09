@@ -16,7 +16,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class IndexSearcherThreadSafetyTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"ll-searcher-ts-{Guid.NewGuid():N}");
+    private readonly string _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-searcher-ts-{Guid.NewGuid():N}");
 
     public IndexSearcherThreadSafetyTests() => Directory.CreateDirectory(_dir);
 

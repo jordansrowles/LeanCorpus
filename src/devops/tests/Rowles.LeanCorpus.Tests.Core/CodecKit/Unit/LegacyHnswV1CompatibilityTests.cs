@@ -258,5 +258,5 @@ public sealed class LegacyHnswV1CompatibilityTests
     }
 
     private static string NewTemporaryPath()
-        => Path.Combine(Path.GetTempPath(), "leancorpus-hnsw-v1-" + Guid.NewGuid().ToString("N") + ".hnsw");
+        => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-hnsw-v1-" + Guid.NewGuid().ToString("N") + ".hnsw");
 }

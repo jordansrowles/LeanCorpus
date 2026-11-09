@@ -14,7 +14,7 @@ public sealed class PayloadRoundTripTests : IDisposable
 
     public PayloadRoundTripTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "ll_payload_" + Guid.NewGuid().ToString("N")[..8]);
+        _tempDir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_payload_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
     }
 

@@ -16,7 +16,7 @@ public sealed class SegmentReaderVectorTests: IDisposable
 
     public SegmentReaderVectorTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_sr_vec_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_sr_vec_" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_dir);
     }
 

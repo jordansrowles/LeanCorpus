@@ -12,7 +12,7 @@ public class SanityTests
     [Fact]
     public void CanonicalCodecFrameRoundTripsUnderAot()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"lc-aot-codec-{Guid.NewGuid():N}.nrm");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("aot"), $"lc-aot-codec-{Guid.NewGuid():N}.nrm");
         try
         {
             var catalog = new CodecCatalogBuilder().AddBuiltIns().Build();

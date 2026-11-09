@@ -14,7 +14,7 @@ public sealed class PositionContractSmokeTests
     [Fact]
     public void SegmentMarkerAndGappedQueriesSurviveNativeSerialisation()
     {
-        string path = Path.Combine(Path.GetTempPath(), "aot-position-" + Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("aot"), "aot-position-" + Guid.NewGuid().ToString("N"));
         try
         {
             using var directory = new MMapDirectory(path);

@@ -11,7 +11,7 @@ public sealed class CodecFileFrameTests : IDisposable
     public CodecFileFrameTests()
     {
         _tempDirectory = Path.Combine(
-            Path.GetTempPath(),
+            RepositoryTemporaryStorage.GetAreaRoot("tests"),
             "LeanCorpus_CodecFileFrameTests",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDirectory);

@@ -14,7 +14,7 @@ public sealed class CodecFileHeaderTests : IDisposable
     public CodecFileHeaderTests()
     {
         _tempDirectory = Path.Combine(
-            Path.GetTempPath(),
+            RepositoryTemporaryStorage.GetAreaRoot("tests"),
             "LeanCorpus_CodecFileHeaderTests",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDirectory);
