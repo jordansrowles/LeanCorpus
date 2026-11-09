@@ -11,7 +11,7 @@ public sealed class ProviderVectorProbeTests
     [Fact]
     public async Task OrchardPartHandlerIndexesThreeDimensionalVectorForNativeKnnQuery()
     {
-        string contentRoot = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-vector-probe", Guid.NewGuid().ToString("N"));
+        string contentRoot = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-vector-probe", Guid.NewGuid().ToString("N"));
         (WebApplication app, Uri address) = await OrchardSearchTestHost.StartIsolatedAsync(contentRoot);
         using var http = new HttpClient { BaseAddress = address };
         bool completed = false;

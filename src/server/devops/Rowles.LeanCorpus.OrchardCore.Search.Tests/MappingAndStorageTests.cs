@@ -13,7 +13,7 @@ public sealed class MappingAndStorageTests
     [Fact]
     public void PathResolverIsDeterministicTenantLocalAndRejectsPathTraversal()
     {
-        string root = Path.Combine(Path.GetTempPath(), "orchard-path-test");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "orchard-path-test");
         var first = new LeanCorpusIndexPathResolver(root, "North/Tenant").Resolve("North/Tenant/Search/../../Lucene");
         var repeated = new LeanCorpusIndexPathResolver(root, "North/Tenant").Resolve("North/Tenant/Search/../../Lucene");
         var otherTenant = new LeanCorpusIndexPathResolver(root, "South").Resolve("North/Tenant/Search/../../Lucene");
@@ -140,7 +140,7 @@ public sealed class MappingAndStorageTests
     [Fact]
     public async Task CursorStateDefaultsToZeroAndPreservesOldValueAcrossUnpublishedFailures()
     {
-        string path = Path.Combine(Path.GetTempPath(), "orchard-cursor-test", Guid.NewGuid().ToString("N"), "state.json");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "orchard-cursor-test", Guid.NewGuid().ToString("N"), "state.json");
         var failures = new SwitchableFailureInjector();
         try
         {

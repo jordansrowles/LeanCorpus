@@ -29,4 +29,9 @@
                       LogicalName="Rowles.LeanCorpus.Cli.Fixtures.Migration.3.1.1-release-loose.manifest.json" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\tests\Rowles.LeanCorpus.Tests.Shared\Fixtures\RepositoryTemporaryStorage.cs" Link="Infrastructure\RepositoryTemporaryStorage.cs" />
+    <Using Include="Rowles.LeanCorpus.Tests.Shared.Fixtures" />
+  </ItemGroup>
+
 </Project>

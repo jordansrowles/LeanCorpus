@@ -12,7 +12,7 @@ public sealed class LocalIndexRegistryRollbackTests
     [Fact]
     public async Task RegistryPersistenceFailureRollsBackPhysicalCreateAndAllowsRetry()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-registry-persist-failure-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-registry-persist-failure-{Guid.NewGuid():N}");
         string registryPath = Path.Combine(root, "registry.json");
         PhysicalIndexId id = PhysicalIndexId.New();
         string physicalPath = Path.Combine(root, "indices", id.Value);
@@ -48,7 +48,7 @@ public sealed class LocalIndexRegistryRollbackTests
     [Fact]
     public async Task RegistryPersistenceAndPhysicalRollbackFailuresAreBothReported()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-registry-rollback-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-registry-rollback-{Guid.NewGuid():N}");
         string registryPath = Path.Combine(root, "registry.json");
         PhysicalIndexId id = PhysicalIndexId.New();
         string physicalPath = Path.Combine(root, "indices", id.Value);

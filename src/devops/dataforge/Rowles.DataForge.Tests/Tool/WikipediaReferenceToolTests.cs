@@ -597,7 +597,7 @@ public sealed class WikipediaReferenceToolTests
 
     private static void WithTempDirectory(Action<string> action)
     {
-        var root = Path.Combine(Path.GetTempPath(), "dataforge-wikipedia-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-wikipedia-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try { action(root); }
         finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }

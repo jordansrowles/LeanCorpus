@@ -54,7 +54,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task ExecutesWithAnAlreadyEstablishedOperationContext()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-executor-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-executor-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
@@ -92,7 +92,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task CoordinatorCompletesSequenceWaitersFromOneExplicitCommit()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-coordinator-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-coordinator-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
@@ -129,7 +129,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task LaterPhysicalCommitCannotPublishAheadOfAnEarlierReceipt()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-commit-order-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-commit-order-{Guid.NewGuid():N}");
         TaskCompletionSource firstAtPublication = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource releaseFirst = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource secondAtPublication = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -208,7 +208,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task CommitObserverRunsAfterPublicationAndDoesNotChangeTheReceipt()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-observer-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-observer-{Guid.NewGuid():N}");
         RecordingObserver observer = new();
         try
         {
@@ -236,7 +236,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task SynchronousObserverFailureDoesNotUndoPublishedCommit()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-observer-failure-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-observer-failure-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1), new ThrowingObserver());
@@ -264,7 +264,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task BlockedObserverDoesNotHoldUpLaterDurablePublication()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-observer-block-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-observer-block-{Guid.NewGuid():N}");
         BlockingAsyncObserver observer = new();
         try
         {
@@ -303,7 +303,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task ObserverCanReenterCoordinatorAfterReceiptPublication()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-observer-reentry-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-observer-reentry-{Guid.NewGuid():N}");
         ReentrantObserver observer = new();
         try
         {
@@ -332,7 +332,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task NonEmptyIndexUsesOneSegmentForAnAppendOnlyHundredDocumentBatch()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-append-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-bulk-append-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
@@ -382,7 +382,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task HundredDocumentReplacementBatchDoesNotCreateOneSegmentPerDocument()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-upsert-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-bulk-upsert-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
@@ -438,7 +438,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task MixedBatchWithExistingIdsPreservesIndexAndUpdateReplacementSemantics()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-replace-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-bulk-replace-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
@@ -475,7 +475,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task DuplicateIdsWithinOneRequestKeepTheLastCallerOrderedReplacement()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-duplicate-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-bulk-duplicate-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
@@ -502,7 +502,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task MixedIndexUpdateAndDeleteOperationsKeepCallerOrdering()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-mixed-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-bulk-mixed-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
@@ -547,7 +547,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task ReplacementBatchesPreserveMemoryLocalFsyncAndRefreshModes()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-durability-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-bulk-durability-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
@@ -601,7 +601,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task StaleVisibleGenerationCannotMakeAnExistingIdLookAppendOnly()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-stale-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-bulk-stale-{Guid.NewGuid():N}");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromHours(1), TimeSpan.FromHours(1));
@@ -634,7 +634,7 @@ public sealed class LocalIndexExecutorTests
     [Fact]
     public async Task MappingAndValidationFailuresRetainPerOperationResults()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-bulk-validation-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-bulk-validation-{Guid.NewGuid():N}");
         using JsonDocument invalidShape = JsonDocument.Parse("[]");
         try
         {

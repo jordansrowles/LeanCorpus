@@ -73,7 +73,7 @@ public sealed class CompressionBenchmarkTests
     {
         var benchmark = new CompressionBenchmarks { Policy = FieldCompressionPolicy.Deflate, Size = "medium" };
         benchmark.Setup();
-        var directory = Path.Combine(Path.GetTempPath(), "compression-evidence-" + Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "compression-evidence-" + Guid.NewGuid().ToString("N"));
         try
         {
             CompressionFixture.WriteEvidence(directory, benchmark.Measurement);

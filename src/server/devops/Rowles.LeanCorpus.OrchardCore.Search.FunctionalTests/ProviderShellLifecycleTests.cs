@@ -19,7 +19,7 @@ public sealed class ProviderShellLifecycleTests
     [InlineData(2)]
     public async Task HostShutdownReleasesWriterWhileReleasedShellScopeIsStillRetained(int repetition)
     {
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-shell-lifecycle", $"{repetition}-{Guid.NewGuid():N}");
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-shell-lifecycle", $"{repetition}-{Guid.NewGuid():N}");
         (WebApplication app, Uri address) = await OrchardSearchTestHost.StartIsolatedAsync(root);
         using var http = new HttpClient { BaseAddress = address };
         ShellScope? oldScope = null;

@@ -23,4 +23,8 @@
     <ProjectReference Include="..\..\benchmarks\Rowles.LeanCorpus.Benchmarks.Compression\Rowles.LeanCorpus.Benchmarks.Compression.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Using Include="Rowles.LeanCorpus.Tests.Shared.Fixtures" />
+  </ItemGroup>
+
 </Project>

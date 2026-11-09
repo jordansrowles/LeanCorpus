@@ -81,7 +81,7 @@ public sealed class SuggesterQualityFixtureTests
     public void Quality_evidence_scores_actual_ranked_suggestions_for_each_engine()
     {
         string? previousArtifactDirectory = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
-        string artifactDirectory = Path.Combine(Path.GetTempPath(), "leancorpus-bval-15", Guid.NewGuid().ToString("N"));
+        string artifactDirectory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "leancorpus-bval-15", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(artifactDirectory);
         Environment.SetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR", artifactDirectory);
         var benchmarks = new SuggesterBenchmarks { DocumentCount = BenchmarkData.DefaultDocCount };

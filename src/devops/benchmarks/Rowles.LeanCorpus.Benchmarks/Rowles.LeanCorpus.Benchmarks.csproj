@@ -36,4 +36,8 @@
     <InternalsVisibleTo Include="Rowles.DataForge.Tests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Using Include="Rowles.LeanCorpus.Tests.Shared.Fixtures" />
+  </ItemGroup>
+
 </Project>

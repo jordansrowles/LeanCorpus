@@ -59,7 +59,7 @@ public sealed class WikipediaCandidateSelectorTests
     [Fact]
     public void Rejects_invalid_utf8_in_the_compressed_index()
     {
-        var path = Path.Combine(Path.GetTempPath(), "dataforge-index-" + Guid.NewGuid().ToString("N") + ".bz2");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-index-" + Guid.NewGuid().ToString("N") + ".bz2");
         try
         {
             File.WriteAllBytes(path, Compress([.. Encoding.ASCII.GetBytes("0:1:"), 0xC3]));

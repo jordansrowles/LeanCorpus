@@ -96,7 +96,7 @@ public sealed class HeadToHeadFixtureContractTests
     [Fact]
     public void Topology_record_is_written_as_a_run_sidecar()
     {
-        string artifactDirectory = Path.Combine(Path.GetTempPath(), "leancorpus-topology-" + Guid.NewGuid().ToString("N"));
+        string artifactDirectory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "leancorpus-topology-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(artifactDirectory);
         string? previous = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
         try
@@ -123,7 +123,7 @@ public sealed class HeadToHeadFixtureContractTests
         if (!string.IsNullOrWhiteSpace(previous))
             return action();
 
-        string artifactDirectory = Path.Combine(Path.GetTempPath(), "leancorpus-fixture-contract-" + Guid.NewGuid().ToString("N"));
+        string artifactDirectory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "leancorpus-fixture-contract-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(artifactDirectory);
         try
         {

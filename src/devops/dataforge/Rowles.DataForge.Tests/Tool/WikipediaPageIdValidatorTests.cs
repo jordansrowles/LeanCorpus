@@ -143,7 +143,7 @@ public sealed class WikipediaPageIdValidatorTests
 
     private static void WithIndex(string[] lines, Action<string, string> action)
     {
-        var root = Path.Combine(Path.GetTempPath(), "dataforge-page-ids-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-page-ids-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         var index = Path.Combine(root, "index.txt.bz2");
         try

@@ -26,4 +26,9 @@
     <ProjectReference Include="../../Rowles.LeanCorpus.Studio/Rowles.LeanCorpus.Studio.csproj" />
     <ProjectReference Include="../../../devops/dataforge/Rowles.DataForge.Workloads/Rowles.DataForge.Workloads.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\..\devops\tests\Rowles.LeanCorpus.Tests.Shared\Fixtures\RepositoryTemporaryStorage.cs" Link="Infrastructure\RepositoryTemporaryStorage.cs" />
+    <Using Include="Rowles.LeanCorpus.Tests.Shared.Fixtures" />
+  </ItemGroup>
+
 </Project>

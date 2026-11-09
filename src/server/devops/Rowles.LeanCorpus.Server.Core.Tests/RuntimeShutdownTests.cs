@@ -211,5 +211,5 @@ public sealed class RuntimeShutdownTests
         "lifecycle-schema", new MutableIndexSettings(null, null, "body", null)),
         path, TimeSpan.FromHours(1), TimeSpan.FromHours(1), LocalIndexOpenMode.ReadWrite);
 
-    private static string NewPath() => Path.Combine(Path.GetTempPath(), "leancorpus-server-runtime-shutdown", Guid.NewGuid().ToString("N"));
+    private static string NewPath() => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-server-runtime-shutdown", Guid.NewGuid().ToString("N"));
 }

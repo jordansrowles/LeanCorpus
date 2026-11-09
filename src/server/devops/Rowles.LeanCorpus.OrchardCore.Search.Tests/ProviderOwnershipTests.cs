@@ -89,7 +89,7 @@ public sealed class ProviderOwnershipTests
     [Fact]
     public async Task ClosingOneTenantLeavesTheOtherTenantsWriterAndSearcherAvailable()
     {
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-tenants", Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-tenants", Guid.NewGuid().ToString("N"));
         var firstPaths = new LeanCorpusIndexPathResolver(root, "First");
         var secondPaths = new LeanCorpusIndexPathResolver(root, "Second");
         await using var first = new LeanCorpusIndexHandleCache(firstPaths);
@@ -120,7 +120,7 @@ public sealed class ProviderOwnershipTests
     [Fact]
     public async Task IndependentRootHostCannotAttachToOrStopAnotherHostsRuntime()
     {
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-roots", Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-roots", Guid.NewGuid().ToString("N"));
         var paths = new LeanCorpusIndexPathResolver(root, "Default");
         var index = paths.Resolve("Search");
         using var firstLifetime = new ControlledLifetime();
@@ -153,7 +153,7 @@ public sealed class ProviderOwnershipTests
     [Fact]
     public async Task NewRootCanOpenAfterPriorRootClosesItsPhysicalOwner()
     {
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-root-reopen", Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-root-reopen", Guid.NewGuid().ToString("N"));
         var paths = new LeanCorpusIndexPathResolver(root, "Default");
         var index = paths.Resolve("Search");
         using var firstLifetime = new ControlledLifetime();
@@ -183,7 +183,7 @@ public sealed class ProviderOwnershipTests
     [Fact]
     public async Task RepeatedShellHandoffsCloseEachPhysicalRuntimeExactlyOnceAtFinalOwnerRelease()
     {
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-handoffs", Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-handoffs", Guid.NewGuid().ToString("N"));
         var paths = new LeanCorpusIndexPathResolver(root, "Default");
         var index = paths.Resolve("Search");
         var closes = new System.Collections.Concurrent.ConcurrentDictionary<string, int>();
