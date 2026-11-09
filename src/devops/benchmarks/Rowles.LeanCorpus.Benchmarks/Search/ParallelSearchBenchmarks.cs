@@ -145,6 +145,9 @@ public class ParallelSearchBenchmarks
                 MaxBufferedDocs = docsPerSegment,
                 RamBufferSizeMB = 0,
                 RamPerThreadHardLimitMB = 0,
+                // The admission limit defaults to 20,000 documents and flushes when full, which
+                // would cap segments below docsPerSegment. Keep it above one segment.
+                MaxQueuedDocs = docsPerSegment * 2,
                 MergePolicy = Rowles.LeanCorpus.Index.Indexer.NoMergePolicy.Instance,
             });
         for (int i = 0; i < documents.Length; i++)
