@@ -185,6 +185,8 @@ public class BlockJoinSearchBenchmarks
     private Lucene.Net.Search.IndexSearcher? _luceneSearcher;
     private Filter? _luceneParentFilter;
 
+    private string TopologyFixture => string.Concat("blockjoin-search-", BlockCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -241,6 +243,7 @@ public class BlockJoinSearchBenchmarks
         }
 
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
     }
 
     private void BuildLuceneIndex()
@@ -260,6 +263,7 @@ public class BlockJoinSearchBenchmarks
         }
 
         _luceneReader = DirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new Lucene.Net.Search.IndexSearcher(_luceneReader);
         _luceneParentFilter = new FixedBitSetCachingWrapperFilter(
             new QueryWrapperFilter(new Lucene.Net.Search.TermQuery(new Term("type", "parent"))));

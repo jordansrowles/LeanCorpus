@@ -56,6 +56,8 @@ public class CombinedFieldsQueryBenchmarks
     private LuceneDirectoryReader? _luceneReader;
     private LuceneIndexSearcher? _luceneSearcher;
 
+    private string TopologyFixture => string.Concat("combined-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -132,6 +134,7 @@ public class CombinedFieldsQueryBenchmarks
         });
         writer.Commit();
         _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
 
@@ -153,6 +156,7 @@ public class CombinedFieldsQueryBenchmarks
         });
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
     }
 
     /// <summary>

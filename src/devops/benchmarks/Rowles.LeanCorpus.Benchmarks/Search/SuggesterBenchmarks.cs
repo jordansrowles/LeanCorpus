@@ -52,6 +52,8 @@ public class SuggesterBenchmarks
     private Lucene.Net.Store.MMapDirectory? _luceneSpellDirectory;
     private SpellChecker? _luceneSpellChecker;
 
+    private string TopologyFixture => string.Concat("suggester-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -297,6 +299,7 @@ public class SuggesterBenchmarks
         }
 
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory, _leanSearcher);
     }
 
     private void BuildLuceneNetSpellChecker(string[] documents)
@@ -325,6 +328,7 @@ public class SuggesterBenchmarks
         _luceneSpellChecker = new SpellChecker(_luceneSpellDirectory);
 
         using var reader = DirectoryReader.Open(_luceneSourceDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneSourceDirectory, reader);
         _luceneSpellChecker.IndexDictionary(
             new LuceneDictionary(reader, "body"),
             new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyzer),

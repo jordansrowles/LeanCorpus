@@ -71,6 +71,8 @@ public class FunctionScoreQueryBenchmarks
     private LuceneDirectoryReader? _bval04LuceneReader;
     private LuceneIndexSearcher? _bval04LuceneSearcher;
 
+    private string TopologyFixture => string.Concat("function-score-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -499,6 +501,7 @@ public class FunctionScoreQueryBenchmarks
         }
         writer.Commit();
         _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
 
@@ -520,5 +523,6 @@ public class FunctionScoreQueryBenchmarks
         }
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
     }
 }

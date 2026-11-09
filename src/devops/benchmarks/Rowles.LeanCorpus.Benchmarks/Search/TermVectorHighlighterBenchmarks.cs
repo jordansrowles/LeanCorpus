@@ -69,6 +69,8 @@ public class TermVectorHighlighterBenchmarks
     private (string Text, Lucene.Net.Search.Query Query)[] _luceneReanalysisSamples = [];
     private (string Text, IReadOnlyList<TermVectorEntry> TVs)[] _leanHybridNoOffsetsSamples = [];
 
+    private string TopologyFixture => string.Concat("tv-highlighter-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -205,6 +207,7 @@ public class TermVectorHighlighterBenchmarks
         }
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
 
         // Build segment readers for direct term vector access.
         var segFiles = IODirectory.GetFiles(_leanIndexPath, "*.seg");
@@ -259,6 +262,7 @@ public class TermVectorHighlighterBenchmarks
         writer.Commit();
 
         _luceneReader = Lucene.Net.Index.DirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
 

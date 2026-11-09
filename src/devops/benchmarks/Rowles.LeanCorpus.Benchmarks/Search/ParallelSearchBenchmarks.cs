@@ -181,5 +181,10 @@ public class ParallelSearchBenchmarks
         lw.Commit();
         s_luceneReader = LuceneDirectoryReader.Open(s_luceneDirectory);
         s_luceneSearcher = new LuceneIndexSearcher(s_luceneReader);
+
+        string fixture = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"parallel-{documents.Length}-segments-{SegmentCount}");
+        BenchmarkFixtureEvidence.RecordLeanCorpus(fixture, directory, s_sequentialSearcher);
+        BenchmarkFixtureEvidence.RecordLucene(fixture, s_luceneDirectory, s_luceneReader);
     }
 }

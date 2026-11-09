@@ -135,6 +135,7 @@ internal static class SharedStandardIndex
                 try
                 {
                     ValidateBval05Fixture();
+                    RecordTopology();
                 }
                 catch
                 {
@@ -232,6 +233,7 @@ internal static class SharedStandardIndex
             try
             {
                 ValidateBval05Fixture();
+                RecordTopology();
             }
             catch
             {
@@ -239,6 +241,22 @@ internal static class SharedStandardIndex
                 throw;
             }
         }
+    }
+
+    private static void RecordTopology()
+    {
+        string fixture = string.Concat("shared-standard-", _docCount.ToString(CultureInfo.InvariantCulture));
+        BenchmarkFixtureEvidence.RecordLeanCorpus(fixture,
+            _leanDirectory ?? throw new InvalidOperationException("The LeanCorpus directory is unavailable."),
+            _leanSearcher ?? throw new InvalidOperationException("The LeanCorpus searcher is unavailable."));
+        BenchmarkFixtureEvidence.RecordLucene(fixture,
+            _luceneDirectory ?? throw new InvalidOperationException("The Lucene.NET directory is unavailable."),
+            _luceneReader ?? throw new InvalidOperationException("The Lucene.NET reader is unavailable."),
+            "Lucene.NET classic TF-IDF");
+        BenchmarkFixtureEvidence.RecordLucene(fixture,
+            _luceneBm25Directory ?? throw new InvalidOperationException("The Lucene.NET BM25 directory is unavailable."),
+            _luceneBm25Reader ?? throw new InvalidOperationException("The Lucene.NET BM25 reader is unavailable."),
+            "Lucene.NET BM25");
     }
 
     private static void RunSearchPreflight(int docCount)
