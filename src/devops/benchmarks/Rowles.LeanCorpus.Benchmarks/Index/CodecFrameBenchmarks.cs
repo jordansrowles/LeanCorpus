@@ -19,7 +19,7 @@ public class CodecFrameBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("benchmarks"), "LeanCorpus_CodecFrameBenchmarks", Guid.NewGuid().ToString("N"));
+        _directory = Path.Combine(BenchmarkHelpers.TempRoot, "LeanCorpus_CodecFrameBenchmarks", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_directory);
         _block = new byte[64 * 1024];
         BenchmarkDeterministicRandom.Create("benchmark/codec-frame/block").NextBytes(_block);

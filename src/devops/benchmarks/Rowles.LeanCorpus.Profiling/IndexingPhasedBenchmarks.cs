@@ -64,7 +64,7 @@ public class IndexingPhasedBenchmarks
         _phaseTimings.Clear();
         _phaseCounts.Clear();
 
-        _indexPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("profiling"), $"leancorpus-prof-index-{Guid.NewGuid():N}");
+        _indexPath = Path.Combine(Rowles.LeanCorpus.Benchmarks.BenchmarkHelpers.TempRoot, $"leancorpus-prof-index-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_indexPath);
         _directory = new MMapDirectory(_indexPath);
         _writer = new IndexWriter(_directory, new IndexWriterConfig
