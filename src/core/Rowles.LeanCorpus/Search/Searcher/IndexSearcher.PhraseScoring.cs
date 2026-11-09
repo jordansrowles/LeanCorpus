@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace Rowles.LeanCorpus.Search.Searcher;
 
 /// <summary>
@@ -24,27 +26,76 @@ public sealed partial class IndexSearcher
         if (termCount == 0 || termCount != queryPositions.Count || slop < 0)
             return 0f;
 
+        int totalPositions = 0;
         for (int i = 0; i < termCount; i++)
         {
             if (positions[i] is null || positions[i].Length == 0)
                 return 0f;
+            totalPositions += positions[i].Length;
         }
 
-        if (slop == 0)
-            return CountExactPhraseFrequency(positions, queryPositions);
+        var flatPositions = new int[totalPositions];
+        var slotStarts = new int[termCount];
+        var slotLengths = new int[termCount];
+        var flatQueryPositions = new int[termCount];
+        int offset = 0;
+        for (int i = 0; i < termCount; i++)
+        {
+            slotStarts[i] = offset;
+            slotLengths[i] = positions[i].Length;
+            positions[i].CopyTo(flatPositions, offset);
+            offset += positions[i].Length;
+            flatQueryPositions[i] = queryPositions[i];
+        }
 
-        if (termCount == 1)
-            return CountUniquePositions(positions[0]);
+        return ComputePhraseFrequency(
+            flatPositions, slotStarts, slotLengths, flatQueryPositions, slop,
+            new int[termCount], new int[termCount], new long[termCount]);
+    }
 
-        var cursors = new int[termCount];
-        if (!ResolvePositionCollisions(positions, queryPositions, cursors))
+    internal static float ComputePhraseFrequency(
+        ReadOnlySpan<int> positions,
+        ReadOnlySpan<int> slotStarts,
+        ReadOnlySpan<int> slotLengths,
+        ReadOnlySpan<int> queryPositions,
+        int slop,
+        Span<int> cursors,
+        Span<int> selectedPositions,
+        Span<long> offsets)
+    {
+        int termCount = slotStarts.Length;
+        if (termCount == 0 || termCount != queryPositions.Length || slop < 0)
             return 0f;
 
-        var offsets = new long[termCount];
+        for (int i = 0; i < termCount; i++)
+        {
+            if (slotLengths[i] == 0)
+                return 0f;
+        }
+
+        cursors = cursors[..termCount];
+        selectedPositions = selectedPositions[..termCount];
+        offsets = offsets[..termCount];
+
+        if (slop == 0)
+        {
+            cursors.Clear();
+            selectedPositions.Clear();
+            return CountExactPhraseFrequency(positions, slotStarts, slotLengths, queryPositions, cursors, selectedPositions);
+        }
+
+        if (termCount == 1)
+            return CountUniquePositions(positions.Slice(slotStarts[0], slotLengths[0]));
+
+        cursors.Clear();
+        offsets.Clear();
+        if (!ResolvePositionCollisions(positions, slotStarts, slotLengths, queryPositions, cursors))
+            return 0f;
+
         float frequency = 0f;
         while (true)
         {
-            ComputeOffsetsAndEnd(positions, queryPositions, cursors, offsets, out long end);
+            ComputeOffsetsAndEnd(positions, slotStarts, queryPositions, cursors, offsets, out long end);
             FindSmallestAndNextOffset(offsets, queryPositions, out int smallestSlot, out int secondSmallestSlot);
             long next = offsets[secondSmallestSlot];
             long smallestMatchLength = end - offsets[smallestSlot];
@@ -52,14 +103,14 @@ public sealed partial class IndexSearcher
             while (true)
             {
                 cursors[smallestSlot]++;
-                if (cursors[smallestSlot] >= positions[smallestSlot].Length ||
-                    !ResolvePositionCollisions(positions, queryPositions, cursors))
+                if (cursors[smallestSlot] >= slotLengths[smallestSlot] ||
+                    !ResolvePositionCollisions(positions, slotStarts, slotLengths, queryPositions, cursors))
                 {
                     AddSloppyFrequency(ref frequency, smallestMatchLength, slop);
                     return frequency;
                 }
 
-                ComputeOffsetsAndEnd(positions, queryPositions, cursors, offsets, out end);
+                ComputeOffsetsAndEnd(positions, slotStarts, queryPositions, cursors, offsets, out end);
                 long smallestOffset = offsets[smallestSlot];
                 if (smallestOffset > next)
                     break;
@@ -74,15 +125,17 @@ public sealed partial class IndexSearcher
     }
 
     private static float CountExactPhraseFrequency(
-        IReadOnlyList<int[]> positions,
-        IReadOnlyList<int> queryPositions)
+        ReadOnlySpan<int> positions,
+        ReadOnlySpan<int> slotStarts,
+        ReadOnlySpan<int> slotLengths,
+        ReadOnlySpan<int> queryPositions,
+        Span<int> cursors,
+        Span<int> selectedPositions)
     {
-        int termCount = positions.Count;
-        var selectedPositions = new int[termCount];
-        var cursors = new int[termCount];
+        int termCount = slotStarts.Length;
         long frequency = 0;
 
-        int[] firstTermPositions = positions[0];
+        ReadOnlySpan<int> firstTermPositions = positions.Slice(slotStarts[0], slotLengths[0]);
         for (int startIndex = 0; startIndex < firstTermPositions.Length; startIndex++)
         {
             int startPosition = firstTermPositions[startIndex];
@@ -100,7 +153,7 @@ public sealed partial class IndexSearcher
                     break;
                 }
 
-                int[] termPositions = positions[termIndex];
+                ReadOnlySpan<int> termPositions = positions.Slice(slotStarts[termIndex], slotLengths[termIndex]);
                 int cursor = cursors[termIndex];
                 while (cursor < termPositions.Length && termPositions[cursor] < expectedPosition)
                     cursor++;
@@ -137,7 +190,7 @@ public sealed partial class IndexSearcher
         return frequency;
     }
 
-    private static float CountUniquePositions(int[] positions)
+    private static float CountUniquePositions(ReadOnlySpan<int> positions)
     {
         int uniqueCount = 0;
         int previousPosition = 0;
@@ -152,18 +205,21 @@ public sealed partial class IndexSearcher
     }
 
     private static bool ResolvePositionCollisions(
-        IReadOnlyList<int[]> positions,
-        IReadOnlyList<int> queryPositions,
-        int[] cursors)
+        ReadOnlySpan<int> positions,
+        ReadOnlySpan<int> slotStarts,
+        ReadOnlySpan<int> slotLengths,
+        ReadOnlySpan<int> queryPositions,
+        Span<int> cursors)
     {
+        int termCount = slotStarts.Length;
         while (true)
         {
             int slotToAdvance = -1;
-            for (int i = 0; i < positions.Count; i++)
+            for (int i = 0; i < termCount; i++)
             {
-                for (int j = i + 1; j < positions.Count; j++)
+                for (int j = i + 1; j < termCount; j++)
                 {
-                    if (positions[i][cursors[i]] != positions[j][cursors[j]])
+                    if (positions[slotStarts[i] + cursors[i]] != positions[slotStarts[j] + cursors[j]])
                         continue;
 
                     int candidate = queryPositions[i] > queryPositions[j]
@@ -184,22 +240,23 @@ public sealed partial class IndexSearcher
                 return true;
 
             cursors[slotToAdvance]++;
-            if (cursors[slotToAdvance] >= positions[slotToAdvance].Length)
+            if (cursors[slotToAdvance] >= slotLengths[slotToAdvance])
                 return false;
         }
     }
 
     private static void ComputeOffsetsAndEnd(
-        IReadOnlyList<int[]> positions,
-        IReadOnlyList<int> queryPositions,
-        int[] cursors,
-        long[] offsets,
+        ReadOnlySpan<int> positions,
+        ReadOnlySpan<int> slotStarts,
+        ReadOnlySpan<int> queryPositions,
+        ReadOnlySpan<int> cursors,
+        Span<long> offsets,
         out long end)
     {
         end = long.MinValue;
-        for (int i = 0; i < positions.Count; i++)
+        for (int i = 0; i < slotStarts.Length; i++)
         {
-            long offset = (long)positions[i][cursors[i]] - queryPositions[i];
+            long offset = (long)positions[slotStarts[i] + cursors[i]] - queryPositions[i];
             offsets[i] = offset;
             if (offset > end)
                 end = offset;
@@ -207,8 +264,8 @@ public sealed partial class IndexSearcher
     }
 
     private static void FindSmallestAndNextOffset(
-        long[] offsets,
-        IReadOnlyList<int> queryPositions,
+        ReadOnlySpan<long> offsets,
+        ReadOnlySpan<int> queryPositions,
         out int smallestSlot,
         out int secondSmallestSlot)
     {
@@ -231,8 +288,8 @@ public sealed partial class IndexSearcher
     private static bool ComesBefore(
         int leftSlot,
         int rightSlot,
-        long[] offsets,
-        IReadOnlyList<int> queryPositions)
+        ReadOnlySpan<long> offsets,
+        ReadOnlySpan<int> queryPositions)
     {
         if (offsets[leftSlot] != offsets[rightSlot])
             return offsets[leftSlot] < offsets[rightSlot];
@@ -294,67 +351,101 @@ public sealed partial class IndexSearcher
                 : 0;
             termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
         }
-        int[] queryPositions = query.PositionSpan.ToArray();
+        ReadOnlySpan<int> queryPositions = query.PositionSpan;
 
-        // Streaming merge: iterate leader, advance followers
-        while (postingsArr[leaderIdx].MoveNextUnchecked(out int docId, out _))
+        int[] slotScratch = ArrayPool<int>.Shared.Rent(4 * termCount);
+        int[] positionBuffer = ArrayPool<int>.Shared.Rent(64);
+        long[] offsetScratch = ArrayPool<long>.Shared.Rent(termCount);
+        try
         {
-            if (hasDeletions && !reader.IsLive(docId)) continue;
-
-            bool allMatch = true;
-            for (int i = 0; i < termCount; i++)
+            // Streaming merge: iterate leader, advance followers
+            while (postingsArr[leaderIdx].MoveNextUnchecked(out int docId, out _))
             {
-                if (i == leaderIdx) continue;
-                if (!postingsArr[i].AdvanceUnchecked(docId, out int followerDocId, out _) ||
-                    followerDocId != docId)
-                {
-                    allMatch = false;
-                    break;
-                }
-            }
+                if (hasDeletions && !reader.IsLive(docId)) continue;
 
-            if (!allMatch) continue;
-
-            // All terms present in this doc — check positions inline
-            bool hasAllPositions = true;
-            for (int i = 0; i < termCount; i++)
-            {
-                if (postingsArr[i].GetCurrentPositionsUnchecked().IsEmpty)
-                {
-                    hasAllPositions = false;
-                    break;
-                }
-            }
-
-            float phraseFrequency = 0f;
-            if (hasAllPositions)
-            {
-                var slotPositions = new int[termCount][];
-                for (int i = 0; i < termCount; i++)
-                    slotPositions[i] = postingsArr[i].GetCurrentPositionsUnchecked().ToArray();
-
-                phraseFrequency = ComputePhraseFrequency(slotPositions, queryPositions, slop);
-            }
-
-            if (phraseFrequency > 0f)
-            {
-                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
-                    ? fieldLengths.Value.Span[docId] : 1;
-                // Sum scores across all terms using the computed phrase frequency.
-                float score = 0;
+                bool allMatch = true;
                 for (int i = 0; i < termCount; i++)
                 {
-                    var (f1, f2, f3) = termFactors[i];
-                    score += ScoreTerm(f1, f2, f3, phraseFrequency, docLength, query.Field);
+                    if (i == leaderIdx) continue;
+                    if (!postingsArr[i].AdvanceUnchecked(docId, out int followerDocId, out _) ||
+                        followerDocId != docId)
+                    {
+                        allMatch = false;
+                        break;
+                    }
                 }
-                if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
-                collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
+
+                if (!allMatch) continue;
+
+                // All terms present in this doc — check positions inline
+                bool hasAllPositions = true;
+                int totalPositions = 0;
+                for (int i = 0; i < termCount; i++)
+                {
+                    int length = postingsArr[i].GetCurrentPositionsUnchecked().Length;
+                    if (length == 0)
+                    {
+                        hasAllPositions = false;
+                        break;
+                    }
+                    totalPositions += length;
+                }
+
+                float phraseFrequency = 0f;
+                if (hasAllPositions)
+                {
+                    if (totalPositions > positionBuffer.Length)
+                    {
+                        int[] largerBuffer = ArrayPool<int>.Shared.Rent(2 * totalPositions);
+                        ArrayPool<int>.Shared.Return(positionBuffer);
+                        positionBuffer = largerBuffer;
+                    }
+
+                    Span<int> slotStarts = slotScratch.AsSpan(0, termCount);
+                    Span<int> slotLengths = slotScratch.AsSpan(termCount, termCount);
+                    int offset = 0;
+                    for (int i = 0; i < termCount; i++)
+                    {
+                        ReadOnlySpan<int> slotPositions = postingsArr[i].GetCurrentPositionsUnchecked();
+                        slotStarts[i] = offset;
+                        slotLengths[i] = slotPositions.Length;
+                        slotPositions.CopyTo(positionBuffer.AsSpan(offset));
+                        offset += slotPositions.Length;
+                    }
+
+                    phraseFrequency = ComputePhraseFrequency(
+                        positionBuffer.AsSpan(0, totalPositions), slotStarts, slotLengths, queryPositions, slop,
+                        slotScratch.AsSpan(2 * termCount, termCount),
+                        slotScratch.AsSpan(3 * termCount, termCount),
+                        offsetScratch.AsSpan(0, termCount));
+                }
+
+                if (phraseFrequency > 0f)
+                {
+                    int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
+                        ? fieldLengths.Value.Span[docId] : 1;
+                    // Sum scores across all terms using the computed phrase frequency.
+                    float score = 0;
+                    for (int i = 0; i < termCount; i++)
+                    {
+                        var (f1, f2, f3) = termFactors[i];
+                        score += ScoreTerm(f1, f2, f3, phraseFrequency, docLength, query.Field);
+                    }
+                    if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
+                    collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
+                }
+                // No fallback to stored fields — positions are required for phrase matching
             }
-            // No fallback to stored fields — positions are required for phrase matching
+
+            for (int i = 0; i < termCount; i++)
+                postingsArr[i].Dispose();
         }
-
-        for (int i = 0; i < termCount; i++)
-            postingsArr[i].Dispose();
+        finally
+        {
+            ArrayPool<int>.Shared.Return(slotScratch);
+            ArrayPool<int>.Shared.Return(positionBuffer);
+            ArrayPool<long>.Shared.Return(offsetScratch);
+        }
     }
 
     private void ExecuteMultiPhraseQuery(MultiPhraseQuery query, SegmentReader reader, ref TopNCollector collector)
