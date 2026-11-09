@@ -10,7 +10,7 @@ public static class BenchmarkHelpers
     internal static string RepositoryRoot { get; } = ResolveRepositoryRoot();
 
     /// <summary>
-    /// Root directory for all benchmark temp files. Uses <c>artifacts/temp/benchmark</c> under the
+    /// Root directory for all benchmark temp files. Uses <c>artifacts/tmp/benchmarks</c> under the
     /// repository root (half-TB NVMe) instead of the 12 GB tmpfs RAM disk.
     /// </summary>
     public static string TempRoot { get; } = ResolveTempRoot();
@@ -44,11 +44,9 @@ public static class BenchmarkHelpers
 
     private static string ResolveTempRoot()
     {
-        // Anchor artifacts/temp/benchmark at the repository root so it works
-        // regardless of how BenchmarkDotNet sets the current directory.
-        var path = Path.Combine(RepositoryRoot, "artifacts", "temp", "benchmark");
-        Directory.CreateDirectory(path);
-        return path;
+        // Anchor artifacts/tmp/benchmarks at the repository root so it works
+        // regardless of how BenchmarkDotNet sets the current directory (ADR046).
+        return Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.GetAreaRoot("benchmarks");
     }
 
     private static string ResolveRepositoryRoot()

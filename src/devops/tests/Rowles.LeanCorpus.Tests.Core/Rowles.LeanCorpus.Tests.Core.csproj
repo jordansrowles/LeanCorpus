@@ -33,6 +33,7 @@
 
   <!-- Shared infrastructure: xunit-agnostic fixtures sourced into this project. -->
   <ItemGroup>
+    <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\RepositoryTemporaryStorage.cs" Link="Foundation\Infrastructure\RepositoryTemporaryStorage.cs" />
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\TestDirectoryFixture.cs"
              Link="Foundation\Infrastructure\TestDirectoryFixture.cs" />
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\HistoricalCodecFixtures.cs"

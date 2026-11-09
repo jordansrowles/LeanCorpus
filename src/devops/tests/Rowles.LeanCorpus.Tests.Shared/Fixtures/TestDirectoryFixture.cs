@@ -10,19 +10,12 @@ public sealed class TestDirectoryFixture : IDisposable
 
     public TestDirectoryFixture()
     {
-        Path = System.IO.Path.Combine(
-            System.IO.Path.GetTempPath(),
-            "LeanCorpus_Tests",
-            Guid.NewGuid().ToString("N"));
-        System.IO.Directory.CreateDirectory(Path);
+        Path = RepositoryTemporaryStorage.CreateDirectoryPath("tests", "LeanCorpus_Tests_");
     }
 
     public void Dispose()
     {
-        if (System.IO.Directory.Exists(Path))
-        {
-            Rowles.LeanCorpus.Store.FileOpenRetry.DeleteDirectory(Path, recursive: true);
-        }
+        RepositoryTemporaryStorage.DeleteDirectory(Path);
     }
 
     /// <summary>
