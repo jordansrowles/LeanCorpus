@@ -61,8 +61,9 @@ public class QueryCacheBenchmarks
 
         _prebuiltBooleanQuery = BuildBooleanQuery();
         _booleanCacheMissQueries = new Rowles.LeanCorpus.Search.Queries.BooleanQuery[MissKeyCount];
+        // Boosts start at 2 so no miss key shares the boost-1 hit query's fingerprint.
         for (int i = 0; i < _booleanCacheMissQueries.Length; i++)
-            _booleanCacheMissQueries[i] = BuildBooleanQuery(i + 1);
+            _booleanCacheMissQueries[i] = BuildBooleanQuery(i + 2);
 
         ProveCacheWorkload();
     }
