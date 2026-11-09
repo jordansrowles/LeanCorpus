@@ -156,4 +156,56 @@ public sealed class FixtureWorkloadProofTests
                 Directory.Delete(root, recursive: true);
         }
     }
+
+    [Fact]
+    public void Deletion_verification_fails_when_the_timed_commit_is_suppressed()
+    {
+        string[] bodies = Enumerable.Range(0, 50).Select(static i => "body " + i.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToArray();
+        string root = Path.Combine(Path.GetTempPath(), "leancorpus-deletion-proof-" + Guid.NewGuid().ToString("N"));
+        string leanPath = Path.Combine(root, "lean");
+        string lucenePath = Path.Combine(root, "lucene");
+        Directory.CreateDirectory(leanPath);
+        Directory.CreateDirectory(lucenePath);
+        try
+        {
+            using var leanDirectory = new LeanMMapDirectory(leanPath);
+            using var leanWriter = new LeanIndexWriter(leanDirectory, DeletionQueueBenchmarks.CreateLeanWriterConfig());
+            DeletionBenchmarkFixture.AddLeanDocuments(leanWriter, bodies);
+            leanWriter.Commit();
+
+            using var luceneDirectory = new Lucene.Net.Store.MMapDirectory(new DirectoryInfo(lucenePath));
+            using var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+            using var luceneWriter = new IndexWriter(luceneDirectory, DeletionBenchmarkFixture.CreateLuceneWriterConfig(analyser));
+            DeletionBenchmarkFixture.AddLuceneDocuments(luceneWriter, bodies);
+            luceneWriter.Commit();
+
+            using var leanPreDeleteDirectory = new LeanMMapDirectory(leanPath);
+            using var leanPreDelete = new LeanIndexSearcher(leanPreDeleteDirectory);
+            using var lucenePreDelete = DirectoryReader.Open(luceneDirectory);
+
+            DeletionBenchmarkFixture.QueueLeanDeletes(leanWriter, 5);
+            DeletionBenchmarkFixture.QueueLuceneDeletes(luceneWriter, 5);
+            string[] survivors = DeletionBenchmarkFixture.GetSurvivingIds(bodies.Length, 5);
+
+            // The timed commit is suppressed: verification at the commit boundary must fail
+            // before any cleanup commit can repair the state.
+            Assert.Throws<InvalidOperationException>(() => DeletionBenchmarkFixture.VerifyLeanIds(leanPath, survivors));
+            Assert.Throws<InvalidOperationException>(() => DeletionBenchmarkFixture.VerifyLuceneIds(lucenePath, survivors));
+            DeletionBenchmarkFixture.VerifyLeanIds(leanPath, DeletionBenchmarkFixture.GetSurvivingIds(bodies.Length, 0));
+            DeletionBenchmarkFixture.VerifyLuceneIds(lucenePath, DeletionBenchmarkFixture.GetSurvivingIds(bodies.Length, 0));
+
+            // The timed commit runs: survivors are visible with the writers still open, and the
+            // pre-delete readers still see every original.
+            leanWriter.Commit();
+            luceneWriter.Commit();
+            DeletionBenchmarkFixture.VerifyLeanIds(leanPath, survivors);
+            DeletionBenchmarkFixture.VerifyLuceneIds(lucenePath, survivors);
+            DeletionBenchmarkFixture.VerifyPointInTime(bodies.Length, leanPreDelete, lucenePreDelete);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
 }

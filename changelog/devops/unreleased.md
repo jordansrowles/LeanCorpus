@@ -147,6 +147,7 @@
 - Record accepted documents and indexed tokens for each token-budget mode, and limit baseline ratios to the same-work variants.
 - Validate equivalent query ASTs at the parser guard limit and reject limit-plus-one input before timing, with valid parsing and rejection kept as separate benchmark operations.
 - Head-to-head benchmarks now use equal storage, record topology and fail when a case does no work.
+- Query-cache, function-score, block-join and deletion benchmarks now verify their workload on the data they time.
 
 ## Removed
 
