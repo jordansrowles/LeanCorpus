@@ -16,7 +16,7 @@ using LuceneStringField = Lucene.Net.Documents.StringField;
 using LuceneTextField = Lucene.Net.Documents.TextField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
 using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
-using LuceneRAMDirectory = Lucene.Net.Store.RAMDirectory;
+using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
 using LuceneTerm = Lucene.Net.Index.Term;
 using LucenePhraseQuery = Lucene.Net.Search.PhraseQuery;
 
@@ -53,7 +53,8 @@ public class ParallelSearchBenchmarks
     private static LeanIndexSearcher? s_sequentialSearcher;
 
     // Lucene.NET state
-    private static LuceneRAMDirectory? s_luceneDirectory;
+    private static string s_luceneIndexPath = string.Empty;
+    private static LuceneMMapDirectory? s_luceneDirectory;
     private static LuceneDirectoryReader? s_luceneReader;
     private static LuceneIndexSearcher? s_luceneSearcher;
 
@@ -111,6 +112,8 @@ public class ParallelSearchBenchmarks
         s_luceneReader = null;
         s_luceneDirectory?.Dispose();
         s_luceneDirectory = null;
+        BenchmarkHelpers.DeleteDirectory(s_luceneIndexPath);
+        s_luceneIndexPath = string.Empty;
     }
 
     private void BuildLeanIndexStatic(string[] documents)
@@ -154,7 +157,8 @@ public class ParallelSearchBenchmarks
             new IndexSearcherConfig { ParallelSearch = false });
 
         // Build a comparable Lucene.NET index with multiple segments.
-        s_luceneDirectory = new LuceneRAMDirectory();
+        s_luceneIndexPath = BenchmarkHelpers.CreateTempDirectory("lucenenet-bench-parallel");
+        s_luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(s_luceneIndexPath));
         var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
         var luceneConfig = new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser)
         {

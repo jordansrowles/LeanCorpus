@@ -17,7 +17,6 @@ using LuceneDocument = Lucene.Net.Documents.Document;
 using LuceneStringField = Lucene.Net.Documents.StringField;
 using LuceneTextField = Lucene.Net.Documents.TextField;
 using LuceneDoubleField = Lucene.Net.Documents.DoubleField;
-using LuceneRAMDirectory = Lucene.Net.Store.RAMDirectory;
 using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
 using LuceneDirectoryReader = Lucene.Net.Index.DirectoryReader;
 using LuceneIndexWriter = Lucene.Net.Index.IndexWriter;
@@ -110,8 +109,10 @@ public class IndexSortIndexBenchmarks
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_Index_Unsorted()
     {
-        using var dir = new LuceneRAMDirectory();
-        var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
+        string path = BenchmarkHelpers.CreateTempDirectory("lucenenet-bench-sort-index");
+        _iterationPaths.Add(path);
+        using var dir = new LuceneMMapDirectory(new System.IO.DirectoryInfo(path));
+        using var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48);
         using var writer = new LuceneIndexWriter(
             dir, new LuceneIndexWriterConfig(LuceneVersion.LUCENE_48, analyser));
         for (int i = 0; i < _documentsWithPrices.Length; i++)

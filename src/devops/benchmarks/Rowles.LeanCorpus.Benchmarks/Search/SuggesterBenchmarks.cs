@@ -46,8 +46,10 @@ public class SuggesterBenchmarks
     private SpellIndex? _leanSpellIndex;
 
     // Lucene.NET state
-    private RAMDirectory? _luceneSourceDirectory;
-    private RAMDirectory? _luceneSpellDirectory;
+    private string _luceneSourcePath = string.Empty;
+    private string _luceneSpellPath = string.Empty;
+    private Lucene.Net.Store.MMapDirectory? _luceneSourceDirectory;
+    private Lucene.Net.Store.MMapDirectory? _luceneSpellDirectory;
     private SpellChecker? _luceneSpellChecker;
 
     [GlobalSetup]
@@ -80,6 +82,8 @@ public class SuggesterBenchmarks
         _luceneSpellChecker?.Dispose();
         _luceneSourceDirectory?.Dispose();
         _luceneSpellDirectory?.Dispose();
+        BenchmarkHelpers.DeleteDirectory(_luceneSourcePath);
+        BenchmarkHelpers.DeleteDirectory(_luceneSpellPath);
     }
 
     [Benchmark(Baseline = true)]
@@ -297,7 +301,8 @@ public class SuggesterBenchmarks
 
     private void BuildLuceneNetSpellChecker(string[] documents)
     {
-        _luceneSourceDirectory = new RAMDirectory();
+        _luceneSourcePath = BenchmarkHelpers.CreateTempDirectory("lucenenet-bench-suggester-source");
+        _luceneSourceDirectory = new Lucene.Net.Store.MMapDirectory(new System.IO.DirectoryInfo(_luceneSourcePath));
         using var analyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
 
         using (var writer = new Lucene.Net.Index.IndexWriter(
@@ -315,7 +320,8 @@ public class SuggesterBenchmarks
             writer.Commit();
         }
 
-        _luceneSpellDirectory = new RAMDirectory();
+        _luceneSpellPath = BenchmarkHelpers.CreateTempDirectory("lucenenet-bench-suggester-spell");
+        _luceneSpellDirectory = new Lucene.Net.Store.MMapDirectory(new System.IO.DirectoryInfo(_luceneSpellPath));
         _luceneSpellChecker = new SpellChecker(_luceneSpellDirectory);
 
         using var reader = DirectoryReader.Open(_luceneSourceDirectory);

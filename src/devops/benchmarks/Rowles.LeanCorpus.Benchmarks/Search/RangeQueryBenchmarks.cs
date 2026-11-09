@@ -13,6 +13,7 @@ using LeanNumericField = Rowles.LeanCorpus.Document.Fields.NumericField;
 using LeanStringField = Rowles.LeanCorpus.Document.Fields.StringField;
 using LeanTextField = Rowles.LeanCorpus.Document.Fields.TextField;
 using LuceneIndexSearcher = Lucene.Net.Search.IndexSearcher;
+using LuceneMMapDirectory = Lucene.Net.Store.MMapDirectory;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
@@ -44,7 +45,8 @@ public class RangeQueryBenchmarks
     private static string s_leanIndexPath = string.Empty;
     private static LeanMMapDirectory? s_leanDirectory;
     private static LeanIndexSearcher? s_leanSearcher;
-    private static RAMDirectory? s_luceneDirectory;
+    private static string s_luceneIndexPath = string.Empty;
+    private static LuceneMMapDirectory? s_luceneDirectory;
     private static StandardAnalyzer? s_luceneAnalyzer;
     private static DirectoryReader? s_luceneReader;
     private static LuceneIndexSearcher? s_luceneSearcher;
@@ -114,7 +116,8 @@ public class RangeQueryBenchmarks
             s_leanSearcher = new LeanIndexSearcher(s_leanDirectory);
 
             // Lucene.NET
-            s_luceneDirectory = new RAMDirectory();
+            s_luceneIndexPath = BenchmarkHelpers.CreateTempDirectory("lucenenet-bench-range");
+            s_luceneDirectory = new LuceneMMapDirectory(new DirectoryInfo(s_luceneIndexPath));
             s_luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
             using (var writer = new Lucene.Net.Index.IndexWriter(
                 s_luceneDirectory,
