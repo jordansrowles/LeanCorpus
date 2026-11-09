@@ -32,6 +32,10 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Measures <see cref="FunctionScoreQuery"/> latency across all <see cref="ScoreMode"/> values.
+/// As-shipped Lucene.NET rows use the default similarity. Matched-BM25 rows use a separate
+/// Lucene.NET index and searcher with <c>BM25Similarity</c>. Setup records each timed index's
+/// profile and proves, per engine, that the timed top-K follows the selected mode (BVAL-04 is kept
+/// for the fixed fixture).
 /// </summary>
 [MemoryDiagnoser]
 [GroupBenchmarksBy(BenchmarkLogicalGroupRule.ByCategory)]
@@ -62,6 +66,13 @@ public class FunctionScoreQueryBenchmarks
     private LuceneDirectoryReader? _luceneReader;
     private LuceneIndexSearcher? _luceneSearcher;
 
+    // Lucene.NET matched-BM25 index state
+    private string _luceneBm25IndexPath = string.Empty;
+    private LuceneMMapDirectory? _luceneBm25Directory;
+    private LuceneDirectoryReader? _luceneBm25Reader;
+    private LuceneIndexSearcher? _luceneBm25Searcher;
+    private (string Body, double Price)[] _documents = [];
+
     private string _bval04LeanIndexPath = string.Empty;
     private LeanMMapDirectory? _bval04LeanDirectory;
     private LeanIndexSearcher? _bval04LeanSearcher;
@@ -77,9 +88,13 @@ public class FunctionScoreQueryBenchmarks
     public void Setup()
     {
         var docs = BenchmarkData.BuildDocumentsWithPrices(DocumentCount);
+        _documents = docs;
         BuildLeanIndex(docs);
         BuildLuceneIndex(docs);
+        BuildLuceneBm25Index(docs);
         ValidateBval04Fixture();
+        RecordProfiles();
+        ProveTimedModes();
     }
 
     [GlobalCleanup]
@@ -102,6 +117,9 @@ public class FunctionScoreQueryBenchmarks
         _luceneDirectory?.Dispose();
         if (!string.IsNullOrWhiteSpace(_luceneIndexPath) && IODirectory.Exists(_luceneIndexPath))
             IODirectory.Delete(_luceneIndexPath, recursive: true);
+        _luceneBm25Reader?.Dispose();
+        _luceneBm25Directory?.Dispose();
+        BenchmarkHelpers.DeleteDirectory(_luceneBm25IndexPath);
     }
 
     [Benchmark(Description = "LeanCorpus base term query")]
@@ -127,7 +145,7 @@ public class FunctionScoreQueryBenchmarks
         return _leanSearcher!.Search(q, TopN).TotalHits;
     }
 
-    [Benchmark(Description = "Lucene.NET base term query")]
+    [Benchmark(Description = "Lucene.NET base term query, as shipped")]
     [BenchmarkCategory("FunctionScore base-query reference")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_TermQuery()
@@ -136,7 +154,7 @@ public class FunctionScoreQueryBenchmarks
         return _luceneSearcher!.Search(q, TopN).TotalHits;
     }
 
-    [Benchmark(Description = "Lucene.NET function-score query")]
+    [Benchmark(Description = "Lucene.NET function-score query, as shipped")]
     [BenchmarkCategory("FunctionScore mode workload")]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_FunctionScoreQuery()
@@ -144,6 +162,25 @@ public class FunctionScoreQueryBenchmarks
         var inner = new LuceneTermQuery(new LuceneTerm("body", "government"));
         var csq = new PriceBoostingQuery(inner, ParseMode(Mode));
         return _luceneSearcher!.Search(csq, TopN).TotalHits;
+    }
+
+    [Benchmark(Description = "Lucene.NET base term query, matched BM25")]
+    [BenchmarkCategory("FunctionScore base-query reference")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_TermQuery_MatchedBm25()
+    {
+        var q = new LuceneTermQuery(new LuceneTerm("body", "government"));
+        return _luceneBm25Searcher!.Search(q, TopN).TotalHits;
+    }
+
+    [Benchmark(Description = "Lucene.NET function-score query, matched BM25")]
+    [BenchmarkCategory("FunctionScore mode workload")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_FunctionScoreQuery_MatchedBm25()
+    {
+        var inner = new LuceneTermQuery(new LuceneTerm("body", "government"));
+        var csq = new PriceBoostingQuery(inner, ParseMode(Mode));
+        return _luceneBm25Searcher!.Search(csq, TopN).TotalHits;
     }
 
     private static ScoreMode ParseMode(string mode)
@@ -503,6 +540,149 @@ public class FunctionScoreQueryBenchmarks
         _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
         BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
+    }
+
+    private void BuildLuceneBm25Index((string Body, double Price)[] docs)
+    {
+        _luceneBm25IndexPath = BenchmarkHelpers.CreateTempDirectory("lucenenet-bench-funcscore-bm25");
+        _luceneBm25Directory = new LuceneMMapDirectory(new System.IO.DirectoryInfo(_luceneBm25IndexPath));
+        var similarity = SharedStandardIndex.CreateBval05Bm25Similarity();
+        using (var analyser = new StandardAnalyzer(LuceneVersion.LUCENE_48))
+        using (var writer = new Lucene.Net.Index.IndexWriter(
+            _luceneBm25Directory,
+            new Lucene.Net.Index.IndexWriterConfig(LuceneVersion.LUCENE_48, analyser) { Similarity = similarity }))
+        {
+            for (int i = 0; i < docs.Length; i++)
+            {
+                var doc = new LuceneDocument();
+                doc.Add(new LuceneStringField("id",
+                    i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    Lucene.Net.Documents.Field.Store.NO));
+                doc.Add(new LuceneTextField("body", docs[i].Body,
+                    Lucene.Net.Documents.Field.Store.NO));
+                doc.Add(new LuceneDoubleField("price", docs[i].Price,
+                    Lucene.Net.Documents.Field.Store.NO));
+                doc.Add(new LuceneDoubleDocValuesField("price", docs[i].Price));
+                writer.AddDocument(doc);
+            }
+            writer.Commit();
+        }
+        _luceneBm25Reader = LuceneDirectoryReader.Open(_luceneBm25Directory);
+        _luceneBm25Searcher = new LuceneIndexSearcher(_luceneBm25Reader) { Similarity = similarity };
+    }
+
+    private void RecordProfiles()
+    {
+        string fixture = string.Concat(TopologyFixture, "-", Mode);
+        var lean = BenchmarkFixtureEvidence.RecordLeanCorpus(fixture, _leanDirectory!, _leanSearcher!);
+        var asShipped = BenchmarkFixtureEvidence.RecordLucene(fixture, _luceneDirectory!, _luceneReader!, "Lucene.NET as shipped");
+        var bm25 = BenchmarkFixtureEvidence.RecordLucene(fixture, _luceneBm25Directory!, _luceneBm25Reader!, "Lucene.NET matched BM25");
+        BenchmarkFixtureEvidence.RecordProfile(fixture, lean.Engine, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["similarity"] = new Rowles.LeanCorpus.Search.Searcher.IndexSearcherConfig().Similarity.GetType().Name,
+            ["body"] = "indexed, stored",
+            ["id"] = "indexed, stored",
+            ["price"] = "numeric points and numeric DocValues",
+            ["segments"] = lean.SegmentCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        });
+        BenchmarkFixtureEvidence.RecordProfile(fixture, asShipped.Engine, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["similarity"] = _luceneSearcher!.Similarity.GetType().Name,
+            ["body"] = "indexed, not stored",
+            ["id"] = "indexed, not stored",
+            ["price"] = "DoubleField and DoubleDocValuesField",
+            ["segments"] = asShipped.SegmentCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        });
+        BenchmarkFixtureEvidence.RecordProfile(fixture, bm25.Engine, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["similarity"] = _luceneBm25Searcher!.Similarity.GetType().Name,
+            ["body"] = "indexed, not stored",
+            ["id"] = "indexed, not stored",
+            ["price"] = "DoubleField and DoubleDocValuesField",
+            ["segments"] = bm25.SegmentCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+        });
+        if (_luceneBm25Searcher.Similarity is not Lucene.Net.Search.Similarities.BM25Similarity)
+            throw new InvalidOperationException("The matched-BM25 Lucene.NET searcher does not use BM25Similarity.");
+    }
+
+    /// <summary>
+    /// Proves on the timed indexes that each engine's function-score top-K is its own base-query
+    /// scores combined with price by the selected mode.
+    /// </summary>
+    private void ProveTimedModes()
+    {
+        var mode = ParseMode(Mode);
+        var prices = new Dictionary<string, double>(_documents.Length, StringComparer.Ordinal);
+        for (int i = 0; i < _documents.Length; i++)
+            prices[i.ToString(System.Globalization.CultureInfo.InvariantCulture)] = _documents[i].Price;
+
+        var leanBase = _leanSearcher!.Search(new TermQuery("body", "government"), Math.Max(1, DocumentCount));
+        string LeanId(int docId) => _leanSearcher.GetStoredFields(docId)["id"][0];
+        var leanTop = _leanSearcher.Search(new FunctionScoreQuery(new TermQuery("body", "government"), "price", mode), TopN);
+        ValidateModeTopK("LeanCorpus", Mode,
+            leanBase.ScoreDocs.Select(hit => (LeanId(hit.DocId), hit.Score)).ToArray(),
+            prices,
+            leanTop.ScoreDocs.Select(hit => (LeanId(hit.DocId), hit.Score)).ToArray(),
+            leanTop.TotalHits);
+
+        foreach (var (engine, searcher) in new[] { ("Lucene.NET as shipped", _luceneSearcher!), ("Lucene.NET matched BM25", _luceneBm25Searcher!) })
+        {
+            string?[] ids = BenchmarkFixtureEvidence.BuildLuceneLogicalIds(searcher.IndexReader);
+            var inner = new LuceneTermQuery(new LuceneTerm("body", "government"));
+            var baseHits = searcher.Search(inner, Math.Max(1, searcher.IndexReader.MaxDoc));
+            var top = searcher.Search(new PriceBoostingQuery(inner, mode), TopN);
+            ValidateModeTopK(engine, Mode,
+                baseHits.ScoreDocs.Select(hit => (ids[hit.Doc]!, hit.Score)).ToArray(),
+                prices,
+                top.ScoreDocs.Select(hit => (ids[hit.Doc]!, hit.Score)).ToArray(),
+                top.TotalHits);
+        }
+    }
+
+    /// <summary>
+    /// Fails setup unless <paramref name="actualTopK"/> is the top-K of the base scores combined
+    /// with price by <paramref name="mode"/>. Scores must agree to within 1e-5 relative, the
+    /// rounding of single-precision combination; documents tied at the K-th score may appear in
+    /// any order and either side of the cut.
+    /// </summary>
+    internal static void ValidateModeTopK(
+        string engine,
+        string mode,
+        IReadOnlyList<(string Id, float Score)> baseScores,
+        IReadOnlyDictionary<string, double> prices,
+        IReadOnlyList<(string Id, float Score)> actualTopK,
+        int totalHits)
+    {
+        BenchmarkFixtureEvidence.RequireWork("function-score", mode, engine, totalHits);
+        if (totalHits != baseScores.Count)
+            throw new InvalidOperationException($"Function-score {engine} {mode} matched {totalHits} documents; the base query matched {baseScores.Count}.");
+
+        var scoreMode = ParseMode(mode);
+        var expected = baseScores
+            .Select(item => (item.Id, Score: FunctionScoreQuery.Combine(item.Score, prices[item.Id], scoreMode)))
+            .OrderByDescending(static item => item.Score)
+            .ToArray();
+        int k = Math.Min(TopN, expected.Length);
+        if (actualTopK.Count != k)
+            throw new InvalidOperationException($"Function-score {engine} {mode} returned {actualTopK.Count} results; expected {k}.");
+
+        for (int i = 0; i < k; i++)
+        {
+            if (!NearlyEqual(actualTopK[i].Score, expected[i].Score))
+                throw new InvalidOperationException(
+                    $"Function-score {engine} {mode} rank {i + 1} score {actualTopK[i].Score} differs from the expected {expected[i].Score}.");
+        }
+
+        double cut = expected[k - 1].Score;
+        var actualIds = actualTopK.Select(static item => item.Id).ToHashSet(StringComparer.Ordinal);
+        var missing = expected.Take(k)
+            .Where(item => !NearlyEqual(item.Score, cut) && !actualIds.Contains(item.Id))
+            .Select(static item => item.Id)
+            .ToArray();
+        if (missing.Length != 0)
+            throw new InvalidOperationException(
+                $"Function-score {engine} {mode} top-K is missing documents above the cut: {string.Join(",", missing.Take(5))}.");
+        Console.WriteLine($"Benchmark preflight function-score {engine} {mode}: total={totalHits}, topK={k}, cut={cut}");
     }
 
     private void BuildLeanIndex((string Body, double Price)[] docs)

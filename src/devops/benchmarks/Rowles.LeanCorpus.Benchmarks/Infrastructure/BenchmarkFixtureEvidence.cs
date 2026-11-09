@@ -56,33 +56,14 @@ internal static class BenchmarkFixtureEvidence
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
             $"Benchmark topology {record.Fixture} {record.Engine}: directory={record.DirectoryType}, segments={record.SegmentCount}, documents={record.DocumentCount}"));
 
-        string? artifactRoot = Environment.GetEnvironmentVariable(ArtifactDirectoryVariable);
-        if (string.IsNullOrWhiteSpace(artifactRoot))
-            return record;
-
-        string directory = Path.Combine(Path.GetFullPath(artifactRoot), "topology");
-        System.IO.Directory.CreateDirectory(directory);
-        string path = Path.Combine(directory, string.Concat(SafeFileName(record.Fixture), ".", SafeFileName(record.Engine), ".json"));
-        byte[] content = JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object>(StringComparer.Ordinal)
+        WriteSidecar("topology", record.Fixture, record.Engine, JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object>(StringComparer.Ordinal)
         {
             ["fixture"] = record.Fixture,
             ["engine"] = record.Engine,
             ["directoryType"] = record.DirectoryType,
             ["segmentCount"] = record.SegmentCount,
             ["documentCount"] = record.DocumentCount
-        });
-        string temporaryPath = Path.Combine(directory, string.Concat(".", Guid.NewGuid().ToString("N"), ".tmp"));
-        try
-        {
-            File.WriteAllBytes(temporaryPath, content);
-            File.Move(temporaryPath, path, overwrite: true);
-        }
-        finally
-        {
-            if (File.Exists(temporaryPath))
-                File.Delete(temporaryPath);
-        }
-
+        }));
         return record;
     }
 
@@ -108,6 +89,62 @@ internal static class BenchmarkFixtureEvidence
             throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
                 $"{fixture} case '{caseName}' did no work on {engine}: observed {observed}. Declare requiresNoMatch if that is intended."));
         return observed;
+    }
+
+    /// <summary>Writes a fixture profile (similarity, storage, DocValues) to the log and as a sidecar.</summary>
+    public static void RecordProfile(string fixture, string engine, IReadOnlyDictionary<string, string> profile)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(fixture);
+        ArgumentNullException.ThrowIfNull(profile);
+        Console.WriteLine(string.Concat("Benchmark profile ", fixture, " ", engine, ": ",
+            string.Join(", ", profile.OrderBy(static pair => pair.Key, StringComparer.Ordinal).Select(static pair => string.Concat(pair.Key, "=", pair.Value)))));
+        WriteSidecar("profile", fixture, engine, JsonSerializer.SerializeToUtf8Bytes(
+            new SortedDictionary<string, string>(profile.ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.Ordinal), StringComparer.Ordinal)));
+    }
+
+    /// <summary>Maps each Lucene.NET document number to its indexed <c>id</c> term.</summary>
+    public static string?[] BuildLuceneLogicalIds(Lucene.Net.Index.IndexReader reader, string field = "id")
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        var terms = Lucene.Net.Index.MultiFields.GetTerms(reader, field)
+            ?? throw new InvalidOperationException($"Lucene.NET index has no '{field}' terms.");
+        var ids = new string?[reader.MaxDoc];
+        var termsEnum = terms.GetEnumerator();
+        while (termsEnum.MoveNext())
+        {
+            string id = termsEnum.Term.Utf8ToString();
+            var documents = termsEnum.Docs(null, null, Lucene.Net.Index.DocsFlags.NONE);
+            for (int doc = documents.NextDoc(); doc != Lucene.Net.Search.DocIdSetIterator.NO_MORE_DOCS; doc = documents.NextDoc())
+            {
+                if (ids[doc] is not null)
+                    throw new InvalidOperationException($"Lucene.NET document {doc} has more than one '{field}' term.");
+                ids[doc] = id;
+            }
+        }
+
+        return ids;
+    }
+
+    private static void WriteSidecar(string kind, string fixture, string engine, byte[] content)
+    {
+        string? artifactRoot = Environment.GetEnvironmentVariable(ArtifactDirectoryVariable);
+        if (string.IsNullOrWhiteSpace(artifactRoot))
+            return;
+
+        string directory = Path.Combine(Path.GetFullPath(artifactRoot), kind);
+        System.IO.Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, string.Concat(SafeFileName(fixture), ".", SafeFileName(engine), ".json"));
+        string temporaryPath = Path.Combine(directory, string.Concat(".", Guid.NewGuid().ToString("N"), ".tmp"));
+        try
+        {
+            File.WriteAllBytes(temporaryPath, content);
+            File.Move(temporaryPath, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
     }
 
     private static string SafeFileName(string value)

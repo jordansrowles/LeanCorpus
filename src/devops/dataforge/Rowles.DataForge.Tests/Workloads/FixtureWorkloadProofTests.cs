@@ -48,4 +48,26 @@ public sealed class FixtureWorkloadProofTests
         Assert.Throws<InvalidOperationException>(() => QueryCacheBenchmarks.ValidateSameResults("term", uncached,
             new LeanTopDocs(3, [new LeanScoreDoc(0, 2.5f), new LeanScoreDoc(1, 1.5f)]), Id));
     }
+
+    [Fact]
+    public void Function_score_gate_rejects_a_wrong_mode_or_similarity()
+    {
+        (string Id, float Score)[] baseScores = [("0", 2.0f), ("1", 1.0f), ("2", 0.5f)];
+        var prices = new Dictionary<string, double>(StringComparer.Ordinal) { ["0"] = 10, ["1"] = 15, ["2"] = 100 };
+
+        // Multiply: 20, 15, 50.
+        FunctionScoreQueryBenchmarks.ValidateModeTopK("LeanCorpus", "Multiply", baseScores, prices,
+            [("2", 50f), ("0", 20f), ("1", 15f)], 3);
+
+        // The timed query applied Replace instead of Multiply.
+        Assert.Throws<InvalidOperationException>(() => FunctionScoreQueryBenchmarks.ValidateModeTopK("LeanCorpus", "Multiply", baseScores, prices,
+            [("2", 100f), ("1", 15f), ("0", 10f)], 3));
+
+        // The timed searcher used a different similarity, so base scores were halved.
+        Assert.Throws<InvalidOperationException>(() => FunctionScoreQueryBenchmarks.ValidateModeTopK("Lucene.NET matched BM25", "Multiply", baseScores, prices,
+            [("2", 25f), ("0", 10f), ("1", 7.5f)], 3));
+
+        // The timed query matched nothing.
+        Assert.Throws<InvalidOperationException>(() => FunctionScoreQueryBenchmarks.ValidateModeTopK("LeanCorpus", "Multiply", [], prices, [], 0));
+    }
 }
