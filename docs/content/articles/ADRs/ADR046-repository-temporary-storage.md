@@ -45,9 +45,18 @@ Repository-owned code allocates temporary storage under
   belongs to the current user (or the user is root), so the shared-directory
   exposure does not return. The override is never inferred from `TMP`, `TEMP` or
   `TMPDIR`.
-- **Creation** uses a new GUID per directory. On Unix the directory is created
-  owner-only (read, write and execute for the user). Directories are never
-  shared between tests or processes.
+- **Roots are validated, not trusted.** The temporary root and every area root
+  are created owner-only when missing. When they already exist they must not be
+  symbolic links or reparse points, and on Unix any group or other access is
+  removed. Tightening a directory owned by another user fails, so a foreign
+  directory is never used. The override root must already be owner-only and is
+  never altered.
+- **Creation** uses a new GUID per directory. `CreateDirectory` creates it
+  owner-only and refuses one that already exists. `NewPath` returns a new unique
+  path without creating it, for code that creates the directory itself; such
+  directories may have default permissions, but they sit inside an owner-only
+  area root, so on Unix only the current user can reach them. Directories are
+  never shared between tests or processes.
 - **Clean-up** deletes on dispose, retrying `IOException` and
   `UnauthorizedAccessException` for up to five seconds while Windows releases
   handles held by terminated child processes, then rethrows. It deletes only
@@ -56,13 +65,21 @@ Repository-owned code allocates temporary storage under
   `Rowles.LeanCorpus.Tests.Shared/Fixtures`, has no dependency on any
   LeanCorpus assembly. Projects that do not reference Tests.Shared link the file
   as source, as Tests.Core already does for `TestDirectoryFixture`.
-- **Architecture rule.** `TemporaryStorageConventionTests` parses every tracked
-  C# file under `src/devops/` and `src/server/devops/`. It rejects calls to
-  `Path.GetTempPath`, `Path.GetTempFileName` and
-  `Directory.CreateTempSubdirectory`, including qualified, aliased and
-  `using static` forms, and reads of the `TMP`, `TEMP` and `TMPDIR` environment
-  variables. The only allowed exceptions are registered by file and member,
-  with a reason, in one of four categories:
+- **Benchmarks** use one directory per run:
+  `artifacts/tmp/benchmarks/run-<LEANCORPUS_RUN_ID>` for a managed run, otherwise
+  `local-<guid>`. BenchmarkDotNet child processes inherit it, and clean-up
+  deletes only that run's directory, so concurrent runs cannot remove each
+  other's files.
+- **Architecture rule.** `TemporaryStorageConventionTests` compiles the C# files
+  of each project under `src/devops/` and `src/server/devops/` with a Roslyn
+  semantic model, including the SDK implicit usings and the project's `<Using>`
+  items. It rejects calls that bind to `Path.GetTempPath`,
+  `Path.GetTempFileName` or `Directory.CreateTempSubdirectory`, whatever alias,
+  namespace alias or global or static using reaches them, and reads of the
+  `TMP`, `TEMP` and `TMPDIR` environment variables by constant name. A call that
+  cannot be bound is reported if it matches syntactically. The only allowed
+  exceptions are registered by file and exact member, with a reason, in one of
+  four categories:
   - **A,** cross-checkout coordination (the benchmark host lease);
   - **B,** a test that must create a checkout, worktree or symlink outside the
     repository;
@@ -91,10 +108,12 @@ and the explicit register keeps the genuine exceptions reviewable.
 ## Consequences
 
 - Test, benchmark and tooling temporary files appear under `artifacts/tmp`,
-  which is already ignored by Git. Benchmark indexes move from
-  `artifacts/temp/benchmark` to `artifacts/tmp/benchmarks` on the same
-  filesystem; under ADR045 this is a fixture-location change that does not
-  alter measured I/O.
+  which is already ignored by Git. Benchmarks that already used
+  `artifacts/temp/benchmark` stay on the same filesystem. `CodecFrameBenchmarks`,
+  `CodecFormatReadAndMigrationBenchmarks` and the profiling benchmarks previously
+  used operating-system temporary storage, which is a RAM disk on some hosts;
+  their storage medium changed, so their earlier results are not comparable and
+  their next runs are new baselines under ADR045.
 - New code that selects operating-system temporary storage in these projects
   fails the architecture tests unless it is registered with a reason.
 - Local test I/O moves off any RAM-disk `/tmp`. On a host where `/tmp` is tmpfs,
