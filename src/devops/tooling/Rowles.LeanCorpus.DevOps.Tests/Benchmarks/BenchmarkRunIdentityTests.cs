@@ -330,7 +330,7 @@ public sealed class BenchmarkRunIdentityTests
 
         public static TemporaryDirectory Create()
         {
-            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus benchmark identity " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus benchmark identity ");
             Directory.CreateDirectory(path);
             return new TemporaryDirectory(path);
         }

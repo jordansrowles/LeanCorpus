@@ -36,7 +36,7 @@ internal sealed class ServerHostScope : IAsyncDisposable
         string? dataRoot = null,
         bool deleteRoot = true)
     {
-        string root = dataRoot ?? Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-server-integration-{Guid.NewGuid():N}");
+        string root = dataRoot ?? RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-integration-");
         WebApplicationBuilder builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
             EnvironmentName = Environments.Development,

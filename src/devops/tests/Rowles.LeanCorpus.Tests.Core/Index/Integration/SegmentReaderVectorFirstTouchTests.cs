@@ -17,7 +17,7 @@ public sealed class SegmentReaderVectorFirstTouchTests : IDisposable
 {
     private const int VectorFieldCount = 4;
     private const int DocumentCount = 64;
-    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-vector-first-touch-{Guid.NewGuid():N}");
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "ll-vector-first-touch-");
 
     [Fact]
     public async Task FirstTouchForOneField_DoesNotWaitForAnotherFieldInitialisation()

@@ -344,7 +344,7 @@ public sealed class TestExecutorTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus managed test executor " + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus managed test executor ");
             return new TemporaryCheckout(root);
         }
 

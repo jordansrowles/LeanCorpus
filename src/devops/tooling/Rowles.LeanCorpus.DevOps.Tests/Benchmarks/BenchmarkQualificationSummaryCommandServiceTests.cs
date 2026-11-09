@@ -152,7 +152,7 @@ public sealed class BenchmarkQualificationSummaryCommandServiceTests
     {
         public TemporaryCheckout()
         {
-            Root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus benchmark summary " + Guid.NewGuid().ToString("N"));
+            Root = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus benchmark summary ");
             Directory.CreateDirectory(Root);
             string gitDirectory = Path.Combine(Root, ".git");
             Directory.CreateDirectory(gitDirectory);

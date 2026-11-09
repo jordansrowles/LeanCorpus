@@ -31,7 +31,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "Score: Single Term Returns All Docs")]
     public void Score_SingleTerm_ReturnsAllDocs()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -70,7 +70,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "Blocks Skipped: Is Non Negative")]
     public void BlocksSkipped_IsNonNegative()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -104,7 +104,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: Top-K Matches Brute Force")]
     public void Wand_TopKMatchesBruteForce()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -181,7 +181,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: Small posting list does not skip valid tail docs")]
     public void Wand_SmallPostingList_DoesNotSkipValidTailDocs()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -218,7 +218,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: Tail block after full blocks is bounded safely")]
     public void Wand_TailBlockAfterFullBlocks_IsBoundedSafely()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -265,7 +265,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "Flush: per-document norms are written into posting skip entries")]
     public void Flush_WritesNormsIntoSkipEntries()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -313,7 +313,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: real norms produce lower block-max scores than the zero-norm fallback")]
     public void Wand_RealNorms_LowerBlockMaxScores()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -369,7 +369,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: absent Should term from one segment does not crash")]
     public void Wand_AbsentShouldTerm_DoesNotCrash()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -410,7 +410,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: absent Must term causes zero matches from that segment")]
     public void Wand_AbsentMustTerm_ReturnsZeroFromSegment()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -450,7 +450,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: absent MustNot term is harmless")]
     public void Wand_AbsentMustNot_IsHarmless()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -487,7 +487,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: all Should terms absent from one segment returns safely")]
     public void Wand_AllShouldTermsAbsentFromSegment_ReturnsSafely()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -527,7 +527,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: deleted documents handled consistently with scalar")]
     public void Wand_DeletedDocuments_MatchesScalar()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -569,7 +569,7 @@ public sealed class BlockMaxWandScorerTests
     [Fact(DisplayName = "WAND: absent segment-local Should terms preserve competitive top-K results")]
     public void Wand_AbsentShouldTerms_TopKMatchesScalar()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {

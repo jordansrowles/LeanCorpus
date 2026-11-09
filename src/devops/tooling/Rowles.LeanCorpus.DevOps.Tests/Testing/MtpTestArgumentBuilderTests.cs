@@ -120,7 +120,7 @@ public sealed class MtpTestArgumentBuilderTests
         public string Path { get; }
         public static TemporaryDirectory Create()
         {
-            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus MTP arguments " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus MTP arguments ");
             Directory.CreateDirectory(System.IO.Path.Combine(path, ".config", "devops"));
             return new TemporaryDirectory(path);
         }

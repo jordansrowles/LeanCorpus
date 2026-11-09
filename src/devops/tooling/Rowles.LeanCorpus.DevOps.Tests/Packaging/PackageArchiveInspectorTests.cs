@@ -49,7 +49,7 @@ public sealed class PackageArchiveInspectorTests
 
     private static TemporaryPackage CreatePackage(bool addUnexpectedAsset)
     {
-        var directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-package-inspector-" + Guid.NewGuid().ToString("N"));
+        var directory = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-package-inspector-");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "Example.Package.1.0.0.nupkg");
         using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
@@ -78,7 +78,7 @@ public sealed class PackageArchiveInspectorTests
 
     private static TemporaryPackage CreateCompressionPackage(string dependencyRange)
     {
-        var directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-compression-package-" + Guid.NewGuid().ToString("N"));
+        var directory = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-compression-package-");
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "LeanCorpus.Compression.LZ4.1.0.1.nupkg");
         using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))

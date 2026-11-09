@@ -296,6 +296,6 @@ public sealed class SearchAndInspectionTests
         return ids;
     }
 
-    private static string TemporaryRoot() => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-server-search-{Guid.NewGuid():N}");
+    private static string TemporaryRoot() => RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-search-");
     private static void DeleteRoot(string root) { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

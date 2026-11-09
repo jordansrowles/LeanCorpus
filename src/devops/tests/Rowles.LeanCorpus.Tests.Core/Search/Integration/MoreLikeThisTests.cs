@@ -16,7 +16,7 @@ public class MoreLikeThisTests : IDisposable
 
     public MoreLikeThisTests()
     {
-        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "mlt_tests_" + Guid.NewGuid().ToString("N"));
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "mlt_tests_");
         Directory.CreateDirectory(_dir);
     }
 

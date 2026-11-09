@@ -15,8 +15,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search.Sorting;
 [Area(TestArea.Search)]
 public sealed class PackedBkdBestFirstTraversalTests : IDisposable
 {
-    private readonly string _path = Path.Combine(
-        RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus_best_first_" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_best_first_");
 
     public void Dispose()
         => TestDirectoryFixture.TryDeleteDirectory(_path);

@@ -17,8 +17,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search.Sorting;
 [Area(TestArea.Search)]
 public sealed class SpatialNearestChaosTests : IDisposable
 {
-    private readonly string _path = Path.Combine(
-        RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus_nearest_chaos_" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_nearest_chaos_");
 
     public void Dispose()
         => TestDirectoryFixture.TryDeleteDirectory(_path);

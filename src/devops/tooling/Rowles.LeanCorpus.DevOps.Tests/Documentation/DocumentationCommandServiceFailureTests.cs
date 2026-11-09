@@ -152,7 +152,7 @@ public sealed class DocumentationCommandServiceFailureTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "Issue 97 docs child " + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "Issue 97 docs child ");
             Directory.CreateDirectory(root);
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(Path.Combine(root, "src"));

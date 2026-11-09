@@ -28,7 +28,7 @@ internal static class SeedSearchRunner
         if (preset is "codec-current" or "codec-migration-required")
             throw new ArgumentException("Seed search requires a generative DataForge preset.", nameof(preset));
 
-        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("cli"), $"leancorpus-seed-search-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("cli", "leancorpus-seed-search-");
         Directory.CreateDirectory(root);
         var observations = new List<(ulong Seed, string Observation, long SizeBytes)>();
         int evaluated = 0;

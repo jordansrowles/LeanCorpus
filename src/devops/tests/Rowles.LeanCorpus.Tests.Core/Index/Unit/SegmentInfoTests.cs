@@ -37,7 +37,7 @@ public sealed class SegmentInfoTests : IDisposable
 
     public SegmentInfoTests()
     {
-        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_seg_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_seg_");
         Directory.CreateDirectory(_dir);
     }
 

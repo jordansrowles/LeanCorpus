@@ -357,7 +357,7 @@ public sealed class ProcessRunnerTests
 
         public static TemporaryDirectory Create(string prefix)
         {
-            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), prefix + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", prefix);
             Directory.CreateDirectory(path);
             return new TemporaryDirectory(path);
         }

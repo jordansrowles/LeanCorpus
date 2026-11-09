@@ -130,7 +130,7 @@ public sealed class PackageBuildServiceTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-package-run-" + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-package-run-");
             var packaging = Path.Combine(root, ".config/devops");
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(packaging);

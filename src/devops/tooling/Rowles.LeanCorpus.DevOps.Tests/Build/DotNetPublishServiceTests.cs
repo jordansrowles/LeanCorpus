@@ -140,7 +140,7 @@ public sealed class DotNetPublishServiceTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps publish checkout " + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps publish checkout ");
             var projectDirectory = Path.Combine(root, "src", "devops", "tooling", "Rowles.LeanCorpus.DevOps");
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(projectDirectory);

@@ -148,7 +148,7 @@ public sealed class HistoricalFixtureGenerationServiceTests
     public void AcceptsAnAbsoluteLocalPackageSourceDirectory()
     {
         Assert.Null(HistoricalFixtureGenerationService.ValidatePackageSource(RepositoryTemporaryStorage.GetAreaRoot("devops-tests")));
-        Assert.NotNull(HistoricalFixtureGenerationService.ValidatePackageSource(Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), Guid.NewGuid().ToString("N"))));
+        Assert.NotNull(HistoricalFixtureGenerationService.ValidatePackageSource(RepositoryTemporaryStorage.NewPath("devops-tests")));
     }
 
     [Fact]
@@ -214,7 +214,7 @@ public sealed class HistoricalFixtureGenerationServiceTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-migration-fixture-test-" + Guid.NewGuid().ToString("N"));
+            Path = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-migration-fixture-test-");
             Directory.CreateDirectory(Path);
         }
 

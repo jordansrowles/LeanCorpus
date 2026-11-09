@@ -9,7 +9,7 @@ public sealed class ExactInt8BenchmarkQualityTests
     [Fact]
     public void Int8WriterConfigurationIsRetiredBeforeIndexSideEffects()
     {
-        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), $"lc-int8-retired-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("dataforge", "lc-int8-retired-");
         Directory.CreateDirectory(path);
         try
         {
@@ -30,7 +30,7 @@ public sealed class ExactInt8BenchmarkQualityTests
     [Fact]
     public void ExplicitHnswWriteModeIsRetiredBeforeIndexSideEffects()
     {
-        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), $"lc-hnsw-retired-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("dataforge", "lc-hnsw-retired-");
         Directory.CreateDirectory(path);
         try
         {

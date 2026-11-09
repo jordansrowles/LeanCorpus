@@ -190,7 +190,7 @@ public sealed class BackupRestoreMatrixServiceTests
         public CheckoutIdentity Identity { get; }
 
         public static MatrixCheckout Create()
-            => new(Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus failed matrix " + Guid.NewGuid().ToString("N")));
+            => new(RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus failed matrix "));
 
         public void Dispose()
         {

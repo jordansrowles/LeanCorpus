@@ -16,8 +16,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class SpatialPointFieldMergeTests : IDisposable
 {
-    private readonly string _root = Path.Combine(
-        RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus_spatial_merge_" + Guid.NewGuid().ToString("N"));
+    private readonly string _root = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_spatial_merge_");
 
     public void Dispose()
         => TestDirectoryFixture.TryDeleteDirectory(_root);

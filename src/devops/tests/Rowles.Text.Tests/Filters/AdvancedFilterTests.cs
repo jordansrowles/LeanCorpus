@@ -303,7 +303,7 @@ query/A
     [Fact(DisplayName = "Hunspell Dictionary: FromFile Loads and Parses")]
     public void HunspellDictionary_FromFile_LoadsAndParses()
     {
-        var tempDir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"hunspell_test_{Guid.NewGuid():N}");
+        var tempDir = RepositoryTemporaryStorage.NewPath("tests", "hunspell_test_");
         try
         {
             Directory.CreateDirectory(tempDir);

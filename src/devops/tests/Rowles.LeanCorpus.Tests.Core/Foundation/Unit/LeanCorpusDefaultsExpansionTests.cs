@@ -448,7 +448,7 @@ public sealed class LeanCorpusDefaultsExpansionTests
     {
         RunWithRestoredSnapshot(() =>
         {
-            string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc-defaults-{Guid.NewGuid():N}");
+            string path = RepositoryTemporaryStorage.NewPath("tests", "lc-defaults-");
             Directory.CreateDirectory(path);
             try
             {

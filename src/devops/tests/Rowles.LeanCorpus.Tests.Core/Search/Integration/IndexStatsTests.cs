@@ -15,7 +15,7 @@ public sealed class IndexStatsTests : IDisposable
 
     public IndexStatsTests()
     {
-        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_stats_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_stats_");
         Directory.CreateDirectory(_dir);
     }
 

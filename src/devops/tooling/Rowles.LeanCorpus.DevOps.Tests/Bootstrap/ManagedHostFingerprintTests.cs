@@ -108,7 +108,7 @@ public sealed class ManagedHostFingerprintTests
         WriteManifest(checkout.Root, executable, Path.Combine(checkout.Root, "artifacts", "devops", "managed-host.json"));
 
         var hostSource = Path.Combine(checkout.Root, "src", "devops", "tooling", "Rowles.LeanCorpus.DevOps");
-        var movedSource = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "linked managed host source " + Guid.NewGuid().ToString("N"));
+        var movedSource = RepositoryTemporaryStorage.NewPath("devops-tests", "linked managed host source ");
         Directory.Move(hostSource, movedSource);
         CreateDirectoryLink(hostSource, movedSource);
         try
@@ -308,7 +308,7 @@ public sealed class ManagedHostFingerprintTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps fingerprint checkout " + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps fingerprint checkout ");
             Directory.CreateDirectory(Path.Combine(root, ".config", "devops"));
             foreach (var relative in new[]
             {

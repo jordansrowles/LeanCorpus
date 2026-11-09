@@ -14,7 +14,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class IndexWriterVectorImportAuditTests : IDisposable
 {
-    private readonly string _root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-vector-import-audit-{Guid.NewGuid():N}");
+    private readonly string _root = RepositoryTemporaryStorage.NewPath("tests", "ll-vector-import-audit-");
 
     public IndexWriterVectorImportAuditTests() => Directory.CreateDirectory(_root);
 

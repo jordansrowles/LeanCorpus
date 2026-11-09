@@ -17,7 +17,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class ConcurrentFieldCoverageTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-cfc-{Guid.NewGuid():N}");
+    private readonly string _dir = RepositoryTemporaryStorage.NewPath("tests", "ll-cfc-");
 
     public ConcurrentFieldCoverageTests() => Directory.CreateDirectory(_dir);
 

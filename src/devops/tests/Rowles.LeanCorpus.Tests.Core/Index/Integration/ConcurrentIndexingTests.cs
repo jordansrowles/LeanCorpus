@@ -19,7 +19,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class ConcurrentIndexingTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-conc-{Guid.NewGuid():N}");
+    private readonly string _dir = RepositoryTemporaryStorage.NewPath("tests", "ll-conc-");
 
     public ConcurrentIndexingTests() => Directory.CreateDirectory(_dir);
 

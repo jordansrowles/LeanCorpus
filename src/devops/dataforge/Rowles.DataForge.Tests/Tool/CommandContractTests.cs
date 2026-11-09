@@ -10,7 +10,7 @@ public sealed class CommandContractTests
     [InlineData("-h")]
     public void Help_requests_are_local_and_do_not_require_a_repository(string helpArgument)
     {
-        string missingRepository = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-help-missing-" + Guid.NewGuid().ToString("N"));
+        string missingRepository = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-help-missing-");
         var output = new StringWriter();
         var error = new StringWriter();
 
@@ -26,7 +26,7 @@ public sealed class CommandContractTests
     [Fact]
     public void Nested_reference_help_shows_the_matching_tool_options_without_running_it()
     {
-        string missingRepository = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-help-missing-" + Guid.NewGuid().ToString("N"));
+        string missingRepository = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-help-missing-");
         var output = new StringWriter();
         var error = new StringWriter();
 
@@ -41,7 +41,7 @@ public sealed class CommandContractTests
     [Fact]
     public void Unsupported_nested_help_returns_actionable_usage_without_running_a_command()
     {
-        string missingRepository = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-help-missing-" + Guid.NewGuid().ToString("N"));
+        string missingRepository = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-help-missing-");
         var output = new StringWriter();
         var error = new StringWriter();
 
@@ -93,7 +93,7 @@ public sealed class CommandContractTests
     [Fact]
     public void Vector_profile_parameters_round_trip_through_manifest_and_reproduction()
     {
-        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-vector-cli-" + Guid.NewGuid().ToString("N"));
+        var root = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-vector-cli-");
         var outputPath = Path.Combine(root, "vector");
         try
         {
@@ -119,7 +119,7 @@ public sealed class CommandContractTests
     [Fact]
     public void Hybrid_profile_round_trips_through_manifest_and_reproduction()
     {
-        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-hybrid-cli-" + Guid.NewGuid().ToString("N"));
+        var root = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-hybrid-cli-");
         var outputPath = Path.Combine(root, "hybrid");
         try
         {
@@ -143,7 +143,7 @@ public sealed class CommandContractTests
     [InlineData("hybrid")]
     public void Stress_modes_round_trip_with_replay_identity(string mode)
     {
-        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-stress-cli-" + Guid.NewGuid().ToString("N"));
+        var root = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-stress-cli-");
         var outputPath = Path.Combine(root, mode);
         try
         {
@@ -187,7 +187,7 @@ public sealed class CommandContractTests
     [Fact]
     public void Multilingual_languages_round_trip_through_manifest_and_reproduction()
     {
-        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-text-cli-" + Guid.NewGuid().ToString("N"));
+        var root = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-text-cli-");
         try
         {
             foreach (var language in Rowles.DataForge.Workloads.RowlesTextMultilingualProfile.Languages)
@@ -211,7 +211,7 @@ public sealed class CommandContractTests
     [Fact]
     public void E2e_profile_round_trips_at_default_count()
     {
-        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-e2e-cli-" + Guid.NewGuid().ToString("N"));
+        var root = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-e2e-cli-");
         var path = Path.Combine(root, "e2e");
         try
         {
@@ -231,7 +231,7 @@ public sealed class CommandContractTests
     [Fact]
     public void Generate_inspect_verify_and_reproduce_commands_work_together()
     {
-        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-cli-" + Guid.NewGuid().ToString("N"));
+        var root = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-cli-");
         var outputPath = Path.Combine(root, "generated", "sample");
         try
         {
@@ -269,7 +269,7 @@ public sealed class CommandContractTests
     [Fact]
     public void Invalid_commands_and_output_path_traversal_return_exit_code_two()
     {
-        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-cli-path-" + Guid.NewGuid().ToString("N"));
+        var root = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-cli-path-");
         Directory.CreateDirectory(root);
         try
         {

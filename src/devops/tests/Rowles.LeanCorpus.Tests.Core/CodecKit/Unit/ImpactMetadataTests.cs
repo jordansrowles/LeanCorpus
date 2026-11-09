@@ -20,7 +20,7 @@ public sealed class ImpactMetadataTests
     public void SkipEntries_ContainMaxFreq()
     {
         // Arrange
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -71,7 +71,7 @@ public sealed class ImpactMetadataTests
     public void SkipEntries_ContainMaxNorm()
     {
         // Arrange
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {
@@ -126,7 +126,7 @@ public sealed class ImpactMetadataTests
     public void ImpactMetadata_RoundTrip_MultipleBlocks()
     {
         // Arrange
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
         try
         {

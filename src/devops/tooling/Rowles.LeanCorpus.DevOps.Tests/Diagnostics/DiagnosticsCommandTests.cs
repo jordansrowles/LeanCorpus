@@ -238,7 +238,7 @@ public sealed class DiagnosticsCommandTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), $"Managed diagnostics checkout {Guid.NewGuid():N}");
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "Managed diagnostics checkout ");
             Directory.CreateDirectory(root);
             return new TemporaryCheckout(root);
         }

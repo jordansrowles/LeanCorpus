@@ -328,7 +328,7 @@ public sealed class CoverageServiceTests
     {
         public TemporaryCheckout()
         {
-            Root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), $"leancorpus-coverage-{Guid.NewGuid():N}");
+            Root = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-coverage-");
             Directory.CreateDirectory(Root);
             Directory.CreateDirectory(Path.Combine(Root, ".git"));
         }

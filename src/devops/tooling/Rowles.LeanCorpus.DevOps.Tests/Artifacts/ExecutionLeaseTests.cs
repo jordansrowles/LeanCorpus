@@ -57,7 +57,7 @@ public sealed class ExecutionLeaseTests
 
         public static TemporaryRoot Create()
         {
-            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps lease " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps lease ");
             Directory.CreateDirectory(path);
             return new TemporaryRoot(path);
         }

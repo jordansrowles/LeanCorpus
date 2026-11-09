@@ -16,7 +16,7 @@ public sealed class PlatformConcurrencySmokeTests
     [Fact]
     public async Task Shared_searcher_returns_consistent_results_to_bounded_parallel_searches()
     {
-        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"leancorpus-platform-concurrency-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("tests", "leancorpus-platform-concurrency-");
         string[] expected = ["doc-0", "doc-2", "doc-4"];
         CancellationToken cancellationToken = TestContext.Current.CancellationToken;
         try

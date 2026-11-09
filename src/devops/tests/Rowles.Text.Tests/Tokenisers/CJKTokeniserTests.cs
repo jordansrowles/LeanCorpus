@@ -557,7 +557,7 @@ public sealed class CJKTokeniserTests
     [Fact(DisplayName = "JapaneseTokeniser: Missing dictionary throws FileNotFoundException")]
     public void JapaneseTokeniser_MissingDictionary_ThrowsFileNotFoundException()
     {
-        var nonExistentPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"kuromoji_nonexistent_{Guid.NewGuid():N}");
+        var nonExistentPath = RepositoryTemporaryStorage.NewPath("tests", "kuromoji_nonexistent_");
         Assert.Throws<FileNotFoundException>(() => new JapaneseDictionary(nonExistentPath));
     }
 

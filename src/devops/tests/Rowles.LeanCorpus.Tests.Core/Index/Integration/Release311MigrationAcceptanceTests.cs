@@ -10,7 +10,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index.Migration;
 [Area(TestArea.CodecKit)]
 public sealed class Release311MigrationAcceptanceTests : IDisposable
 {
-    private readonly string _root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"release-311-{Guid.NewGuid():N}");
+    private readonly string _root = RepositoryTemporaryStorage.NewPath("tests", "release-311-");
 
     public void Dispose() => TestDirectoryFixture.TryDeleteDirectory(_root);
 

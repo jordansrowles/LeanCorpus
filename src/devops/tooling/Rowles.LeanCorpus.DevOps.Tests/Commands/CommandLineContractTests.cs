@@ -995,7 +995,7 @@ public sealed class CommandLineContractTests
         var output = new StringWriter();
         var error = new StringWriter();
         var handler = new ManagedCommandHandler(output, error);
-        string missingCheckout = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "missing leancorpus checkout " + Guid.NewGuid().ToString("N"));
+        string missingCheckout = RepositoryTemporaryStorage.NewPath("devops-tests", "missing leancorpus checkout ");
 
         var exitCode = CommandLineApplication.Run(["--repo", missingCheckout, "config"], output, error, handler);
 
@@ -1088,7 +1088,7 @@ public sealed class CommandLineContractTests
     [Fact]
     public void DiagnosticsRejectsInvalidPidBeforeCreatingRunArtifacts()
     {
-        var directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), $"DevOps invalid diagnostics {Guid.NewGuid():N}");
+        var directory = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps invalid diagnostics ");
         Directory.CreateDirectory(directory);
         var output = new StringWriter();
         var error = new StringWriter();
@@ -1203,7 +1203,7 @@ public sealed class CommandLineContractTests
         public static TemporaryConfigCheckout Create()
         {
             var sourceRoot = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory).RepositoryRoot;
-            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps config validation " + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps config validation ");
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(Path.Combine(root, ".config", "devops"));
             Directory.CreateDirectory(Path.Combine(root, "src"));

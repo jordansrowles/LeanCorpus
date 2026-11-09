@@ -15,8 +15,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 public sealed class SpatialShapeStateMachineTests : IDisposable
 {
     private const int ReplaySeed = 0x7032_034;
-    private readonly string _path = Path.Combine(
-        RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus_shape_model_" + Guid.NewGuid().ToString("N"));
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_shape_model_");
 
     public void Dispose() => TestDirectoryFixture.TryDeleteDirectory(_path);
 

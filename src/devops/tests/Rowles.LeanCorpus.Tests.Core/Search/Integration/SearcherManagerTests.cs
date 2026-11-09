@@ -24,7 +24,7 @@ public sealed class SearcherManagerTests : IDisposable
 
     public SearcherManagerTests()
     {
-        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll_smgr_{Guid.NewGuid():N}");
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_smgr_");
         Directory.CreateDirectory(_dir);
     }
 

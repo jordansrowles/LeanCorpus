@@ -154,7 +154,7 @@ public sealed class TestTargetRunnerTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        public string Path { get; } = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus test adapter " + Guid.NewGuid().ToString("N"));
+        public string Path { get; } = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus test adapter ");
         public TemporaryDirectory() => Directory.CreateDirectory(Path);
         public void Dispose() => Directory.Delete(Path, recursive: true);
     }

@@ -16,7 +16,7 @@ public sealed class IndexInputTests : IDisposable
 
     public IndexInputTests()
     {
-        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_input_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_input_");
         Directory.CreateDirectory(_dir);
     }
 

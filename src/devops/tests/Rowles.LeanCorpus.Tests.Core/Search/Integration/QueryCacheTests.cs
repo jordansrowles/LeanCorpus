@@ -23,7 +23,7 @@ public sealed class QueryCacheTests : IDisposable
 
     public QueryCacheTests()
     {
-        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll_qcache_{Guid.NewGuid():N}");
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_qcache_");
         Directory.CreateDirectory(_dir);
     }
 

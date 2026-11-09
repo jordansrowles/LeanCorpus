@@ -229,7 +229,7 @@ public sealed class AffectedSelectionServiceTests
 
         public static async Task<TemporaryGitRepository> CreateAsync()
         {
-            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus affected git " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus affected git ");
             Directory.CreateDirectory(path);
             var repository = new TemporaryGitRepository(path);
             await repository.RunGitAsync("init", "--initial-branch=main");

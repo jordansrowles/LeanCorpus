@@ -16,7 +16,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 [Area(TestArea.CodecKit)]
 public sealed class FieldLengthCorruptionTests : IDisposable
 {
-    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "fln-corruption-" + Guid.NewGuid().ToString("N"));
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "fln-corruption-");
     public FieldLengthCorruptionTests() => Directory.CreateDirectory(_path);
     public void Dispose() => Directory.Delete(_path, true);
 

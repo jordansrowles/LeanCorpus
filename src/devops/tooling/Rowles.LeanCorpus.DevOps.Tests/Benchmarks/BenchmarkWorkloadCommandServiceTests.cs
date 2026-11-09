@@ -17,7 +17,7 @@ public sealed class BenchmarkWorkloadCommandServiceTests
     public async Task Outer_child_stop_retains_checkpoint_and_never_reports_success(string stoppedOutcome, string expectedStateName)
     {
         var expectedState = Enum.Parse<RunState>(expectedStateName);
-        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "workload-service-" + Guid.NewGuid().ToString("N"));
+        var root = RepositoryTemporaryStorage.NewPath("devops-tests", "workload-service-");
         var project = Path.Combine(root, "src/devops/benchmarks/Rowles.LeanCorpus.Benchmark.Workloads/Rowles.LeanCorpus.Benchmark.Workloads.csproj");
         Directory.CreateDirectory(Path.GetDirectoryName(project)!);
         Directory.CreateDirectory(Path.Combine(root, ".git"));

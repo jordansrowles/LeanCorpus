@@ -27,7 +27,7 @@ public sealed class DataForgeCommandServiceTests
     [Fact]
     public async Task RunAsyncReportsPrepareResolveAndExecutePhases()
     {
-        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-dataforge-progress-" + Guid.NewGuid().ToString("N"));
+        string root = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-dataforge-progress-");
         string project = Path.Combine(root, "src", "devops", "dataforge", "Rowles.DataForge.Tool", "Rowles.DataForge.Tool.csproj");
         Directory.CreateDirectory(Path.GetDirectoryName(project)!);
         await File.WriteAllTextAsync(project, "<Project />", TestContext.Current.CancellationToken);

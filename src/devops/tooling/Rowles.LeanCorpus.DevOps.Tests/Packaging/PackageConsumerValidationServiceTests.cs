@@ -70,7 +70,7 @@ public sealed class PackageConsumerValidationServiceTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-package-consumers-" + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-package-consumers-");
             var packageDirectory = Path.Combine(root, "artifacts/package/release");
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(packageDirectory);

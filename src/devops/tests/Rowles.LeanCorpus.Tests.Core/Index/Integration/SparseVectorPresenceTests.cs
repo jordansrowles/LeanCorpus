@@ -9,7 +9,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.CodecKit)]
 public sealed class SparseVectorPresenceTests : IDisposable
 {
-    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"sparse-vector-{Guid.NewGuid():N}");
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "sparse-vector-");
     public SparseVectorPresenceTests() => Directory.CreateDirectory(_path);
     public void Dispose() => TestDirectoryFixture.TryDeleteDirectory(_path);
 

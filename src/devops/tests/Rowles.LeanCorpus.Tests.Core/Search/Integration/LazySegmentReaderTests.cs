@@ -13,7 +13,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class LazySegmentReaderTests : IDisposable
 {
-    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_lazy_" + Guid.NewGuid().ToString("N"));
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "ll_lazy_");
 
     [Fact(DisplayName = "Index Searcher: 1500 Segments Open Without Loading Heavy Reader States")]
     public void Constructor_ManyMinimalSegments_LoadsNoHeavyReaderStates()

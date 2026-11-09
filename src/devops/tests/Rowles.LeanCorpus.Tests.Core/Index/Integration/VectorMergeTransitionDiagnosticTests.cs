@@ -17,7 +17,7 @@ public sealed class VectorMergeTransitionDiagnosticTests : IDisposable
 {
     private const int Dimension = 4;
     private const int TopK = 10;
-    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"vector-merge-transition-{Guid.NewGuid():N}");
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "vector-merge-transition-");
 
     public VectorMergeTransitionDiagnosticTests() => Directory.CreateDirectory(_path);
 

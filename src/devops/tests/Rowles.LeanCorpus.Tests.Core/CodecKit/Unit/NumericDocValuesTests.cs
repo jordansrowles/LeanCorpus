@@ -11,7 +11,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 [Area(TestArea.CodecKit)]
 public sealed class NumericDocValuesTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-ndv-{Guid.NewGuid():N}");
+    private readonly string _dir = RepositoryTemporaryStorage.NewPath("tests", "ll-ndv-");
 
     public NumericDocValuesTests() => Directory.CreateDirectory(_dir);
 

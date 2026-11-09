@@ -17,7 +17,7 @@ public sealed class SegmentReaderDocValuesTests: IDisposable
 
     public SegmentReaderDocValuesTests()
     {
-        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_sr_dv_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_sr_dv_");
         Directory.CreateDirectory(_dir);
     }
 

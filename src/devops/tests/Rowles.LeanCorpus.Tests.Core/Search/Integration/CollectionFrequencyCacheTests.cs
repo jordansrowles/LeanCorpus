@@ -16,7 +16,7 @@ public sealed class CollectionFrequencyCacheTests
     public void CollectionFrequencyCache_EvictsGenerationsAndPreservesSearchScores()
     {
         const int maximumEntries = 1024;
-        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc-term-cache-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "lc-term-cache-");
         Directory.CreateDirectory(path);
 
         try

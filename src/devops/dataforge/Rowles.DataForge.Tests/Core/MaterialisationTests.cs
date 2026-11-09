@@ -7,7 +7,7 @@ public sealed class MaterialisationTests
     [Fact]
     public void Materialisation_streams_records_and_writes_manifest_and_ndjson()
     {
-        var directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-materialise-" + Guid.NewGuid().ToString("N"));
+        var directory = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-materialise-");
         try
         {
             var result = DataForgeMaterialiser.Materialise(

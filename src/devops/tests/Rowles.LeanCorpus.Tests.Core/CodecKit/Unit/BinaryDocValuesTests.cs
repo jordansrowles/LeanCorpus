@@ -15,7 +15,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 [Area(TestArea.CodecKit)]
 public sealed class BinaryDocValuesTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-dvb-{Guid.NewGuid():N}");
+    private readonly string _dir = RepositoryTemporaryStorage.NewPath("tests", "ll-dvb-");
 
     public BinaryDocValuesTests() => Directory.CreateDirectory(_dir);
 

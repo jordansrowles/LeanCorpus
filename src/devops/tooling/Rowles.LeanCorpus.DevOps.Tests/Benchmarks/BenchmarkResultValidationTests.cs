@@ -106,7 +106,7 @@ public sealed class BenchmarkResultValidationTests
 
         public static TemporaryDirectory Create()
         {
-            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus benchmark results " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus benchmark results ");
             Directory.CreateDirectory(path);
             return new TemporaryDirectory(path);
         }

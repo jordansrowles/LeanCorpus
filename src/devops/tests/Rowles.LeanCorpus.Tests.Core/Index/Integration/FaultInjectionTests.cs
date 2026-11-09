@@ -19,7 +19,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class FaultInjectionTests : IDisposable
 {
-    private readonly string _root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"ll-fi-{Guid.NewGuid():N}");
+    private readonly string _root = RepositoryTemporaryStorage.NewPath("tests", "ll-fi-");
 
     public FaultInjectionTests() => Directory.CreateDirectory(_root);
 

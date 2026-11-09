@@ -36,7 +36,7 @@ public sealed class DwptTests
     [Fact(DisplayName = "DWPT Pool: Construction Uses Configured Indexing Concurrency")]
     public void DwptPool_Construction_UsesConfiguredIndexingConcurrency()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
 
         try
@@ -63,7 +63,7 @@ public sealed class DwptTests
     public void DwptPool_OrdinarySingleThread_IndexesCorrectly()
     {
         // Arrange
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
 
         try
@@ -99,7 +99,7 @@ public sealed class DwptTests
     public void DwptPool_MultiThread_IndexesCorrectly()
     {
         // Arrange
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
 
         try
@@ -131,7 +131,7 @@ public sealed class DwptTests
     public void DwptPool_ConcurrentBatch_IndexesCorrectly()
     {
         // Arrange
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
 
         try
@@ -165,7 +165,7 @@ public sealed class DwptTests
     [Fact(DisplayName = "DWPT Pool: Concurrent Batch Preserves Binary Doc Values Per Document")]
     public void DwptPool_ConcurrentBatch_PreservesBinaryDocValuesPerDocument()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
 
         try
@@ -203,7 +203,7 @@ public sealed class DwptTests
     [Fact(DisplayName = "DWPT Pool: Concurrent Batch Uses RAM Threshold Flush")]
     public void DwptPool_ConcurrentBatch_UsesRamThresholdFlush()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
 
         try
@@ -266,7 +266,7 @@ public sealed class DwptTests
     public void DwptPool_CommitFlushesAllBuffers()
     {
         // Arrange
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
 
         try
@@ -303,7 +303,7 @@ public sealed class DwptTests
     [Fact(DisplayName = "DWPT Pool: StoreTermVectors writes .tvd/.tvx")]
     public void DwptPool_StoreTermVectors_WritesTermVectorFiles()
     {
-        var dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), Guid.NewGuid().ToString());
+        var dir = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(dir);
 
         try

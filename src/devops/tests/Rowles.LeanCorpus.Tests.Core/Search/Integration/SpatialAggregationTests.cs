@@ -13,7 +13,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search.Aggregations;
 [Area(TestArea.Search)]
 public sealed class SpatialAggregationTests : IDisposable
 {
-    private readonly string _directoryPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "spatial_agg_" + Guid.NewGuid().ToString("N"));
+    private readonly string _directoryPath = RepositoryTemporaryStorage.NewPath("tests", "spatial_agg_");
 
     public SpatialAggregationTests() => Directory.CreateDirectory(_directoryPath);
 

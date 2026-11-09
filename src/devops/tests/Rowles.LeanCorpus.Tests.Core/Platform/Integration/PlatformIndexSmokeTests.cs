@@ -18,7 +18,7 @@ public sealed class PlatformIndexSmokeTests
     [Fact]
     public void Committed_index_reopens_searches_and_releases_its_files()
     {
-        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"leancorpus-platform-index-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("tests", "leancorpus-platform-index-");
         try
         {
             using (var directory = new MMapDirectory(root))

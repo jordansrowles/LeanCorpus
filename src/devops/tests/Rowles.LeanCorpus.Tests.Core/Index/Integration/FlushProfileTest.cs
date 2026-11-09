@@ -28,7 +28,7 @@ public class FlushProfileTest(ITestOutputHelper output) : IDisposable
 
     private (TimeSpan addTime, TimeSpan commitTime, int termCount) IndexNDocs(int n)
     {
-        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"leancorpus-flush-{Guid.NewGuid():N}");
+        var path = RepositoryTemporaryStorage.NewPath("tests", "leancorpus-flush-");
         Directory.CreateDirectory(path);
         _paths.Add(path);
 

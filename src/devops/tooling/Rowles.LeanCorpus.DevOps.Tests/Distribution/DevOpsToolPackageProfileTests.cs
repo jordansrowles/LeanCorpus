@@ -10,7 +10,7 @@ public sealed class DevOpsToolPackageProfileTests
     public async Task ToolProfileIsPortableAndSeparateFromRepositoryApphost()
     {
         var checkout = RepositoryPaths.Resolve(explicitRepositoryPath: null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
-        var runDirectory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps tool package profile " + Guid.NewGuid().ToString("N"));
+        var runDirectory = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps tool package profile ");
         Directory.CreateDirectory(runDirectory);
 
         try

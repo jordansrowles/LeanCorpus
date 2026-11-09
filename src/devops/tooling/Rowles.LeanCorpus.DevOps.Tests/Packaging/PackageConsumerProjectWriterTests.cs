@@ -91,7 +91,7 @@ public sealed class PackageConsumerProjectWriterTests
 
         public static TemporaryRepository Create(string repositoryRoot)
         {
-            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-consumer-project-" + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-consumer-project-");
             Directory.CreateDirectory(root);
             File.Copy(Path.Combine(repositoryRoot, "Directory.Packages.props"), Path.Combine(root, "Directory.Packages.props"));
             return new TemporaryRepository(root);

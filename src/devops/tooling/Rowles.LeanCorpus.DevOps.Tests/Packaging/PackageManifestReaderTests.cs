@@ -56,7 +56,7 @@ public sealed class PackageManifestReaderTests
     {
         public TemporaryPackageDirectory()
         {
-            Path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-package-manifest-" + Guid.NewGuid().ToString("N"));
+            Path = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-package-manifest-");
             Directory.CreateDirectory(Path);
         }
 

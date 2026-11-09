@@ -18,7 +18,7 @@ public sealed class TermDictionaryReaderGapsTests : IDisposable
 
     public TermDictionaryReaderGapsTests()
     {
-        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_tdr_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_tdr_");
         Directory.CreateDirectory(_dir);
     }
 

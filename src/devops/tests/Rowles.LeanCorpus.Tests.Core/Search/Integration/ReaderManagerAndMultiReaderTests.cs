@@ -10,7 +10,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class ReaderManagerAndMultiReaderTests : IDisposable
 {
-    private readonly string _root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc-composition-{Guid.NewGuid():N}");
+    private readonly string _root = RepositoryTemporaryStorage.NewPath("tests", "lc-composition-");
 
     public ReaderManagerAndMultiReaderTests() => Directory.CreateDirectory(_root);
 

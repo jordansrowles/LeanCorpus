@@ -78,6 +78,6 @@ public sealed class SchemaValidationTests
         }
     }
 
-    private static string TemporaryRoot() => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-server-schema-{Guid.NewGuid():N}");
+    private static string TemporaryRoot() => RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-schema-");
     private static void DeleteRoot(string root) { if (Directory.Exists(root)) Directory.Delete(root, true); }
 }

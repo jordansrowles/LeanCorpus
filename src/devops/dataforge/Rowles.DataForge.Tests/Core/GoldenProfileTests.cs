@@ -27,7 +27,7 @@ public sealed class GoldenProfileTests
     [Fact]
     public void Materialised_golden_dataset_verifies_and_reproduces()
     {
-        var directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-golden-" + Guid.NewGuid().ToString("N"));
+        var directory = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-golden-");
         try
         {
             var profile = new GoldenProfile();
@@ -50,7 +50,7 @@ public sealed class GoldenProfileTests
     [Fact]
     public void Materialisation_refuses_overwrite_unless_force_is_set()
     {
-        var directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-force-" + Guid.NewGuid().ToString("N"));
+        var directory = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-force-");
         try
         {
             var profile = new GoldenProfile();

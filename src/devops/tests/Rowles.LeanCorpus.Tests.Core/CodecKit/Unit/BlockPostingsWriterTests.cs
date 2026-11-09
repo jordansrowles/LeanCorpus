@@ -15,7 +15,7 @@ public sealed class BlockPostingsWriterTests : IDisposable
 
     public BlockPostingsWriterTests()
     {
-        _tempDir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus_bpw_" + Guid.NewGuid().ToString("N")[..8]);
+        _tempDir = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_bpw_");
         Directory.CreateDirectory(_tempDir);
     }
 

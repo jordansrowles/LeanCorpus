@@ -18,7 +18,7 @@ public sealed class SearcherManagerGapsTests : IDisposable
 
     public SearcherManagerGapsTests()
     {
-        _dir = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "ll_smgr_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_smgr_");
         Directory.CreateDirectory(_dir);
     }
 

@@ -735,7 +735,7 @@ public sealed class ConfigurationLoaderTests
         public static TemporaryConfiguration Create()
         {
             var checkout = RepositoryPaths.Resolve(explicitRepositoryPath: null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
-            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps config " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps config ");
             Directory.CreateDirectory(System.IO.Path.Combine(path, ".config", "devops"));
             var sourceRoot = System.IO.Path.Combine(checkout.RepositoryRoot, ".config", "devops");
             foreach (var source in Directory.EnumerateFiles(sourceRoot, "*.json"))

@@ -167,7 +167,7 @@ public sealed class SolutionInventoryValidatorTests
         public CheckoutIdentity Identity { get; }
 
         public static TemporaryCheckout Create()
-            => new(Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus solution inventory " + Guid.NewGuid().ToString("N")));
+            => new(RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus solution inventory "));
 
         public void WriteProject(string relativePath)
         {
