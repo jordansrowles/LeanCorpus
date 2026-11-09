@@ -51,6 +51,8 @@ public class MoreLikeThisSingleSegmentBenchmarks
     private Lucene.Net.Index.DirectoryReader? _luceneReader;
     private Lucene.Net.Search.IndexSearcher? _luceneSearcher;
 
+    private string TopologyFixture => string.Concat("mlt-single-segment-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -142,6 +144,7 @@ public class MoreLikeThisSingleSegmentBenchmarks
                 $"Single-segment MLT benchmark expected 1 segment but found {segmentCount}.");
 
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
     }
 
     private void BuildLuceneIndex(string[] documents)
@@ -185,6 +188,7 @@ public class MoreLikeThisSingleSegmentBenchmarks
         }
 
         _luceneReader = Lucene.Net.Index.DirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         var leafCount = _luceneReader.Leaves.Count;
         if (leafCount != 1)
             throw new InvalidOperationException(

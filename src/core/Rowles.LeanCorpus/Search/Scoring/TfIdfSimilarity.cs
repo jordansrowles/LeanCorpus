@@ -23,7 +23,7 @@ public sealed class TfIdfSimilarity : ISimilarity
     }
 
     /// <inheritdoc/>
-    public float ScorePrecomputed(float idf, float _, int termFreq, int docLength)
+    public float ScorePrecomputed(float idf, float _, float termFreq, int docLength)
     {
         float tf = MathF.Sqrt(termFreq);
         float lengthNorm = 1.0f / MathF.Sqrt(docLength);

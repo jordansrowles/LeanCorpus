@@ -171,7 +171,7 @@ public sealed partial class IndexSearcher : IDisposable
         float f1,
         float f2,
         float f3,
-        int tf,
+        float tf,
         int docLength,
         string field)
     {

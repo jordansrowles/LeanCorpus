@@ -81,6 +81,8 @@ public class CollapseAndFacetBenchmarks
     private DefaultSortedSetDocValuesReaderState? _luceneFacetState;
     private SortedDocValues? _luceneCollapseValues;
 
+    private string TopologyFixture => string.Concat("collapse-facet-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -304,6 +306,7 @@ public class CollapseAndFacetBenchmarks
         }
         writer.Commit();
         _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
         _luceneCollapseValues = MultiDocValues.GetSortedValues(_luceneReader, FieldCategory);
         _luceneFacetState = new DefaultSortedSetDocValuesReaderState(
@@ -333,6 +336,7 @@ public class CollapseAndFacetBenchmarks
         }
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
     }
 
     private static IEnumerable<(int Index, string Id, string Category, string Body)> EnumerateDocuments(string[] documents)

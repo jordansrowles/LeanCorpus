@@ -58,6 +58,7 @@ public class DeletionQueueBenchmarks
     {
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
         _deleteCount = Math.Max(1, DocumentCount / 10);
+        DeletionBenchmarkFixture.RecordDurability("deletion-queue");
     }
 
     [IterationSetup]
@@ -83,12 +84,23 @@ public class DeletionQueueBenchmarks
     [IterationCleanup]
     public void IterationCleanup()
     {
+        try
+        {
+            // Queued deletes are not published: the committed index still shows every original.
+            DeletionBenchmarkFixture.VerifyLeanIds(_leanIndexPath, DeletionBenchmarkFixture.GetSurvivingIds(DocumentCount, 0));
+            DeletionBenchmarkFixture.VerifyLuceneIds(_luceneIndexPath, DeletionBenchmarkFixture.GetSurvivingIds(DocumentCount, 0));
+        }
+        catch
+        {
+            DisposeWriters();
+            BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+            BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
+            throw;
+        }
+
         _leanWriter?.Commit();
         _luceneWriter?.Commit();
-        _leanWriter?.Dispose();
-        _luceneWriter?.Dispose();
-        _luceneAnalyzer?.Dispose();
-        _luceneDirectory?.Dispose();
+        DisposeWriters();
 
         try
         {
@@ -126,6 +138,16 @@ public class DeletionQueueBenchmarks
 
         _luceneDeletesQueued = true;
         return _deleteCount;
+    }
+
+    private void DisposeWriters()
+    {
+        _leanWriter?.Dispose();
+        _leanWriter = null;
+        _luceneWriter?.Dispose();
+        _luceneWriter = null;
+        _luceneAnalyzer?.Dispose();
+        _luceneDirectory?.Dispose();
     }
 
     internal static LeanIndexWriterConfig CreateLeanWriterConfig() => new()
@@ -168,21 +190,33 @@ public class DeletionCommitBenchmarks
     private StandardAnalyzer? _luceneAnalyzer;
     private Lucene.Net.Index.IndexWriter? _luceneWriter;
 
+    private bool _leanCommitMeasured;
+    private bool _luceneCommitMeasured;
+    private LeanMMapDirectory? _leanPreDeleteDirectory;
+    private LeanIndexSearcher? _leanPreDeleteSearcher;
+    private LuceneMMapDirectory? _lucenePreDeleteDirectory;
+    private Lucene.Net.Index.DirectoryReader? _lucenePreDeleteReader;
+
     [GlobalSetup]
     public void Setup()
     {
         _documents = BenchmarkData.BuildDocuments(DocumentCount);
         _deleteCount = Math.Max(1, DocumentCount / 10);
+        DeletionBenchmarkFixture.RecordDurability("deletion-commit");
     }
 
     [IterationSetup]
     public void IterationSetup()
     {
+        _leanCommitMeasured = false;
+        _luceneCommitMeasured = false;
         _leanIndexPath = BenchmarkHelpers.CreateTempDirectory("leancorpus-bench-del-commit");
         _leanDirectory = new LeanMMapDirectory(_leanIndexPath);
         _leanWriter = new LeanIndexWriter(_leanDirectory, DeletionQueueBenchmarks.CreateLeanWriterConfig());
         DeletionBenchmarkFixture.AddLeanDocuments(_leanWriter, _documents);
         _leanWriter.Commit();
+        _leanPreDeleteDirectory = new LeanMMapDirectory(_leanIndexPath);
+        _leanPreDeleteSearcher = new LeanIndexSearcher(_leanPreDeleteDirectory);
         DeletionBenchmarkFixture.QueueLeanDeletes(_leanWriter, _deleteCount);
 
         _luceneIndexPath = BenchmarkHelpers.CreateTempDirectory("lucenenet-bench-del-commit");
@@ -193,12 +227,33 @@ public class DeletionCommitBenchmarks
             DeletionBenchmarkFixture.CreateLuceneWriterConfig(_luceneAnalyzer));
         DeletionBenchmarkFixture.AddLuceneDocuments(_luceneWriter, _documents);
         _luceneWriter.Commit();
+        _lucenePreDeleteDirectory = new LuceneMMapDirectory(new DirectoryInfo(_luceneIndexPath));
+        _lucenePreDeleteReader = Lucene.Net.Index.DirectoryReader.Open(_lucenePreDeleteDirectory);
         DeletionBenchmarkFixture.QueueLuceneDeletes(_luceneWriter, _deleteCount);
     }
 
     [IterationCleanup]
     public void IterationCleanup()
     {
+        try
+        {
+            // Verify at the timed commit: writers stay open and no second commit has run yet.
+            DeletionBenchmarkFixture.VerifyLeanIds(_leanIndexPath,
+                DeletionBenchmarkFixture.GetSurvivingIds(DocumentCount, _leanCommitMeasured ? _deleteCount : 0));
+            DeletionBenchmarkFixture.VerifyLuceneIds(_luceneIndexPath,
+                DeletionBenchmarkFixture.GetSurvivingIds(DocumentCount, _luceneCommitMeasured ? _deleteCount : 0));
+            DeletionBenchmarkFixture.VerifyPointInTime(DocumentCount, _leanPreDeleteSearcher!, _lucenePreDeleteReader!);
+        }
+        catch
+        {
+            ReleaseAll();
+            throw;
+        }
+
+        _leanPreDeleteSearcher?.Dispose();
+        _leanPreDeleteDirectory?.Dispose();
+        _lucenePreDeleteReader?.Dispose();
+        _lucenePreDeleteDirectory?.Dispose();
         _leanWriter?.Commit();
         _luceneWriter?.Commit();
         _leanWriter?.Dispose();
@@ -227,6 +282,7 @@ public class DeletionCommitBenchmarks
     public int LeanLucene_CommitDeletes()
     {
         _leanWriter!.Commit();
+        _leanCommitMeasured = true;
         return _deleteCount;
     }
 
@@ -235,7 +291,22 @@ public class DeletionCommitBenchmarks
     public int LuceneNet_CommitDeletes()
     {
         _luceneWriter!.Commit();
+        _luceneCommitMeasured = true;
         return _deleteCount;
+    }
+
+    private void ReleaseAll()
+    {
+        _leanPreDeleteSearcher?.Dispose();
+        _leanPreDeleteDirectory?.Dispose();
+        _lucenePreDeleteReader?.Dispose();
+        _lucenePreDeleteDirectory?.Dispose();
+        _leanWriter?.Dispose();
+        _luceneWriter?.Dispose();
+        _luceneAnalyzer?.Dispose();
+        _luceneDirectory?.Dispose();
+        BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
+        BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
     }
 }
 
@@ -324,6 +395,30 @@ internal static class DeletionBenchmarkFixture
             .OrderBy(static id => id, StringComparer.Ordinal)
             .ToArray();
         EnsureExactIds("Lucene.NET", expectedIds, actualIds);
+    }
+
+    /// <summary>Fails unless readers opened before the deletes still see every original document.</summary>
+    internal static void VerifyPointInTime(int documentCount, LeanIndexSearcher leanSearcher, Lucene.Net.Index.IndexReader luceneReader)
+    {
+        int leanLive = leanSearcher.Search(new LeanMatchAllDocsQuery(), 1).TotalHits;
+        if (leanLive != documentCount || luceneReader.NumDocs != documentCount)
+            throw new InvalidOperationException(
+                $"Pre-delete readers must still see {documentCount} documents: LeanCorpus {leanLive}, Lucene.NET {luceneReader.NumDocs}.");
+    }
+
+    /// <summary>Records the durable-commit settings of both writers.</summary>
+    internal static void RecordDurability(string fixture)
+    {
+        BenchmarkFixtureEvidence.RecordProfile(fixture, BenchmarkFixtureEvidence.LeanCorpusEngine, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["durableCommits"] = DeletionQueueBenchmarks.CreateLeanWriterConfig().DurableCommits.ToString(),
+            ["mergeThreshold"] = "int.MaxValue"
+        });
+        BenchmarkFixtureEvidence.RecordProfile(fixture, BenchmarkFixtureEvidence.LuceneNetEngine, new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["durableCommits"] = "IndexWriter.Commit synchronises the commit files",
+            ["mergePolicy"] = "NoMergePolicy.NO_COMPOUND_FILES"
+        });
     }
 
     internal static string FormatId(int value)

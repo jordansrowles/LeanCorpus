@@ -26,7 +26,8 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// LeanCorpus <see cref="TermVectorHighlighter"/> is compared against
 /// Lucene.NET <see cref="LuceneFvh.FastVectorHighlighter"/>, and the
 /// re-analysis <see cref="Highlighter"/> is compared against
-/// Lucene.NET <see cref="LuceneHighlight.Highlighter"/>.
+/// Lucene.NET <see cref="LuceneHighlight.Highlighter"/>. Both engines store <c>body</c>, and
+/// setup fails unless every sample has text and every engine returns a fragment (ADR045).
 /// </remarks>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -68,6 +69,8 @@ public class TermVectorHighlighterBenchmarks
     private (string Text, IReadOnlySet<string> QueryTerms)[] _leanReanalysisSamples = [];
     private (string Text, Lucene.Net.Search.Query Query)[] _luceneReanalysisSamples = [];
     private (string Text, IReadOnlyList<TermVectorEntry> TVs)[] _leanHybridNoOffsetsSamples = [];
+
+    private string TopologyFixture => string.Concat("tv-highlighter-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
     [GlobalSetup]
     public void Setup()
@@ -205,6 +208,7 @@ public class TermVectorHighlighterBenchmarks
         }
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
 
         // Build segment readers for direct term vector access.
         var segFiles = IODirectory.GetFiles(_leanIndexPath, "*.seg");
@@ -238,7 +242,7 @@ public class TermVectorHighlighterBenchmarks
         {
             IsIndexed = true,
             IsTokenized = true,
-            IsStored = false,
+            IsStored = true,
             StoreTermVectors = true,
             StoreTermVectorPositions = true,
             StoreTermVectorOffsets = true,
@@ -259,6 +263,7 @@ public class TermVectorHighlighterBenchmarks
         writer.Commit();
 
         _luceneReader = Lucene.Net.Index.DirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
 
@@ -280,40 +285,7 @@ public class TermVectorHighlighterBenchmarks
         int sampleCount = Math.Min(SampleCount, results.ScoreDocs.Length);
 
         if (sampleCount == 0)
-        {
-            var fbQueryTerms = new HashSet<string>(new[] { "government" }, StringComparer.OrdinalIgnoreCase);
-            // No matching docs for the query term; use first docs from the index as-is.
-            sampleCount = Math.Min(SampleCount, _leanSegmentReaders.Sum(r => r.MaxDoc));
-            for (int i = 0; i < sampleCount; i++)
-            {
-                var reader = _leanSegmentReaders[0];
-                int localDocId = i < reader.MaxDoc ? i : 0;
-                var stored = reader.GetStoredFields(localDocId);
-                var text = stored.TryGetValue("body", out var vals) && vals.Count > 0 ? vals[0] : string.Empty;
-                if (string.IsNullOrEmpty(text)) continue;
-                var allTVs = reader.GetTermVectors(localDocId);
-                IReadOnlyList<TermVectorEntry> bodyTVs = allTVs is not null && allTVs.TryGetValue("body", out var tvEntries)
-                    ? tvEntries
-                    : Array.Empty<TermVectorEntry>();
-                _leanTvSamples = [.. _leanTvSamples, (text, bodyTVs)];
-                _leanReanalysisSamples = [.. _leanReanalysisSamples, (text, fbQueryTerms)];
-                var noOffsetTVs = bodyTVs
-                    .Select(e => new TermVectorEntry(e.Term, e.Freq, e.Positions, e.Payloads, null, null))
-                    .ToArray();
-                _leanHybridNoOffsetsSamples = [.. _leanHybridNoOffsetsSamples, (text, noOffsetTVs)];
-            }
-            _luceneFvhDocIds = new int[sampleCount];
-            var lucList = new List<(string Text, Lucene.Net.Search.Query Query)>(sampleCount);
-            for (int i = 0; i < sampleCount; i++)
-            {
-                _luceneFvhDocIds[i] = i;
-                var doc = _luceneReader!.Document(i);
-                var ltext = doc.Get("body") ?? string.Empty;
-                lucList.Add((ltext, lq));
-            }
-            _luceneReanalysisSamples = lucList.ToArray();
-            return;
-        }
+            throw new InvalidOperationException("The term-vector highlighter fixture found no LeanCorpus documents for 'government'.");
 
         var leanTvList = new List<(string Text, IReadOnlyList<TermVectorEntry> TVs)>(sampleCount);
         var leanReanalysisList = new List<(string Text, IReadOnlySet<string> QueryTerms)>(sampleCount);
@@ -389,5 +361,47 @@ public class TermVectorHighlighterBenchmarks
             luceneReanalysisList.Add((text, lq));
         }
         _luceneReanalysisSamples = luceneReanalysisList.ToArray();
+
+        ValidateSamples(
+            _leanTvSamples.Select(static sample => sample.Text).ToArray(),
+            _luceneReanalysisSamples.Select(static sample => sample.Text).ToArray());
+        RequireFragments();
+    }
+
+    /// <summary>Fails setup unless both engines have the same number of non-empty highlight samples.</summary>
+    internal static void ValidateSamples(IReadOnlyList<string> leanTexts, IReadOnlyList<string> luceneTexts)
+    {
+        ArgumentNullException.ThrowIfNull(leanTexts);
+        ArgumentNullException.ThrowIfNull(luceneTexts);
+        BenchmarkFixtureEvidence.RequireWork("tv-highlighter", "samples", BenchmarkFixtureEvidence.LeanCorpusEngine, leanTexts.Count);
+        BenchmarkFixtureEvidence.RequireWork("tv-highlighter", "samples", BenchmarkFixtureEvidence.LuceneNetEngine, luceneTexts.Count);
+        if (leanTexts.Count != luceneTexts.Count)
+            throw new InvalidOperationException(
+                $"Term-vector highlighter samples differ in count: LeanCorpus {leanTexts.Count}, Lucene.NET {luceneTexts.Count}.");
+        int emptyLean = leanTexts.Count(string.IsNullOrEmpty);
+        int emptyLucene = luceneTexts.Count(string.IsNullOrEmpty);
+        if (emptyLean != 0 || emptyLucene != 0)
+            throw new InvalidOperationException(
+                $"Term-vector highlighter samples have empty text: LeanCorpus {emptyLean}, Lucene.NET {emptyLucene}. Lucene.NET must store body.");
+    }
+
+    /// <summary>Runs each row once outside timing and fails when any sample returns no fragment.</summary>
+    private void RequireFragments()
+    {
+        var fvh = new LuceneFvh.FastVectorHighlighter();
+        int nullFvh = _luceneFvhDocIds.Count(docId =>
+            fvh.GetBestFragment(_luceneFvhFieldQuery, _luceneReader!, docId, "body", MaxSnippetLength) is null);
+        int nullHighlighter = _luceneReanalysisSamples.Count(sample =>
+            new LuceneHighlight.Highlighter(new LuceneHighlight.SimpleHTMLFormatter("<b>", "</b>"), new LuceneHighlight.QueryScorer(sample.Query))
+                .GetBestFragment(_luceneAnalyzer, "body", sample.Text) is null);
+        if (nullFvh != 0 || nullHighlighter != 0)
+            throw new InvalidOperationException(
+                $"Lucene.NET returned no fragment for {nullFvh} FastVectorHighlighter and {nullHighlighter} Highlighter samples.");
+
+        BenchmarkFixtureEvidence.RequireWork("tv-highlighter", "TermVectorHighlighter", BenchmarkFixtureEvidence.LeanCorpusEngine, LeanCorpus_TermVectorHighlighter());
+        BenchmarkFixtureEvidence.RequireWork("tv-highlighter", "FastVectorHighlighter", BenchmarkFixtureEvidence.LuceneNetEngine, LuceneNet_FastVectorHighlighter());
+        BenchmarkFixtureEvidence.RequireWork("tv-highlighter", "Highlighter", BenchmarkFixtureEvidence.LeanCorpusEngine, LeanCorpus_Highlighter());
+        BenchmarkFixtureEvidence.RequireWork("tv-highlighter", "Highlighter", BenchmarkFixtureEvidence.LuceneNetEngine, LuceneNet_Highlighter());
+        BenchmarkFixtureEvidence.RequireWork("tv-highlighter", "HybridHighlighter", BenchmarkFixtureEvidence.LeanCorpusEngine, LeanCorpus_HybridHighlighter_NoOffsets());
     }
 }

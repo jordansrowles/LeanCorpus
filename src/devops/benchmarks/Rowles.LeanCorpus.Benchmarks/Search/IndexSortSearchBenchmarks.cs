@@ -65,6 +65,8 @@ public class IndexSortSearchBenchmarks
     private int _expectedLuceneChecksum;
     private string[] _expectedLogicalOrder = [];
 
+    private string TopologyFixture => string.Concat("indexsort-search-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -225,6 +227,7 @@ public class IndexSortSearchBenchmarks
         writer.Commit();
         _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory, _luceneReader);
     }
 
     private void BuildSearchIndices((string Body, double Price)[] documentsWithPrices)
@@ -243,6 +246,7 @@ public class IndexSortSearchBenchmarks
             writer.Commit();
         }
         _unsortedSearcher = new LeanIndexSearcher(_unsortedDir);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(string.Concat(TopologyFixture, "-unsorted"), _unsortedDir, _unsortedSearcher);
 
         _sortedPath = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-sort-s-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_sortedPath);
@@ -259,6 +263,7 @@ public class IndexSortSearchBenchmarks
             writer.Commit();
         }
         _sortedSearcher = new LeanIndexSearcher(_sortedDir);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(string.Concat(TopologyFixture, "-sorted"), _sortedDir, _sortedSearcher);
     }
 
     private static void IndexDocuments(LeanIndexWriter writer, (string Body, double Price)[] documentsWithPrices)

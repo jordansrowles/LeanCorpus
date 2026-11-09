@@ -39,7 +39,7 @@ public sealed class LMJelinekMercerSimilarity : ISimilarity
         => (_lambda, 0f);
 
     /// <inheritdoc/>
-    public float ScorePrecomputed(float factor1, float factor2, int termFreq, int docLength)
+    public float ScorePrecomputed(float factor1, float factor2, float termFreq, int docLength)
         => ScoreLmPrecomputed(factor1, factor2, 0f, termFreq, docLength);
 
     /// <inheritdoc/>
@@ -55,7 +55,7 @@ public sealed class LMJelinekMercerSimilarity : ISimilarity
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public float ScoreLmPrecomputed(float lambda, float _, float collectionProb, int termFreq, int docLength)
+    public float ScoreLmPrecomputed(float lambda, float _, float collectionProb, float termFreq, int docLength)
     {
         // Jelinek-Mercer: P(t|d) = (1-λ)·(tf/|d|) + λ·P(t|C)
         float docModel = termFreq / (float)docLength;

@@ -68,6 +68,8 @@ public class GeoQueryBenchmarks
     private Lucene.Net.Search.Filter? _luceneDistanceFilter;
     private Lucene.Net.Search.Filter? _luceneBoundingBoxFilter;
 
+    private string TopologyFixture => string.Concat("geo-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -158,6 +160,7 @@ public class GeoQueryBenchmarks
         }
         writer.Commit();
         _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
         _luceneDistanceFilter = _spatialStrategy.MakeFilter(
             CreateLuceneDistanceArgs(_spatialContext, LeanDistanceQuery));
@@ -185,6 +188,7 @@ public class GeoQueryBenchmarks
         }
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
     }
 
     private void ValidateResultEquivalence()

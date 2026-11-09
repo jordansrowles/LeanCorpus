@@ -280,7 +280,7 @@ public sealed class QueryFamilyIntegrationTests : IClassFixture<TestDirectoryFix
         public float ScorePrecomputed(
             float factor1,
             float factor2,
-            int termFreq,
+            float termFreq,
             int docLength) => factor1;
     }
 

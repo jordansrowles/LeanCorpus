@@ -73,6 +73,8 @@ public class AggregationBenchmarks
             Percentiles = [50, 95, 99]
         };
 
+    private string TopologyFixture => string.Concat("aggregation-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -370,6 +372,7 @@ public class AggregationBenchmarks
         }
         writer.Commit();
         _luceneReader = LuceneDirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new LuceneIndexSearcher(_luceneReader);
     }
 
@@ -392,6 +395,7 @@ public class AggregationBenchmarks
         }
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory);
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
     }
 
     private readonly record struct LuceneNumericStats(int Count, double Sum, double SumOfSquares,

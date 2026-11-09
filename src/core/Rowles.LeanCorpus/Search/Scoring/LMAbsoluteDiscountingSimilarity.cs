@@ -40,7 +40,7 @@ public sealed class LMAbsoluteDiscountingSimilarity : ISimilarity
         => (_delta, 0f);
 
     /// <inheritdoc/>
-    public float ScorePrecomputed(float factor1, float factor2, int termFreq, int docLength)
+    public float ScorePrecomputed(float factor1, float factor2, float termFreq, int docLength)
         => ScoreLmPrecomputed(factor1, factor2, 0f, termFreq, docLength);
 
     /// <inheritdoc/>
@@ -56,7 +56,7 @@ public sealed class LMAbsoluteDiscountingSimilarity : ISimilarity
 
     /// <inheritdoc/>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public float ScoreLmPrecomputed(float delta, float _, float collectionProb, int termFreq, int docLength)
+    public float ScoreLmPrecomputed(float delta, float _, float collectionProb, float termFreq, int docLength)
     {
         // Absolute discounting: P(t|d) = (max(tf - δ, 0) + δ · |d| · P(t|C)) / |d|
         float discounted = MathF.Max(termFreq - delta, 0f);

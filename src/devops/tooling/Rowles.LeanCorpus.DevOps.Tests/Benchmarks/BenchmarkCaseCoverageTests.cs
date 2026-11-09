@@ -415,6 +415,75 @@ public sealed class BenchmarkCaseCoverageTests
         }
     }
 
+    [Fact]
+    public void HeadToHeadBenchmarkFixturesUseTheSameDirectoryTypeOnBothEngines()
+    {
+        var benchmarkRoot = Path.Combine(FindRepositoryRoot(), "src", "devops", "benchmarks", "Rowles.LeanCorpus.Benchmarks");
+        var offenders = FindUnequalStorageFixtures(benchmarkRoot);
+
+        Assert.True(offenders.Count == 0,
+            "Head-to-head benchmarks must use MMapDirectory on Lucene.NET to match LeanCorpus (ADR045):"
+            + Environment.NewLine + string.Join(Environment.NewLine, offenders));
+    }
+
+    [Fact]
+    public void UnequalStorageScanReportsALuceneInMemoryDirectory()
+    {
+        using var directory = TemporaryDirectory.Create();
+        File.WriteAllText(Path.Combine(directory.Path, "RangeBenchmarks.cs"),
+            "using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;\n"
+            + "var lean = new LeanMMapDirectory(path);\n"
+            + "var lucene = new Lucene.Net.Store.RAMDirectory();\n");
+        File.WriteAllText(Path.Combine(directory.Path, "MatchedBenchmarks.cs"),
+            "var lean = new LeanMMapDirectory(path);\n"
+            + "var lucene = new Lucene.Net.Store.MMapDirectory(new DirectoryInfo(path));\n");
+
+        var offender = Assert.Single(FindUnequalStorageFixtures(directory.Path));
+        Assert.StartsWith("RangeBenchmarks.cs:3:", offender, StringComparison.Ordinal);
+    }
+
+    private static readonly string[] UnequalLuceneDirectoryTypes =
+        ["RAMDirectory", "SimpleFSDirectory", "NIOFSDirectory"];
+
+    private static List<string> FindUnequalStorageFixtures(string benchmarkRoot)
+    {
+        var offenders = new List<string>();
+        foreach (var file in Directory.EnumerateFiles(benchmarkRoot, "*.cs", SearchOption.AllDirectories)
+                     .Where(static file => !file.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
+                         && !file.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
+                     .Order(StringComparer.Ordinal))
+        {
+            var lines = File.ReadAllLines(file);
+            if (!lines.Any(static line => line.Contains("MMapDirectory", StringComparison.Ordinal)))
+                continue;
+
+            for (var index = 0; index < lines.Length; index++)
+            {
+                var line = lines[index];
+                if (line.TrimStart().StartsWith("//", StringComparison.Ordinal))
+                    continue;
+                foreach (var type in UnequalLuceneDirectoryTypes)
+                {
+                    if (System.Text.RegularExpressions.Regex.IsMatch(line, $@"\b{type}\b"))
+                        offenders.Add($"{Path.GetRelativePath(benchmarkRoot, file)}:{index + 1}: {line.Trim()}");
+                }
+            }
+        }
+
+        return offenders;
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        for (var current = new DirectoryInfo(AppContext.BaseDirectory); current is not null; current = current.Parent)
+        {
+            if (File.Exists(Path.Combine(current.FullName, ".config", "devops", "benchmark-suites.json")))
+                return current.FullName;
+        }
+
+        throw new DirectoryNotFoundException("Could not find the LeanCorpus repository from the test output directory.");
+    }
+
     private static BenchmarkExecutionPlan CreateSelectorPlan(string suite)
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);

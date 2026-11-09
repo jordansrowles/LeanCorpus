@@ -78,6 +78,8 @@ public class MoreLikeThisBenchmarks
     private int _bval03MaxQueryTerms;
     private bool _bval03BoostByScore;
 
+    private string TopologyFixture => string.Concat("mlt-", DocumentCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     [GlobalSetup]
     public void Setup()
     {
@@ -608,6 +610,7 @@ public class MoreLikeThisBenchmarks
         writer.Commit();
         _leanSearcher = new LeanIndexSearcher(_leanDirectory,
             new LeanIndexSearcherConfig { EnableQueryCache = false });
+        BenchmarkFixtureEvidence.RecordLeanCorpus(TopologyFixture, _leanDirectory!, _leanSearcher);
         _leanWandSearcher = new LeanIndexSearcher(_leanDirectory,
             new LeanIndexSearcherConfig { EnableBlockMaxWand = true, EnableQueryCache = false });
     }
@@ -649,6 +652,7 @@ public class MoreLikeThisBenchmarks
         }
 
         _luceneReader = Lucene.Net.Index.DirectoryReader.Open(_luceneDirectory);
+        BenchmarkFixtureEvidence.RecordLucene(TopologyFixture, _luceneDirectory!, _luceneReader);
         _luceneSearcher = new Lucene.Net.Search.IndexSearcher(_luceneReader);
     }
 }

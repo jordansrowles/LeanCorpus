@@ -364,9 +364,22 @@ public sealed class ProcessRunnerTests
 
         public void Dispose()
         {
-            if (Directory.Exists(Path))
+            // Windows can keep a terminated child's handle on its working directory for a short
+            // time after the process is reported as exited. Retry briefly, then fail as before.
+            var deadline = DateTime.UtcNow.AddSeconds(5);
+            for (var attempt = 1; ; attempt++)
             {
-                Directory.Delete(Path, recursive: true);
+                if (!Directory.Exists(Path))
+                    return;
+                try
+                {
+                    Directory.Delete(Path, recursive: true);
+                    return;
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException && DateTime.UtcNow < deadline)
+                {
+                    Thread.Sleep(Math.Min(50 * attempt, 500));
+                }
             }
         }
     }
