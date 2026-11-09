@@ -12,6 +12,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 
 [Category(TestCategory.Integration)]
 [Area(TestArea.Search)]
+[Technique(TestTechnique.PropertyBased)]
 public sealed class PhraseSlopSemanticsTests : IClassFixture<TestDirectoryFixture>
 {
     private static readonly string[] Vocabulary =
