@@ -79,7 +79,7 @@ public sealed class DotNetPublishServiceTests
         var request = Request(checkout);
 
         var project = await service.PublishAsync(request with { ProjectPath = "../outside.csproj" }, TestContext.Current.CancellationToken);
-        var output = await service.PublishAsync(request with { OutputPath = Path.Combine(Path.GetTempPath(), "outside-publish") }, TestContext.Current.CancellationToken);
+        var output = await service.PublishAsync(request with { OutputPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "outside-publish") }, TestContext.Current.CancellationToken);
 
         Assert.Equal(OutcomeKind.ValidationFailure, project.CommandResult.Outcome);
         Assert.Equal(OutcomeKind.ValidationFailure, output.CommandResult.Outcome);
@@ -140,7 +140,7 @@ public sealed class DotNetPublishServiceTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), "DevOps publish checkout " + Guid.NewGuid().ToString("N"));
+            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps publish checkout " + Guid.NewGuid().ToString("N"));
             var projectDirectory = Path.Combine(root, "src", "devops", "tooling", "Rowles.LeanCorpus.DevOps");
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(projectDirectory);

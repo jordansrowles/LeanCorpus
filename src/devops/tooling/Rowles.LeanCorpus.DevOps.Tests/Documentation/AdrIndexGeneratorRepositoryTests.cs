@@ -212,7 +212,7 @@ public sealed class AdrIndexGeneratorRepositoryTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "leancorpus-adr-graph-test-" + Guid.NewGuid().ToString("N"));
+            Path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-adr-graph-test-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
         }
 

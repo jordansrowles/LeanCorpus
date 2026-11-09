@@ -556,7 +556,7 @@ public sealed class RepositoryDocumentationImporterTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "leancorpus-docs-import-test-" + Guid.NewGuid().ToString("N"));
+            Path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-docs-import-test-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
         }
 

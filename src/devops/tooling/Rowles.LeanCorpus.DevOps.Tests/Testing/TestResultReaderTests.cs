@@ -143,7 +143,7 @@ public sealed class TestResultReaderTests
 
         public static TemporaryDirectory Create()
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LeanCorpus TRX evidence " + Guid.NewGuid().ToString("N"));
+            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus TRX evidence " + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(path);
             return new TemporaryDirectory(path);
         }

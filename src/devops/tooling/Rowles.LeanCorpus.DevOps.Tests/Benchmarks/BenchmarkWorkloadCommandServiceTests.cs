@@ -17,7 +17,7 @@ public sealed class BenchmarkWorkloadCommandServiceTests
     public async Task Outer_child_stop_retains_checkpoint_and_never_reports_success(string stoppedOutcome, string expectedStateName)
     {
         var expectedState = Enum.Parse<RunState>(expectedStateName);
-        var root = Path.Combine(Path.GetTempPath(), "workload-service-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "workload-service-" + Guid.NewGuid().ToString("N"));
         var project = Path.Combine(root, "src/devops/benchmarks/Rowles.LeanCorpus.Benchmark.Workloads/Rowles.LeanCorpus.Benchmark.Workloads.csproj");
         Directory.CreateDirectory(Path.GetDirectoryName(project)!);
         Directory.CreateDirectory(Path.Combine(root, ".git"));
@@ -87,7 +87,7 @@ public sealed class BenchmarkWorkloadCommandServiceTests
         using var parsedInput = JsonDocument.Parse(input);
         var ids = Enumerable.Range(0, 32).Select(index => $"id-{index:D3}").ToArray();
         var terminal = Terminal(parsedInput.RootElement, ids, 1);
-        var path = Path.Combine(Path.GetTempPath(), "workload-terminal-" + Guid.NewGuid().ToString("N") + ".json");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "workload-terminal-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {
             File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(terminal));
@@ -127,7 +127,7 @@ public sealed class BenchmarkWorkloadCommandServiceTests
         var ids = Enumerable.Range(0, 32).Select(index => $"id-{index:D3}").ToArray();
         var changed = JsonSerializer.SerializeToElement(new { schemaVersion = 1, engine = "leancorpus" });
         var terminal = Terminal(changed, ids, 1);
-        var path = Path.Combine(Path.GetTempPath(), "workload-terminal-" + Guid.NewGuid().ToString("N") + ".json");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "workload-terminal-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {
             File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(terminal));

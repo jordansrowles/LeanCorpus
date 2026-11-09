@@ -17,7 +17,7 @@ public sealed class BackupRestoreMatrixServiceTests
     [Fact]
     public void DefinesTheLegacyFiveCellMatrixInStableOrder()
     {
-        var alternateRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "backup matrix"));
+        var alternateRoot = Path.GetFullPath(Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "backup matrix"));
 
         var variants = BackupRestoreMatrixService.CreateVariants(alternateRoot);
 
@@ -190,7 +190,7 @@ public sealed class BackupRestoreMatrixServiceTests
         public CheckoutIdentity Identity { get; }
 
         public static MatrixCheckout Create()
-            => new(Path.Combine(Path.GetTempPath(), "LeanCorpus failed matrix " + Guid.NewGuid().ToString("N")));
+            => new(Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus failed matrix " + Guid.NewGuid().ToString("N")));
 
         public void Dispose()
         {

@@ -54,7 +54,7 @@ public sealed class MtpTestArgumentBuilderTests
     {
         var target = new TestTarget("text/net10.0", "Text", "text", "Mtp", "src/text.csproj", "net10.0", "Release",
             "", "", [], false, ["Trx", "HangDump"], []);
-        var options = new TestRunnerOptions(Path.GetTempPath())
+        var options = new TestRunnerOptions(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"))
         {
             ArtifactsEnabled = false,
             CollectCoverage = true,
@@ -75,7 +75,7 @@ public sealed class MtpTestArgumentBuilderTests
     {
         var target = new TestTarget("core/net10.0", "Core", "core", "Mtp", "src/core.csproj", "net10.0", "Release",
             "", "", [], false, [], []);
-        var options = new TestRunnerOptions(Path.GetTempPath());
+        var options = new TestRunnerOptions(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"));
 
         var arguments = MtpTestArgumentBuilder.Build(target, options, "");
 
@@ -88,7 +88,7 @@ public sealed class MtpTestArgumentBuilderTests
     [Fact]
     public void ScopesLegacyArtifactAndTelemetryVariablesToTheChildProcess()
     {
-        var options = new TestRunnerOptions(Path.GetTempPath()) { ArtifactsEnabled = true, Ci = true, Flaky = true };
+        var options = new TestRunnerOptions(RepositoryTemporaryStorage.GetAreaRoot("devops-tests")) { ArtifactsEnabled = true, Ci = true, Flaky = true };
         var target = new TestTarget("core/net10.0", "Core", "core", "Mtp", "src/core.csproj", "net10.0", "Release",
             "", "", [], true, [], []);
         var runId = Guid.Parse("7531d90b-82ad-4f01-8a3a-7f9a1750cfe8");
@@ -120,7 +120,7 @@ public sealed class MtpTestArgumentBuilderTests
         public string Path { get; }
         public static TemporaryDirectory Create()
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LeanCorpus MTP arguments " + Guid.NewGuid().ToString("N"));
+            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus MTP arguments " + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(System.IO.Path.Combine(path, ".config", "devops"));
             return new TemporaryDirectory(path);
         }

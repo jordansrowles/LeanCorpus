@@ -187,7 +187,7 @@ public sealed class ArtifactRunStoreTests
 
         public static TemporaryRoot Create()
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "DevOps run store " + Guid.NewGuid().ToString("N"));
+            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps run store " + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(path);
             return new TemporaryRoot(path);
         }

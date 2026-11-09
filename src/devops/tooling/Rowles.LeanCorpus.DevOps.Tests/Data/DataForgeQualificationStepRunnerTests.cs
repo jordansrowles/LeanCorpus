@@ -118,7 +118,7 @@ public sealed class DataForgeQualificationStepRunnerTests
     {
         public TemporaryCheckout()
         {
-            Root = Path.Combine(Path.GetTempPath(), "LeanCorpus managed MTP runtime " + Guid.NewGuid().ToString("N"));
+            Root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus managed MTP runtime " + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Root);
             var gitPath = Path.Combine(Root, ".git");
             Directory.CreateDirectory(gitPath);

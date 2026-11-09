@@ -199,7 +199,7 @@ public sealed class DataForgeQualificationServiceTests
     {
         public TemporaryCheckout()
         {
-            var root = Path.Combine(Path.GetTempPath(), "LeanCorpus qualification " + Guid.NewGuid().ToString("N"));
+            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus qualification " + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             var gitPath = Path.Combine(root, ".git");
             Directory.CreateDirectory(gitPath);

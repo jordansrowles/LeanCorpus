@@ -121,7 +121,7 @@ public sealed class HistoricalFixtureCatalogTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "leancorpus-historical-catalog-test-" + Guid.NewGuid().ToString("N"));
+            Path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-historical-catalog-test-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
         }
 

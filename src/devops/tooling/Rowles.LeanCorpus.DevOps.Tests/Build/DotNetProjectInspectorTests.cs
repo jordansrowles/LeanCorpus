@@ -12,7 +12,7 @@ public sealed class DotNetProjectInspectorTests
     {
         var checkout = RepositoryPaths.Resolve(explicitRepositoryPath: null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
         var processRunner = new ProcessRunner();
-        var runDirectory = Path.Combine(Path.GetTempPath(), "DevOps MSBuild probe " + Guid.NewGuid().ToString("N"));
+        var runDirectory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps MSBuild probe " + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(runDirectory);
         try
         {

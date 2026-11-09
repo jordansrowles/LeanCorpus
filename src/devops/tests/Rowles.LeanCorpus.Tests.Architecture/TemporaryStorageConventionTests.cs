@@ -27,6 +27,12 @@ public sealed class TemporaryStorageConventionTests
 
     internal static readonly RegisteredException[] Register =
     [
+        new("src/devops/tooling/Rowles.LeanCorpus.DevOps/Benchmarks/BenchmarkCommandService.cs", "BenchmarkCommandService.BenchmarkHostLeaseRoot", Category.A,
+            "Host-wide benchmark lease shared by every checkout on the machine; a per-checkout path would let two checkouts benchmark at once."),
+        new("src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Bootstrap/ManagedBootstrapIntegrationTests.cs", "*", Category.B,
+            "Builds, links and promotes fake checkouts and worktrees; inside this checkout they inherit its Directory.Build.props and Git state."),
+        new("src/devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Repository/RepositoryPathsTests.cs", "*", Category.B,
+            "Tests checkout discovery from directories that must not be inside any checkout."),
     ];
 
     private static readonly string[] ScannedRoots = ["src/devops", "src/server/devops"];
@@ -72,9 +78,10 @@ public sealed class TemporaryStorageConventionTests
         return violations.OrderBy(static violation => violation.Path, StringComparer.Ordinal).ThenBy(static violation => violation.Line).ToArray();
     }
 
+    /// <summary>A member of <c>*</c> covers every violation in the file; use it only when the whole file is the exception.</summary>
     private static bool Matches(RegisteredException entry, TemporaryStorageViolation violation)
         => string.Equals(entry.Path, violation.Path, StringComparison.Ordinal)
-           && string.Equals(entry.Member, violation.Member, StringComparison.Ordinal);
+           && (entry.Member == "*" || string.Equals(entry.Member, violation.Member, StringComparison.Ordinal));
 }
 
 public sealed class TemporaryStorageScannerTests

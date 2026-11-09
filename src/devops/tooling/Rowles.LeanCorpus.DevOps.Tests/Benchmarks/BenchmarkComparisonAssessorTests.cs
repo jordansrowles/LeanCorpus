@@ -207,7 +207,7 @@ public sealed class BenchmarkComparisonAssessorTests
     [Fact]
     public void InvalidChildJsonIsRetainedAsAReadFailure()
     {
-        string path = Path.Combine(Path.GetTempPath(), "benchmark-comparison-invalid-" + Guid.NewGuid().ToString("N") + ".json");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "benchmark-comparison-invalid-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {
             File.WriteAllText(path, "{");
@@ -230,7 +230,7 @@ public sealed class BenchmarkComparisonAssessorTests
     [InlineData(null, null)]
     public void V5ReportReaderPreservesMissingAndTerminalPreflightEvidence(bool? preflightPassed, bool? expected)
     {
-        string path = Path.Combine(Path.GetTempPath(), "benchmark-comparison-preflight-" + Guid.NewGuid().ToString("N") + ".json");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "benchmark-comparison-preflight-" + Guid.NewGuid().ToString("N") + ".json");
         var row = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["typeName"] = "PairBenchmarks",

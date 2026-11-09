@@ -172,7 +172,7 @@ public sealed class BuildServiceTests
 
         public static TemporaryCheckout Create(string prefix = "DevOps build checkout ")
         {
-            var root = Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
+            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), prefix + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(Path.Combine(root, "src", "Example Project"));

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Terminal;
 
@@ -101,7 +102,7 @@ internal sealed class BackupRestoreSourceManifestReader(IProcessRunner processRu
         string workingDirectory,
         CancellationToken cancellationToken)
     {
-        var logRoot = Path.Combine(Path.GetTempPath(), "leancorpus-backup-restore-inventory", Guid.NewGuid().ToString("N"));
+        var logRoot = new ArtifactPaths(repositoryRoot).CreateTemporaryDirectory("backup-restore-inventory-");
         var stdoutPath = Path.Combine(logRoot, "git.stdout.log");
         var stderrPath = Path.Combine(logRoot, "git.stderr.log");
         try

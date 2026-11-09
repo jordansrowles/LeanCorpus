@@ -63,7 +63,7 @@ public sealed class DocumentationOwnedOutputCatalogTests
 
     private static string CreateTemporaryDirectory()
     {
-        var path = Path.Combine(Path.GetTempPath(), "LeanCorpus docs output " + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus docs output " + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
     }

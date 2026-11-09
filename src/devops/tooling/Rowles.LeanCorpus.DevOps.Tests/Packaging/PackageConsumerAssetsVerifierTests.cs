@@ -77,7 +77,7 @@ public sealed class PackageConsumerAssetsVerifierTests
 
         public static TemporaryConsumerDirectory Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), "leancorpus-consumer-assets-" + Guid.NewGuid().ToString("N"));
+            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "leancorpus-consumer-assets-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             return new TemporaryConsumerDirectory(root);
         }

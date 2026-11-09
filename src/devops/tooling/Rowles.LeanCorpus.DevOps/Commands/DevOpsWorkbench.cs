@@ -1014,7 +1014,7 @@ internal sealed class ManagedWorkbenchOperations(
 
     public string ReadRepositoryMetadata(CancellationToken cancellationToken)
     {
-        var temporary = Directory.CreateTempSubdirectory("leancorpus-workbench-status-");
+        var temporary = new DirectoryInfo(new ArtifactPaths(checkout.RepositoryRoot).CreateTemporaryDirectory("workbench-status-"));
         try
         {
             var processRunner = new ProcessRunner();

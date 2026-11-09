@@ -87,7 +87,7 @@ public sealed class PlaywrightRuntimePreflightTests
 
     private sealed class PreflightFixture : IDisposable
     {
-        public string Root { get; } = Path.Combine(Path.GetTempPath(), "LeanCorpus Playwright preflight " + Guid.NewGuid().ToString("N"));
+        public string Root { get; } = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus Playwright preflight " + Guid.NewGuid().ToString("N"));
         public string OutputDirectory { get; }
         public CheckoutIdentity Identity { get; }
         public PreparedTestTarget BrowserTarget { get; }

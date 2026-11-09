@@ -229,12 +229,14 @@ public sealed class AffectedSelectionServiceTests
 
         public static async Task<TemporaryGitRepository> CreateAsync()
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LeanCorpus affected git " + Guid.NewGuid().ToString("N"));
+            var path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus affected git " + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(path);
             var repository = new TemporaryGitRepository(path);
             await repository.RunGitAsync("init", "--initial-branch=main");
             await repository.RunGitAsync("config", "user.name", "Affected Test");
             await repository.RunGitAsync("config", "user.email", "affected-test@example.invalid");
+            // A LeanCorpus checkout ignores /artifacts/, where DevOps keeps its temporary files (ADR046).
+            await File.AppendAllTextAsync(System.IO.Path.Combine(path, ".git", "info", "exclude"), "/artifacts/\n");
             return repository;
         }
 

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 
 namespace Rowles.LeanCorpus.DevOps.Configuration;
@@ -32,7 +33,7 @@ internal static class BenchmarkManifestValidator
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
         ArgumentNullException.ThrowIfNull(processRunner);
 
-        var temporaryRoot = Path.Combine(Path.GetTempPath(), "LeanCorpus.DevOps.BenchmarkManifests", Guid.NewGuid().ToString("N"));
+        var temporaryRoot = new ArtifactPaths(repositoryRoot).CreateTemporaryDirectory("benchmark-manifests-");
         Directory.CreateDirectory(temporaryRoot);
         try
         {

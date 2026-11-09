@@ -94,7 +94,7 @@ public sealed class TestPreparationServiceTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), "DevOps test preparation "+ Guid.NewGuid().ToString("N"));
+            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps test preparation "+ Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             var project = Path.Combine(root, "src", "devops", "Fake.Tests", "Fake.Tests.csproj");
             Directory.CreateDirectory(Path.GetDirectoryName(project)!);

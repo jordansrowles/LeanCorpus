@@ -188,7 +188,7 @@ public sealed class ServerServiceTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), "DevOps server checkout " + Guid.NewGuid().ToString("N"));
+            var root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "DevOps server checkout " + Guid.NewGuid().ToString("N"));
             var projectDirectory = Path.Combine(root, "src", "server", "Rowles.LeanCorpus.Server.Local");
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(projectDirectory);

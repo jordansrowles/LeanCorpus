@@ -608,7 +608,7 @@ public sealed class ReportServiceTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"devops report fixture {Guid.NewGuid():N}");
+            Path = System.IO.Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), $"devops report fixture {Guid.NewGuid():N}");
             Directory.CreateDirectory(Path);
         }
 

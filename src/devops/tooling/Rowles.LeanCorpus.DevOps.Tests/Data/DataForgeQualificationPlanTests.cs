@@ -9,7 +9,7 @@ public sealed class DataForgeQualificationPlanTests
     [Fact]
     public void ParserAcceptsLegacyAliasesAndResolvesRelativeReferencePath()
     {
-        var repositoryRoot = Path.Combine(Path.GetTempPath(), "LeanCorpus qualification repository");
+        var repositoryRoot = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "LeanCorpus qualification repository");
 
         var parsed = DataForgeQualificationArgumentParser.Parse(
             ["-Dry", "-ReferencePath", Path.Combine("datasets", "wiki")], repositoryRoot);
@@ -22,7 +22,7 @@ public sealed class DataForgeQualificationPlanTests
     [Fact]
     public void ParserRejectsUnknownOptionsAndPositionals()
     {
-        var repositoryRoot = Path.GetTempPath();
+        var repositoryRoot = RepositoryTemporaryStorage.GetAreaRoot("devops-tests");
 
         var unknown = DataForgeQualificationArgumentParser.Parse(["--force"], repositoryRoot);
         var positional = DataForgeQualificationArgumentParser.Parse(["unexpected"], repositoryRoot);
