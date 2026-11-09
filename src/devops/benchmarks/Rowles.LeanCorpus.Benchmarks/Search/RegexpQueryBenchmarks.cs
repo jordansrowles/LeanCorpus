@@ -53,6 +53,12 @@ public class RegexpQueryBenchmarks
         SharedStandardIndex.EnsureInitialised(DocumentCount);
         _leanSearcher = SharedStandardIndex.LeanSearcher;
         EnsureSingleSegmentIndexes(DocumentCount);
+
+        string caseName = string.Concat("Pattern=", Pattern);
+        BenchmarkFixtureEvidence.RequireWork("regexp", string.Concat(caseName, " as-shipped"), BenchmarkFixtureEvidence.LeanCorpusEngine, LeanCorpus_RegexpQuery());
+        BenchmarkFixtureEvidence.RequireWork("regexp", string.Concat(caseName, " as-shipped"), BenchmarkFixtureEvidence.LuceneNetEngine, LuceneNet_RegexpQuery());
+        BenchmarkFixtureEvidence.RequireWork("regexp", string.Concat(caseName, " single-segment"), BenchmarkFixtureEvidence.LeanCorpusEngine, LeanCorpus_RegexpQuery_SingleSegment());
+        BenchmarkFixtureEvidence.RequireWork("regexp", string.Concat(caseName, " single-segment"), BenchmarkFixtureEvidence.LuceneNetEngine, LuceneNet_RegexpQuery_SingleSegment());
     }
 
     [GlobalCleanup]

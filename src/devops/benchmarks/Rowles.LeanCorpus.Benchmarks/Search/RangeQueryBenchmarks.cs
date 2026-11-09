@@ -52,6 +52,7 @@ public class RangeQueryBenchmarks
     public void Setup()
     {
         EnsureIndexes();
+        RunPreflight();
     }
 
     [GlobalCleanup]
@@ -86,6 +87,37 @@ public class RangeQueryBenchmarks
 
     private NumericRangeQuery<double> BuildLuceneQuery()
         => NumericRangeQuery.NewDoubleRange("price", RangeStart, RangeEnd, minInclusive: true, maxInclusive: true);
+
+    /// <summary>
+    /// Runs every row's query once outside timing. The expected count is derived from the
+    /// generated prices, independently of either engine.
+    /// </summary>
+    private void RunPreflight()
+    {
+        double end = RangeEnd;
+        int expected = 0;
+        foreach (var (_, price) in s_documents)
+        {
+            if (price >= RangeStart && price <= end)
+                expected++;
+        }
+
+        string caseName = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"RangeWidth={RangeWidth}");
+        var observed = new (string Row, string Engine, int Hits)[]
+        {
+            ("as-shipped", BenchmarkFixtureEvidence.LeanCorpusEngine, LeanCorpus_RangeQuery()),
+            ("as-shipped", BenchmarkFixtureEvidence.LuceneNetEngine, LuceneNet_NumericRangeQuery()),
+            ("single-segment", BenchmarkFixtureEvidence.LeanCorpusEngine, LeanCorpus_RangeQuery_SingleSegment()),
+            ("single-segment", BenchmarkFixtureEvidence.LuceneNetEngine, LuceneNet_NumericRangeQuery_SingleSegment())
+        };
+        foreach (var (row, engine, hits) in observed)
+        {
+            BenchmarkFixtureEvidence.RequireWork("range", string.Concat(caseName, " ", row), engine, hits);
+            if (hits != expected)
+                throw new InvalidOperationException(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"Range {caseName} {row} on {engine} returned {hits} hits; the generated prices give {expected}."));
+        }
+    }
 
     private void EnsureIndexes()
     {
