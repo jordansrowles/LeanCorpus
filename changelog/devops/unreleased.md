@@ -88,6 +88,7 @@
 - Consolidate bootstrap, host fingerprint validation and argument forwarding in root `devops.ps1`; cover isolated failure, rollback, lease, manifest and dispatch cases in MTP integration tests, and update CI to use the explicit `bootstrap` verb.
 - Add managed `benchmark qualification-summary` output with source identity, planned report counts, shard exit codes, deterministic schema-v1 JSON and fail-closed qualification results for the manual benchmark workflow.
 - Resolve bootstrap checkout paths through filesystem links, fingerprint embedded consumer templates and source assets while excluding generated output, and preserve nested execution data in schema-v1 benchmark qualification summaries.
+- Build, test and benchmark with the .NET 11 GA SDK (`11.0.100`, `latestPatch`) instead of preview 7; CI no longer requests preview quality.
 
 ## Fixed
 
