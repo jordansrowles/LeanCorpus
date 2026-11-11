@@ -53,6 +53,10 @@ corpus found three result defects:
   collected once per search alongside the expansion-limit check, and looked up
   once per term, never per posting.
 - Prefix queries remain scored; they are not made constant-score.
+- **Span exclusion.** `SpanNotQuery` removes only include spans that overlap
+  an exclude span in the same document, as its contract states and Lucene
+  does. A document matches while any include span survives; an excluded term
+  elsewhere in the document does not remove it.
 
 ## Rationale
 
@@ -73,6 +77,8 @@ segmentation, which merges and commits must not change.
 - Multi-segment expansion queries pay one extra term-dictionary walk per
   segment to collect document frequencies. Single-segment searches are
   unchanged, because their segment frequency is already global.
+- `SpanNotQuery` returns documents it previously excluded when the exclude
+  term does not overlap the include span.
 - MoreLikeThis also selects terms with segment statistics; its segment
   invariance is tracked separately.
 

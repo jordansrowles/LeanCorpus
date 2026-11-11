@@ -147,8 +147,8 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
         Assert.Equal(0, result.TotalHits);
     }
 
-    [Fact(DisplayName = "IndexSearcher: SpanNotQuery Excludes Docs With Excluded Term")]
-    public void Search_SpanNotQuery_ExcludesDocsWithExcludedTerm()
+    [Fact(DisplayName = "IndexSearcher: SpanNotQuery Excludes Only Overlapping Spans")]
+    public void Search_SpanNotQuery_ExcludesOnlyOverlappingSpans()
     {
         var dir = SubDir("span_not");
         using var mmap = BuildIndex(dir,
@@ -162,8 +162,12 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
 
         var result = searcher.Search(query, 10, TestContext.Current.CancellationToken);
 
-        // Only "apple pie is great" should match (apple present, cherry absent)
-        Assert.Equal(1, result.TotalHits);
+        // Overlap rule (ADR048): "cherry" does not overlap the "apple" span, so both documents match.
+        Assert.Equal(2, result.TotalHits);
+
+        // An exclude span covering the include span removes it.
+        var overlapping = searcher.Search(new SpanNotQuery(include, new SpanTermQuery("body", "apple")), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(0, overlapping.TotalHits);
     }
 
     [Fact(DisplayName = "IndexSearcher: SpanNotQuery With No Include Matches Returns Empty")]

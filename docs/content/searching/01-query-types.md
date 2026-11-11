@@ -43,7 +43,7 @@ These queries require indexed positions.
 | `SpanTermQuery` | A term represented as a span | Leaf for other span queries. |
 | `SpanNearQuery` | Ordered or unordered span proximity | Composes span leaves or other span queries. |
 | `SpanOrQuery` | Alternative spans | All clauses must target the same field. |
-| `SpanNotQuery` | Include spans from documents without an excluded span | Exclusion currently applies to the whole document. |
+| `SpanNotQuery` | Include spans that do not overlap an excluded span | A document matches while any include span survives; an excluded term elsewhere in the document does not remove it. |
 | `SpanFirstQuery` | Spans ending before a field position | Wraps any span query. |
 | `SpanContainingQuery` | Enclosing spans containing another span | Both clauses target the same field. |
 | `SpanWithinQuery` | Inner spans contained by another span | Both clauses target the same field. |

@@ -157,24 +157,32 @@ public sealed partial class IndexSearcher
     private void ExecuteSpanNotQuery(SpanNotQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
-        if (TryExecuteSpanNotTermQuery(query, reader, globalDFs, ref collector))
-            return;
-
-        var includeSpans = CollectSpans(query.Include, reader);
-        var excludeSpans = CollectSpans(query.Exclude, reader);
-
-        var excludedDocs = new HashSet<int>();
-        foreach (var excluded in excludeSpans)
-            excludedDocs.Add(excluded.DocId);
+        // An include span survives unless it overlaps an exclude span in the same document, as the
+        // SpanNotQuery contract states and Lucene does. A document is matched while any include span
+        // survives; an exclude term elsewhere in the document does not remove it.
+        var excludeByDoc = new Dictionary<int, List<Span>>();
+        foreach (var excluded in CollectSpans(query.Exclude, reader))
+        {
+            if (!excludeByDoc.TryGetValue(excluded.DocId, out var list))
+                excludeByDoc[excluded.DocId] = list = [];
+            list.Add(excluded);
+        }
 
         int docBase = reader.DocBase;
         var seen = new HashSet<int>();
-        foreach (var span in includeSpans)
+        foreach (var span in CollectSpans(query.Include, reader))
         {
-            if (!excludedDocs.Contains(span.DocId) && seen.Add(span.DocId))
-                collector.Collect(docBase + span.DocId, ApplyFieldBoost(reader, span.DocId, query.Field, 1.0f * query.Boost));
+            if (seen.Contains(span.DocId) ||
+                (excludeByDoc.TryGetValue(span.DocId, out var excludes) && excludes.Any(excluded => Overlaps(span, excluded))))
+                continue;
+            seen.Add(span.DocId);
+            collector.Collect(docBase + span.DocId, ApplyFieldBoost(reader, span.DocId, query.Field, 1.0f * query.Boost));
         }
     }
+
+    /// <summary>Two spans overlap when each starts before the other ends (end positions are exclusive).</summary>
+    private static bool Overlaps(Span include, Span exclude)
+        => exclude.Start < include.End && include.Start < exclude.End;
 
     private bool TryExecuteSpanNearTermQuery(SpanNearQuery query, SegmentReader reader, bool[]? excludedDocs,
         float boost, Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
@@ -327,104 +335,6 @@ public sealed partial class IndexSearcher
                 seen[docIds[i]] = false;
                 docIds[i] = 0;
             }
-        }
-    }
-
-    private bool TryExecuteSpanNotTermQuery(SpanNotQuery query, SegmentReader reader,
-        Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
-    {
-        if (query.Include is not SpanNearQuery includeNear || !IsSpanTermDocSetQuery(query.Exclude))
-            return false;
-
-        var excluded = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
-        var excludedDocIds = EnsureScratch(ref t_patternDocIds, reader.MaxDoc);
-        int excludedCount = 0;
-
-        try
-        {
-            MarkExcludedSpanTermDocs(query.Exclude, reader, excluded, excludedDocIds, ref excludedCount);
-            return TryExecuteSpanNearTermQuery(
-                includeNear,
-                reader,
-                excluded,
-                query.Boost,
-                globalDFs,
-                ref collector);
-        }
-        finally
-        {
-            for (int i = 0; i < excludedCount; i++)
-            {
-                excluded[excludedDocIds[i]] = false;
-                excludedDocIds[i] = 0;
-            }
-        }
-    }
-
-    private static bool IsSpanTermDocSetQuery(SpanQuery query)
-    {
-        if (query is SpanTermQuery)
-            return true;
-        if (query is not SpanOrQuery spanOr)
-            return false;
-
-        foreach (var clause in spanOr.Clauses)
-        {
-            if (clause is not SpanTermQuery)
-                return false;
-        }
-
-        return true;
-    }
-
-    private static void MarkExcludedSpanTermDocs(
-        SpanQuery query,
-        SegmentReader reader,
-        bool[] excluded,
-        int[] excludedDocIds,
-        ref int excludedCount)
-    {
-        if (query is SpanTermQuery termQuery)
-        {
-            MarkExcludedSpanTermDocs(
-                termQuery,
-                reader,
-                excluded,
-                excludedDocIds,
-                ref excludedCount);
-            return;
-        }
-
-        var spanOr = (SpanOrQuery)query;
-        foreach (var clause in spanOr.Clauses)
-        {
-            MarkExcludedSpanTermDocs(
-                (SpanTermQuery)clause,
-                reader,
-                excluded,
-                excludedDocIds,
-                ref excludedCount);
-        }
-    }
-
-    private static void MarkExcludedSpanTermDocs(
-        SpanTermQuery query,
-        SegmentReader reader,
-        bool[] excluded,
-        int[] excludedDocIds,
-        ref int excludedCount)
-    {
-        var qualifiedTerm = query.CachedQualifiedTerm ??=
-            string.Concat(query.Field, "\x00", query.Term);
-        using var postings = reader.GetPostingsEnum(qualifiedTerm);
-        bool hasDeletions = reader.HasDeletions;
-        while (postings.MoveNextUnchecked(out int docId, out _))
-        {
-            if ((hasDeletions && !reader.IsLive(docId)) || excluded[docId])
-                continue;
-
-            excluded[docId] = true;
-            excludedDocIds[excludedCount++] = docId;
         }
     }
 

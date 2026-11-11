@@ -164,6 +164,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- SpanNotQuery now removes only include spans that overlap an excluded span, as documented and as in Lucene, instead of every document containing the excluded term.
 - Regexp queries no longer return a document more than once, and TotalHits counts unique documents.
 - Phrase slop now applies across the whole phrase and each query term uses a distinct token, so some sloppy phrases return fewer, correct matches.
 - Analysis now preserves position gaps when stop words are removed, so phrase queries no longer match across removed words. Existing indexes must be reindexed from source text to benefit.
