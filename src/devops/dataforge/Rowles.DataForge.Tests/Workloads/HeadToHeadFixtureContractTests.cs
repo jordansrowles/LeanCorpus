@@ -94,9 +94,23 @@ public sealed class HeadToHeadFixtureContractTests
     }
 
     [Fact]
+    public void Benchmark_temporary_directory_is_scoped_to_one_run()
+    {
+        Assert.Equal("run-abc", BenchmarkHelpers.ResolveRunName("run-abc", "other"));
+        Assert.Equal("run-1234-5678", BenchmarkHelpers.ResolveRunName(null, "1234-5678"));
+        Assert.StartsWith("local-", BenchmarkHelpers.ResolveRunName(null, null), StringComparison.Ordinal);
+        Assert.NotEqual(BenchmarkHelpers.ResolveRunName(null, null), BenchmarkHelpers.ResolveRunName(null, null));
+        Assert.Throws<InvalidOperationException>(() => BenchmarkHelpers.ResolveRunName("../escape", null));
+
+        string areaRoot = RepositoryTemporaryStorage.GetAreaRoot("benchmarks");
+        Assert.Equal(areaRoot, Path.GetDirectoryName(BenchmarkHelpers.TempRoot));
+        Assert.NotEqual(areaRoot, BenchmarkHelpers.TempRoot);
+    }
+
+    [Fact]
     public void Topology_record_is_written_as_a_run_sidecar()
     {
-        string artifactDirectory = Path.Combine(Path.GetTempPath(), "leancorpus-topology-" + Guid.NewGuid().ToString("N"));
+        string artifactDirectory = RepositoryTemporaryStorage.NewPath("dataforge", "leancorpus-topology-");
         Directory.CreateDirectory(artifactDirectory);
         string? previous = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
         try
@@ -123,7 +137,7 @@ public sealed class HeadToHeadFixtureContractTests
         if (!string.IsNullOrWhiteSpace(previous))
             return action();
 
-        string artifactDirectory = Path.Combine(Path.GetTempPath(), "leancorpus-fixture-contract-" + Guid.NewGuid().ToString("N"));
+        string artifactDirectory = RepositoryTemporaryStorage.NewPath("dataforge", "leancorpus-fixture-contract-");
         Directory.CreateDirectory(artifactDirectory);
         try
         {

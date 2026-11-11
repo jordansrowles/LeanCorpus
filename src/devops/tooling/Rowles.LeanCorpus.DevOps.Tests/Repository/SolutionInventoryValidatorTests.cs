@@ -153,7 +153,7 @@ public sealed class SolutionInventoryValidatorTests
 
     private sealed class TemporaryCheckout : IDisposable
     {
-        private TemporaryCheckout(string root)
+        internal TemporaryCheckout(string root)
         {
             Root = root;
             Identity = new CheckoutIdentity(root, null, null);
@@ -167,7 +167,7 @@ public sealed class SolutionInventoryValidatorTests
         public CheckoutIdentity Identity { get; }
 
         public static TemporaryCheckout Create()
-            => new(Path.Combine(Path.GetTempPath(), "LeanCorpus solution inventory " + Guid.NewGuid().ToString("N")));
+            => new(RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus solution inventory "));
 
         public void WriteProject(string relativePath)
         {

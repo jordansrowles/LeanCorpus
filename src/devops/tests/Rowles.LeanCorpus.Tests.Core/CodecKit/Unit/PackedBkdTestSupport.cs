@@ -28,7 +28,7 @@ internal static class PackedBkdTestSupport
 
     internal static string CreateDirectory()
     {
-        string directory = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bkd", Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-packed-bkd", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         return directory;
     }

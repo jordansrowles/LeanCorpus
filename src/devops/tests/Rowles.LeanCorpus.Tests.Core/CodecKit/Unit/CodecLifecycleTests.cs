@@ -25,7 +25,7 @@ public sealed class CodecLifecycleTests
     [Fact]
     public void Begin_RetiredDescriptor_DoesNotEmitPrefix()
     {
-        string path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string path = RepositoryTemporaryStorage.NewPath("tests");
         try
         {
             using var output = new IndexOutput(path);
@@ -51,7 +51,7 @@ public sealed class CodecLifecycleTests
     [Fact]
     public void WriteAtomically_RepresentationPolicy_RejectsMissingIdentityBeforeSideEffects()
     {
-        string directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string directory = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(directory);
         try
         {
@@ -73,7 +73,7 @@ public sealed class CodecLifecycleTests
     [Fact]
     public void WriteAtomically_RetiredDescriptor_RejectsBeforeBodyOrFileCreation()
     {
-        string directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string directory = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(directory);
         try
         {
@@ -105,7 +105,7 @@ public sealed class CodecLifecycleTests
     [InlineData("unknown", false)]
     public void WriteAtomically_ExplicitRepresentation_EnforcesPolicy(string representation, bool allowed)
     {
-        string directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string directory = RepositoryTemporaryStorage.NewPath("tests");
         Directory.CreateDirectory(directory);
         try
         {

@@ -16,7 +16,7 @@ public sealed class MaintenanceMeterTests : IDisposable
 
     public MaintenanceMeterTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "maintenance_meter_tests_" + Guid.NewGuid().ToString("N"));
+        _root = RepositoryTemporaryStorage.NewPath("tests", "maintenance_meter_tests_");
         Directory.CreateDirectory(_root);
     }
 

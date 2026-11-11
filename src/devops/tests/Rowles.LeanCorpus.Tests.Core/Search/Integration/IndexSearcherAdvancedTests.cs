@@ -20,7 +20,7 @@ public sealed class IndexSearcherAdvancedTests : IDisposable
 
     public IndexSearcherAdvancedTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_isa_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_isa_");
         Directory.CreateDirectory(_dir);
     }
 

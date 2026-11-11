@@ -17,7 +17,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class WriterEquivalenceTests : IDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), $"ll-equiv-{Guid.NewGuid():N}");
+    private readonly string _root = RepositoryTemporaryStorage.NewPath("tests", "ll-equiv-");
 
     public WriterEquivalenceTests() => Directory.CreateDirectory(_root);
 

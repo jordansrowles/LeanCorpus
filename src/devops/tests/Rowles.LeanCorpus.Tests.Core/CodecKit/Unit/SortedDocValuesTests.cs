@@ -13,7 +13,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 [Area(TestArea.CodecKit)]
 public sealed class SortedDocValuesTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"ll-sdv-{Guid.NewGuid():N}");
+    private readonly string _dir = RepositoryTemporaryStorage.NewPath("tests", "ll-sdv-");
 
     public SortedDocValuesTests() => Directory.CreateDirectory(_dir);
 

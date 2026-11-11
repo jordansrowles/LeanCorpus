@@ -16,7 +16,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class SegmentReaderThreadSafetyTests : IDisposable
 {
-    private readonly string _dir = Path.Combine(Path.GetTempPath(), $"ll-reader-ts-{Guid.NewGuid():N}");
+    private readonly string _dir = RepositoryTemporaryStorage.NewPath("tests", "ll-reader-ts-");
 
     public SegmentReaderThreadSafetyTests() => Directory.CreateDirectory(_dir);
 

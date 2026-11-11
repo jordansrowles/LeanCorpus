@@ -18,7 +18,7 @@ public sealed class DirectoryFsyncTests : IDisposable
 
     public DirectoryFsyncTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_fsync_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_fsync_");
         Directory.CreateDirectory(_dir);
         _file = Path.Combine(_dir, "test.dat");
         File.WriteAllText(_file, "hello");

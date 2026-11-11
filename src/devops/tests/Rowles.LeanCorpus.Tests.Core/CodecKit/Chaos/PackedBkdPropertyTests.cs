@@ -35,7 +35,7 @@ public sealed class PackedBkdPropertyTests
         XYEncodingUtils.Encode(maximumX, queryMaximum.AsSpan(0, 4));
         XYEncodingUtils.Encode(maximumY, queryMaximum.AsSpan(4, 4));
 
-        string directory = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bkd-property", Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-packed-bkd-property", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
@@ -90,7 +90,7 @@ public sealed class PackedBkdPropertyTests
             values.Add(new ModelPoint(i % 13, packed));
         }
 
-        string directory = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bkd-permutation", Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-packed-bkd-permutation", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
@@ -128,7 +128,7 @@ public sealed class PackedBkdPropertyTests
     {
         byte[] seed = input.Get;
         var model = new List<ModelPoint>();
-        string directory = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bkd-lifecycle-property", Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-packed-bkd-lifecycle-property", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string? currentPath = null;
         ModelPoint[] persistedModel = [];
@@ -216,7 +216,7 @@ public sealed class PackedBkdPropertyTests
     {
         byte[] seed = input.Get;
         int count = Math.Min(24, seed.Length + 3);
-        string directory = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bkd-seven", Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-packed-bkd-seven", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {

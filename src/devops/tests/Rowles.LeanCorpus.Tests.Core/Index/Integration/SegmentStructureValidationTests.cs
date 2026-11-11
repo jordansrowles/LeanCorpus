@@ -12,7 +12,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Index;
 [Area(TestArea.Index)]
 public sealed class SegmentStructureValidationTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), $"ll-segment-structure-{Guid.NewGuid():N}");
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "ll-segment-structure-");
 
     [Theory]
     [InlineData(false, ".fdt")]

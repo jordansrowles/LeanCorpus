@@ -11,7 +11,7 @@ public sealed class FileLifetimeRegistryLifecycleTests
     public void DistinctDirectoryChurnReturnsRegistryToItsMeasuredBaseline()
     {
         int baseline = FileLifetimeRegistry.RegisteredDirectoryCount;
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-directory-churn", Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-directory-churn", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try
         {
@@ -33,7 +33,7 @@ public sealed class FileLifetimeRegistryLifecycleTests
     [Fact]
     public void LastDirectoryOwnerWaitsForRetainedSnapshotAndSettlesDeferredDelete()
     {
-        string path = Path.Combine(Path.GetTempPath(), "leancorpus-directory-snapshot", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-directory-snapshot", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         string filePath = Path.Combine(path, "retained.bin");
         File.WriteAllBytes(filePath, [1, 2, 3]);
@@ -68,7 +68,7 @@ public sealed class FileLifetimeRegistryLifecycleTests
     [Fact]
     public void FailedDeferredDeleteRemainsRegisteredUntilLaterCleanupSucceeds()
     {
-        string path = Path.Combine(Path.GetTempPath(), "leancorpus-directory-delete-failure", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-directory-delete-failure", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         string filePath = Path.Combine(path, "retired.bin");
         File.WriteAllText(filePath, "old input");
@@ -103,7 +103,7 @@ public sealed class FileLifetimeRegistryLifecycleTests
     [Fact]
     public async Task RegistrationDuringLastOwnerEvictionUsesOneReplacementState()
     {
-        string path = Path.Combine(Path.GetTempPath(), "leancorpus-directory-eviction-race", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-directory-eviction-race", Guid.NewGuid().ToString("N"));
         var first = new MMapDirectory(path);
         var oldState = first.FileLifetimeStateForTesting;
         var evictionEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -144,7 +144,7 @@ public sealed class FileLifetimeRegistryLifecycleTests
     [Fact]
     public async Task QueuedFinaliserDeleteCannotRemoveARecreatedFile()
     {
-        string path = Path.Combine(Path.GetTempPath(), "leancorpus-finaliser-delete-aba", Guid.NewGuid().ToString("N"));
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-finaliser-delete-aba", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         const string name = "segment.tmp";
         string filePath = Path.Combine(path, name);

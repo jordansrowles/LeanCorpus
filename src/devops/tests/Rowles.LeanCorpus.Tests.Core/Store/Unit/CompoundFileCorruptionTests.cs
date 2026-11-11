@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Store;
 public sealed class CompoundFileCorruptionTests : IDisposable
 {
     private readonly string _path = Path.Combine(
-        Path.GetTempPath(),
+        RepositoryTemporaryStorage.GetAreaRoot("tests"),
         "LeanCorpus_CompoundFileCorruptionTests",
         Guid.NewGuid().ToString("N"));
 

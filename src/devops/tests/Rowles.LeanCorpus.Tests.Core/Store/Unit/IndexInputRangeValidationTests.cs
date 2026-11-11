@@ -10,7 +10,7 @@ public sealed class IndexInputRangeValidationTests : IDisposable
 
     public IndexInputRangeValidationTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_iirv_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_iirv_");
         Directory.CreateDirectory(_dir);
     }
 

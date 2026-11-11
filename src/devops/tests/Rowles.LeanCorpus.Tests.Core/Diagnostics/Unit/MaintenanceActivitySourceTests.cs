@@ -23,7 +23,7 @@ public sealed class MaintenanceActivitySourceTests : IDisposable
 
     public MaintenanceActivitySourceTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "maintenance_activity_tests_" + Guid.NewGuid().ToString("N"));
+        _root = RepositoryTemporaryStorage.NewPath("tests", "maintenance_activity_tests_");
         Directory.CreateDirectory(_root);
 
         _listener = new ActivityListener

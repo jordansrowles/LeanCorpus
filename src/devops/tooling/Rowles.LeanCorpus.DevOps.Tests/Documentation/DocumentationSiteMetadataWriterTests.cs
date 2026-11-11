@@ -91,7 +91,7 @@ public sealed class DocumentationSiteMetadataWriterTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "leancorpus-doc-metadata-test-" + Guid.NewGuid().ToString("N"));
+            Path = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-doc-metadata-test-");
             Directory.CreateDirectory(Path);
         }
 

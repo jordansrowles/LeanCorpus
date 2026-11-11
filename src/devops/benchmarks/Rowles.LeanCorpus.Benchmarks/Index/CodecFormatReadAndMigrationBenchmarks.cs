@@ -25,7 +25,7 @@ public class CodecFrameReadBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _directory = Path.Combine(Path.GetTempPath(), "LeanCorpus_CodecFrameReadBenchmarks", Guid.NewGuid().ToString("N"));
+        _directory = Path.Combine(BenchmarkHelpers.TempRoot, "LeanCorpus_CodecFrameReadBenchmarks", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_directory);
         _path = Path.Combine(_directory, "canonical.pos");
         _descriptor = CodecCatalog.Default.GetFile("leancorpus.postings.data");
@@ -84,7 +84,7 @@ public class CodecMigrationBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _sourcePath = Path.Combine(Path.GetTempPath(), "LeanCorpus_CodecMigrationBenchmarks", Guid.NewGuid().ToString("N"));
+        _sourcePath = Path.Combine(BenchmarkHelpers.TempRoot, "LeanCorpus_CodecMigrationBenchmarks", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_sourcePath);
         using (var writer = new IndexWriter(new MMapDirectory(_sourcePath), new IndexWriterConfig()))
         {

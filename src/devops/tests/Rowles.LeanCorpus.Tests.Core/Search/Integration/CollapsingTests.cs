@@ -15,7 +15,7 @@ public class CollapsingTests : IDisposable
 
     public CollapsingTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "collapse_tests_" + Guid.NewGuid().ToString("N"));
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "collapse_tests_");
         Directory.CreateDirectory(_dir);
     }
 

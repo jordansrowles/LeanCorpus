@@ -71,7 +71,7 @@ public sealed class BenchmarkManifestValidatorTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => BenchmarkManifestValidator.ValidateBuiltHostsAsync(
             CreateConfiguration(),
-            Path.GetTempPath(),
+            RepositoryTemporaryStorage.GetAreaRoot("devops-tests"),
             processRunner,
             cancellation.Token));
 

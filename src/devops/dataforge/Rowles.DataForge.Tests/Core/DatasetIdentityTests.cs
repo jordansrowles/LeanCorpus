@@ -98,7 +98,7 @@ public sealed class DatasetIdentityTests
     public void Benchmark_sidecar_round_trip_preserves_dependencies_in_identity_and_report()
     {
         var previousArtifactDirectory = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
-        var artifactDirectory = Path.Combine(Path.GetTempPath(), "dataforge-sidecar-" + Guid.NewGuid().ToString("N"));
+        var artifactDirectory = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-sidecar-");
         Directory.CreateDirectory(artifactDirectory);
         try
         {

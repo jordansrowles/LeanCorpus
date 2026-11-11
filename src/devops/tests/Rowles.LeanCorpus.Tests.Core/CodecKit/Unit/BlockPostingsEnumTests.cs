@@ -15,7 +15,7 @@ public sealed class BlockPostingsEnumTests : IDisposable
 
     public BlockPostingsEnumTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "leancorpus_bpe_" + Guid.NewGuid().ToString("N")[..8]);
+        _tempDir = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_bpe_");
         Directory.CreateDirectory(_tempDir);
     }
 

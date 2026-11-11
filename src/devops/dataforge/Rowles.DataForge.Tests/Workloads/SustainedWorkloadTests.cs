@@ -71,7 +71,7 @@ public sealed class SustainedWorkloadTests
         {
             Concurrency = 1, RefreshEveryDocuments = 4
         };
-        var partial = Path.Combine(Path.GetTempPath(), "workload-partial-" + Guid.NewGuid().ToString("N") + ".json");
+        var partial = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "workload-partial-" + Guid.NewGuid().ToString("N") + ".json");
         using var cancellation = new CancellationTokenSource();
         try
         {
@@ -145,7 +145,7 @@ public sealed class SustainedWorkloadTests
         Engine = engine, Scenario = scenario, DocumentCount = 32,
         SearchOperations = scenario == "ingest-throughput" ? 0 : 32,
         SourceCommit = new string('a', 40),
-        IndexPath = Path.Combine(Path.GetTempPath(), "workload-" + Guid.NewGuid().ToString("N")),
+        IndexPath = RepositoryTemporaryStorage.NewPath("dataforge", "workload-"),
         QueueCapacity = 1, Concurrency = 4, RefreshEveryDocuments = 8,
         MemoryBudgetMiB = 4096, DurationMilliseconds = 30_000
     };

@@ -64,7 +64,7 @@ public sealed class PackageConsumerAssetsVerifierTests
 
     private sealed class TemporaryConsumerDirectory : IDisposable
     {
-        private TemporaryConsumerDirectory(string root)
+        internal TemporaryConsumerDirectory(string root)
         {
             Root = root;
             CacheRoot = Path.Combine(root, "isolated cache");
@@ -77,7 +77,7 @@ public sealed class PackageConsumerAssetsVerifierTests
 
         public static TemporaryConsumerDirectory Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), "leancorpus-consumer-assets-" + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-consumer-assets-");
             Directory.CreateDirectory(root);
             return new TemporaryConsumerDirectory(root);
         }

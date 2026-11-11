@@ -35,7 +35,7 @@ public class PhraseQueryScaleTest(ITestOutputHelper output) : IDisposable
     [InlineData(50000)]
     public void PhraseQuery_ThreeWords_LargeCorpus_ReturnsResults(int docCount)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-phrase3-{Guid.NewGuid():N}");
+        var path = RepositoryTemporaryStorage.NewPath("tests", "leancorpus-phrase3-");
         Directory.CreateDirectory(path);
         _paths.Add(path);
 
@@ -83,7 +83,7 @@ public class PhraseQueryScaleTest(ITestOutputHelper output) : IDisposable
     [Fact(DisplayName = "Backpressure Flush: Does Not Deadlock")]
     public void BackpressureFlush_DoesNotDeadlock()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"leancorpus-bp-{Guid.NewGuid():N}");
+        var path = RepositoryTemporaryStorage.NewPath("tests", "leancorpus-bp-");
         Directory.CreateDirectory(path);
         _paths.Add(path);
 

@@ -9,7 +9,7 @@ public sealed class TestTargetRunnerTests
     [Fact]
     public async Task RejectsWrongAdapterBeforeStartingAProcess()
     {
-        var context = CreateContext(Path.GetTempPath(), ["exit", "0"]);
+        var context = CreateContext(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), ["exit", "0"]);
         var runner = new RejectProcessRunner();
         await Assert.ThrowsAsync<InvalidOperationException>(() => new MtpExecutableTestRunner(runner)
             .RunAsync(context, TestContext.Current.CancellationToken));
@@ -154,7 +154,7 @@ public sealed class TestTargetRunnerTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LeanCorpus test adapter " + Guid.NewGuid().ToString("N"));
+        public string Path { get; } = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus test adapter ");
         public TemporaryDirectory() => Directory.CreateDirectory(Path);
         public void Dispose() => Directory.Delete(Path, recursive: true);
     }

@@ -17,7 +17,7 @@ public sealed class XYPointFieldTests
     [Fact(DisplayName = "XY point field writes packed points and multi-valued binary DocValues")]
     public void XYPointField_WritesPackedPointsAndBinaryDocValues()
     {
-        string directoryPath = Path.Combine(Path.GetTempPath(), "leancorpus-xy-point-field", Guid.NewGuid().ToString("N"));
+        string directoryPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-xy-point-field", Guid.NewGuid().ToString("N"));
         System.IO.Directory.CreateDirectory(directoryPath);
         try
         {

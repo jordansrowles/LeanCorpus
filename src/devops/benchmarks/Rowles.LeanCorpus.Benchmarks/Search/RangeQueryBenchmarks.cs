@@ -143,7 +143,7 @@ public class RangeQueryBenchmarks
 
     private sealed class RangeIndexPair
     {
-        private RangeIndexPair(
+        internal RangeIndexPair(
             LeanMMapDirectory leanDirectory,
             LeanIndexSearcher leanSearcher,
             LuceneMMapDirectory luceneDirectory,

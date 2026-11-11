@@ -13,7 +13,7 @@ public sealed class PackedBkdLifecycleTests
     [Fact(DisplayName = "Packed BKD survives deletion and forced segment merge")]
     public void PackedBkd_MergeDropsDeletedPointsAndPreservesLivePoints()
     {
-        string directoryPath = Path.Combine(Path.GetTempPath(), "leancorpus-packed-bkd-lifecycle", Guid.NewGuid().ToString("N"));
+        string directoryPath = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-packed-bkd-lifecycle", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
         try
         {

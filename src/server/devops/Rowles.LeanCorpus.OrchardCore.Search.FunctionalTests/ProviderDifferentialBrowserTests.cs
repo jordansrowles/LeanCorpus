@@ -13,7 +13,7 @@ public sealed class ProviderDifferentialBrowserTests
     [Fact]
     public async Task OrchardLuceneAndLeanCorpusReturnTheSameNumericAndDatePredicateIds()
     {
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-differential", Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-differential", Guid.NewGuid().ToString("N"));
         (WebApplication app, Uri address) = await OrchardSearchTestHost.StartIsolatedAsync(root);
         using var http = new HttpClient { BaseAddress = address };
         bool completed = false;

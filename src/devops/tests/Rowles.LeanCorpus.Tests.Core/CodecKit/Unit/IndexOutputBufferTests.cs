@@ -12,7 +12,7 @@ public sealed class IndexOutputBufferTests : IDisposable
     public IndexOutputBufferTests()
     {
         _tempDirectory = Path.Combine(
-            Path.GetTempPath(),
+            RepositoryTemporaryStorage.GetAreaRoot("tests"),
             "LeanCorpus_IndexOutputBufferTests",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_tempDirectory);

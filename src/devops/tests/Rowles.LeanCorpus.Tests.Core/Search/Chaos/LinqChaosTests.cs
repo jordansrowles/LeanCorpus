@@ -20,7 +20,7 @@ public sealed class LinqChaosTests
 {
 
     private static string CreatePath(string suffix) =>
-        Path.Combine(Path.GetTempPath(), "LeanCorpusLinqChaos", $"{suffix}_{Guid.NewGuid():N}");
+        Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "LeanCorpusLinqChaos", $"{suffix}_{Guid.NewGuid():N}");
 
     // ---- test model ----
 

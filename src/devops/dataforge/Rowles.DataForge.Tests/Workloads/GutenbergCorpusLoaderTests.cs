@@ -7,7 +7,7 @@ public sealed class GutenbergCorpusLoaderTests
     [Fact]
     public void Explicit_directory_loads_and_strips_reference_text()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "dataforge-gutenberg-" + Guid.NewGuid().ToString("N"));
+        var directory = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-gutenberg-");
         Directory.CreateDirectory(directory);
         try
         {

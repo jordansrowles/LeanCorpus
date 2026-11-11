@@ -14,8 +14,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search.Sorting;
 [Area(TestArea.Search)]
 public sealed class SpatialDistanceSortTests : IDisposable
 {
-    private readonly string _path = Path.Combine(
-        Path.GetTempPath(), "leancorpus_distance_sort_" + Guid.NewGuid().ToString("N")[..8]);
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_distance_sort_");
 
     public void Dispose()
         => TestDirectoryFixture.TryDeleteDirectory(_path);

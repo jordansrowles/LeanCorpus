@@ -106,7 +106,7 @@ public sealed class FixtureWorkloadProofTests
         string[] expected = BlockJoinIndexBenchmarks.ExpectedParents(blocks, "said", deleted);
         Assert.Equal(["p1", "p2", "p5"], expected);
 
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-blockjoin-proof-" + Guid.NewGuid().ToString("N"));
+        string root = RepositoryTemporaryStorage.NewPath("dataforge", "leancorpus-blockjoin-proof-");
         try
         {
             string leanPath = Path.Combine(root, "lean");
@@ -161,7 +161,7 @@ public sealed class FixtureWorkloadProofTests
     public void Deletion_verification_fails_when_the_timed_commit_is_suppressed()
     {
         string[] bodies = Enumerable.Range(0, 50).Select(static i => "body " + i.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToArray();
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-deletion-proof-" + Guid.NewGuid().ToString("N"));
+        string root = RepositoryTemporaryStorage.NewPath("dataforge", "leancorpus-deletion-proof-");
         string leanPath = Path.Combine(root, "lean");
         string lucenePath = Path.Combine(root, "lucene");
         Directory.CreateDirectory(leanPath);

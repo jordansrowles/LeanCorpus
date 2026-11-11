@@ -113,7 +113,7 @@ public sealed class DataForgeQualificationEvidenceTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LeanCorpus DataForge qualification " + Guid.NewGuid().ToString("N"));
+            Path = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus DataForge qualification ");
             Directory.CreateDirectory(Path);
         }
         public string Path { get; }

@@ -7,7 +7,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Store;
 [Area(TestArea.Store)]
 public sealed class CompoundFileWriterTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(),
+    private readonly string _path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"),
         "LeanCorpus_CompoundFileWriterTests", Guid.NewGuid().ToString("N"));
 
     public CompoundFileWriterTests() => Directory.CreateDirectory(_path);

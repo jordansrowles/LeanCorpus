@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <Compile Include="..\..\tests\Rowles.LeanCorpus.Tests.Shared\Fixtures\RepositoryTemporaryStorage.cs" Link="Infrastructure\RepositoryTemporaryStorage.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\..\core\Rowles.LeanCorpus\Rowles.LeanCorpus.csproj" />
     <ProjectReference Include="..\..\dataforge\Rowles.DataForge.Workloads\Rowles.DataForge.Workloads.csproj" />
   </ItemGroup>
@@ -30,6 +34,10 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Profiling" />
     <InternalsVisibleTo Include="Rowles.DataForge.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Rowles.LeanCorpus.Tests.Shared.Fixtures" />
   </ItemGroup>
 
 </Project>

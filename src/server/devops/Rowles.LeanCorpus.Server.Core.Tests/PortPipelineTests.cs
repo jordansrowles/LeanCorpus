@@ -16,7 +16,7 @@ public sealed class PortPipelineTests
     [Fact]
     public async Task CommunityOperationsInvokeTheirDeclaredInterceptionPorts()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-ports-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-ports-");
         RecordingPorts ports = new();
         try
         {
@@ -48,7 +48,7 @@ public sealed class PortPipelineTests
     [Fact]
     public async Task DeniedAuthorisationPreventsIndexCreation()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-denied-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-denied-");
         RecordingPorts ports = new() { AllowAuthorisation = false };
         try
         {
@@ -66,7 +66,7 @@ public sealed class PortPipelineTests
     [Fact]
     public async Task RejectedRoutingAndConsistencyStopEngineAccess()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-routing-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-routing-");
         RecordingPorts ports = new();
         try
         {

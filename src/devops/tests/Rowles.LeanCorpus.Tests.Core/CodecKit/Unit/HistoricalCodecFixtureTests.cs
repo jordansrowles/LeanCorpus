@@ -11,7 +11,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 public sealed class HistoricalCodecFixtureTests : IDisposable
 {
     private readonly string _path = Path.Combine(
-        Path.GetTempPath(),
+        RepositoryTemporaryStorage.GetAreaRoot("tests"),
         "LeanCorpus_HistoricalCodecFixtureTests",
         Guid.NewGuid().ToString("N"));
 

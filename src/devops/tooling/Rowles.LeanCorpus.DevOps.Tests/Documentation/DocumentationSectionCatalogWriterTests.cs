@@ -62,7 +62,7 @@ public sealed class DocumentationSectionCatalogWriterTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "leancorpus-docs-toc-test-" + Guid.NewGuid().ToString("N"));
+            Path = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-docs-toc-test-");
             Directory.CreateDirectory(Path);
         }
 

@@ -12,7 +12,7 @@ public sealed class SearchLifecycleBrowserTests
     [Fact]
     public async Task OrchardSearchTracksPublishedUpdatedAndDeletedContent()
     {
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-browser", Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-browser", Guid.NewGuid().ToString("N"));
         (WebApplication app, Uri address) = await OrchardSearchTestHost.StartIsolatedAsync(root);
         using var http = new HttpClient { BaseAddress = address };
         using IPlaywright playwright = await Playwright.CreateAsync();

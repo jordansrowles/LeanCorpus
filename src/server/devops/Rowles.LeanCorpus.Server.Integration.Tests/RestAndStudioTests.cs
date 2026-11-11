@@ -200,7 +200,7 @@ public sealed class RestAndStudioTests
     [Fact]
     public async Task CommittedDocumentsSurviveAHostRestart()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-restart-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-restart-");
         try
         {
             await using (ServerHostScope first = await ServerHostScope.StartAsync(HttpProtocols.Http1, root, deleteRoot: false))

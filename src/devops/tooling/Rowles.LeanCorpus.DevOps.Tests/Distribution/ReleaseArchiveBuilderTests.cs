@@ -17,7 +17,7 @@ public sealed class ReleaseArchiveBuilderTests
         var windowsTarget = runtimeIdentifier.StartsWith("win-", StringComparison.Ordinal);
         var executableName = windowsTarget ? "devops.exe" : "devops";
         var cancellationToken = TestContext.Current.CancellationToken;
-        var root = Path.Combine(Path.GetTempPath(), "DevOps release archive " + Guid.NewGuid().ToString("N"));
+        var root = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps release archive ");
         var repositoryRoot = Path.Combine(root, "checkout");
         var projectRoot = Path.Combine(repositoryRoot, "src", "devops", "Rowles.LeanCorpus.DevOps");
         var publishDirectory = Path.Combine(root, "publish");

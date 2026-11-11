@@ -13,4 +13,8 @@
     <Using Include="Xunit" />
     <None Update="Fixtures/**/*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <Using Include="Rowles.LeanCorpus.Tests.Shared.Fixtures" />
+  </ItemGroup>
+
 </Project>

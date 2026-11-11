@@ -19,7 +19,7 @@ public sealed class IndexSearcherGapsTests : IDisposable
 
     public IndexSearcherGapsTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_is_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_is_");
         Directory.CreateDirectory(_dir);
     }
 

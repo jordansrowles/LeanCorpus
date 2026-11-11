@@ -8,7 +8,7 @@ namespace Rowles.LeanCorpus.OrchardCore.Search.Tests;
 
 internal sealed class ProviderFixture : IAsyncDisposable
 {
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-tests", Guid.NewGuid().ToString("N"));
+    private readonly string _root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-tests", Guid.NewGuid().ToString("N"));
     private LeanCorpusIndexHandleCache _handles;
 
     public SwitchableFailureInjector Failures { get; } = new();

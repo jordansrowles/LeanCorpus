@@ -18,8 +18,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search.Spatial;
 [Area(TestArea.Search)]
 public sealed class SpatialPointFieldKindTests : IDisposable
 {
-    private readonly string _path = Path.Combine(
-        Path.GetTempPath(), "leancorpus_spatial_kinds_" + Guid.NewGuid().ToString("N"));
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_spatial_kinds_");
 
     public void Dispose()
         => TestDirectoryFixture.TryDeleteDirectory(_path);

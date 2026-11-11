@@ -333,7 +333,7 @@ public sealed class TwoCopyAcceptanceTests
             handle,
             new SearchRequest(query, Size: 20, IncludeDocuments: false)).AsTask();
 
-    private static string NewRoot(string name) => Path.Combine(Path.GetTempPath(), $"lean-corpus-{name}-{Guid.NewGuid():N}");
+    private static string NewRoot(string name) => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-{name}-{Guid.NewGuid():N}");
 
     private static void DeleteRoot(string root)
     {

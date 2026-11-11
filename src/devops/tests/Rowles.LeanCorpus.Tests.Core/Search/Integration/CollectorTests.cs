@@ -21,7 +21,7 @@ public sealed class CollectorTests : IDisposable
 
     public CollectorTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), $"lc_collector_{Guid.NewGuid():N}");
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "lc_collector_");
         Directory.CreateDirectory(_dir);
     }
 

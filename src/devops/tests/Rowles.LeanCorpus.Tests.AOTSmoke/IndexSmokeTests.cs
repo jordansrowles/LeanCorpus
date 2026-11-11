@@ -27,7 +27,7 @@ public class IndexSmokeFixture : IDisposable
 
     public IndexSmokeFixture()
     {
-        RootPath = Path.Combine(Path.GetTempPath(), $"lc-aot-index-{Guid.NewGuid():N}");
+        RootPath = RepositoryTemporaryStorage.NewPath("aot", "lc-aot-index-");
         Directory.CreateDirectory(RootPath);
     }
 

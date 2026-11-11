@@ -131,7 +131,7 @@ public sealed class LifecycleAndValidationTests
         new IndexTopologySettings(1, 0),
         new MutableIndexSettings(null, null, "content", null));
 
-    private static string TemporaryRoot() => Path.Combine(Path.GetTempPath(), $"lean-corpus-server-lifecycle-{Guid.NewGuid():N}");
+    private static string TemporaryRoot() => RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-lifecycle-");
 
     private static void DeleteRoot(string root)
     {

@@ -13,7 +13,7 @@ public sealed class SegmentReaderDocValuesColumnTests(ITestOutputHelper output)
     public void NumericIndexAndDocValuesColumn_UseDistinctReadPaths()
     {
         const int documentCount = 3;
-        string path = Path.Combine(Path.GetTempPath(), "ll_dv_paths_" + Guid.NewGuid().ToString("N"));
+        string path = RepositoryTemporaryStorage.NewPath("tests", "ll_dv_paths_");
         Directory.CreateDirectory(path);
         try
         {
@@ -60,7 +60,7 @@ public sealed class SegmentReaderDocValuesColumnTests(ITestOutputHelper output)
     public void NumericDocValuesFallback_ReadsOneDocumentWithoutExpandingTheColumn()
     {
         const int documentCount = 64_000;
-        string path = Path.Combine(Path.GetTempPath(), "ll_dv_column_" + Guid.NewGuid().ToString("N"));
+        string path = RepositoryTemporaryStorage.NewPath("tests", "ll_dv_column_");
         Directory.CreateDirectory(path);
         try
         {

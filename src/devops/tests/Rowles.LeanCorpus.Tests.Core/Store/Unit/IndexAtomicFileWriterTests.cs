@@ -8,8 +8,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Store;
 [Area(TestArea.Store)]
 public sealed class IndexAtomicFileWriterTests : IDisposable
 {
-    private readonly string _directory = Path.Combine(
-        Path.GetTempPath(), "leancorpus_atomic_" + Guid.NewGuid().ToString("N"));
+    private readonly string _directory = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_atomic_");
 
     public IndexAtomicFileWriterTests() => Directory.CreateDirectory(_directory);
 

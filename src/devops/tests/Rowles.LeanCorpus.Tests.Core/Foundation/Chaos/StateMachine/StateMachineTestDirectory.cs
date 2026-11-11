@@ -10,7 +10,7 @@ internal sealed class StateMachineTestDirectory : IDisposable
     public StateMachineTestDirectory(string? tempRoot = null)
     {
         Path = System.IO.Path.Combine(
-            tempRoot ?? System.IO.Path.GetTempPath(),
+            tempRoot ?? RepositoryTemporaryStorage.GetAreaRoot("tests"),
             "LeanCorpus_StateMachine",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Path);

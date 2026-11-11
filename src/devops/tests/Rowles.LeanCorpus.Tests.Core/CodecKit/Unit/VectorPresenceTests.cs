@@ -12,7 +12,7 @@ public sealed class VectorPresenceTests
     [InlineData(VectorQuantisation.BBQ)]
     public void SparsePresenceDistinguishesExplicitZero(VectorQuantisation quantisation)
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-presence-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-presence-");
         var vectors = new Dictionary<int, ReadOnlyMemory<float>> { [0] = new float[2], [2] = new float[] { 1, 0 } };
         try
         {
@@ -77,7 +77,7 @@ public sealed class VectorPresenceTests
     [InlineData(VectorQuantisation.BBQ)]
     public void CorruptPresenceAndBodyLengthsAreRejected(VectorQuantisation quantisation)
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-corruption-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-corruption-");
         var descriptor = quantisation == VectorQuantisation.None ? VectorCodecFiles.Float32 : VectorCodecFiles.Quantised;
         try
         {
@@ -121,7 +121,7 @@ public sealed class VectorPresenceTests
     [Fact]
     public void WriterRejectsInvalidIdsDuplicatesAndDimensions()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-validation-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-validation-");
         foreach (var vectors in new[] {
             new Dictionary<int, ReadOnlyMemory<float>> { [-1] = new float[2] },
             new Dictionary<int, ReadOnlyMemory<float>> { [3] = new float[2] },
@@ -147,7 +147,7 @@ public sealed class VectorPresenceTests
     [Fact]
     public void StreamingWritersRejectDuplicatePresentIdsBeforeWriting()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-source-validation-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-source-validation-");
         var source = new InMemoryVectorSource(new Dictionary<int, ReadOnlyMemory<float>> { [0] = new float[2] }, 2);
         Assert.Throws<InvalidDataException>(() => VectorWriter.WriteField(path, 1, 2, source, new[] { 0, 0 }));
         InvalidOperationException retired = Assert.Throws<InvalidOperationException>(

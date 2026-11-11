@@ -40,7 +40,7 @@ public sealed class PerVectorInt8EncodingDiagnosticTests
 
         string? diagnosticDirectory = Environment.GetEnvironmentVariable("LEANCORPUS_ARTIFACT_DIR");
         if (string.IsNullOrWhiteSpace(diagnosticDirectory))
-            diagnosticDirectory = Path.GetTempPath();
+            diagnosticDirectory = RepositoryTemporaryStorage.GetAreaRoot("dataforge");
         Directory.CreateDirectory(diagnosticDirectory);
         File.WriteAllText(
             Path.Combine(diagnosticDirectory, "leancorpus-per-vector-int8-diagnostic.json"),

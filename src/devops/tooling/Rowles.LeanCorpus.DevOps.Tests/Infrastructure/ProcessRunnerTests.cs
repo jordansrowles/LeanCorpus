@@ -351,13 +351,13 @@ public sealed class ProcessRunnerTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private TemporaryDirectory(string path) => Path = path;
+        internal TemporaryDirectory(string path) => Path = path;
 
         public string Path { get; }
 
         public static TemporaryDirectory Create(string prefix)
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", prefix);
             Directory.CreateDirectory(path);
             return new TemporaryDirectory(path);
         }

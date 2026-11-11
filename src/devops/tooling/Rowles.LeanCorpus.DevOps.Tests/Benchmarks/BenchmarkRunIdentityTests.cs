@@ -324,13 +324,13 @@ public sealed class BenchmarkRunIdentityTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private TemporaryDirectory(string path) => Path = path;
+        internal TemporaryDirectory(string path) => Path = path;
 
         public string Path { get; }
 
         public static TemporaryDirectory Create()
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LeanCorpus benchmark identity " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus benchmark identity ");
             Directory.CreateDirectory(path);
             return new TemporaryDirectory(path);
         }

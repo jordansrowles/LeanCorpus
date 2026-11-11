@@ -81,7 +81,7 @@ public sealed class TestPreparationServiceTests
 
     private sealed class TemporaryCheckout : IDisposable
     {
-        private TemporaryCheckout(string root)
+        internal TemporaryCheckout(string root)
         {
             Root = root;
             ProjectPath = Path.Combine("src", "devops", "Fake.Tests", "Fake.Tests.csproj");
@@ -94,7 +94,7 @@ public sealed class TestPreparationServiceTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), "DevOps test preparation "+ Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps test preparation ");
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             var project = Path.Combine(root, "src", "devops", "Fake.Tests", "Fake.Tests.csproj");
             Directory.CreateDirectory(Path.GetDirectoryName(project)!);

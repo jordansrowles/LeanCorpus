@@ -55,7 +55,7 @@ public sealed class PackageConsumerValidationServiceTests
 
     private sealed class TemporaryCheckout : IDisposable
     {
-        private TemporaryCheckout(string root)
+        internal TemporaryCheckout(string root)
         {
             Root = root;
             PackageDirectory = Path.Combine(root, "artifacts/package/release");
@@ -70,7 +70,7 @@ public sealed class PackageConsumerValidationServiceTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), "leancorpus-package-consumers-" + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-package-consumers-");
             var packageDirectory = Path.Combine(root, "artifacts/package/release");
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(packageDirectory);

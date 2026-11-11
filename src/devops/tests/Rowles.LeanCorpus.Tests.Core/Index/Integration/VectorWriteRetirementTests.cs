@@ -13,7 +13,7 @@ public sealed class VectorWriteRetirementTests
     [Fact]
     public void DefaultWriterBuildsExactOnlyVectorSegments()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-exact-only-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-exact-only-");
         try
         {
             using var directory = new MMapDirectory(path);
@@ -41,7 +41,7 @@ public sealed class VectorWriteRetirementTests
     [Fact]
     public void ExistingFloat32GraphIsIgnoredAndReportedAsIntentionalExactSearch()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-retired-graph-read-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-retired-graph-read-");
         try
         {
             using var directory = new MMapDirectory(path);
@@ -82,7 +82,7 @@ public sealed class VectorWriteRetirementTests
     [Fact]
     public void ExistingInt8GraphIsIgnoredAndReportedAsExactDecodedSearch()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-retired-int8-graph-read-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-retired-int8-graph-read-");
         try
         {
             using var directory = new MMapDirectory(path);
@@ -125,7 +125,7 @@ public sealed class VectorWriteRetirementTests
     [Fact]
     public void MergeDoesNotRecreateRetiredGraphsFromHistoricalSegments()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-retired-graph-merge-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-retired-graph-merge-");
         try
         {
             using var directory = new MMapDirectory(path);
@@ -164,7 +164,7 @@ public sealed class VectorWriteRetirementTests
     [Fact]
     public void ExplicitHnswCreationIsRejectedBeforeIndexSideEffects()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-hnsw-retired-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-hnsw-retired-");
         Directory.CreateDirectory(path);
         try
         {
@@ -184,7 +184,7 @@ public sealed class VectorWriteRetirementTests
     [Fact]
     public void Int8WriterConfigurationIsRejectedBeforeIndexSideEffects()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-int8-retired-{Guid.NewGuid():N}");
+        string path = RepositoryTemporaryStorage.NewPath("tests", "vector-int8-retired-");
         Directory.CreateDirectory(path);
         try
         {
@@ -204,7 +204,7 @@ public sealed class VectorWriteRetirementTests
     [Fact]
     public void DirectInt8WriterIsRejectedBeforeCreatingOutput()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"vector-int8-direct-{Guid.NewGuid():N}.vq");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"vector-int8-direct-{Guid.NewGuid():N}.vq");
         try
         {
             var exception = Assert.Throws<InvalidOperationException>(() =>

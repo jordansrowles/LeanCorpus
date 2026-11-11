@@ -13,7 +13,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Codecs;
 public sealed class DocValuesUntrustedCountTests : IDisposable
 {
     private const int MaliciousDocumentCount = 1_000_000;
-    private readonly string _directory = Path.Combine(Path.GetTempPath(), "LeanCorpus_DocValuesCounts", Guid.NewGuid().ToString("N"));
+    private readonly string _directory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "LeanCorpus_DocValuesCounts", Guid.NewGuid().ToString("N"));
 
     public DocValuesUntrustedCountTests() => Directory.CreateDirectory(_directory);
 

@@ -51,13 +51,13 @@ public sealed class ExecutionLeaseTests
 
     private sealed class TemporaryRoot : IDisposable
     {
-        private TemporaryRoot(string path) => Path = path;
+        internal TemporaryRoot(string path) => Path = path;
 
         public string Path { get; }
 
         public static TemporaryRoot Create()
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "DevOps lease " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps lease ");
             Directory.CreateDirectory(path);
             return new TemporaryRoot(path);
         }

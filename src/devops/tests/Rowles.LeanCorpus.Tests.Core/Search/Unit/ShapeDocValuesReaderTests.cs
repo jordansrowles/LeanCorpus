@@ -710,7 +710,7 @@ public sealed class ShapeDocValuesReaderTests
         => BinaryPrimitives.ReadUInt32BigEndian(primitive.Slice(dimension * 4, 4));
 
     private static string GetPath()
-        => Path.Combine(Path.GetTempPath(), $"lc_shape_docvalues_{Guid.NewGuid():N}.dvg");
+        => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"lc_shape_docvalues_{Guid.NewGuid():N}.dvg");
 
     private static void DeleteFile(string path)
     {

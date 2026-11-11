@@ -291,7 +291,7 @@ public sealed class CommitInstallTests
             handle,
             new SearchRequest(new TermQueryDefinition("content", term))).AsTask();
 
-    private static string NewRoot(string name) => Path.Combine(Path.GetTempPath(), $"lean-corpus-{name}-{Guid.NewGuid():N}");
+    private static string NewRoot(string name) => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), $"lean-corpus-{name}-{Guid.NewGuid():N}");
 
     private static void DeleteRoot(string root)
     {

@@ -178,7 +178,7 @@ public sealed class CleanServiceTests
 
     private sealed class TemporaryCheckout : IDisposable
     {
-        private TemporaryCheckout(string root)
+        internal TemporaryCheckout(string root)
         {
             Root = root;
             Identity = new CheckoutIdentity(root, Path.Combine(root, ".git"), CheckoutGitMarkerKind.Directory);
@@ -190,7 +190,7 @@ public sealed class CleanServiceTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), "DevOps clean checkout " + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "DevOps clean checkout ");
             Directory.CreateDirectory(root);
             Directory.CreateDirectory(Path.Combine(root, ".git"));
             Directory.CreateDirectory(Path.Combine(root, "src"));

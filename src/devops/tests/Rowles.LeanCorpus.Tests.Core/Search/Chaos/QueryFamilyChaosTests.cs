@@ -237,7 +237,7 @@ public sealed class QueryFamilyChaosTests : IClassFixture<ChaosDirectoryFixture>
 
     private static string CreateIsolatedPath(string name)
     {
-        var path = Path.Combine(Path.GetTempPath(), "LeanCorpusQueryChaos", $"{name}_{Guid.NewGuid():N}");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "LeanCorpusQueryChaos", $"{name}_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
     }

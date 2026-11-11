@@ -15,7 +15,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task StartupRecoversPublishedRollbackAndRemovesAbandonedStaging()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-recovery-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-recovery-");
         PhysicalIndexId id = PhysicalIndexId.New();
         string target = Path.Combine(root, id.Value);
         string previous = Path.Combine(root, $".previous-{id.Value}-recovery");
@@ -44,7 +44,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task PhysicalHandlesUseOpaqueIdsAndSupportSafeModeTransitions()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-physical-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-physical-");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
@@ -75,7 +75,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task OpeningAfterCallerDisposedHandleWaitsAndReplacesTheCachedOwner()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-reopen-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-reopen-");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
@@ -107,7 +107,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task FailedCreateRemovesOnlyItsNewDirectoryAndAllowsSameIdRetry()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-create-rollback-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-create-rollback-");
         PhysicalIndexId id = PhysicalIndexId.New();
         string path = Path.Combine(root, id.Value);
         try
@@ -137,7 +137,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task CreateAgainstAnExistingPathPreservesItsContents()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-create-existing-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-create-existing-");
         PhysicalIndexId id = PhysicalIndexId.New();
         string path = Path.Combine(root, id.Value);
         string markerPath = Path.Combine(path, "existing-owner.marker");
@@ -164,7 +164,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task IndependentWritableOwnerKeepsItsFilesWhenAnotherStoreCannotOpenThePath()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-independent-owner-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-independent-owner-");
         PhysicalIndexId id = PhysicalIndexId.New();
         string path = Path.Combine(root, id.Value);
         string markerPath = Path.Combine(path, "first-owner.marker");
@@ -194,7 +194,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task FailedCreateAfterPhysicalOpenClosesOwnerRemovesDirectoryAndAllowsRetry()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-create-open-rollback-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-create-open-rollback-");
         PhysicalIndexId id = PhysicalIndexId.New();
         string path = Path.Combine(root, id.Value);
         IOException createFailure = new("Injected failure before physical owner publication.");
@@ -239,7 +239,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task FailedCreateCleanupFailurePreservesBothErrorsAndBlocksReopen()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-create-cleanup-failure-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-create-cleanup-failure-");
         PhysicalIndexId id = PhysicalIndexId.New();
         string path = Path.Combine(root, id.Value);
         IOException createFailure = new("Injected physical create failure.");
@@ -286,7 +286,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task ReadOnlyCopyCanInstallPinnedCommitAndThenSearch()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-install-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-install-");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));
@@ -318,7 +318,7 @@ public sealed class LocalIndexStoreTests
     [Fact]
     public async Task SnapshotLeaseKeepsItsManifestFilesReadableAcrossNewCommit()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-snapshot-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-snapshot-");
         try
         {
             await using LocalIndexStore store = new(root, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(1));

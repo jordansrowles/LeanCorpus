@@ -126,7 +126,7 @@ public sealed class BackupRestoreSourceManifestReaderTests
         }
 
         using var checkout = new TemporaryCheckout();
-        var outsidePath = Path.Combine(Path.GetTempPath(), "LeanCorpus source outside " + Guid.NewGuid().ToString("N"));
+        var outsidePath = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus source outside ");
         try
         {
             await File.WriteAllTextAsync(outsidePath, "outside source", TestContext.Current.CancellationToken);
@@ -186,7 +186,7 @@ public sealed class BackupRestoreSourceManifestReaderTests
 
     private static ProcessRequest CheckoutGit(string root, string argument)
     {
-        var logRoot = Path.Combine(Path.GetTempPath(), "LeanCorpus git logs " + Guid.NewGuid().ToString("N"));
+        var logRoot = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus git logs ");
         Directory.CreateDirectory(logRoot);
         return new ProcessRequest
         {
@@ -211,7 +211,7 @@ public sealed class BackupRestoreSourceManifestReaderTests
     {
         public TemporaryCheckout()
         {
-            Root = Path.Combine(Path.GetTempPath(), "LeanCorpus backup matrix " + Guid.NewGuid().ToString("N"));
+            Root = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus backup matrix ");
             Directory.CreateDirectory(Root);
         }
 

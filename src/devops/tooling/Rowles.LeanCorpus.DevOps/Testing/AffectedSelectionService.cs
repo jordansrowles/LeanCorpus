@@ -1,6 +1,7 @@
 using System.Text;
 using Rowles.LeanCorpus.DevOps.Configuration;
 using Microsoft.Extensions.FileSystemGlobbing;
+using Rowles.LeanCorpus.DevOps.Artifacts;
 using Rowles.LeanCorpus.DevOps.Infrastructure;
 using Rowles.LeanCorpus.DevOps.Terminal;
 
@@ -128,7 +129,7 @@ internal sealed class AffectedSelectionService(IProcessRunner processRunner)
         }
 
         var root = Path.GetFullPath(repositoryRoot);
-        var temporaryDirectory = Path.Combine(Path.GetTempPath(), "LeanCorpus affected git " + Guid.NewGuid().ToString("N"));
+        var temporaryDirectory = new ArtifactPaths(root).CreateTemporaryDirectory("affected-git-");
         Directory.CreateDirectory(temporaryDirectory);
         try
         {

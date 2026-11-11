@@ -15,7 +15,7 @@ public sealed class FacetAggregationCollapseCorrectnessTests : IDisposable
 
     public FacetAggregationCollapseCorrectnessTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_exact_collectors_" + Guid.NewGuid().ToString("N"));
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_exact_collectors_");
         Directory.CreateDirectory(_dir);
     }
 

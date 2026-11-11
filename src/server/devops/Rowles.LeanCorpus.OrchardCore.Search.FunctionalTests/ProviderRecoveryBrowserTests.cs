@@ -16,7 +16,7 @@ public sealed class ProviderRecoveryBrowserTests
     [Fact]
     public async Task OrchardIndexingPipelineReplaysEveryInjectedProviderFailureSafely()
     {
-        string root = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-recovery", Guid.NewGuid().ToString("N"));
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-recovery", Guid.NewGuid().ToString("N"));
         WebApplication? app = null;
         HttpClient? http = null;
         bool completed = false;

@@ -297,7 +297,7 @@ public sealed class TestExecutorTests
         private readonly Dictionary<string, string> _targetPaths = new(StringComparer.Ordinal);
         private readonly List<string> _appHosts = [];
 
-        private TemporaryCheckout(string root)
+        internal TemporaryCheckout(string root)
         {
             Root = root;
             Directory.CreateDirectory(Path.Combine(root, ".git"));
@@ -344,7 +344,7 @@ public sealed class TestExecutorTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), "LeanCorpus managed test executor " + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus managed test executor ");
             return new TemporaryCheckout(root);
         }
 

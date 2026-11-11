@@ -76,7 +76,7 @@ public sealed class BrowserTestWorkflowContractTests
                     Assert.Contains("FullyQualifiedName!~Rowles.LeanCorpus.OrchardCore.Search.FunctionalTests.ProviderPerformanceTests.", target.Filter, StringComparison.Ordinal);
                 }
 
-                var temporaryDirectory = Path.Combine(Path.GetTempPath(), "LeanCorpus browser selection " + Guid.NewGuid().ToString("N"));
+                var temporaryDirectory = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus browser selection ");
                 Directory.CreateDirectory(temporaryDirectory);
                 try
                 {

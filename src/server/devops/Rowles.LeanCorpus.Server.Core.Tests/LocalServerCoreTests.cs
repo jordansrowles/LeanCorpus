@@ -18,7 +18,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task FailedRegistryOpenReleasesIndexesOpenedBeforeTheFailure()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-partial-open-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-partial-open-");
         bool completed = false;
         try
         {
@@ -53,7 +53,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task HealthyAfterCleanStartup()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-health-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -83,7 +83,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task ObserverFailureMakesHealthDegradedWithoutCountingAsCommitFailure()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-failure-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-health-failure-");
         ToggleCommitObserver observer = new();
         try
         {
@@ -116,7 +116,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task SuccessfulCommitClearsDegradedStateAfterObserverFailure()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-recovery-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-health-recovery-");
         ToggleCommitObserver observer = new();
         try
         {
@@ -148,7 +148,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task ShutdownTimeoutRetainsPhysicalOwnershipUntilTheAdmittedRequestFinishes()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-timeout-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-timeout-");
         BlockingAuthorisation authorisation = new();
         LocalServerCore server = await LocalServerCore.OpenAsync(
             new ServerCoreOptions { DataRoot = root, ShutdownTimeout = TimeSpan.FromMilliseconds(50) },
@@ -184,7 +184,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task ReadinessFalseWhileDraining()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-draining-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-draining-");
         BlockingAuthorisation authorisation = new();
         LocalServerCore server = await LocalServerCore.OpenAsync(
             new ServerCoreOptions { DataRoot = root, ShutdownTimeout = TimeSpan.FromSeconds(5) },
@@ -280,7 +280,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task HealthAuthenticationFailureDoesNotLeakOperationAdmission()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-auth-failure-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-health-auth-failure-");
         LocalServerCore server = await LocalServerCore.OpenAsync(
             new ServerCoreOptions { DataRoot = root },
             ServerPortSet.Community with { Authentication = new ThrowingAuthenticationProvider() });
@@ -299,7 +299,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task ReadinessAuthenticationCancellationDoesNotLeakOperationAdmission()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-readiness-auth-cancel-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-readiness-auth-cancel-");
         var authentication = new BlockingAuthenticationProvider();
         LocalServerCore server = await LocalServerCore.OpenAsync(
             new ServerCoreOptions { DataRoot = root },
@@ -342,7 +342,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task DisposedOrStoppedIsNotReady()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-stopped-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-stopped-");
         LocalServerCore server = await LocalServerCore.OpenAsync(new ServerCoreOptions { DataRoot = root });
         try
         {
@@ -361,7 +361,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task LocalFsyncReturnsVersionedWriteTokenAndSupportsReadYourWrites()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-token-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-token-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -393,7 +393,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task CommunityRejectsDurabilityThatRequiresReplication()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-durability-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-durability-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -413,7 +413,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task CommunityRejectsUnknownDurabilityValues()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-invalid-durability-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-invalid-durability-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -431,7 +431,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task ReadYourWritesRejectsForeignTokensAndBoundsUnreachableWaits()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-token-bounds-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-token-bounds-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root, MaximumConsistencyWait = TimeSpan.FromMilliseconds(25) });
@@ -451,7 +451,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task CreateListAndReopenIndexPreservesRegistration()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-");
         try
         {
             ServerCoreOptions options = new() { DataRoot = root };
@@ -476,7 +476,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task CommunityTopologyPolicyIsSeparateFromGenericSchemaValidation()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-topology-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-topology-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -497,7 +497,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task UnknownIndexDoesNotCreateStorage()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -515,7 +515,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task IndexedDocumentIsSearchableAfterRefresh()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -539,7 +539,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task SchemaTypesAreMappedAndUnknownFieldsAreRejected()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -583,7 +583,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task AdvertisedQueryDefinitionsExecuteThroughTheSameSearchPath()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -632,7 +632,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task IdempotencyReplaysEquivalentResultsAndRejectsDifferentPayloads()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -664,7 +664,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task DestructiveOperationsRequireOperationSpecificConfirmation()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root });
@@ -689,7 +689,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task InspectionHonoursTheConfiguredBound()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-");
         try
         {
             await using LocalServerCoreScope scope = await LocalServerCoreScope.OpenAsync(new ServerCoreOptions { DataRoot = root, MaximumInspectionItems = 1 });
@@ -714,7 +714,7 @@ public sealed class LocalServerCoreTests
     [Fact]
     public async Task MultiTermExecutionLimitsRejectStructuredAndTextQueriesWithoutPartialResults()
     {
-        string root = Path.Combine(Path.GetTempPath(), $"server-expansions-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "server-expansions-");
         try
         {
             var options = new ServerCoreOptions { DataRoot = root, MaximumWildcardExpansions = 8, MaximumRegexpExpansions = 8 };
@@ -767,7 +767,7 @@ public sealed class LocalServerCoreTests
 
     private static async Task AssertHealthReadDrainsBeforeRegistryCloseAsync(Func<LocalServerCore, Task> inspect)
     {
-        string root = Path.Combine(Path.GetTempPath(), $"lean-corpus-server-health-read-drain-{Guid.NewGuid():N}");
+        string root = RepositoryTemporaryStorage.NewPath("server-tests", "lean-corpus-server-health-read-drain-");
         LocalServerCore server = await LocalServerCore.OpenAsync(
             new ServerCoreOptions { DataRoot = root, ShutdownTimeout = TimeSpan.FromSeconds(5) });
         object entriesLock = GetPrivateField(GetPrivateField(server, "_registry"), "_entries");

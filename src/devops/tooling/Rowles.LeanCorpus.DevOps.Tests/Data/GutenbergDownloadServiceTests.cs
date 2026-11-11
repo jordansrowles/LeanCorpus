@@ -110,7 +110,7 @@ public sealed class GutenbergDownloadServiceTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "leancorpus-gutenberg-test-" + Guid.NewGuid().ToString("N"));
+            Path = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-gutenberg-test-");
             Directory.CreateDirectory(Path);
         }
 

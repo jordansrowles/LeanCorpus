@@ -139,7 +139,7 @@ public sealed class RemoteBenchmarkCommandServiceTests
     {
         public TemporaryCheckout()
         {
-            Root = Path.Combine(Path.GetTempPath(), "LeanCorpus remote benchmark "+Guid.NewGuid().ToString("N"));
+            Root = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus remote benchmark ");
             Directory.CreateDirectory(Root);
             var gitPath = Path.Combine(Root, ".git");
             Directory.CreateDirectory(gitPath);

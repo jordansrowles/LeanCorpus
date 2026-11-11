@@ -9,9 +9,14 @@ public static class BenchmarkHelpers
 {
     internal static string RepositoryRoot { get; } = ResolveRepositoryRoot();
 
+    /// <summary>Carries this run's directory name to BenchmarkDotNet child processes.</summary>
+    internal const string TempRunVariable = "LEANCORPUS_BENCHMARK_TEMP_RUN";
+
     /// <summary>
-    /// Root directory for all benchmark temp files. Uses <c>artifacts/temp/benchmark</c> under the
-    /// repository root (half-TB NVMe) instead of the 12 GB tmpfs RAM disk.
+    /// This run's benchmark temporary directory (ADR046):
+    /// <c>artifacts/tmp/benchmarks/run-&lt;LEANCORPUS_RUN_ID&gt;</c> for a managed run, otherwise
+    /// <c>artifacts/tmp/benchmarks/local-&lt;guid&gt;</c>. Child processes inherit the same directory, and
+    /// separate runs never share one.
     /// </summary>
     public static string TempRoot { get; } = ResolveTempRoot();
 
@@ -27,8 +32,8 @@ public static class BenchmarkHelpers
     }
 
     /// <summary>
-    /// Deletes the entire <see cref="TempRoot"/> directory tree. Call at the
-    /// beginning or end of a full benchmark run to reclaim all accumulated temp data.
+    /// Deletes this run's <see cref="TempRoot"/> tree, and only that tree. Other runs' directories
+    /// under <c>artifacts/tmp/benchmarks</c> are never touched.
     /// </summary>
     public static void CleanTempRoot()
     {
@@ -44,11 +49,30 @@ public static class BenchmarkHelpers
 
     private static string ResolveTempRoot()
     {
-        // Anchor artifacts/temp/benchmark at the repository root so it works
-        // regardless of how BenchmarkDotNet sets the current directory.
-        var path = Path.Combine(RepositoryRoot, "artifacts", "temp", "benchmark");
-        Directory.CreateDirectory(path);
+        // Anchor at the repository root so it works regardless of how BenchmarkDotNet sets the
+        // current directory (ADR046).
+        string areaRoot = Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.GetAreaRoot("benchmarks");
+        string runName = ResolveRunName(
+            Environment.GetEnvironmentVariable(TempRunVariable),
+            Environment.GetEnvironmentVariable("LEANCORPUS_RUN_ID"));
+        Environment.SetEnvironmentVariable(TempRunVariable, runName);
+        string path = Path.Combine(areaRoot, runName);
+        Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.EnsureSecureDirectory(path, "Benchmark run directory");
         return path;
+    }
+
+    /// <summary>
+    /// Chooses this run's directory name: an inherited name, then <c>run-&lt;run id&gt;</c>, then a new
+    /// <c>local-&lt;guid&gt;</c>. Names are restricted to ASCII letters, digits and hyphens.
+    /// </summary>
+    internal static string ResolveRunName(string? inherited, string? runId)
+    {
+        string name = !string.IsNullOrWhiteSpace(inherited) ? inherited
+            : !string.IsNullOrWhiteSpace(runId) ? string.Concat("run-", runId)
+            : string.Concat("local-", Guid.NewGuid().ToString("N"));
+        if (name.Length > 80 || !name.All(static character => char.IsAsciiLetterOrDigit(character) || character == '-'))
+            throw new InvalidOperationException($"Benchmark temporary run name '{name}' is not a plain name.");
+        return name;
     }
 
     private static string ResolveRepositoryRoot()

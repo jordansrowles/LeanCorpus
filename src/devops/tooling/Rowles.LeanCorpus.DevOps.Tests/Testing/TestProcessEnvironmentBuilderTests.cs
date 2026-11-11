@@ -7,7 +7,7 @@ public sealed class TestProcessEnvironmentBuilderTests
     [Fact]
     public void AddsMatrixEnvironmentOverridesWithoutReplacingDevOpsRunIdentity()
     {
-        string root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "managed-test-environment"));
+        string root = Path.GetFullPath(Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "managed-test-environment"));
         var runId = Guid.NewGuid();
         var target = new TestTarget("core/net10.0", "Core", "core", "Mtp", "src/core.csproj", "net10.0",
             "Release", "", "", [], false, ["Trx"], []);

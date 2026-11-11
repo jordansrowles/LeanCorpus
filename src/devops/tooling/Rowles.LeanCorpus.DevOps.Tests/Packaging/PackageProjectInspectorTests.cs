@@ -41,7 +41,7 @@ public sealed class PackageProjectInspectorTests
     {
         public TemporaryRepository()
         {
-            Root = Path.Combine(Path.GetTempPath(), "leancorpus-package-project-" + Guid.NewGuid().ToString("N"));
+            Root = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-package-project-");
             Directory.CreateDirectory(Root);
         }
 

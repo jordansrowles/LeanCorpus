@@ -16,7 +16,7 @@ public sealed class SegmentReaderPostingsTests: IDisposable
 
     public SegmentReaderPostingsTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_sr_post_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_sr_post_");
         Directory.CreateDirectory(_dir);
     }
 

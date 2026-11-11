@@ -63,7 +63,7 @@ public sealed class PackageConsumerNuGetConfigTests
     {
         public TemporaryDirectory()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "leancorpus-nuget-config-" + Guid.NewGuid().ToString("N"));
+            Path = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-nuget-config-");
             Directory.CreateDirectory(Path);
         }
 

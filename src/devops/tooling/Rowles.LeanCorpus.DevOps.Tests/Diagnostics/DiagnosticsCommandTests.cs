@@ -54,7 +54,7 @@ public sealed class DiagnosticsCommandTests
     [Fact]
     public void BuildsBoundedCaptureInvocationsWithSeparateOutputFiles()
     {
-        var runDirectory = Path.Combine(Path.GetTempPath(), "managed diagnostics capture");
+        var runDirectory = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "managed diagnostics capture");
         var parsed = DiagnosticsArgumentParser.Parse(
             ["capture", "--pid", "42", "--duration", "1500ms"],
             Environment.CurrentDirectory);
@@ -214,7 +214,7 @@ public sealed class DiagnosticsCommandTests
 
     private sealed class TemporaryCheckout : IDisposable
     {
-        private TemporaryCheckout(string root)
+        internal TemporaryCheckout(string root)
         {
             Root = root;
             Identity = new CheckoutIdentity(root, Path.Combine(root, ".git"), CheckoutGitMarkerKind.Directory);
@@ -238,7 +238,7 @@ public sealed class DiagnosticsCommandTests
 
         public static TemporaryCheckout Create()
         {
-            var root = Path.Combine(Path.GetTempPath(), $"Managed diagnostics checkout {Guid.NewGuid():N}");
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "Managed diagnostics checkout ");
             Directory.CreateDirectory(root);
             return new TemporaryCheckout(root);
         }

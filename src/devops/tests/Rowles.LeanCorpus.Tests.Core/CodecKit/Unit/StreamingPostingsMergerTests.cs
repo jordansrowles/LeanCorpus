@@ -20,7 +20,7 @@ public sealed class StreamingPostingsMergerTests : IDisposable
 
     public StreamingPostingsMergerTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_spm_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_spm_");
         Directory.CreateDirectory(_dir);
     }
 

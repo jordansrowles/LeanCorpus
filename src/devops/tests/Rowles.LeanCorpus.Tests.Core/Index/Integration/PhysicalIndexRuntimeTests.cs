@@ -237,7 +237,7 @@ public sealed class PhysicalIndexRuntimeTests
         new IndexWriterConfig { DurableCommits = false },
         new SearcherManagerConfig { RefreshInterval = TimeSpan.FromHours(1) });
 
-    private static string NewPath() => Path.Combine(Path.GetTempPath(), "leancorpus-physical-runtime", Guid.NewGuid().ToString("N"));
+    private static string NewPath() => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "leancorpus-physical-runtime", Guid.NewGuid().ToString("N"));
 
     private static LeanDocument Document(string value)
     {

@@ -148,7 +148,7 @@ public sealed class DevOpsWorkbenchTests
     [Fact]
     public void DataForgeGenerationWorkbench_EmitsProfileSpecificTokensAcceptedByTheRealParser()
     {
-        string root = Path.Combine(Path.GetTempPath(), "workbench-dataforge-" + Guid.NewGuid().ToString("N"));
+        string root = RepositoryTemporaryStorage.NewPath("devops-tests", "workbench-dataforge-");
         Directory.CreateDirectory(root);
         var scenarios = new[]
         {
@@ -274,7 +274,7 @@ public sealed class DevOpsWorkbenchTests
     [System.Diagnostics.CodeAnalysis.SuppressMessage("xUnit", "xUnit1051", Justification = "The bounded task waits verify operation-token cancellation and cleanup.")]
     public async Task DevOpsWorkbench_CancellationStopsActiveDataForgeChildAndRetainsEvidence()
     {
-        string temporaryRoot = Path.Combine(Path.GetTempPath(), "workbench-cancellation-" + Guid.NewGuid().ToString("N"));
+        string temporaryRoot = RepositoryTemporaryStorage.NewPath("devops-tests", "workbench-cancellation-");
         Directory.CreateDirectory(temporaryRoot);
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
         var processRunner = new GatedDataForgeProcessRunner(GetProcessTestChildPath(), temporaryRoot);

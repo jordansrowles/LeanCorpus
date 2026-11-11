@@ -59,5 +59,5 @@ public sealed class StoreShutdownTests
         new IndexSchema([new IndexFieldDefinition("body", IndexFieldType.Text, true, true)], new Dictionary<string, AnalysisDefinition>()),
         "store-shutdown-schema", new MutableIndexSettings(null, null, "body", null));
 
-    private static string NewRoot() => Path.Combine(Path.GetTempPath(), "leancorpus-store-shutdown", Guid.NewGuid().ToString("N"));
+    private static string NewRoot() => Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-store-shutdown", Guid.NewGuid().ToString("N"));
 }

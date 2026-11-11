@@ -30,7 +30,7 @@ public sealed class ActivitySourceTests : IDisposable
 
     public ActivitySourceTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "activity_tests_" + Guid.NewGuid().ToString("N"));
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "activity_tests_");
         Directory.CreateDirectory(_dir);
 
         _listener = new ActivityListener
@@ -183,7 +183,7 @@ public sealed class ActivitySourceTests : IDisposable
         _listener.Dispose();
         while (_captured.TryTake(out _)) { }
 
-        var noListenPath = Path.Combine(Path.GetTempPath(), "act_nolisten_" + Guid.NewGuid().ToString("N"));
+        var noListenPath = RepositoryTemporaryStorage.NewPath("tests", "act_nolisten_");
         Directory.CreateDirectory(noListenPath);
 
         var writer = new IndexWriter(new MMapDirectory(noListenPath), new IndexWriterConfig());

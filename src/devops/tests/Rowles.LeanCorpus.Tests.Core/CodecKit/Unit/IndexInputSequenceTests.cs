@@ -14,7 +14,7 @@ public sealed class IndexInputSequenceTests : IDisposable
 
     public IndexInputSequenceTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_iseq_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_iseq_");
         Directory.CreateDirectory(_dir);
         _directory = new MMapDirectory(_dir);
     }

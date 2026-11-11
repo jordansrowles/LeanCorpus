@@ -464,7 +464,8 @@ public sealed class BenchmarkCaseCoverageTests
                     continue;
                 foreach (var type in UnequalLuceneDirectoryTypes)
                 {
-                    if (System.Text.RegularExpressions.Regex.IsMatch(line, $@"\b{type}\b"))
+                    if (System.Text.RegularExpressions.Regex.IsMatch(line, $@"\b{type}\b",
+                            System.Text.RegularExpressions.RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
                         offenders.Add($"{Path.GetRelativePath(benchmarkRoot, file)}:{index + 1}: {line.Trim()}");
                 }
             }
@@ -503,13 +504,13 @@ public sealed class BenchmarkCaseCoverageTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private TemporaryDirectory(string path) => Path = path;
+        internal TemporaryDirectory(string path) => Path = path;
 
         public string Path { get; }
 
         public static TemporaryDirectory Create()
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "Benchmark case coverage " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "Benchmark case coverage ");
             Directory.CreateDirectory(path);
             return new TemporaryDirectory(path);
         }

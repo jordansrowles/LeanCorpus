@@ -4,7 +4,7 @@
 [Area(TestArea.Index)]
 public sealed class SpatialMigrationMetadataTests : IDisposable
 {
-    private readonly string _path = Path.Combine(Path.GetTempPath(), "spatial-migration-" + Guid.NewGuid().ToString("N"));
+    private readonly string _path = RepositoryTemporaryStorage.NewPath("tests", "spatial-migration-");
     public void Dispose() => TestDirectoryFixture.TryDeleteDirectory(_path);
 
     [Theory]

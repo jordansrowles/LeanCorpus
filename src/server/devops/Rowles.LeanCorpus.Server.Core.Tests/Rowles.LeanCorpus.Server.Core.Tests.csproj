@@ -21,4 +21,9 @@
   <ItemGroup>
     <ProjectReference Include="../../Rowles.LeanCorpus.Server.Core/Rowles.LeanCorpus.Server.Core.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\..\..\devops\tests\Rowles.LeanCorpus.Tests.Shared\Fixtures\RepositoryTemporaryStorage.cs" Link="Infrastructure\RepositoryTemporaryStorage.cs" />
+    <Using Include="Rowles.LeanCorpus.Tests.Shared.Fixtures" />
+  </ItemGroup>
+
 </Project>

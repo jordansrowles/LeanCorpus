@@ -85,13 +85,13 @@ public sealed class PackageConsumerProjectWriterTests
 
     private sealed class TemporaryRepository : IDisposable
     {
-        private TemporaryRepository(string root) => Root = root;
+        internal TemporaryRepository(string root) => Root = root;
 
         public string Root { get; }
 
         public static TemporaryRepository Create(string repositoryRoot)
         {
-            var root = Path.Combine(Path.GetTempPath(), "leancorpus-consumer-project-" + Guid.NewGuid().ToString("N"));
+            var root = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-consumer-project-");
             Directory.CreateDirectory(root);
             File.Copy(Path.Combine(repositoryRoot, "Directory.Packages.props"), Path.Combine(root, "Directory.Packages.props"));
             return new TemporaryRepository(root);

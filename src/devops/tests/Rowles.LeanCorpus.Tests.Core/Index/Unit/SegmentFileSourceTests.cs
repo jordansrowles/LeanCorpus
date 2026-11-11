@@ -11,7 +11,7 @@ public sealed class SegmentFileSourceTests : IDisposable
 
     public SegmentFileSourceTests()
     {
-        _path = Path.Combine(Path.GetTempPath(), "leancorpus_file_source_" + Guid.NewGuid().ToString("N"));
+        _path = RepositoryTemporaryStorage.NewPath("tests", "leancorpus_file_source_");
         Directory.CreateDirectory(_path);
     }
 

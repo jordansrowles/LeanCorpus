@@ -8,11 +8,7 @@ public sealed class ChaosDirectoryFixture : IDisposable
 
     public ChaosDirectoryFixture()
     {
-        Path = System.IO.Path.Combine(
-            System.IO.Path.GetTempPath(),
-            "LeanCorpus_Chaos",
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(Path);
+        Path = Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.CreateDirectoryPath("chaos", "LeanCorpus_Chaos_");
     }
 
     public void Dispose()

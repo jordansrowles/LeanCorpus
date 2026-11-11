@@ -11,7 +11,7 @@ public sealed class JapaneseDictionaryOwnershipTests
     [Fact(DisplayName = "JapaneseDictionary: Dispose closes the Core memory-mapped codec")]
     public void Dispose_ClosesMappedCodecAndInvalidatesTokeniser()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"japanese_core_owner_{Guid.NewGuid():N}.jlc");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"japanese_core_owner_{Guid.NewGuid():N}.jlc");
         File.Copy(JapaneseTokeniser.DefaultDictionaryPath, path);
 
         try

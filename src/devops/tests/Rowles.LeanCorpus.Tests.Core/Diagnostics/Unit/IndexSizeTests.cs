@@ -16,7 +16,7 @@ public class IndexSizeTests : IDisposable
 
     public IndexSizeTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "size_tests_" + Guid.NewGuid().ToString("N"));
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "size_tests_");
         Directory.CreateDirectory(_dir);
     }
 

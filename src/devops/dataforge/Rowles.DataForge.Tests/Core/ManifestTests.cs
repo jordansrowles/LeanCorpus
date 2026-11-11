@@ -27,7 +27,7 @@ public sealed class ManifestTests
     [Fact]
     public void Canonical_manifest_round_trips_without_changing_bytes()
     {
-        var path = Path.Combine(Path.GetTempPath(), "dataforge-manifest-" + Guid.NewGuid().ToString("N") + ".json");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-manifest-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {
             var bytes = DataForgeManifestCodec.ToCanonicalBytes(CreateManifest());
@@ -117,7 +117,7 @@ public sealed class ManifestTests
     [Fact]
     public void Strictly_validated_imported_manifest_round_trips_canonically()
     {
-        var path = Path.Combine(Path.GetTempPath(), "dataforge-imported-manifest-" + Guid.NewGuid().ToString("N") + ".json");
+        var path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("dataforge"), "dataforge-imported-manifest-" + Guid.NewGuid().ToString("N") + ".json");
         try
         {
             var bytes = DataForgeManifestCodec.ToCanonicalBytes(CreateImportedManifest());

@@ -138,12 +138,12 @@ public sealed class TestResultReaderTests
 
     private sealed class TemporaryDirectory : IDisposable
     {
-        private TemporaryDirectory(string path) => Path = path;
+        internal TemporaryDirectory(string path) => Path = path;
         public string Path { get; }
 
         public static TemporaryDirectory Create()
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LeanCorpus TRX evidence " + Guid.NewGuid().ToString("N"));
+            var path = RepositoryTemporaryStorage.NewPath("devops-tests", "LeanCorpus TRX evidence ");
             Directory.CreateDirectory(path);
             return new TemporaryDirectory(path);
         }

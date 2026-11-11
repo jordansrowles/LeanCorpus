@@ -64,6 +64,28 @@ internal sealed class ArtifactPaths
 
     public string DevOpsRoot { get; }
 
+    /// <summary>
+    /// Repository-owned temporary storage for DevOps operations (ADR046): <c>artifacts/tmp/devops</c>,
+    /// or <c>devops</c> under a validated <c>LEANCORPUS_TEMP_ROOT</c>, as for tests and benchmarks.
+    /// </summary>
+    public string TemporaryRoot
+    {
+        get
+        {
+            var overrideRoot = Environment.GetEnvironmentVariable(Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.RootOverrideVariable);
+            return string.IsNullOrWhiteSpace(overrideRoot)
+                ? Path.Combine(ArtifactRoot, "tmp", "devops")
+                : Path.Combine(Path.GetFullPath(overrideRoot), "devops");
+        }
+    }
+
+    /// <summary>
+    /// Creates a new, unique, owner-only directory under <see cref="TemporaryRoot"/> for one operation,
+    /// validating the temporary and area roots exactly as the shared helper does.
+    /// </summary>
+    public string CreateTemporaryDirectory(string prefix)
+        => Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.CreateDirectoryUnder(RepositoryRoot, "devops", prefix).Release();
+
     public string RootApphostPath { get; }
 
     public string GetRunRoot(string category)

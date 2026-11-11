@@ -19,7 +19,7 @@ public sealed class DidYouMeanGapsTests : IDisposable
 
     public DidYouMeanGapsTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "ll_dym_" + Guid.NewGuid().ToString("N")[..8]);
+        _dir = RepositoryTemporaryStorage.NewPath("tests", "ll_dym_");
         Directory.CreateDirectory(_dir);
     }
 

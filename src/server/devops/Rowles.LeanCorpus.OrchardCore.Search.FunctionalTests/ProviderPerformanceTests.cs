@@ -31,7 +31,7 @@ public sealed class ProviderPerformanceTests
         string repositoryRoot = FindRepositoryRoot();
         string outputPath = GetOutputPath(repositoryRoot);
         string statePath = GetRunStatePath(outputPath);
-        string contentRoot = Path.Combine(Path.GetTempPath(), "leancorpus-orchard-performance", Guid.NewGuid().ToString("N"));
+        string contentRoot = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-performance", Guid.NewGuid().ToString("N"));
         var report = new ProviderPerformanceReport
         {
             StartedUtc = DateTimeOffset.UtcNow,
@@ -358,7 +358,7 @@ public sealed class ProviderPerformanceTests
     private static string GetRunStatePath(string outputPath)
     {
         string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(outputPath))).ToLowerInvariant()[..16];
-        return Path.Combine(Path.GetTempPath(), "leancorpus-orchard-performance", $"{key}.state.json");
+        return Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("server-tests"), "leancorpus-orchard-performance", $"{key}.state.json");
     }
 
     private static readonly JsonSerializerOptions ReportSerializerOptions = new()

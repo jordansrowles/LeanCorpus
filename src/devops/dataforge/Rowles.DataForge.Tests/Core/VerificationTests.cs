@@ -10,7 +10,7 @@ public sealed class VerificationTests
     [InlineData("extra-record")]
     public void Materialised_file_mutations_are_rejected(string mutation)
     {
-        var directory = Path.Combine(Path.GetTempPath(), "dataforge-verify-" + Guid.NewGuid().ToString("N"));
+        var directory = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-verify-");
         try
         {
             _ = DataForgeMaterialiser.Materialise(
@@ -46,7 +46,7 @@ public sealed class VerificationTests
     [Fact]
     public void Reproduction_rejects_a_different_profile_identity()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "dataforge-profile-" + Guid.NewGuid().ToString("N"));
+        var directory = RepositoryTemporaryStorage.NewPath("dataforge", "dataforge-profile-");
         try
         {
             _ = DataForgeMaterialiser.Materialise(

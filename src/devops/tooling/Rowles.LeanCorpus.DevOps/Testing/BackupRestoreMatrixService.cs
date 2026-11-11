@@ -155,7 +155,7 @@ internal sealed class BackupRestoreMatrixService
                 "Backup/restore matrix checkout does not match its artefact root."), string.Empty, null, 0);
         }
 
-        var preflightDirectory = Path.Combine(Path.GetTempPath(), "leancorpus-backup-restore-preflight", Guid.NewGuid().ToString("N"));
+        var preflightDirectory = _paths.CreateTemporaryDirectory("backup-restore-preflight-");
         GitProvenance provenance;
         BackupRestoreSourceManifest source;
         try

@@ -400,7 +400,7 @@ public sealed class CJKTokeniserTests
     [Fact(DisplayName = "JapaneseDictionary: Disposal closes the owner and invalidates borrowers")]
     public void JapaneseDictionary_Dispose_ClosesCustomResource()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"japanese_owner_{Guid.NewGuid():N}.jlc");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"japanese_owner_{Guid.NewGuid():N}.jlc");
         File.Copy(JapaneseTokeniser.DefaultDictionaryPath, path);
 
         try
@@ -557,14 +557,14 @@ public sealed class CJKTokeniserTests
     [Fact(DisplayName = "JapaneseTokeniser: Missing dictionary throws FileNotFoundException")]
     public void JapaneseTokeniser_MissingDictionary_ThrowsFileNotFoundException()
     {
-        var nonExistentPath = Path.Combine(Path.GetTempPath(), $"kuromoji_nonexistent_{Guid.NewGuid():N}");
+        var nonExistentPath = RepositoryTemporaryStorage.NewPath("tests", "kuromoji_nonexistent_");
         Assert.Throws<FileNotFoundException>(() => new JapaneseDictionary(nonExistentPath));
     }
 
     [Fact(DisplayName = "JapaneseTokeniser: Corrupt codec section is rejected")]
     public void JapaneseTokeniser_CorruptCodec_ThrowsInvalidDataException()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"japanese_corrupt_{Guid.NewGuid():N}.jlc");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"japanese_corrupt_{Guid.NewGuid():N}.jlc");
         try
         {
             File.Copy(JapaneseTokeniser.DefaultDictionaryPath, path);
@@ -587,7 +587,7 @@ public sealed class CJKTokeniserTests
     [Fact(DisplayName = "JapaneseTokeniser: Truncated codec is rejected")]
     public void JapaneseTokeniser_TruncatedCodec_ThrowsInvalidDataException()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"japanese_truncated_{Guid.NewGuid():N}.jlc");
+        string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), $"japanese_truncated_{Guid.NewGuid():N}.jlc");
         try
         {
             File.WriteAllBytes(path, "JLC1"u8.ToArray());

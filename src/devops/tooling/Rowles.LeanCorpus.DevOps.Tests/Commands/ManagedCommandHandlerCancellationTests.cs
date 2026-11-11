@@ -7,7 +7,7 @@ public sealed class ManagedCommandHandlerCancellationTests
     [Fact]
     public void Clean_ForwardsOperationCancellationToken()
     {
-        string repositoryRoot = Path.Combine(Path.GetTempPath(), "leancorpus-command-cancellation-" + Guid.NewGuid().ToString("N"));
+        string repositoryRoot = RepositoryTemporaryStorage.NewPath("devops-tests", "leancorpus-command-cancellation-");
         Directory.CreateDirectory(Path.Combine(repositoryRoot, "src"));
         File.WriteAllText(Path.Combine(repositoryRoot, "global.json"), "{}");
         File.WriteAllText(Path.Combine(repositoryRoot, "Directory.Build.props"), "<Project />");
