@@ -72,3 +72,14 @@ public sealed class BenchmarkSemanticProofTests
         VerificationCount = 1
     };
 }
+
+public sealed class BenchmarkWarningCodeTests
+{
+    [Theory]
+    [InlineData("MinIterationTime", "The minimum observed iteration time is 1.0ms which is very small.", "MinIterationTime")]
+    [InlineData("MultimodalDistribution", "It seems that the distribution is bimodal (mValue = 3.4)", "BimodalDistribution")]
+    [InlineData("MultimodalDistribution", "It seems that the distribution is multimodal (mValue = 4.1)", "MultimodalDistribution")]
+    [InlineData("MultimodalDistribution", "It seems that the distribution can have several modes (mValue = 2.9)", "PossibleMultimodalDistribution")]
+    public void Analyser_conclusions_map_to_stable_warning_codes(string analyserId, string message, string expected)
+        => Assert.Equal(expected, BenchmarkRunReportBuilder.WarningCode(analyserId, message));
+}

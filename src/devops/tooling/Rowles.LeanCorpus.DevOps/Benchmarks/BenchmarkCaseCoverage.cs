@@ -16,7 +16,11 @@ internal sealed record BenchmarkCaseCoverageRecord(
     int? DiscoveredAtLine,
     int? StartedAtLine,
     int? CompletedAtLine,
-    IReadOnlyList<string> ResultLocations);
+    IReadOnlyList<string> ResultLocations)
+{
+    /// <summary>BenchmarkDotNet warning codes for the case, read from its canonical report row.</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+}
 
 internal sealed record BenchmarkInvocationCoverage(
     string ProjectKey,
@@ -95,7 +99,10 @@ internal static class BenchmarkCaseCoverage
             var resultsDirectory = Path.Combine(projectDirectory, "_runner", "results");
             var parsed = ParseInvocation(runDirectory, invocation.ProjectKey, invocationName, stdoutPath,
                 resultsDirectory, outcome, timeoutSource, results.FirstOrDefault(result => result.Project == invocationName));
-            cases.AddRange(parsed.Cases);
+            var warnings = ReadCaseWarnings(Path.Combine(projectDirectory, "report.json"));
+            cases.AddRange(parsed.Cases.Select(item => warnings.TryGetValue(item.DisplayInfo, out var codes)
+                ? item with { Warnings = codes }
+                : item));
 
             var projectResult = results.FirstOrDefault(result => result.Project == invocationName);
             var buildStdoutPath = Path.Combine(projectDirectory, "build.stdout.log");
@@ -226,6 +233,46 @@ internal static class BenchmarkCaseCoverage
         }
 
         return hasDuration ? total : null;
+    }
+
+    /// <summary>
+    /// Reads per-case warning codes from a canonical report, keyed by BenchmarkDotNet display
+    /// information. A missing or unreadable report yields none; warnings never change pass or fail.
+    /// </summary>
+    internal static IReadOnlyDictionary<string, IReadOnlyList<string>> ReadCaseWarnings(string reportPath)
+    {
+        var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        if (!File.Exists(reportPath))
+            return result;
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllBytes(reportPath));
+            if (!document.RootElement.TryGetProperty("suites", out var suites) || suites.ValueKind != JsonValueKind.Array)
+                return result;
+            foreach (var suite in suites.EnumerateArray())
+            {
+                if (!suite.TryGetProperty("benchmarks", out var rows) || rows.ValueKind != JsonValueKind.Array)
+                    continue;
+                foreach (var row in rows.EnumerateArray())
+                {
+                    if (!row.TryGetProperty("displayInfo", out var display) || display.ValueKind != JsonValueKind.String ||
+                        !row.TryGetProperty("warnings", out var warnings) || warnings.ValueKind != JsonValueKind.Array)
+                        continue;
+                    var codes = warnings.EnumerateArray()
+                        .Select(static warning => warning.TryGetProperty("code", out var code) ? code.GetString() : null)
+                        .OfType<string>()
+                        .Distinct(StringComparer.Ordinal)
+                        .Order(StringComparer.Ordinal)
+                        .ToArray();
+                    if (codes.Length > 0)
+                        result[display.GetString()!] = codes;
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException)
+        {
+        }
+        return result;
     }
 
     private static ParsedInvocation ParseInvocation(

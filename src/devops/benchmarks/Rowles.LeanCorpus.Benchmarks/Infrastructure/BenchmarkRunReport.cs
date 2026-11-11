@@ -145,10 +145,20 @@ internal sealed class BenchmarkCaseReport
     public int ActualWorkloadMeasurementCount { get; set; }
     public string MeasurementFingerprintSha256 { get; set; } = string.Empty;
     public List<string> QualityFlags { get; set; } = [];
+
+    /// <summary>
+    /// BenchmarkDotNet analyser warnings for this case, such as a minimum iteration time or a
+    /// bimodal or multimodal distribution, plus <c>NoCanonicalStatistics</c> when the row has no
+    /// terminal statistics. Warnings do not change pass or fail.
+    /// </summary>
+    public List<BenchmarkCaseWarning> Warnings { get; set; } = [];
     public BenchmarkStatisticsReport? Statistics { get; set; }
     public BenchmarkGcReport? Gc { get; set; }
     internal string ResultFingerprintSha256 { get; set; } = string.Empty;
 }
+
+/// <summary>One machine-readable BenchmarkDotNet warning for a case.</summary>
+internal sealed record BenchmarkCaseWarning(string Code, string Kind, string Message);
 
 internal sealed record BenchmarkCaseIdentitySource(
     string TypeName,
@@ -275,7 +285,17 @@ internal static partial class BenchmarkRunReportBuilder
         IReadOnlyList<BenchmarkSemanticProofReport> proofs,
         IReadOnlyDictionary<string, IReadOnlyList<BenchmarkEffectiveRuntimeReport>> runtimes)
     {
-        var benchmarks = PreserveReportRows(source.Summary.Reports.Select(report => BuildCaseReport(report, proofs, runtimes)));
+        var warnings = CollectWarnings(source.Summary);
+        var benchmarks = PreserveReportRows(source.Summary.Reports.Select(report =>
+        {
+            var row = BuildCaseReport(report, proofs, runtimes);
+            if (warnings.TryGetValue(report.BenchmarkCase, out var caseWarnings))
+                row.Warnings.AddRange(caseWarnings);
+            if (row.Statistics is null)
+                row.Warnings.Add(new BenchmarkCaseWarning("NoCanonicalStatistics", "Warning",
+                    "The case has no terminal statistics, so it has no canonical timing."));
+            return row;
+        }));
 
         var registeredKeys = source.Summary.BenchmarksCases
             .Select(static benchmarkCase => CreateCaseIdentity(BuildIdentitySource(benchmarkCase)).Key)
@@ -413,6 +433,43 @@ internal static partial class BenchmarkRunReportBuilder
             Gc = resultState == "TerminalResult" ? gc : null
         };
     }
+
+    /// <summary>
+    /// Runs the minimum iteration time and distribution analysers over a summary and groups their
+    /// conclusions by case. These are the analysers whose warnings otherwise exist only in logs.
+    /// </summary>
+    private static Dictionary<BenchmarkCase, List<BenchmarkCaseWarning>> CollectWarnings(Summary summary)
+    {
+        var result = new Dictionary<BenchmarkCase, List<BenchmarkCaseWarning>>();
+        BenchmarkDotNet.Analysers.IAnalyser[] analysers =
+        [
+            BenchmarkDotNet.Analysers.MinIterationTimeAnalyser.Default,
+            BenchmarkDotNet.Analysers.MultimodalDistributionAnalyzer.Default
+        ];
+        foreach (var analyser in analysers)
+        {
+            foreach (var conclusion in analyser.Analyse(summary))
+            {
+                if (conclusion.Report?.BenchmarkCase is not { } benchmarkCase)
+                    continue;
+                if (!result.TryGetValue(benchmarkCase, out var list))
+                    result[benchmarkCase] = list = [];
+                list.Add(new BenchmarkCaseWarning(WarningCode(conclusion.AnalyserId, conclusion.Message),
+                    conclusion.Kind.ToString(), conclusion.Message));
+            }
+        }
+        return result;
+    }
+
+    internal static string WarningCode(string analyserId, string message)
+        => analyserId switch
+        {
+            "MinIterationTime" => "MinIterationTime",
+            "MultimodalDistribution" when message.Contains("bimodal", StringComparison.OrdinalIgnoreCase) => "BimodalDistribution",
+            "MultimodalDistribution" when message.Contains("multimodal", StringComparison.OrdinalIgnoreCase) => "MultimodalDistribution",
+            "MultimodalDistribution" => "PossibleMultimodalDistribution",
+            _ => analyserId
+        };
 
     internal static List<BenchmarkCaseReport> PreserveReportRows(IEnumerable<BenchmarkCaseReport> reports)
     {
