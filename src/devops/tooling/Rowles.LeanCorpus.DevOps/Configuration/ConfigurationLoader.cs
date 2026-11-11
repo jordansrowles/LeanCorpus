@@ -130,7 +130,10 @@ internal sealed class ConfigurationLoader
                 suiteMetadata.RequiresGutenbergData,
                 suiteMetadata.IsSelector,
                 suiteMetadata.IncludeInAll,
-                suiteMetadata.IncludeWithExplicit));
+                suiteMetadata.IncludeWithExplicit)
+            {
+                RegisteredClasses = suiteMetadata.RegisteredClasses
+            });
         }
 
         foreach (var (id, suiteMetadata) in metadata)
@@ -151,7 +154,10 @@ internal sealed class ConfigurationLoader
                     suiteMetadata.RequiresGutenbergData,
                     suiteMetadata.IsSelector,
                     suiteMetadata.IncludeInAll,
-                    suiteMetadata.IncludeWithExplicit));
+                    suiteMetadata.IncludeWithExplicit)
+                {
+                    RegisteredClasses = suiteMetadata.RegisteredClasses
+                });
             }
         }
 
@@ -298,7 +304,7 @@ internal sealed class ConfigurationLoader
     private BenchmarkSuiteMetadata ReadBenchmarkSuiteMetadata(JsonElement value, string path, string propertyPath, string suiteId)
     {
         RequireObjectProperties(value, path, propertyPath,
-            ["DisplayName", "Project", "BenchmarkClasses", "Aliases", "Frameworks", "Datasets", "ExplicitOnly", "ControlledCorpusOnly", "CorpusOnly", "RequiresGutenbergData", "IsSelector", "IncludeInAll", "IncludeWithExplicit"],
+            ["DisplayName", "Project", "BenchmarkClasses", "RegisteredClasses", "Aliases", "Frameworks", "Datasets", "ExplicitOnly", "ControlledCorpusOnly", "CorpusOnly", "RequiresGutenbergData", "IsSelector", "IncludeInAll", "IncludeWithExplicit"],
             []);
 
         return new BenchmarkSuiteMetadata(
@@ -314,7 +320,10 @@ internal sealed class ConfigurationLoader
             OptionalBoolean(value, "RequiresGutenbergData", path, propertyPath) ?? false,
             OptionalBoolean(value, "IsSelector", path, propertyPath) ?? false,
             OptionalBoolean(value, "IncludeInAll", path, propertyPath),
-            OptionalBoolean(value, "IncludeWithExplicit", path, propertyPath));
+            OptionalBoolean(value, "IncludeWithExplicit", path, propertyPath))
+        {
+            RegisteredClasses = OptionalStringArray(value, "RegisteredClasses", path, propertyPath)
+        };
     }
 
     private static ImmutableArray<string> OptionalStringArray(JsonElement value, string name, string path, string propertyPath)
@@ -337,7 +346,10 @@ internal sealed class ConfigurationLoader
         bool RequiresGutenbergData,
         bool IsSelector,
         bool? IncludeInAll,
-        bool? IncludeWithExplicit);
+        bool? IncludeWithExplicit)
+    {
+        public ImmutableArray<string> RegisteredClasses { get; init; } = [];
+    }
 
     private TestSuiteConfiguration ReadTestSuite(JsonElement value, string propertyPath)
     {

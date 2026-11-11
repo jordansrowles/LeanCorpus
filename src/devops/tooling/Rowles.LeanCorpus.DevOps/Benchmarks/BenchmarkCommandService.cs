@@ -30,7 +30,11 @@ internal sealed record BenchmarkExcludedWorkload(
     IReadOnlyList<string> BenchmarkClasses,
     string State,
     string Reason,
-    string RerunSuite);
+    string RerunSuite)
+{
+    /// <summary>The workload's case count when known; excluded workloads are not enumerated.</summary>
+    public int? CaseCount { get; init; }
+}
 
 internal sealed record BenchmarkExecutionPlan(
     string Suite,
@@ -273,7 +277,7 @@ internal static class BenchmarkCommandPlanner
         };
     }
 
-    private static IReadOnlyList<BenchmarkExcludedWorkload> ResolveExcludedWorkloads(
+    internal static IReadOnlyList<BenchmarkExcludedWorkload> ResolveExcludedWorkloads(
         DevOpsConfiguration configuration,
         string suite,
         IReadOnlyList<string> selectedProjects)
@@ -298,7 +302,8 @@ internal static class BenchmarkCommandPlanner
                     : descriptor.RequiresGutenbergData
                         ? "requires-gutenberg-data"
                         : "outside-selector";
-                return (pair.Key, descriptor.Project, descriptor.BenchmarkClasses, Selected: selected, Reason: reason);
+                var classes = descriptor.RegisteredClasses.IsDefaultOrEmpty ? descriptor.BenchmarkClasses : descriptor.RegisteredClasses;
+                return (pair.Key, descriptor.Project, BenchmarkClasses: classes, Selected: selected, Reason: reason);
             })
             .Where(static item => !item.Selected)
             .Select(static item => new BenchmarkExcludedWorkload(
@@ -1387,14 +1392,17 @@ internal sealed class BenchmarkCommandService(
         }
         else
         {
-            markdown.Add("| Suite | Project | State | Reason | Benchmark classes | Rerun selector |");
-            markdown.Add("| --- | --- | --- | --- | --- | --- |");
+            // Case counts are only known for workloads that ran; an excluded workload's count is not
+            // enumerated, so it is reported as unknown rather than guessed.
+            markdown.Add("| Suite | Project | State | Reason | Benchmark classes | Cases | Rerun selector |");
+            markdown.Add("| --- | --- | --- | --- | --- | ---: | --- |");
             markdown.AddRange(coverage.ExcludedWorkloads.Select(workload => string.Concat(
                 "| ", workload.SuiteId,
                 " | ", FormatBenchmarkProjectName(workload.ProjectKey),
                 " | ", workload.State,
                 " | ", workload.Reason,
                 " | ", workload.BenchmarkClasses.Count == 0 ? "unknown" : string.Join(", ", workload.BenchmarkClasses),
+                " | ", workload.CaseCount?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "unknown",
                 " | `--suite ", workload.RerunSuite, "` |")));
         }
         markdown.Add(string.Empty);

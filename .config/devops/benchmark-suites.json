@@ -97,7 +97,10 @@
       "Aliases": [
         "vectorfirsttouch"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "VectorFirstTouchBenchmarks"
+      ]
     },
     "analysis-parity": {
       "DisplayName": "Analysis parity",
@@ -114,13 +117,19 @@
       "Aliases": [
         "segmentreadercache"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "SegmentReaderCacheBenchmarks"
+      ]
     },
     "docvalues-read": {
       "Aliases": [
         "docvaluesread"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "DocValuesReadBenchmarks"
+      ]
     },
     "all-with-explicit": {
       "Aliases": [
@@ -133,55 +142,95 @@
         "windowsfilesystem"
       ],
       "ExplicitOnly": true,
-      "ControlledCorpusOnly": false
+      "ControlledCorpusOnly": false,
+      "RegisteredClasses": [
+        "WindowsFileSystemBenchmarks"
+      ]
     },
     "similarity": {
-      "DisplayName": "Similarity"
+      "DisplayName": "Similarity",
+      "RegisteredClasses": [
+        "SimilarityBenchmarks"
+      ]
     },
     "numeric-aggregator": {
       "Aliases": [
         "numericaggregator"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "NumericAggregatorSimdBenchmarks"
+      ]
     },
     "approximation": {
       "DisplayName": "Approximation algorithms",
       "Project": "core",
       "ExplicitOnly": true,
-      "ControlledCorpusOnly": false
+      "ControlledCorpusOnly": false,
+      "RegisteredClasses": [
+        "ApproximationBenchmarks"
+      ]
     },
     "codec-frame": {
       "Aliases": [
         "codecframe"
       ],
       "ExplicitOnly": true,
-      "ControlledCorpusOnly": false
+      "ControlledCorpusOnly": false,
+      "RegisteredClasses": [
+        "CodecFrameBenchmarks"
+      ]
     },
-    "parser": {},
+    "parser": {
+      "RegisteredClasses": [
+        "QueryParserBenchmarks",
+        "QueryParserHotPathBenchmarks"
+      ]
+    },
     "docvalues-write": {
       "Aliases": [
         "docvalueswrite"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "BinaryDocValuesWriteBenchmarks"
+      ]
     },
-    "hybrid": {},
+    "hybrid": {
+      "RegisteredClasses": [
+        "HybridSearchBenchmarks"
+      ]
+    },
     "diagnostics": {
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "DiagnosticsBenchmarks"
+      ]
     },
     "tv-highlighter": {
       "DisplayName": "Term-vector highlighter",
       "Aliases": [
         "tvhighlighter"
+      ],
+      "RegisteredClasses": [
+        "TermVectorHighlighterBenchmarks"
       ]
     },
     "searcher-mgr": {
       "DisplayName": "Searcher manager",
       "Aliases": [
         "searchermgr"
+      ],
+      "RegisteredClasses": [
+        "SearcherManagerBenchmarks"
       ]
     },
     "aggregation": {
-      "DisplayName": "Aggregation"
+      "DisplayName": "Aggregation",
+      "RegisteredClasses": [
+        "AggregationBenchmarks",
+        "SpatialAggregationBenchmarks"
+      ]
     },
     "fuzzy-parity": {
       "DisplayName": "Fuzzy parity",
@@ -190,11 +239,18 @@
       ],
       "BenchmarkClasses": [
         "FuzzyQueryBenchmarks"
+      ],
+      "RegisteredClasses": [
+        "FuzzyQueryBenchmarks"
       ]
     },
     "fuzzy-multisegment": {
       "DisplayName": "Fuzzy multi-segment expansion",
+      "ExplicitOnly": true,
       "BenchmarkClasses": [
+        "FuzzyMultiSegmentBenchmarks"
+      ],
+      "RegisteredClasses": [
         "FuzzyMultiSegmentBenchmarks"
       ]
     },
@@ -202,24 +258,36 @@
       "DisplayName": "Fuzzy expansion cache",
       "BenchmarkClasses": [
         "FuzzyExpansionCacheBenchmarks"
+      ],
+      "RegisteredClasses": [
+        "FuzzyExpansionCacheBenchmarks"
       ]
     },
     "bounded-lru-cache": {
       "Aliases": [
         "boundedlrucache"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "BoundedLruCacheFailureBenchmarks"
+      ]
     },
     "blockjoin-search": {
       "DisplayName": "Block-Join (search)",
       "Aliases": [
         "blockjoinsearch"
+      ],
+      "RegisteredClasses": [
+        "BlockJoinSearchBenchmarks"
       ]
     },
     "async-index": {
       "DisplayName": "Async index",
       "Aliases": [
         "asyncindex"
+      ],
+      "RegisteredClasses": [
+        "AsyncIndexingBenchmarks"
       ]
     },
     "async-index-stress": {
@@ -230,202 +298,341 @@
       "ExplicitOnly": true,
       "BenchmarkClasses": [
         "AsyncIndexingCapacityOneStressBenchmarks"
+      ],
+      "RegisteredClasses": [
+        "AsyncIndexingCapacityOneStressBenchmarks"
       ]
     },
     "span": {
-      "DisplayName": "Span queries"
+      "DisplayName": "Span queries",
+      "RegisteredClasses": [
+        "SpanQueryBenchmarks"
+      ]
     },
     "nearest": {
       "Aliases": [
         "spatial-nearest"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "SpatialNearestBenchmarks",
+        "SpatialNearestCompatibilityBenchmarks"
+      ]
     },
     "codec-migration": {
       "Aliases": [
         "codecmigration"
       ],
       "ExplicitOnly": true,
-      "ControlledCorpusOnly": false
+      "ControlledCorpusOnly": false,
+      "RegisteredClasses": [
+        "CodecMigrationBenchmarks"
+      ]
     },
-    "indexsort": {},
+    "indexsort": {
+      "RegisteredClasses": [
+        "IndexSortIndexBenchmarks",
+        "IndexSortSearchBenchmarks"
+      ]
+    },
     "function-score": {
       "DisplayName": "Function score",
       "Aliases": [
         "functionscore"
+      ],
+      "RegisteredClasses": [
+        "FunctionScoreQueryBenchmarks"
       ]
     },
     "highlighter": {
-      "DisplayName": "Highlighter"
+      "DisplayName": "Highlighter",
+      "RegisteredClasses": [
+        "HighlighterBenchmarks"
+      ]
     },
     "fst-lookup": {
       "Aliases": [
         "fstlookup"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "FstLookupBenchmarks"
+      ]
     },
     "fst-build": {
       "Aliases": [
         "fstbuild"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "FstBuildBenchmarks"
+      ]
     },
     "codec-frame-read": {
       "Aliases": [
         "codecframeread"
       ],
       "ExplicitOnly": true,
-      "ControlledCorpusOnly": false
+      "ControlledCorpusOnly": false,
+      "RegisteredClasses": [
+        "CodecFrameReadBenchmarks"
+      ]
     },
     "windows-storage": {
       "Aliases": [
         "windowsstorage"
       ],
       "ExplicitOnly": true,
-      "ControlledCorpusOnly": false
+      "ControlledCorpusOnly": false,
+      "RegisteredClasses": [
+        "WindowsStoragePathBenchmarks"
+      ]
     },
     "gutenberg-search": {
       "DisplayName": "Gutenberg search",
       "Aliases": [
         "gutenbergsearch"
       ],
-      "RequiresGutenbergData": true
+      "RequiresGutenbergData": true,
+      "RegisteredClasses": [
+        "GutenbergSearchBenchmarks"
+      ]
     },
     "geo": {
-      "DisplayName": "Geo queries"
+      "DisplayName": "Geo queries",
+      "RegisteredClasses": [
+        "GeoQueryBenchmarks"
+      ]
     },
     "indexsort-index": {
       "DisplayName": "Index-sort (index)",
       "Aliases": [
         "indexsortindex"
+      ],
+      "RegisteredClasses": [
+        "IndexSortIndexBenchmarks"
       ]
     },
     "index": {
-      "DisplayName": "Indexing"
+      "DisplayName": "Indexing",
+      "RegisteredClasses": [
+        "IndexingBenchmarks",
+        "LanguageAnalysisIndexingBenchmarks"
+      ]
     },
     "schemajson": {
-      "DisplayName": "Schema and JSON"
+      "DisplayName": "Schema and JSON",
+      "RegisteredClasses": [
+        "SchemaAndJsonBenchmarks"
+      ]
     },
     "term-caches": {
       "Aliases": [
         "termcaches"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "QualifiedTermCacheBenchmarks"
+      ]
     },
     "query": {
-      "DisplayName": "Term queries"
+      "DisplayName": "Term queries",
+      "RegisteredClasses": [
+        "TermQueryBenchmarks"
+      ]
     },
     "index-writer": {
       "Aliases": [
         "indexwriter"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "IndexWriterContentionBenchmarks"
+      ]
     },
     "deletion-queue": {
       "DisplayName": "Deletion (queue)",
       "Aliases": [
         "deletionqueue"
+      ],
+      "RegisteredClasses": [
+        "DeletionQueueBenchmarks"
       ]
     },
     "explicit": {
       "IsSelector": true
     },
     "wildcard": {
-      "DisplayName": "Wildcard queries"
+      "DisplayName": "Wildcard queries",
+      "RegisteredClasses": [
+        "WildcardQueryBenchmarks"
+      ]
     },
     "regexp": {
-      "DisplayName": "Regexp queries"
+      "DisplayName": "Regexp queries",
+      "RegisteredClasses": [
+        "RegexpQueryBenchmarks"
+      ]
     },
     "prefix": {
-      "DisplayName": "Prefix queries"
+      "DisplayName": "Prefix queries",
+      "RegisteredClasses": [
+        "PrefixQueryBenchmarks"
+      ]
     },
     "bkd": {
       "Aliases": [
         "bkd-tree"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "BKDTreeBenchmarks"
+      ]
     },
     "merge": {
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "MergeBenchmarks",
+        "MergeDeletionHeavyBenchmarks",
+        "VectorMergeMemoryBenchmarks"
+      ]
     },
     "parallel": {
-      "DisplayName": "Parallel search"
+      "DisplayName": "Parallel search",
+      "RegisteredClasses": [
+        "ParallelSearchBenchmarks"
+      ]
     },
     "segment-reader-resource-cache": {
       "Aliases": [
         "segmentreaderresourcecache"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "SegmentReaderResourceCacheBenchmarks"
+      ]
     },
     "deletion-commit": {
       "DisplayName": "Deletion (commit)",
       "Aliases": [
         "deletioncommit"
+      ],
+      "RegisteredClasses": [
+        "DeletionCommitBenchmarks"
       ]
     },
     "multiphrase": {
-      "DisplayName": "Multi-phrase"
+      "DisplayName": "Multi-phrase",
+      "RegisteredClasses": [
+        "MultiPhraseQueryBenchmarks"
+      ]
     },
     "concurrent-write": {
       "Aliases": [
         "concurrentwrite"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "ConcurrentVsSequentialBenchmarks"
+      ]
     },
     "boolean": {
-      "DisplayName": "Boolean queries"
+      "DisplayName": "Boolean queries",
+      "RegisteredClasses": [
+        "BooleanQueryBenchmarks"
+      ]
     },
     "packed-bkd": {
       "Aliases": [
         "packedbkd"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "PackedBkdBenchmarks"
+      ]
     },
     "terminset": {
       "DisplayName": "Term in set",
       "Aliases": [
         "term-in-set"
+      ],
+      "RegisteredClasses": [
+        "TermInSetQueryBenchmarks"
       ]
     },
     "range": {
-      "DisplayName": "Range queries"
+      "DisplayName": "Range queries",
+      "RegisteredClasses": [
+        "RangeQueryBenchmarks"
+      ]
     },
     "indexsort-search": {
       "DisplayName": "Index-sort (search)",
       "Aliases": [
         "indexsortsearch"
+      ],
+      "RegisteredClasses": [
+        "IndexSortSearchBenchmarks"
       ]
     },
     "deletion": {
-      "DisplayName": "Deletion"
+      "DisplayName": "Deletion",
+      "RegisteredClasses": [
+        "DeletionCommitBenchmarks",
+        "DeletionQueueBenchmarks"
+      ]
     },
     "deletion-replacement-refresh": {
       "DisplayName": "Deletion replacement and refresh",
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "DeletionReplacementRefreshBenchmarks"
+      ]
     },
     "gutenberg-index": {
       "DisplayName": "Gutenberg index",
       "Aliases": [
         "gutenbergindex"
       ],
-      "RequiresGutenbergData": true
+      "RequiresGutenbergData": true,
+      "RegisteredClasses": [
+        "GutenbergIndexingBenchmarks"
+      ]
     },
     "blockjoin": {
-      "DisplayName": "Block-Join"
+      "DisplayName": "Block-Join",
+      "RegisteredClasses": [
+        "BlockJoinIndexBenchmarks",
+        "BlockJoinSearchBenchmarks"
+      ]
     },
     "combined": {
-      "DisplayName": "Combined queries"
+      "DisplayName": "Combined queries",
+      "RegisteredClasses": [
+        "CombinedFieldsQueryBenchmarks"
+      ]
     },
     "shape": {
       "Aliases": [
         "shapes"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "ShapeDocValuesBenchmarks",
+        "ShapeDocValuesCopyBenchmarks",
+        "ShapeDocValuesMergeBenchmarks",
+        "ShapeIndexingBenchmarks",
+        "ShapeRelationBenchmarks",
+        "SpatialUtilityBenchmarks"
+      ]
     },
     "collapse-facet": {
       "DisplayName": "Collapse and facet",
       "Aliases": [
         "collapsefacet"
+      ],
+      "RegisteredClasses": [
+        "CollapseAndFacetBenchmarks"
       ]
     },
     "compound-file": {
@@ -433,7 +640,10 @@
         "compoundfile"
       ],
       "ExplicitOnly": true,
-      "ControlledCorpusOnly": false
+      "ControlledCorpusOnly": false,
+      "RegisteredClasses": [
+        "CompoundFileBenchmarks"
+      ]
     },
     "analysis-filters": {
       "DisplayName": "Analysis filters",
@@ -444,118 +654,185 @@
       ]
     },
     "phrase": {
-      "DisplayName": "Phrase queries"
+      "DisplayName": "Phrase queries",
+      "RegisteredClasses": [
+        "PhraseQueryBenchmarks"
+      ]
     },
     "dismax": {
-      "DisplayName": "Disjunction max"
+      "DisplayName": "Disjunction max",
+      "RegisteredClasses": [
+        "DisjunctionMaxQueryBenchmarks"
+      ]
     },
     "postings-arena": {
       "Aliases": [
         "postingsarena"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "PostingsArenaBenchmarks"
+      ]
     },
     "merge-payload": {
       "Aliases": [
         "mergepayload"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "MergePayloadBenchmarks"
+      ]
     },
     "suggester": {
-      "DisplayName": "Suggester"
+      "DisplayName": "Suggester",
+      "RegisteredClasses": [
+        "SuggesterBenchmarks"
+      ]
     },
     "blockjoin-index": {
       "DisplayName": "Block-Join (index)",
       "Aliases": [
         "blockjoinindex"
+      ],
+      "RegisteredClasses": [
+        "BlockJoinIndexBenchmarks"
       ]
     },
     "mmap-io": {
       "Aliases": [
         "mmapio"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "MMapDirectoryIOBenchmarks"
+      ]
     },
     "query-cache": {
       "DisplayName": "Query cache",
       "Aliases": [
         "querycache"
+      ],
+      "RegisteredClasses": [
+        "QueryCacheBenchmarks"
       ]
     },
     "packed-int-codec": {
       "Aliases": [
         "packedintcodec"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "PackedIntCodecBenchmarks"
+      ]
     },
     "stored-fields": {
       "Aliases": [
         "storedfields"
+      ],
+      "RegisteredClasses": [
+        "StoredFieldsByteBoundedBenchmarks",
+        "StoredFieldsReadBenchmarks",
+        "StoredFieldsWriteBenchmarks"
       ]
     },
     "mlt": {
-      "DisplayName": "More like this"
+      "DisplayName": "More like this",
+      "RegisteredClasses": [
+        "MoreLikeThisBenchmarks",
+        "MoreLikeThisSingleSegmentBenchmarks"
+      ]
     },
     "flush": {
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "FlushBenchmarks"
+      ]
     },
     "flush-term-cardinality": {
       "DisplayName": "Flush term cardinality",
       "Project": "core",
       "ExplicitOnly": true,
-      "ControlledCorpusOnly": false
+      "ControlledCorpusOnly": false,
+      "RegisteredClasses": [
+        "FlushTermCardinalityBenchmarks"
+      ]
     },
     "tokenbudget": {
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "TokenBudgetBenchmarks",
+        "TokenBudgetPolicyVariantBenchmarks"
+      ]
     },
     "incremental-backup": {
       "DisplayName": "Incremental backup",
       "Aliases": [
         "incrementalbackup"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "IncrementalBackupBenchmarks"
+      ]
     },
     "multi-reader": {
       "DisplayName": "Multi-reader",
       "Aliases": [
         "multireader"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "MultiReaderBenchmarks"
+      ]
     },
     "ordinal-map": {
       "DisplayName": "Ordinal map",
       "Aliases": [
         "ordinalmap"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "OrdinalMapBenchmarks"
+      ]
     },
     "ranking-evaluation": {
       "DisplayName": "Ranking evaluation",
       "Aliases": [
         "rankingevaluation"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "RankingEvaluationBenchmarks"
+      ]
     },
     "ranking-pipeline": {
       "DisplayName": "Ranking pipeline",
       "Aliases": [
         "rankingpipeline"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "RankingPipelineBenchmarks"
+      ]
     },
     "reader-manager": {
       "DisplayName": "Reader manager",
       "Aliases": [
         "readermanager"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "ReaderManagerLifecycleBenchmarks"
+      ]
     },
     "search-session": {
       "DisplayName": "Search session",
       "Aliases": [
         "searchsession"
       ],
-      "ExplicitOnly": true
+      "ExplicitOnly": true,
+      "RegisteredClasses": [
+        "SearchSessionBenchmarks"
+      ]
     }
   },
   "historicalLabels": {

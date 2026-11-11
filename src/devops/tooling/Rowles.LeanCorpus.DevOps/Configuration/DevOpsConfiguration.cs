@@ -56,7 +56,14 @@ internal sealed record BenchmarkSuiteConfiguration(
     bool RequiresGutenbergData,
     bool IsSelector,
     bool? IncludeInAll,
-    bool? IncludeWithExplicit);
+    bool? IncludeWithExplicit)
+{
+    /// <summary>
+    /// The benchmark classes the host registry maps to this suite. Used for reporting only, such as
+    /// the exclusion table; <see cref="BenchmarkClasses"/> still decides routing.
+    /// </summary>
+    public ImmutableArray<string> RegisteredClasses { get; init; } = [];
+}
 
 internal sealed record BenchmarkGroupConfiguration(
     string Area,
