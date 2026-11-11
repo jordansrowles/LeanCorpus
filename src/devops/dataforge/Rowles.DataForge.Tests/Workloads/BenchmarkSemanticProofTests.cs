@@ -83,3 +83,28 @@ public sealed class BenchmarkWarningCodeTests
     public void Analyser_conclusions_map_to_stable_warning_codes(string analyserId, string message, string expected)
         => Assert.Equal(expected, BenchmarkRunReportBuilder.WarningCode(analyserId, message));
 }
+
+public sealed class BenchmarkReportTimestampTests
+{
+    [Fact]
+    public void Generated_time_is_taken_at_write_and_process_start_is_kept_separately()
+    {
+        string root = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("tests"), "benchmark-report-time-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var started = DateTimeOffset.UtcNow.AddHours(-3);
+            var report = BenchmarkRunReportBuilder.Build("run", started, [], []);
+            DateTimeOffset beforeWrite = DateTimeOffset.UtcNow;
+
+            BenchmarkRunReportWriter.WriteReport(Path.Combine(root, "core"), root, report);
+
+            Assert.Equal(started, DateTimeOffset.Parse(report.ProcessStartedAtUtc, System.Globalization.CultureInfo.InvariantCulture));
+            Assert.True(DateTimeOffset.Parse(report.GeneratedAtUtc, System.Globalization.CultureInfo.InvariantCulture) >= beforeWrite);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+}

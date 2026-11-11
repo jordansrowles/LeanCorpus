@@ -24,7 +24,12 @@ internal sealed partial class BenchmarkRunReport
     public int SchemaVersion { get; set; } = 6;
     public string RunId { get; set; } = string.Empty;
     public string RunType { get; set; } = "full";
+    /// <summary>When the report was written, after the last benchmark finished.</summary>
     public string GeneratedAtUtc { get; set; } = string.Empty;
+
+    /// <summary>When the benchmark host process started.</summary>
+    public string ProcessStartedAtUtc { get; set; } = string.Empty;
+
     public string[] CommandLineArgs { get; set; } = [];
     public string HostMachineName { get; set; } = Environment.MachineName;
     public string CommitHash { get; set; } = string.Empty;
@@ -249,7 +254,7 @@ internal static partial class BenchmarkRunReportBuilder
 
     public static BenchmarkRunReport Build(
         string runId,
-        DateTimeOffset generatedAtUtc,
+        DateTimeOffset processStartedAtUtc,
         string[] benchmarkArgs,
         IReadOnlyList<(string Suite, Summary Summary)> suiteSummaries,
         IReadOnlyList<BenchmarkSemanticProofReport>? semanticProofs = null,
@@ -265,7 +270,7 @@ internal static partial class BenchmarkRunReportBuilder
         var report = new BenchmarkRunReport
         {
             RunId = runId,
-            GeneratedAtUtc = generatedAtUtc.ToString("O", CultureInfo.InvariantCulture),
+            ProcessStartedAtUtc = processStartedAtUtc.ToString("O", CultureInfo.InvariantCulture),
             CommandLineArgs = benchmarkArgs,
             RegisteredBenchmarkCount = suiteReports.Sum(r => r.RegisteredBenchmarkCount),
             TotalBenchmarkCount = suiteReports.Sum(r => r.BenchmarkCount),
@@ -973,6 +978,8 @@ internal static class BenchmarkRunReportWriter
         Directory.CreateDirectory(runDir);
 
         var reportPath = Path.Combine(runDir, "report.json");
+        // The generation time is taken at write, after every benchmark has finished.
+        report.GeneratedAtUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         File.WriteAllText(reportPath, JsonSerializer.Serialize(report, JsonOptions));
 
         Directory.CreateDirectory(machineDir);
