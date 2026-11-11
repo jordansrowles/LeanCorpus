@@ -7,9 +7,13 @@ using LeanSynonymGraphFilter = Rowles.LeanCorpus.Analysis.Filters.SynonymGraphFi
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Compares synonym expansion throughput between <see cref="LeanSynonymGraphFilter"/>
-/// and Lucene.NET <c>SynonymFilter</c> at different synonym map sizes.
-/// Both maps contain the same source→replacement mappings extracted from the corpus.
+/// Compares synonym expansion throughput between <see cref="LeanSynonymGraphFilter"/> and
+/// Lucene.NET <c>SynonymFilter</c> at different synonym map sizes. LeanCorpus runs
+/// Tokeniser, LowercaseFilter, StopWordFilter and the synonym filter; Lucene.NET runs
+/// StandardAnalyzer and SynonymFilter. Both maps hold the same source-to-replacement pairs, built
+/// from either the most frequent or the least frequent corpus terms, and setup proves the token
+/// graphs are equal, including position lengths. The two no-synonym rows on LeanCorpus form an A/A
+/// pair. Directional head-to-head rows.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -27,11 +31,17 @@ public class SynonymBenchmarks
     [Params(10, 50, 200)]
     public int SynonymCount { get; set; }
 
+    /// <summary>Whether synonym sources are the most frequent or the least frequent corpus terms.</summary>
+    [Params("frequent", "sparse")]
+    public string MapTerms { get; set; } = "frequent";
+
     private string[] _documents = [];
 
     // LeanCorpus state
     private StandardAnalyser _baseAnalyser = null!;
     private LeanSynonymGraphFilter _synonymFilter = null!;
+    private Analyser _noSynonymAnalyser = null!;
+    private Analyser _synonymAnalyser = null!;
 
     // Lucene.NET state
     private Lucene.Net.Analysis.Standard.StandardAnalyzer _luceneAnalyzer = null!;
@@ -45,8 +55,37 @@ public class SynonymBenchmarks
 
         var sources = BuildSynonymSources(_documents);
         _synonymFilter = BuildLeanSynonymFilter(sources);
+        _noSynonymAnalyser = new Analyser(new Tokeniser(), new LowercaseFilter(), new StopWordFilter());
+        _synonymAnalyser = new Analyser(new Tokeniser(), new LowercaseFilter(), new StopWordFilter(), _synonymFilter);
         _luceneSynonymMap = BuildLuceneSynonymMap(sources);
         _luceneAnalyzer = new Lucene.Net.Analysis.Standard.StandardAnalyzer(LuceneVersion.LUCENE_48);
+
+        var noSynonyms = TextOutputPreflight.Compare(string.Concat("synonym/none/", MapTerms, "/", SynonymCount.ToString(System.Globalization.CultureInfo.InvariantCulture)), _documents,
+            document => TextOutputPreflight.CaptureLean(sink => _noSynonymAnalyser.Analyse(document.AsSpan(), sink)),
+            document =>
+            {
+                using var stream = _luceneAnalyzer.GetTokenStream("body", new System.IO.StringReader(document));
+                return TextOutputPreflight.CaptureLucene(stream);
+            },
+            PreflightAllowList.Cjk);
+        var withSynonyms = TextOutputPreflight.Compare(string.Concat("synonym/with/", MapTerms, "/", SynonymCount.ToString(System.Globalization.CultureInfo.InvariantCulture)), _documents,
+            document => TextOutputPreflight.CaptureLean(sink => _synonymAnalyser.Analyse(document.AsSpan(), sink)),
+            document =>
+            {
+                using var baseStream = _luceneAnalyzer.GetTokenStream("body", new System.IO.StringReader(document));
+                using var synonymStream = new Lucene.Net.Analysis.Synonym.SynonymFilter(baseStream, _luceneSynonymMap, ignoreCase: false);
+                return TextOutputPreflight.CaptureLucene(synonymStream);
+            },
+            PreflightAllowList.Cjk);
+        ValidateSynonymsApplied(noSynonyms.Tokens, withSynonyms.Tokens);
+    }
+
+    /// <summary>Fails setup unless the synonym pipeline emits more tokens than the base pipeline.</summary>
+    internal static void ValidateSynonymsApplied(int baseTokens, int synonymTokens)
+    {
+        if (synonymTokens <= baseTokens)
+            throw new InvalidOperationException(
+                $"The synonym pipeline emitted {synonymTokens} tokens against {baseTokens} without synonyms; the filter is not applied.");
     }
 
     [GlobalCleanup]
@@ -57,30 +96,28 @@ public class SynonymBenchmarks
 
     // --- LeanCorpus benchmarks ---
 
+    private readonly ReadingTokenSink _readingSink = new();
+
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_NoSynonyms()
-    {
-        int total = 0;
-        foreach (var doc in _documents)
-        {
-            var sink = new CountingTokenSink();
-            _baseAnalyser.Analyse(doc.AsSpan(), sink);
-            total += sink.Count;
-        }
-        return total;
-    }
+    public int LeanCorpus_NoSynonyms() => AnalyseLean(_noSynonymAnalyser);
+
+    [Benchmark(Description = "LeanCorpus no synonyms, A/A repeat")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_NoSynonyms_Repeat() => AnalyseLean(_noSynonymAnalyser);
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_WithSynonyms()
+    public int LeanCorpus_WithSynonyms() => AnalyseLean(_synonymAnalyser);
+
+    private int AnalyseLean(Analyser analyser)
     {
         int total = 0;
         foreach (var doc in _documents)
         {
-            var sink = new CountingTokenSink();
-            _baseAnalyser.Analyse(doc.AsSpan(), sink);
-            total += sink.Count;
+            _readingSink.Reset();
+            analyser.Analyse(doc.AsSpan(), _readingSink);
+            total += _readingSink.Count;
         }
         return total;
     }
@@ -96,10 +133,7 @@ public class SynonymBenchmarks
         {
             using var reader = new System.IO.StringReader(doc);
             using var stream = _luceneAnalyzer.GetTokenStream("body", reader);
-            stream.Reset();
-            while (stream.IncrementToken())
-                total++;
-            stream.End();
+            total += LuceneTermReader.ReadAll(stream);
         }
         return total;
     }
@@ -115,10 +149,7 @@ public class SynonymBenchmarks
             using var baseStream = _luceneAnalyzer.GetTokenStream("body", reader);
             using var synonymStream = new Lucene.Net.Analysis.Synonym.SynonymFilter(
                 baseStream, _luceneSynonymMap, ignoreCase: false);
-            synonymStream.Reset();
-            while (synonymStream.IncrementToken())
-                total++;
-            synonymStream.End();
+            total += LuceneTermReader.ReadAll(synonymStream);
         }
         return total;
     }
@@ -141,18 +172,20 @@ public class SynonymBenchmarks
 
     private static Lucene.Net.Analysis.Synonym.SynonymMap BuildLuceneSynonymMap(string[] sources)
     {
+        // One Builder.Add per replacement, matching LeanCorpus's alternatives. Joining both
+        // replacements into one output would make a single two-token phrase instead.
         var builder = new Lucene.Net.Analysis.Synonym.SynonymMap.Builder(dedup: true);
-        var inputChars = new CharsRef();
-        var outputChars = new CharsRef();
         for (int i = 0; i < sources.Length; i++)
         {
             var source = sources[i];
             var slug = source.Replace(' ', '_');
-            builder.Add(
-                Lucene.Net.Analysis.Synonym.SynonymMap.Builder.Join(source.Split(' '), inputChars),
-                Lucene.Net.Analysis.Synonym.SynonymMap.Builder.Join(
-                    [$"{slug}_synonym_{i}", $"{slug}_alt"], outputChars),
-                includeOrig: true);
+            foreach (var replacement in new[] { $"{slug}_synonym_{i}", $"{slug}_alt" })
+            {
+                builder.Add(
+                    Lucene.Net.Analysis.Synonym.SynonymMap.Builder.Join(source.Split(' '), new CharsRef()),
+                    Lucene.Net.Analysis.Synonym.SynonymMap.Builder.Join([replacement], new CharsRef()),
+                    includeOrig: true);
+            }
         }
         return builder.Build();
     }
@@ -175,9 +208,11 @@ public class SynonymBenchmarks
             }
         }
 
-        var sources = frequencies
-            .OrderByDescending(static entry => entry.Value)
-            .ThenBy(static entry => entry.Key, StringComparer.Ordinal)
+        var ordered = MapTerms == "sparse"
+            ? frequencies.OrderBy(static entry => entry.Value).ThenBy(static entry => entry.Key, StringComparer.Ordinal)
+            : frequencies.OrderByDescending(static entry => entry.Value).ThenBy(static entry => entry.Key, StringComparer.Ordinal);
+        var sources = ordered
+            .Where(static entry => entry.Key.All(char.IsAsciiLetterLower))
             .Take(SynonymCount)
             .Select(static entry => entry.Key)
             .ToArray();
