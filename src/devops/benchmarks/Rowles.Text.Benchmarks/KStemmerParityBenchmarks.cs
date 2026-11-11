@@ -30,7 +30,7 @@ public class KStemmerParityBenchmarks
     {
         _documents = TextBenchmarkData.BuildDocuments(DocumentCount);
 
-        var lexiconPath = FindKStemLexiconPath();
+        var lexiconPath = TextLexicons.Require("kstem-dict.txt");
         var lexicon = KStemLexicon.FromFile(lexiconPath);
         // Match Lucene's pipeline: Tokeniser → LowercaseFilter → KStemFilter (no stopword removal).
         _analyser = new Analyser(
@@ -48,11 +48,52 @@ public class KStemmerParityBenchmarks
             var kStem = new Lucene.Net.Analysis.En.KStemFilter(lowerCase);
             return new Lucene.Net.Analysis.TokenStreamComponents(tokenizer, kStem);
         });
+
+        // KStem is declared not a pair until its 14.55% token difference is explained (Sprint 4 PR 2).
+        TextOutputPreflight.Compare("kstem", _documents,
+            document => TextOutputPreflight.CaptureLean(sink => _analyser.Analyse(document.AsSpan(), sink)),
+            document =>
+            {
+                using var stream = _luceneAnalyser.GetTokenStream("body", new System.IO.StringReader(document));
+                return TextOutputPreflight.CaptureLucene(stream);
+            },
+            PreflightAllowList.Named("KStem"));
+        Console.WriteLine($"Benchmark lexicon kstem: path=lexicons/kstem-dict.txt, sha256={TextLexicons.Sha256(lexiconPath)}");
     }
+
+    private readonly ReadingTokenSink _readingSink = new();
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_KStem_Analyse()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            _readingSink.Reset();
+            _analyser.Analyse(doc.AsSpan(), _readingSink);
+            total += _readingSink.Count;
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_KStem_Analyse()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            using var reader = new System.IO.StringReader(doc);
+            using var stream = _luceneAnalyser.GetTokenStream("body", reader);
+            total += LuceneTermReader.ReadAll(stream);
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_KStem_Analyse_CountOnly()
     {
         int total = 0;
         foreach (var doc in _documents)
@@ -66,7 +107,7 @@ public class KStemmerParityBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_KStem_Analyse()
+    public int LuceneNet_KStem_Analyse_CountOnly()
     {
         int total = 0;
         foreach (var doc in _documents)
@@ -103,15 +144,5 @@ public class KStemmerParityBenchmarks
         {
             return _createComponents(fieldName, reader);
         }
-    }
-
-    private static string FindKStemLexiconPath()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "lexicons", "kstem-dict.txt")))
-            dir = dir.Parent;
-        return dir is not null
-            ? Path.Combine(dir.FullName, "lexicons", "kstem-dict.txt")
-            : throw new InvalidOperationException("Could not find lexicons/kstem-dict.txt.");
     }
 }

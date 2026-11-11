@@ -7,6 +7,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Compares <see cref="StemmedAnalyser"/> throughput against Lucene.NET <c>EnglishAnalyzer</c>.
+/// Reading rows copy every term; <c>_CountOnly</c> rows allocate a counting sink per document and
+/// only count tokens. Setup proves equal output on the first 500 documents. Directional
+/// head-to-head rows.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -23,6 +26,7 @@ public class StemmerParityBenchmarks
     private string[] _documents = [];
     private StemmedAnalyser _leanAnalyser = null!;
     private EnglishAnalyzer _luceneAnalyser = null!;
+    private readonly ReadingTokenSink _readingSink = new();
 
     [GlobalSetup]
     public void Setup()
@@ -30,6 +34,14 @@ public class StemmerParityBenchmarks
         _documents = TextBenchmarkData.BuildDocuments(DocumentCount);
         _leanAnalyser = new StemmedAnalyser();
         _luceneAnalyser = new EnglishAnalyzer(LuceneVersion.LUCENE_48);
+        TextOutputPreflight.Compare("stemmer/english", _documents,
+            document => TextOutputPreflight.CaptureLean(sink => _leanAnalyser.Analyse(document.AsSpan(), sink)),
+            document =>
+            {
+                using var stream = _luceneAnalyser.GetTokenStream("body", document);
+                return TextOutputPreflight.CaptureLucene(stream);
+            },
+            PreflightAllowList.Cjk);
     }
 
     [GlobalCleanup]
@@ -45,6 +57,33 @@ public class StemmerParityBenchmarks
         int total = 0;
         foreach (var doc in _documents)
         {
+            _readingSink.Reset();
+            _leanAnalyser.Analyse(doc.AsSpan(), _readingSink);
+            total += _readingSink.Count;
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_EnglishAnalyzer()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            using var ts = _luceneAnalyser.GetTokenStream("body", doc);
+            total += LuceneTermReader.ReadAll(ts);
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_StemmedAnalyser_CountOnly()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
             var sink = new CountingTokenSink();
             _leanAnalyser.Analyse(doc.AsSpan(), sink);
             total += sink.Count;
@@ -54,7 +93,7 @@ public class StemmerParityBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_EnglishAnalyzer()
+    public int LuceneNet_EnglishAnalyzer_CountOnly()
     {
         int total = 0;
         foreach (var doc in _documents)

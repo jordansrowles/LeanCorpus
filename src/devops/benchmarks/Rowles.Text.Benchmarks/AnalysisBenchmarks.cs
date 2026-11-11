@@ -1,5 +1,4 @@
 using BenchmarkDotNet.Attributes;
-using Lucene.Net.Analysis;
 using Lucene.Net.Analysis.Standard;
 using Lucene.Net.Util;
 using Rowles.LeanCorpus.Analysis;
@@ -9,7 +8,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Measures analysis pipeline throughput: tokenisation + lowercase + stop-word removal.
-/// Compares LeanCorpus StandardAnalyser against Lucene.NET StandardAnalyzer.
+/// Compares LeanCorpus StandardAnalyser against Lucene.NET StandardAnalyzer. Reading rows copy every
+/// term; <c>_CountOnly</c> rows only count tokens. Setup proves equal output on the first 500
+/// documents. Directional head-to-head rows.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -27,6 +28,7 @@ public class AnalysisBenchmarks
     private StandardAnalyser _leanAnalyser = null!;
     private StandardAnalyzer _luceneAnalyzer = null!;
     private CountingTokenSink _sink = null!;
+    private ReadingTokenSink _readingSink = null!;
 
     [GlobalSetup]
     public void Setup()
@@ -35,6 +37,15 @@ public class AnalysisBenchmarks
         _leanAnalyser = new StandardAnalyser();
         _luceneAnalyzer = new StandardAnalyzer(LuceneVersion.LUCENE_48);
         _sink = new CountingTokenSink();
+        _readingSink = new ReadingTokenSink();
+        TextOutputPreflight.Compare("analysis/standard", _documents,
+            document => TextOutputPreflight.CaptureLean(sink => _leanAnalyser.Analyse(document.AsSpan(), sink)),
+            document =>
+            {
+                using var stream = _luceneAnalyzer.GetTokenStream("body", new System.IO.StringReader(document));
+                return TextOutputPreflight.CaptureLucene(stream);
+            },
+            PreflightAllowList.Cjk);
     }
 
     [GlobalCleanup]
@@ -50,6 +61,34 @@ public class AnalysisBenchmarks
         int totalTokens = 0;
         for (int i = 0; i < _documents.Length; i++)
         {
+            _readingSink.Reset();
+            _leanAnalyser.Analyse(_documents[i].AsSpan(), _readingSink);
+            totalTokens += _readingSink.Count;
+        }
+        return totalTokens;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_Analyse()
+    {
+        int totalTokens = 0;
+        for (int i = 0; i < _documents.Length; i++)
+        {
+            using var reader = new System.IO.StringReader(_documents[i]);
+            using var stream = _luceneAnalyzer.GetTokenStream("body", reader);
+            totalTokens += LuceneTermReader.ReadAll(stream);
+        }
+        return totalTokens;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_Analyse_CountOnly()
+    {
+        int totalTokens = 0;
+        for (int i = 0; i < _documents.Length; i++)
+        {
             _sink.Reset();
             _leanAnalyser.Analyse(_documents[i].AsSpan(), _sink);
             totalTokens += _sink.Count;
@@ -59,7 +98,7 @@ public class AnalysisBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_Analyse()
+    public int LuceneNet_Analyse_CountOnly()
     {
         int totalTokens = 0;
         for (int i = 0; i < _documents.Length; i++)

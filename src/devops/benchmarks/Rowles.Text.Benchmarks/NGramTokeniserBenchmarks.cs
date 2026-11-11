@@ -44,11 +44,49 @@ public class NGramTokeniserBenchmarks
         _edgeTokeniser = new EdgeNGramTokeniser(_min, _max);
         _ngramTokeniser = new NGramTokeniser(_min, _max);
         _ngramTokeniserWs = new NGramTokeniser(_min, _max, splitOnWhitespace: true);
+
+        TextOutputPreflight.Compare(string.Concat("ngram/", GramRange), _documents,
+            document => TextOutputPreflight.CaptureLean(sink => _ngramTokeniser.Tokenise(document.AsSpan(), sink)),
+            document =>
+            {
+                using var tokenizer = new NGramTokenizer(LuceneVersion.LUCENE_48, new StringReader(document), _min, _max);
+                return TextOutputPreflight.CaptureLucene(tokenizer);
+            },
+            PreflightAllowList.None);
+    }
+
+    private readonly ReadingTokenSink _readingSink = new();
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_NGramTokeniser_Reading()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            _readingSink.Reset();
+            _ngramTokeniser.Tokenise(doc.AsSpan(), _readingSink);
+            total += _readingSink.Count;
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_NGramTokenizer_Reading()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            using var tokenizer = new NGramTokenizer(LuceneVersion.LUCENE_48, new StringReader(doc), _min, _max);
+            total += LuceneTermReader.ReadAll(tokenizer);
+        }
+        return total;
     }
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_EdgeNGramTokeniser_SpanSink()
+    public int LeanCorpus_EdgeNGramTokeniser_SpanSink_CountOnly()
     {
         int total = 0;
         foreach (var doc in _documents)
@@ -62,7 +100,7 @@ public class NGramTokeniserBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_NGramTokeniser_SpanSink()
+    public int LeanCorpus_NGramTokeniser_SpanSink_CountOnly()
     {
         int total = 0;
         foreach (var doc in _documents)
@@ -77,7 +115,7 @@ public class NGramTokeniserBenchmarks
     /// <summary>NGram tokeniser with per-word whitespace splitting, span sink path.</summary>
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_NGramTokeniser_WordSplit_SpanSink()
+    public int LeanCorpus_NGramTokeniser_WordSplit_SpanSink_CountOnly()
     {
         int total = 0;
         foreach (var doc in _documents)
@@ -147,7 +185,7 @@ public class NGramTokeniserBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_NGramTokenizer()
+    public int LuceneNet_NGramTokenizer_CountOnly()
     {
         int total = 0;
         foreach (var doc in _documents)
