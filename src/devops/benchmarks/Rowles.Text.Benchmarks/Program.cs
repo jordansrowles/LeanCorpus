@@ -37,10 +37,44 @@ internal static class Program
         if (!args.Contains("--filter", StringComparer.OrdinalIgnoreCase)
             && !args.Contains("-f", StringComparer.OrdinalIgnoreCase))
             args = [.. args, "--filter", "*"];
-        var summaries = BenchmarkSwitcher.FromTypes(benchmarkTypes).Run(args, config);
+        DateTimeOffset startedAtUtc = DateTimeOffset.UtcNow;
+        var summaries = BenchmarkSwitcher.FromTypes(benchmarkTypes).Run(args, config).ToArray();
         if (args.Contains("--list", StringComparer.OrdinalIgnoreCase))
             return 0;
-        return HasInvalidResults(summaries) ? 1 : 0;
+        BenchmarkRunReport report = WriteCanonicalReport(artifactsPath, args, startedAtUtc, summaries);
+        bool reportInvalid = report.Suites.Count == 0 ||
+            report.Suites.Any(static suite => suite.FailedBenchmarkCount > 0 || suite.MissingBenchmarkCount > 0);
+        return HasInvalidResults(summaries) || reportInvalid ? 1 : 0;
+    }
+
+    /// <summary>
+    /// Writes the canonical schema v6 <c>report.json</c> (ADR047), so managed DevOps can validate a
+    /// Text-only run. Dataset identity comes from the DataForge sidecars the benchmarks wrote.
+    /// </summary>
+    private static BenchmarkRunReport WriteCanonicalReport(
+        string artifactsPath,
+        string[] benchmarkArgs,
+        DateTimeOffset startedAtUtc,
+        IReadOnlyList<Summary> summaries)
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string gitCommit = Environment.GetEnvironmentVariable("BENCH_SOURCE_COMMIT") ?? string.Empty;
+        var suiteSummaries = summaries
+            .Where(static summary => summary.BenchmarksCases.Any())
+            .Select(static summary => (Suite: summary.BenchmarksCases.First().Descriptor.Type.Name, Summary: summary))
+            .ToArray();
+        string runId = Environment.GetEnvironmentVariable("LEANCORPUS_RUN_ID") is { Length: > 0 } orchestrated
+            ? orchestrated
+            : startedAtUtc.ToString("yyyy-MM-dd HH-mm", System.Globalization.CultureInfo.InvariantCulture);
+        var report = BenchmarkRunReportBuilder.Build(runId, startedAtUtc, benchmarkArgs, suiteSummaries,
+            BenchmarkSemanticProofs.ReadAll(artifactsPath));
+        report.CommitHash = gitCommit;
+        report.RunType = "text";
+        report.Provenance = BenchmarkProvenanceBuilder.Build(repositoryRoot, gitCommit, effectiveDocCount: null, artifactsPath);
+        if (!report.Provenance.RscriptAvailable)
+            report.QualityFlags.Add("RscriptUnavailable");
+        BenchmarkRunReportWriter.WriteReport(artifactsPath, Directory.GetParent(artifactsPath)?.FullName ?? artifactsPath, report);
+        return report;
     }
 
     private static Type[] GetBenchmarkTypes(bool includeGutenberg)
