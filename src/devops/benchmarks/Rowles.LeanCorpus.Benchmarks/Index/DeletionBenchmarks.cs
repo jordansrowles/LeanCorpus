@@ -30,7 +30,10 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [WarmupCount(1)]
-[IterationCount(3)]
+// Bounds, not a fixed count: a class-level IterationCount overrides the command line, so the
+// reviewed qualification runs could not force the 30 samples their gate needs (ADR047).
+[MinIterationCount(3)]
+[MaxIterationCount(15)]
 [InvocationCount(1)]
 public class DeletionQueueBenchmarks
 {
@@ -181,7 +184,10 @@ public class DeletionQueueBenchmarks
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [WarmupCount(1)]
-[IterationCount(3)]
+// Bounds, not a fixed count: a class-level IterationCount overrides the command line, so the
+// reviewed qualification runs could not force the 30 samples their gate needs (ADR047).
+[MinIterationCount(3)]
+[MaxIterationCount(15)]
 [InvocationCount(1)]
 public class DeletionCommitBenchmarks
 {

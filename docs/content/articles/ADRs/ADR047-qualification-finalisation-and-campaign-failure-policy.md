@@ -82,9 +82,15 @@ children, while a .NET 10 child is never paired with a .NET 11 child.
 
 **Statistical gates.** At least 30 workload samples and at most 5% coefficient
 of variation per engine. These values do not change to make a run pass. The
-four 20,000-document groups are qualified with a forced iteration count
-(`-- --iterationCount 30`); `--strat exhaustive` is unchanged and its rows are
-expected not to qualify. The minimum launch count is 1. Between-launch noise is
+four 20,000-document groups are qualified with a forced iteration count that
+keeps every measurement (`-- --iterationCount 30 --outliers DontRemove`).
+Keeping outliers is the stricter choice: BenchmarkDotNet's default upper-outlier
+removal can leave fewer than 30 statistical samples, while kept outliers still
+count towards the variability limit. Benchmark classes must not fix their
+iteration count with `[IterationCount]`, because a class attribute overrides
+the forced count; they use `[MinIterationCount]` and `[MaxIterationCount]`
+bounds instead. `--strat exhaustive` is unchanged and its rows are expected not
+to qualify. The minimum launch count is 1. Between-launch noise is
 handled by forbidding any claim of a difference under 10%.
 
 **Publication scope.** LeanCorpus 4.0 publishes no head-to-head ratio except
