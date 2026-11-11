@@ -1,11 +1,11 @@
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
-/// Arabic light stemmer. Removes common Arabic prefixes and suffixes without
-/// performing full morphological analysis or root extraction.
-/// Based on the Khoja and Garside (1999) light-stemming approach.
-/// Expects lowercased, fully vowelised or unvowelised Unicode Arabic input.
-/// Hamza normalisation (أ إ آ → ا) should be applied upstream.
+/// Arabic light stemmer. Removes the definite article (with an attached conjunction or
+/// preposition), or otherwise a leading conjunction و, and common suffixes, without performing
+/// full morphological analysis or root extraction. Other single-letter prefixes are not removed,
+/// because they are usually root letters. Expects unvowelised or fully vowelised Unicode Arabic
+/// input; hamza normalisation should be applied upstream.
 /// </summary>
 public sealed class ArabicStemmer : IShareableSpanStemmer
 {
@@ -32,24 +32,18 @@ public sealed class ArabicStemmer : IShareableSpanStemmer
         word.CopyTo(output);
         int len = word.Length;
 
-        // Step 1: Strip definite article ال (al-)
-        // Also handles وال (wal-), بال (bal-), كال (kal-), فال (fal-)
-        len = RemovePrefix(output, len, "وال")
+        // Step 1: strip the definite article, alone or with an attached conjunction or
+        // preposition, leaving at least 3 characters.
+        int? withoutArticle = RemovePrefix(output, len, "وال")
            ?? RemovePrefix(output, len, "بال")
            ?? RemovePrefix(output, len, "كال")
            ?? RemovePrefix(output, len, "فال")
-           ?? RemovePrefix(output, len, "ال")
-           ?? len;
+           ?? RemovePrefix(output, len, "لل")
+           ?? RemovePrefix(output, len, "ال");
 
-        // Step 2: Strip common single-char prefixes (و ف ب ل ك س)
-        // Only when remaining stem would be ≥ 3 chars
-        len = RemovePrefix(output, len, "و")
-           ?? RemovePrefix(output, len, "ف")
-           ?? RemovePrefix(output, len, "ب")
-           ?? RemovePrefix(output, len, "ل")
-           ?? RemovePrefix(output, len, "ك")
-           ?? RemovePrefix(output, len, "س")
-           ?? len;
+        // Step 2: only when no article was stripped, strip a leading conjunction و,
+        // leaving at least 3 characters. No other single-letter prefix is removed.
+        len = withoutArticle ?? RemovePrefix(output, len, "و") ?? len;
 
         // Step 3: Strip common suffixes (longest first)
         len = RemoveSuffix(output, len, "تين", "")    // dual feminine
