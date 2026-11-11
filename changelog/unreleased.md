@@ -41,7 +41,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 ## Compatibility
 
 - The preserved stop-word position contract affects both LeanCorpus 4.0.0 and Rowles.Text 2.0.0 through shared analysis source. Reindex existing content from the original text for corrected phrase behaviour. Codec migration cannot recover removed positions; `.pos` and catalogue versions are unchanged. Unmarked segments remain readable and can be mixed with new segments, with LLIDX052 reindex guidance.
-- French and Arabic stemming changes, and the Hunspell and `StemmedAnalyser` changes, apply to both LeanCorpus (source-included analysis) and Rowles.Text. Indexes containing French or Arabic text must be reindexed to benefit; no index marker or status changes.
+- French and Arabic stemming changes, the combining-mark tokenisation fix, and the Hunspell and `StemmedAnalyser` changes, apply to both LeanCorpus (source-included analysis) and Rowles.Text. Indexes containing French or Arabic text must be reindexed to benefit; no index marker or status changes.
 
 ## Added
 
@@ -272,6 +272,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Preflight vector merge dimensions and normalisation contracts before writing output, apply the destination writer's quantisation policy across imports and merges, and reuse HNSW seeds only when their vector contract matches the destination. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Fix merge validation for Shape DocValues component trees, empty spatial aggregations after shape deletion, and WKT output for degenerate Geo and XY rectangles and Geo rectangles spanning longitude -180 to 180. ([4d0432e27](https://github.com/jordansrowles/LeanCorpus/commit/4d0432e27fb3027e6987009cde2fad5b41e2c1f0))
 - French stemming now conflates regular plurals and common verb forms, and Arabic stemming no longer removes root letters after the definite article. Indexes containing French or Arabic text must be reindexed to benefit.
+- The standard, CJK bigram and Chinese lexicon tokenisers now keep combining marks (Unicode Mn, Mc and Me) inside words instead of splitting them off, so terms such as Arabic words with harakat or decomposed accented Latin letters are indexed whole. A mark never starts a token. Indexes containing such text must be reindexed to benefit; no codec or index marker changes.
 - HunspellDictionary cache entries are now keyed by a content hash, and null text throws ArgumentNullException.
 
 ## Removed

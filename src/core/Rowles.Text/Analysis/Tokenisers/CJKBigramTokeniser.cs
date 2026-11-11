@@ -77,7 +77,7 @@ public sealed class CJKBigramTokeniser : IShareableSpanTokeniser
                 int start = i;
                 i += scalarLength;
                 while (i < input.Length
-                    && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+                    && UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
                 {
                     i += scalarLength;
                 }
