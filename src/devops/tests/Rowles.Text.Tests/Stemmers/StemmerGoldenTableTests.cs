@@ -5,7 +5,7 @@ namespace Rowles.Text.Tests;
 
 /// <summary>Golden tables for the French and Arabic stemmer fixes (Sprint 4 PR 1).</summary>
 [Category(TestCategory.Unit)]
-[Area(TestArea.Analysers)]
+[Area(TestArea.Stemmers)]
 public sealed class StemmerGoldenTableTests
 {
     [Theory(DisplayName = "French stemmer: golden table")]
