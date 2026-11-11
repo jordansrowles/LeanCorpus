@@ -61,7 +61,7 @@ public sealed partial class IndexSearcher
     private void ExecuteSpanNearQuery(SpanNearQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
-        if (TryExecuteSpanNearTermQuery(query, reader, excludedDocs: null, query.Boost, globalDFs, ref collector))
+        if (TryExecuteSpanNearTermQuery(query, reader, excludePostings: null, query.Boost, globalDFs, ref collector))
             return;
 
         // Collect spans per clause
@@ -157,6 +157,9 @@ public sealed partial class IndexSearcher
     private void ExecuteSpanNotQuery(SpanNotQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
+        if (TryExecuteSpanNotTermQuery(query, reader, globalDFs, ref collector))
+            return;
+
         // An include span survives unless it overlaps an exclude span in the same document, as the
         // SpanNotQuery contract states and Lucene does. A document is matched while any include span
         // survives; an exclude term elsewhere in the document does not remove it.
@@ -180,11 +183,50 @@ public sealed partial class IndexSearcher
         }
     }
 
+    /// <summary>
+    /// SpanNot over a near of terms excluding a term or an OR of terms: evaluated from positions in
+    /// one pass, with the near query's scoring, rejecting only spans an exclude position overlaps.
+    /// </summary>
+    private bool TryExecuteSpanNotTermQuery(SpanNotQuery query, SegmentReader reader,
+        Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
+    {
+        if (query.Include is not SpanNearQuery includeNear)
+            return false;
+        SpanTermQuery[]? excludes = query.Exclude switch
+        {
+            SpanTermQuery term => [term],
+            SpanOrQuery spanOr when spanOr.Clauses.All(static clause => clause is SpanTermQuery) => spanOr.Clauses.Cast<SpanTermQuery>().ToArray(),
+            _ => null
+        };
+        if (excludes is null)
+            return false;
+
+        var excludePostings = new PostingsEnum[excludes.Length];
+        int opened = 0;
+        try
+        {
+            for (; opened < excludes.Length; opened++)
+                excludePostings[opened] = reader.GetPostingsEnumWithPositions(
+                    excludes[opened].CachedQualifiedTerm ??= string.Concat(excludes[opened].Field, "\x00", excludes[opened].Term));
+            return TryExecuteSpanNearTermQuery(includeNear, reader, excludePostings, query.Boost, globalDFs, ref collector);
+        }
+        finally
+        {
+            for (int i = 0; i < opened; i++)
+                excludePostings[i].Dispose();
+        }
+    }
+
     /// <summary>Two spans overlap when each starts before the other ends (end positions are exclusive).</summary>
     private static bool Overlaps(Span include, Span exclude)
         => exclude.Start < include.End && include.Start < exclude.End;
 
-    private bool TryExecuteSpanNearTermQuery(SpanNearQuery query, SegmentReader reader, bool[]? excludedDocs,
+    /// <summary>
+    /// Scores a near query over term clauses from their positions. When <paramref name="excludePostings"/>
+    /// is given (SpanNot over term excludes), a document matches only if one of its near spans contains
+    /// no exclude position, the overlap rule of ADR048.
+    /// </summary>
+    private bool TryExecuteSpanNearTermQuery(SpanNearQuery query, SegmentReader reader, PostingsEnum[]? excludePostings,
         float boost, Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
         int termCount = query.Clauses.Count;
@@ -233,11 +275,8 @@ public sealed partial class IndexSearcher
 
             while (postings[leaderIdx].MoveNextUnchecked(out int docId, out int leaderTf))
             {
-                if ((hasDeletions && !reader.IsLive(docId)) ||
-                    (excludedDocs is not null && excludedDocs[docId]))
-                {
+                if (hasDeletions && !reader.IsLive(docId))
                     continue;
-                }
 
                 bool allMatch = true;
                 for (int i = 0; i < termCount; i++)
@@ -251,7 +290,10 @@ public sealed partial class IndexSearcher
                     }
                 }
 
-                if (allMatch && HasSpanNearPositions(postings, termCount, query.Slop, query.InOrder))
+                if (allMatch && (excludePostings is null
+                        ? HasSpanNearPositions(postings, termCount, query.Slop, query.InOrder)
+                        : HasSurvivingSpanNearPositions(postings, termCount, query.Slop, query.InOrder,
+                            CollectExcludePositions(excludePostings, docId))))
                 {
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
                         ? fieldLengths.Value.Span[docId] : 1;
@@ -336,6 +378,70 @@ public sealed partial class IndexSearcher
                 docIds[i] = 0;
             }
         }
+    }
+
+    /// <summary>The exclude positions of one document, in ascending order, from every exclude term.</summary>
+    private static int[] CollectExcludePositions(PostingsEnum[] excludePostings, int docId)
+    {
+        List<int>? positions = null;
+        foreach (var exclude in excludePostings)
+        {
+            if (exclude.IsExhausted || !exclude.AdvanceUnchecked(docId, out int excludeDocId, out _) || excludeDocId != docId)
+                continue;
+            positions ??= [];
+            foreach (int position in exclude.GetCurrentPositionsUnchecked())
+                positions.Add(position);
+        }
+        if (positions is null)
+            return [];
+        positions.Sort();
+        return [.. positions];
+    }
+
+    /// <summary>
+    /// Whether some near span, from its first to its last matched position, contains none of
+    /// <paramref name="excludePositions"/>. With no exclude positions this is the plain near check.
+    /// </summary>
+    private static bool HasSurvivingSpanNearPositions(PostingsEnum[] postings, int termCount, int slop, bool inOrder, int[] excludePositions)
+    {
+        if (excludePositions.Length == 0)
+            return HasSpanNearPositions(postings, termCount, slop, inOrder);
+        var firstPositions = postings[0].GetCurrentPositionsUnchecked();
+        for (int i = 0; i < firstPositions.Length; i++)
+        {
+            int first = firstPositions[i];
+            if (termCount == 1 ? !ContainsExclude(excludePositions, first, first)
+                : HasSurvivingSpanNearPositions(postings, termCount, slop, inOrder, 1, first, first, first, excludePositions))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool HasSurvivingSpanNearPositions(PostingsEnum[] postings, int termCount, int slop, bool inOrder,
+        int clauseIndex, int previousPosition, int minimum, int maximum, int[] excludePositions)
+    {
+        var positions = postings[clauseIndex].GetCurrentPositionsUnchecked();
+        for (int i = 0; i < positions.Length; i++)
+        {
+            int position = positions[i];
+            int distance = Math.Abs(position - previousPosition);
+            if (distance > slop + 1 || (inOrder && position <= previousPosition))
+                continue;
+            int low = Math.Min(minimum, position);
+            int high = Math.Max(maximum, position);
+            if (clauseIndex + 1 == termCount
+                    ? !ContainsExclude(excludePositions, low, high)
+                    : HasSurvivingSpanNearPositions(postings, termCount, slop, inOrder, clauseIndex + 1, position, low, high, excludePositions))
+                return true;
+        }
+        return false;
+    }
+
+    private static bool ContainsExclude(int[] sortedPositions, int low, int high)
+    {
+        int index = Array.BinarySearch(sortedPositions, low);
+        if (index < 0) index = ~index;
+        return index < sortedPositions.Length && sortedPositions[index] <= high;
     }
 
     private static bool HasSpanNearPositions(PostingsEnum[] postings, int termCount, int slop, bool inOrder)
