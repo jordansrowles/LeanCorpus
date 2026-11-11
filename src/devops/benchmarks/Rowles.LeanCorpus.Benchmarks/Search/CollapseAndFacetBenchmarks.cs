@@ -105,6 +105,40 @@ public class CollapseAndFacetBenchmarks
         _luceneMatchAllQuery = new Lucene.Net.Search.MatchAllDocsQuery();
         BuildLeanIndex(documents);
         BuildLuceneIndex(documents);
+        RecordPairProof("bval-07-collapse-top-score-25",
+            [nameof(LeanCorpus_SearchWithCollapse), nameof(LuceneNet_SearchWithCollapse)],
+            LeanCorpus_SearchWithCollapse(), LuceneNet_SearchWithCollapse());
+        RecordPairProof("bval-07-facet-offset-100-page-10",
+            [nameof(LeanCorpus_HighCardinalityFacetsWithOffset), nameof(LuceneNet_HighCardinalityFacetsWithOffset)],
+            LeanCorpus_HighCardinalityFacetsWithOffset(), LuceneNet_HighCardinalityFacetsWithOffset());
+    }
+
+    /// <summary>
+    /// Records the semantic proof for one reviewed pair (ADR047): the BVAL-07 fixture passed above,
+    /// and both engines return the same result-contract value on the measured index.
+    /// </summary>
+    private void RecordPairProof(string proofId, string[] methods, int leanResult, int luceneResult)
+    {
+        var reasons = new List<string>();
+        if (leanResult != luceneResult)
+            reasons.Add("EngineOutputsDiffer");
+        if (leanResult <= 0 || luceneResult <= 0)
+            reasons.Add("EmptyResult");
+        BenchmarkSemanticProofs.Record(
+            typeof(CollapseAndFacetBenchmarks),
+            methods,
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [nameof(DocumentCount)] = DocumentCount.ToString(CultureInfo.InvariantCulture)
+            },
+            proofId,
+            Bval07FixturePath,
+            BenchmarkSemanticProofs.SearchDatasetContentSha256(DocumentCount),
+            passed: reasons.Count == 0,
+            reasons,
+            BenchmarkSemanticProofs.Digest(string.Concat(proofId, "|leancorpus=", leanResult.ToString(CultureInfo.InvariantCulture),
+                "|lucenenet=", luceneResult.ToString(CultureInfo.InvariantCulture))),
+            verificationCount: 1);
     }
 
     [GlobalCleanup]
