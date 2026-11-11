@@ -4018,14 +4018,21 @@
     {
       "project": "core",
       "benchmarkClass": "PrefixQueryBenchmarks",
-      "benchmarkMethod": "LeanCorpus_PrefixQuery",
+      "benchmarkMethod": "LeanCorpus_PrefixQuery_Scored",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },
     {
       "project": "core",
       "benchmarkClass": "PrefixQueryBenchmarks",
-      "benchmarkMethod": "LuceneNet_PrefixQuery",
+      "benchmarkMethod": "LuceneNet_PrefixQuery_ConstantScore",
+      "reason": "Unqualified: constant-score rewrite is not the scored work LeanCorpus performs. It is excluded from competitive claims until a semantic case family and correctness proof are added.",
+      "expiresOn": "2027-01-31"
+    },
+    {
+      "project": "core",
+      "benchmarkClass": "PrefixQueryBenchmarks",
+      "benchmarkMethod": "LuceneNet_PrefixQuery_Scored",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },
