@@ -146,7 +146,7 @@ internal sealed class TermDictionaryReader : IDisposable
     {
         Span<byte> qualStack = stackalloc byte[256];
         var qualifier = EncodeUtf8(fieldPrefix.AsSpan(), qualStack, out byte[]? rented);
-        var wildcard = new WildcardAutomaton(pattern.ToString());
+        var wildcard = GetOrAddWildcardAutomaton(pattern);
         var results = new List<(string, long)>();
         try
         {

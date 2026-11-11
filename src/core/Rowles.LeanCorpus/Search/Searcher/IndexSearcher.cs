@@ -1208,9 +1208,123 @@ public sealed partial class IndexSearcher : IDisposable
         if (query is CombinedFieldsQuery combined)
             return PrecomputeCombinedFieldUnionDocFreqs(combined);
 
-        return ShouldSkipGlobalDocFreqs(query)
+        var globalDFs = ShouldSkipGlobalDocFreqs(query)
             ? EmptyGlobalDFs
             : PrecomputeGlobalDocFreqs(query);
+
+        // A single segment's own document frequencies are already global. Across segments, every
+        // expanded and span term needs its frequency summed over all of them (ADR048), looked up
+        // once per term here rather than per posting during scoring.
+        if (_readers.Count <= 1 || !ExpansionDocFreqVisitor.Requires(query))
+            return globalDFs;
+        var merged = new Dictionary<(string Field, string Term), int>(globalDFs);
+        query.Visit(new ExpansionDocFreqVisitor(this, merged, checkResources));
+        return merged;
+    }
+
+    /// <summary>
+    /// Collects global document frequencies for prefix, wildcard, regexp and fuzzy expansions and for
+    /// span terms, by visiting each segment's matching terms once (ADR048).
+    /// </summary>
+    private sealed class ExpansionDocFreqVisitor(
+        IndexSearcher searcher,
+        Dictionary<(string Field, string Term), int> docFreqs,
+        Action? checkResources) : QueryVisitor
+    {
+        private readonly HashSet<Query> _visited = new(ReferenceEqualityComparer.Instance);
+
+        public static bool Requires(Query query)
+        {
+            var probe = new RequirementProbe();
+            query.Visit(probe);
+            return probe.Required;
+        }
+
+        public override void VisitLeaf(Query query)
+        {
+            if (!_visited.Add(query))
+                return;
+            switch (query)
+            {
+                case PrefixQuery prefix:
+                    AddMatching(prefix.Field, reader => Visit(reader, prefix.Field, prefix.Prefix, null, null));
+                    break;
+                case WildcardQuery wildcard:
+                    AddMatching(wildcard.Field, reader => Visit(reader, wildcard.Field, null, wildcard.Pattern, null));
+                    break;
+                case RegexpQuery regexp:
+                    string? literal = UsesDefaultRegexMatching(regexp.CompiledRegex) &&
+                                      TryGetRegexLiteralPrefix(regexp.Pattern, out var regexPrefix) ? regexPrefix : null;
+                    AddMatching(regexp.Field, reader => Visit(reader, regexp.Field, literal, null, regexp.CompiledRegex));
+                    break;
+                case FuzzyQuery fuzzy:
+                    AddMatching(fuzzy.Field, reader => reader.GetFuzzyMatches(string.Concat(fuzzy.Field, "\0"), fuzzy.Term.AsSpan(),
+                            fuzzy.MaxEdits, fuzzy.MaxExpansions, searcher._config.UseFuzzyExpansionCache)
+                        .Select(static match => match.Term).ToList());
+                    break;
+            }
+        }
+
+        public override void ConsumeTerm(Query query, string field, string term)
+        {
+            if (query is SpanTermQuery)
+                AddTerm(field, term);
+            else
+                VisitLeaf(query);
+        }
+
+        private void AddTerm(string field, string term)
+        {
+            if (docFreqs.ContainsKey((field, term)))
+                return;
+            string qualified = string.Concat(field, "\0", term);
+            int total = 0;
+            foreach (var reader in searcher._readers)
+                total += reader.GetDocFreqByQualified(qualified);
+            docFreqs[(field, term)] = total;
+        }
+
+        private List<string> Visit(SegmentReader reader, string field, string? prefix, string? wildcard, System.Text.RegularExpressions.Regex? regex)
+        {
+            var terms = new List<string>();
+            reader.VisitMatchingTerms(field, prefix, wildcard, regex, terms.Add, checkResources);
+            return terms;
+        }
+
+        /// <summary>
+        /// Sums each expanded term's frequency over every segment, including segments whose own
+        /// expansion did not select it, so the value equals the merged index's frequency.
+        /// </summary>
+        private void AddMatching(string field, Func<SegmentReader, List<string>> matchingQualifiedTerms)
+        {
+            var expanded = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var reader in searcher._readers)
+            {
+                checkResources?.Invoke();
+                expanded.UnionWith(matchingQualifiedTerms(reader));
+            }
+            foreach (string qualified in expanded)
+            {
+                var key = (field, qualified[(field.Length + 1)..]);
+                if (docFreqs.ContainsKey(key))
+                    continue;
+                int total = 0;
+                foreach (var reader in searcher._readers)
+                    total += reader.GetDocFreqByQualified(qualified);
+                docFreqs[key] = total;
+            }
+        }
+
+        private sealed class RequirementProbe : QueryVisitor
+        {
+            public bool Required { get; private set; }
+
+            public override void VisitLeaf(Query query)
+                => Required |= query is PrefixQuery or WildcardQuery or RegexpQuery or FuzzyQuery;
+
+            public override void ConsumeTerm(Query query, string field, string term)
+                => Required |= query is SpanTermQuery;
+        }
     }
 
     private IndexRecovery.RecoveryResult? LoadLatestCommitWithGeneration()

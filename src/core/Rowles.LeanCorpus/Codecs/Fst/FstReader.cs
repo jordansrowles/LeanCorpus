@@ -385,11 +385,11 @@ public sealed class FstReader
     private void CollectIntersectRecursive(long nodeAddr, int automatonState, long accumulatedOutput, IAutomaton automaton, List<long> sink)
     {
         // When the automaton is in a fully-permissive sink state, every remaining
-        // FST path is a match. Skip automaton calls and collect all outputs.
+        // FST path is a match. Skip automaton calls and collect all outputs. The node's
+        // own final output was already added by the caller, so only descendants remain;
+        // adding it here returned a term such as "market" twice for "m*rket*".
         if (automaton.IsSink(automatonState))
         {
-            if (TryGetFinalOutput(nodeAddr, out long final))
-                sink.Add(accumulatedOutput + final);
             CollectOutputsRecursive(nodeAddr, accumulatedOutput, sink);
             return;
         }

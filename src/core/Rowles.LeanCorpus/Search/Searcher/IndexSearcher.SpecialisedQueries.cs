@@ -537,7 +537,7 @@ public sealed partial class IndexSearcher
 
         try
         {
-            if (globalDFs.Count == 0)
+            if (globalDFs.Count == 0 && !RequiresCollectionStatistics(query.Field))
             {
                 var matchingOffsets = reader.GetTermOffsetsWithPrefix(qualifiedPrefix);
                 if (matchingOffsets.Count == 0) return;
@@ -617,7 +617,7 @@ public sealed partial class IndexSearcher
 
         try
         {
-            if (globalDFs.Count == 0)
+            if (globalDFs.Count == 0 && !RequiresCollectionStatistics(query.Field))
             {
                 List<long> matchingOffsets;
                 if (!usePrefixNarrowing)
@@ -949,7 +949,7 @@ public sealed partial class IndexSearcher
         var regex = query.CompiledRegex;
 
         // Fast path: literal-contains pattern (e.g. .*nation.*)
-        if (globalDFs.Count == 0 &&
+        if (globalDFs.Count == 0 && !RequiresCollectionStatistics(query.Field) &&
             UsesDefaultRegexMatching(regex) &&
             TryGetSimpleContainsRegexLiteral(query.Pattern, out var literal))
         {
