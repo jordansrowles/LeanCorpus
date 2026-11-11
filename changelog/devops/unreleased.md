@@ -92,6 +92,7 @@
 
 ## Fixed
 
+- Rowles.Text benchmarks now apply the synonym filter, measure real Hunspell parsing, verify output across engines and no longer report single-invocation timings.
 - Validate exact Float32 benchmark results against the documented score and boundary-tie contract; retain literal recall measurements and unchanged ANN and Int8 quality floors.
 
 - Invalidate HNSW benchmark fixtures when the Core implementation build changes, preventing reuse of indexes encoded by an older quantiser.
