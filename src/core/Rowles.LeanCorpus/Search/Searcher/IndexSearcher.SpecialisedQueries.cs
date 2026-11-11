@@ -963,17 +963,18 @@ public sealed partial class IndexSearcher
         {
             var qualifiedPrefix = string.Concat(fieldPrefix, prefix);
             var candidateTerms = reader.GetTermsWithPrefix(qualifiedPrefix);
-            ExecuteRegexpFromCandidates(query, reader, ref collector, candidateTerms, fieldPrefix, regex);
+            ExecuteRegexpFromCandidates(query, reader, globalDFs, ref collector, candidateTerms, fieldPrefix, regex);
             return;
         }
 
         // Fallback: full FST enumeration with regex filter (expensive, only for complex patterns).
         var matchingTerms = reader.GetTermsMatchingRegex(fieldPrefix, regex);
         if (matchingTerms.Count == 0) return;
-        ExecuteRegexpFromCandidates(query, reader, ref collector, matchingTerms, fieldPrefix, regex);
+        ExecuteRegexpFromCandidates(query, reader, globalDFs, ref collector, matchingTerms, fieldPrefix, regex);
     }
 
     private void ExecuteRegexpFromCandidates(RegexpQuery query, SegmentReader reader,
+        Dictionary<(string Field, string Term), int> globalDFs,
         ref TopNCollector collector,
         List<(string Term, long Offset)> candidates,
         string fieldPrefix,
@@ -984,36 +985,52 @@ public sealed partial class IndexSearcher
         int docBase = reader.DocBase;
         var fieldLengths = reader.GetFieldLengthsForQuery(query.Field);
         reader.TryGetFieldBoosts(query.Field, out var fieldBoosts);
+        // Accumulate per document, as the prefix route does (ADR048): a document matching several
+        // terms is collected once with its scores summed, so TotalHits counts unique documents.
+        var scores = EnsureScratch(ref t_patternScores, reader.MaxDoc);
+        var seen = EnsureScratch(ref t_patternSeen, reader.MaxDoc);
+        var docIds = EnsureScratch(ref t_patternDocIds, reader.MaxDoc);
+        int docCount = 0;
 
-        foreach (var (qualifiedTerm, postingsOffset) in candidates)
+        try
         {
-            // Verify the term matches the full regex pattern.
-            var bareTerm = qualifiedTerm.AsSpan(fieldPrefix.Length);
-            if (!regex.IsMatch(bareTerm))
-                continue;
-
-            using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
-            if (postings.IsExhausted) continue;
-
-            var termPart = qualifiedTerm.AsSpan(query.Field.Length + 1).ToString();
-            int docFreq = postings.DocFreq;
-            long collectionFreq = RequiresCollectionStatistics(query.Field)
-                ? GetGlobalCollectionFreq(qualifiedTerm)
-                : 0;
-            var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
-
-            while (postings.MoveNextUnchecked(out int docId, out int tf))
+            foreach (var (qualifiedTerm, postingsOffset) in candidates)
             {
-                if (!reader.IsLive(docId)) continue;
+                // Verify the term matches the whole-term regex.
+                var bareTerm = qualifiedTerm.AsSpan(fieldPrefix.Length);
+                if (!regex.IsMatch(bareTerm))
+                    continue;
 
-                int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
-                    ? fieldLengths.Value.Span[docId] : 1;
-                float score = ScoreTerm(f1, f2, f3, tf, docLength, query.Field);
-                score *= boost;
-                score = ApplyFieldBoost(fieldBoosts, docId, score);
-                collector.Collect(docBase + docId, score);
+                using var postings = reader.GetPostingsEnumAtOffset(postingsOffset);
+                if (postings.IsExhausted) continue;
+
+                int docFreq = GlobalDocFreq(globalDFs, query.Field, qualifiedTerm, postings.DocFreq);
+                long collectionFreq = RequiresCollectionStatistics(query.Field)
+                    ? GetGlobalCollectionFreq(qualifiedTerm)
+                    : 0;
+                var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
+                AccumulatePostingsScores(reader, postings, f1, f2, f3, query.Field,
+                    fieldLengths, fieldBoosts, boost, scores, seen, docIds, ref docCount);
             }
+
+            CollectAccumulatedScores(scores, docIds, docCount, docBase, ref collector);
         }
+        finally
+        {
+            ClearAccumulatedScores(scores, seen, docIds, docCount);
+        }
+    }
+
+    /// <summary>
+    /// The document frequency to score an expanded term with: the precomputed global value when the
+    /// search spans several segments, otherwise the segment's own, which is then global (ADR048).
+    /// </summary>
+    private static int GlobalDocFreq(
+        Dictionary<(string Field, string Term), int> globalDFs, string field, string qualifiedTerm, int segmentDocFreq)
+    {
+        if (globalDFs.Count == 0)
+            return segmentDocFreq;
+        return globalDFs.TryGetValue((field, qualifiedTerm[(field.Length + 1)..]), out int docFreq) ? docFreq : segmentDocFreq;
     }
 
     private void ExecuteRegexpContainsQuery(RegexpQuery query, SegmentReader reader, string fieldPrefix,
