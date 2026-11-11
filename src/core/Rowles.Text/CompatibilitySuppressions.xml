@@ -128,4 +128,46 @@
     <Right>lib/net11.0/Rowles.Text.dll</Right>
     <IsBaselineSuppression>true</IsBaselineSuppression>
   </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Rowles.LeanCorpus.Analysis.Filters.HunspellDictionary.FromFile(System.String,System.String,System.Int32)</Target>
+    <Left>lib/net10.0/Rowles.Text.dll</Left>
+    <Right>lib/net10.0/Rowles.Text.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Rowles.LeanCorpus.Analysis.Filters.HunspellDictionary.FromStream(System.IO.Stream,System.IO.Stream,System.Int32)</Target>
+    <Left>lib/net10.0/Rowles.Text.dll</Left>
+    <Right>lib/net10.0/Rowles.Text.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Rowles.LeanCorpus.Analysis.Filters.HunspellDictionary.Parse(System.String,System.String,System.Int32)</Target>
+    <Left>lib/net10.0/Rowles.Text.dll</Left>
+    <Right>lib/net10.0/Rowles.Text.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Rowles.LeanCorpus.Analysis.Filters.HunspellDictionary.FromFile(System.String,System.String,System.Int32)</Target>
+    <Left>lib/net11.0/Rowles.Text.dll</Left>
+    <Right>lib/net11.0/Rowles.Text.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Rowles.LeanCorpus.Analysis.Filters.HunspellDictionary.FromStream(System.IO.Stream,System.IO.Stream,System.Int32)</Target>
+    <Left>lib/net11.0/Rowles.Text.dll</Left>
+    <Right>lib/net11.0/Rowles.Text.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Rowles.LeanCorpus.Analysis.Filters.HunspellDictionary.Parse(System.String,System.String,System.Int32)</Target>
+    <Left>lib/net11.0/Rowles.Text.dll</Left>
+    <Right>lib/net11.0/Rowles.Text.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
 </Suppressions>

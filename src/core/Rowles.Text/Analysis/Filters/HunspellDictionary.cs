@@ -1,5 +1,8 @@
+using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
+using System.Security.Cryptography;
+using System.Text;
 
 #if !ROWLES_TEXT
 using Rowles.LeanCorpus.Store;
@@ -16,8 +19,9 @@ public sealed class HunspellDictionary
     private readonly FrozenDictionary<string, string[]> _surfaceToStems;
 
     /// <summary>
-    /// Thread-safe cache of parsed dictionaries keyed by content hash.
-    /// Subsequent calls with the same AFF and DIC text return the cached instance.
+    /// Thread-safe cache of parsed dictionaries keyed by a SHA-256 of both texts and the form limit.
+    /// Subsequent cached calls with the same content return the same instance. It has no size limit;
+    /// call <see cref="ClearCache"/> to release parsed dictionaries.
     /// </summary>
     private static readonly ConcurrentDictionary<string, HunspellDictionary> Cache = new(StringComparer.Ordinal);
 
@@ -31,11 +35,19 @@ public sealed class HunspellDictionary
 
     /// <summary>
     /// Parses Hunspell affix and dictionary content from files on disk.
-    /// Results are cached by content hash for subsequent calls.
     /// </summary>
+    /// <param name="affixPath">Path to the <c>.aff</c> file.</param>
+    /// <param name="dictionaryPath">Path to the <c>.dic</c> file.</param>
+    /// <param name="maxGeneratedFormsPerEntry">Maximum surface forms generated per dictionary entry.</param>
+    /// <param name="useCache">
+    /// When <see langword="true"/> (the default), returns a cached instance for identical content and
+    /// caches a new one; when <see langword="false"/>, always parses and neither reads nor writes the cache.
+    /// </param>
     public static HunspellDictionary FromFile(string affixPath, string dictionaryPath,
-        int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry)
+        int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry, bool useCache = true)
     {
+        ArgumentNullException.ThrowIfNull(affixPath);
+        ArgumentNullException.ThrowIfNull(dictionaryPath);
 #if ROWLES_TEXT
         var affixText = File.ReadAllText(affixPath);
         var dictionaryText = File.ReadAllText(dictionaryPath);
@@ -43,17 +55,25 @@ public sealed class HunspellDictionary
         var affixText = FileOpenRetry.ReadAllText(affixPath);
         var dictionaryText = FileOpenRetry.ReadAllText(dictionaryPath);
 #endif
-        return ParseCached(affixText, dictionaryText, maxGeneratedFormsPerEntry);
+        return Parse(affixText, dictionaryText, maxGeneratedFormsPerEntry, useCache);
     }
 
     /// <summary>
     /// Parses Hunspell affix and dictionary content from streams.
     /// The streams are read to completion but not disposed.
-    /// Results are cached by content hash for subsequent calls.
     /// </summary>
+    /// <param name="affixStream">Stream of <c>.aff</c> content.</param>
+    /// <param name="dictionaryStream">Stream of <c>.dic</c> content.</param>
+    /// <param name="maxGeneratedFormsPerEntry">Maximum surface forms generated per dictionary entry.</param>
+    /// <param name="useCache">
+    /// When <see langword="true"/> (the default), returns a cached instance for identical content and
+    /// caches a new one; when <see langword="false"/>, always parses and neither reads nor writes the cache.
+    /// </param>
     public static HunspellDictionary FromStream(Stream affixStream, Stream dictionaryStream,
-        int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry)
+        int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry, bool useCache = true)
     {
+        ArgumentNullException.ThrowIfNull(affixStream);
+        ArgumentNullException.ThrowIfNull(dictionaryStream);
 #if ROWLES_TEXT
         using var affReader = new StreamReader(affixStream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
         using var dicReader = new StreamReader(dictionaryStream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
@@ -61,28 +81,58 @@ public sealed class HunspellDictionary
         using var affReader = FileOpenRetry.OpenTextReader(affixStream, System.Text.Encoding.UTF8, leaveOpen: true);
         using var dicReader = FileOpenRetry.OpenTextReader(dictionaryStream, System.Text.Encoding.UTF8, leaveOpen: true);
 #endif
-        return ParseCached(affReader.ReadToEnd(), dicReader.ReadToEnd(), maxGeneratedFormsPerEntry);
+        return Parse(affReader.ReadToEnd(), dicReader.ReadToEnd(), maxGeneratedFormsPerEntry, useCache);
     }
 
     /// <summary>
     /// Parses Hunspell affix and dictionary content from strings.
-    /// Results are cached by content hash for subsequent calls.
     /// </summary>
+    /// <param name="affixText">The <c>.aff</c> content.</param>
+    /// <param name="dictionaryText">The <c>.dic</c> content.</param>
+    /// <param name="maxGeneratedFormsPerEntry">Maximum surface forms generated per dictionary entry.</param>
+    /// <param name="useCache">
+    /// When <see langword="true"/> (the default), returns a cached instance for identical content and
+    /// caches a new one; when <see langword="false"/>, always parses and neither reads nor writes the cache.
+    /// </param>
+    /// <exception cref="ArgumentNullException"><paramref name="affixText"/> or <paramref name="dictionaryText"/> is null.</exception>
     public static HunspellDictionary Parse(
         string affixText,
         string dictionaryText,
-        int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry)
+        int maxGeneratedFormsPerEntry = DefaultMaxGeneratedFormsPerEntry,
+        bool useCache = true)
     {
-        return ParseCached(affixText, dictionaryText, maxGeneratedFormsPerEntry);
+        ArgumentNullException.ThrowIfNull(affixText);
+        ArgumentNullException.ThrowIfNull(dictionaryText);
+        if (!useCache)
+            return ParseInternal(affixText, dictionaryText, maxGeneratedFormsPerEntry);
+
+        return Cache.GetOrAdd(CacheKey(affixText, dictionaryText, maxGeneratedFormsPerEntry),
+            static (_, state) => ParseInternal(state.Affix, state.Dictionary, state.Max),
+            (Affix: affixText, Dictionary: dictionaryText, Max: maxGeneratedFormsPerEntry));
     }
 
-    private static HunspellDictionary ParseCached(
-        string affixText, string dictionaryText, int maxGeneratedFormsPerEntry)
-    {
-        // Compute a content hash for cache key
-        var key = $"{affixText.GetHashCode(StringComparison.Ordinal):X8}:{dictionaryText.GetHashCode(StringComparison.Ordinal):X8}:{maxGeneratedFormsPerEntry}";
+    /// <summary>Removes every cached dictionary, so later cached calls parse again.</summary>
+    public static void ClearCache() => Cache.Clear();
 
-        return Cache.GetOrAdd(key, _ => ParseInternal(affixText, dictionaryText, maxGeneratedFormsPerEntry));
+    /// <summary>
+    /// SHA-256 over the length-prefixed UTF-8 of both texts and the form limit, so distinct content
+    /// never shares a key.
+    /// </summary>
+    private static string CacheKey(string affixText, string dictionaryText, int maxGeneratedFormsPerEntry)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        Span<byte> number = stackalloc byte[8];
+        foreach (string text in new[] { affixText, dictionaryText })
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(text);
+            BinaryPrimitives.WriteInt64LittleEndian(number, bytes.LongLength);
+            hash.AppendData(number);
+            hash.AppendData(bytes);
+        }
+
+        BinaryPrimitives.WriteInt64LittleEndian(number, maxGeneratedFormsPerEntry);
+        hash.AppendData(number);
+        return Convert.ToHexString(hash.GetHashAndReset());
     }
 
     private static HunspellDictionary ParseInternal(
