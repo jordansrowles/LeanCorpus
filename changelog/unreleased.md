@@ -79,6 +79,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Prefix, wildcard and regexp expansions now score with global document frequency, so scores and order may change and no longer depend on segmentation. No reindexing is needed.
+- RegexpQuery now matches whole terms on every route, like Lucene. Queries relying on search-within behaviour must use explicit wildcards such as .*term.*.
 - Score phrase queries by phrase frequency, counting exact occurrences and weighting sloppy matches by 1 / (distance + 1) as Lucene does, instead of by the leading term's frequency. Phrase scores and rankings change.
 - `ISimilarity.ScorePrecomputed`, `ISimilarity.ScoreLmPrecomputed`, their implementations and `Bm25Scorer.ScorePrecomputed` take a float term frequency so phrase frequency can be fractional. Custom similarities must update their signatures; term scores are unchanged.
 - Apply query boosts to vector scores and explanations, reverse HNSW candidate direction for negative boosts, and reject query vectors whose dimensions do not match their indexed field.
@@ -162,6 +164,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- Regexp queries no longer return a document more than once, and TotalHits counts unique documents.
 - Phrase slop now applies across the whole phrase and each query term uses a distinct token, so some sloppy phrases return fewer, correct matches.
 - Analysis now preserves position gaps when stop words are removed, so phrase queries no longer match across removed words. Existing indexes must be reindexed from source text to benefit.
 - Preserve spatial field metadata when migrating segment sidecars.

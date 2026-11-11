@@ -64,9 +64,15 @@ See [Phrase and proximity](03-phrase-and-proximity.md) and [Intervals](10-interv
 |---|---|---|
 | `PrefixQuery` | Terms beginning with a fixed prefix | Longer fixed prefixes reduce dictionary expansion. |
 | `WildcardQuery` | `*` and `?` patterns | Avoid leading wildcards on large term dictionaries. |
-| `RegexpQuery` | Regular-expression term matching | Bound user patterns and test worst cases. |
+| `RegexpQuery` | Regular-expression matching of whole terms | Bound user patterns and test worst cases. |
 | `FuzzyQuery` | Terms within edit distance 0 to 2 | `MaxExpansions` limits candidate terms. |
 | `TermRangeQuery` | Lexicographic term range | Bounds may be inclusive, exclusive, or `null` for unbounded. |
+
+`RegexpQuery` matches the whole term, like Lucene: `gov.*ment` and
+`^gov.*ment$` are the same query and match `government`, while `ment` matches
+no part of `government`. Match within a term with explicit wildcards, such as
+`.*ment.*`. A document matching several terms is returned once, with the
+terms' scores summed.
 
 ```csharp
 var names = new TermRangeQuery(
