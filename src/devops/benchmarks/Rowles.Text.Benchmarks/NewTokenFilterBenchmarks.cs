@@ -1,312 +1,210 @@
-using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using BenchmarkDotNet.Attributes;
 using Rowles.LeanCorpus.Analysis;
-using Rowles.LeanCorpus.Analysis.Filters;
 using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Filters;
+using LeanToken = Rowles.LeanCorpus.Analysis.Token;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Compares token filter throughput between LeanCorpus span-based
-/// (<see cref="ISpanTokenFilter"/>) and Lucene.NET streaming (<c>TokenFilter</c>)
-/// implementations for newly added filters.
+/// Compares token filter throughput between LeanCorpus span-based (<see cref="ISpanTokenFilter"/>)
+/// and Lucene.NET streaming (<c>TokenFilter</c>) implementations for newly added filters, per token
+/// over a pregenerated stream of <see cref="TokenFilterStreams.TokensPerInvoke"/> tokens replayed to
+/// Lucene.NET with no tokeniser in timing. Setup proves equal terms and that the reused rows reach
+/// their reset path. An A/A row repeats the LeanCorpus reused body. The hyphenated-words filters are
+/// different algorithms, so that filter is measured by <see cref="HyphenatedWordsFilterBenchmarks"/>.
+/// Directional head-to-head rows.
 /// </summary>
+/// <remarks>
+/// Lucene.NET's <c>CachingTokenFilter</c> cannot clear its cache, so its reused row wraps the reused
+/// source in a new cache each invocation; LeanCorpus resets its reused cache. Both capture and
+/// forward every token.
+/// </remarks>
 [MemoryDiagnoser]
 [HtmlExporter]
 [JsonExporterAttribute.Full]
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
-[InvocationCount(1)]
 public class NewTokenFilterBenchmarks
 {
+    private const int Tokens = TokenFilterStreams.TokensPerInvoke;
+
     [Params(
         "classic-noop",
         "pattern-replace-noop",
         "pattern-replace-mutating",
-        "hyphenated-words",
         "caching")]
     public string Scenario { get; set; } = "classic-noop";
 
-    // LeanCorpus state
-    private Token[] _source = [];
-    private ISpanTokenFilter _filter = null!;
-    private ISpanTokenFilter _iterationFilter = null!;
-
-    // Lucene.NET state: the raw input string for the tokeniser
-    private string _luceneInput = string.Empty;
-    private Lucene.Net.Analysis.Tokenizer? _luceneBaseStream;
-    private Lucene.Net.Analysis.TokenStream? _luceneFilter;
-    private bool _luceneStreamConsumed;
-    private int _expectedLeanCount;
-    private int _expectedLuceneCount;
+    private LeanToken[] _source = [];
+    private Func<ISpanTokenFilter> _create = null!;
+    private ISpanTokenFilter _reusedFilter = null!;
+    private readonly CountingTokenSink _sink = new();
+    private ReplayTokenStream _luceneSource = null!;
+    private Lucene.Net.Analysis.TokenStream? _luceneReused;
+    private int _expectedCount;
 
     [GlobalSetup]
     public void Setup()
     {
-        (Token[] source, ISpanTokenFilter filter, string input) configured = Scenario switch
+        (_source, _create) = Scenario switch
         {
-            "classic-noop" => (
-                BuildTokens(["quick", "brown", "fox"]),
-                new ClassicFilter(),
-                "quick brown fox"),
-            "pattern-replace-noop" => (
-                BuildTokens(["hello", "world"]),
-                new PatternReplaceFilter("[0-9]+", "#"),
-                "hello world"),
-            "pattern-replace-mutating" => (
-                BuildTokens(["call", "12345", "now"]),
-                new PatternReplaceFilter("[0-9]+", "#"),
-                "call 12345 now"),
-            "hyphenated-words" => (
-                BuildTokensWithPositions([("state", 1), ("of", 0), ("the", 0), ("art", 0)]),
-                new HyphenatedWordsFilter('-'),
-                "state-of-the-art"),
-            "caching" => (
-                BuildTokens(["alpha", "beta", "gamma", "delta"]),
-                new CachingTokenFilter(),
-                "alpha beta gamma delta"),
+            "classic-noop" => (Words("quick", "brown", "fox", "jumps"), (Func<ISpanTokenFilter>)(static () => new ClassicFilter())),
+            "pattern-replace-noop" => (Words("hello", "world"), static () => new PatternReplaceFilter("[0-9]+", "#")),
+            "pattern-replace-mutating" => (Words("call", "12345", "now", "then"), static () => new PatternReplaceFilter("[0-9]+", "#")),
+            "caching" => (Words("alpha", "beta", "gamma", "delta"), static () => new CachingTokenFilter()),
             _ => throw new InvalidOperationException($"Unknown scenario '{Scenario}'.")
         };
 
-        _source = configured.source;
-        _filter = configured.filter;
-        _luceneInput = configured.input;
-
-        var expectedLeanTerms = CaptureLean(
-            Scenario == "caching" ? new CachingTokenFilter() : _filter.Clone());
-        _expectedLeanCount = expectedLeanTerms.Count;
-        using var baseStream = BuildLuceneBaseStream(_luceneInput);
-        using var luceneFilter = BuildLuceneFilter(baseStream);
-        if (Scenario == "caching")
-            baseStream.Reset();
-        var expectedLuceneTerms = CaptureLucene(luceneFilter);
-        _expectedLuceneCount = expectedLuceneTerms.Count;
-        if (!expectedLeanTerms.SequenceEqual(expectedLuceneTerms, StringComparer.Ordinal))
+        var lean = TokenFilterStreams.CaptureLean(_source, _create());
+        string[] lucene;
+        var coldSource = new ReplayTokenStream(_source);
+        using (var cold = BuildLuceneFilter(coldSource))
         {
-            throw new InvalidOperationException(
-                $"Token-filter fixture '{Scenario}' is not comparable: " +
-                $"LeanCorpus emitted [{string.Join(", ", expectedLeanTerms)}], " +
-                $"Lucene.NET emitted [{string.Join(", ", expectedLuceneTerms)}].");
+            if (Scenario == "caching")
+                coldSource.Reset();
+            lucene = TokenFilterStreams.CaptureLucene(cold);
         }
+        if (!lean.SequenceEqual(lucene, StringComparer.Ordinal))
+            throw new InvalidOperationException(
+                $"Token-filter fixture '{Scenario}' is not comparable: LeanCorpus emitted {lean.Length} terms "
+                + $"[{string.Join(", ", lean.Take(8))}], Lucene.NET emitted {lucene.Length} [{string.Join(", ", lucene.Take(8))}].");
+        _expectedCount = lean.Length;
+
+        _reusedFilter = _create();
+        _luceneSource = new ReplayTokenStream(_source);
+        if (Scenario != "caching")
+            _luceneReused = BuildLuceneFilter(_luceneSource);
+
+        // Run each reused path twice: the second pass must go through the reset path and match.
+        for (int pass = 0; pass < 2; pass++)
+        {
+            LeanCorpus_Apply();
+            LuceneNet_Apply();
+        }
+        if (_luceneSource.ResetCount != 2)
+            throw new InvalidOperationException($"The reused Lucene.NET filter did not reset its source: {_luceneSource.ResetCount} resets.");
     }
 
-    [IterationSetup]
-    public void IterationSetup()
-    {
-        _iterationFilter = Scenario == "caching"
-            ? new CachingTokenFilter()
-            : _filter.Clone();
-        _luceneBaseStream = BuildLuceneBaseStream(_luceneInput);
-        _luceneFilter = BuildLuceneFilter(_luceneBaseStream);
-        _luceneStreamConsumed = false;
-    }
+    [GlobalCleanup]
+    public void Cleanup() => _luceneReused?.Dispose();
 
-    [IterationCleanup]
-    public void IterationCleanup()
-    {
-        if (_iterationFilter is CachingTokenFilter caching)
-            caching.Reset();
-        _luceneFilter?.Dispose();
-        _luceneFilter = null;
-        _luceneBaseStream = null;
-        _luceneStreamConsumed = false;
-    }
-
-    // --- LeanCorpus benchmark ---
-
-    [Benchmark(Baseline = true)]
+    [Benchmark(Baseline = true, Description = "LeanCorpus reused filter", OperationsPerInvoke = Tokens)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_Apply()
-    {
-        return ValidateCount(ApplyLean(_iterationFilter), _expectedLeanCount, "LeanCorpus");
-    }
+    public int LeanCorpus_Apply() => ApplyReused("LeanCorpus");
 
-    // --- Lucene.NET streaming benchmark ---
+    [Benchmark(Description = "LeanCorpus reused filter (A/A)", OperationsPerInvoke = Tokens)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_Apply_Repeat() => ApplyReused("LeanCorpus A/A");
 
-    [Benchmark]
+    [Benchmark(Description = "Lucene.NET reused filter", OperationsPerInvoke = Tokens)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_Apply()
     {
-        var filter = _luceneFilter ?? throw new InvalidOperationException("Lucene filter was not prepared.");
-        var baseStream = _luceneBaseStream
-            ?? throw new InvalidOperationException("Lucene base stream was not prepared.");
+        if (_luceneReused is { } reused)
+            return TokenFilterStreams.Validate(TokenFilterStreams.ApplyLucene(reused), _expectedCount, "Lucene.NET");
 
-        if (Scenario == "caching")
-        {
-            // CachingTokenFilter replays its cached token state after the first
-            // pass and must not reset its already-consumed input stream.
-            if (!_luceneStreamConsumed)
-                baseStream.Reset();
-        }
-        else if (_luceneStreamConsumed)
-        {
-            // Lucene tokenizers require the completed stream to be disposed
-            // before a fresh reader is supplied for the next invocation.
-            filter.Dispose();
-            baseStream.SetReader(new System.IO.StringReader(_luceneInput));
-        }
-
-        int total = 0;
-        filter.Reset();
-        while (filter.IncrementToken())
-            total++;
-        filter.End();
-        _luceneStreamConsumed = true;
-        return ValidateCount(total, _expectedLuceneCount, "Lucene.NET");
+        // Caching: Lucene.NET's cache does not reset its input, so reset the reused source directly.
+        _luceneSource.Reset();
+        var cache = new Lucene.Net.Analysis.CachingTokenFilter(_luceneSource);
+        return TokenFilterStreams.Validate(TokenFilterStreams.ApplyLucene(cache), _expectedCount, "Lucene.NET");
     }
 
-    [Benchmark(Description = "LeanCorpus cold filter pipeline")]
+    [Benchmark(Description = "LeanCorpus cold filter pipeline", OperationsPerInvoke = Tokens)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LeanCorpus_ApplyColdPipeline()
     {
-        var filter = Scenario == "caching" ? new CachingTokenFilter() : _filter.Clone();
-        return ValidateCount(ApplyLean(filter), _expectedLeanCount, "LeanCorpus cold");
+        var sink = new CountingTokenSink();
+        TokenFilterStreams.ApplyLean(_source, _create(), sink);
+        return TokenFilterStreams.Validate(sink.Count, _expectedCount, "LeanCorpus cold");
     }
 
-    [Benchmark(Description = "Lucene.NET cold filter pipeline")]
+    [Benchmark(Description = "Lucene.NET cold filter pipeline", OperationsPerInvoke = Tokens)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int LuceneNet_ApplyColdPipeline()
     {
-        using var baseStream = BuildLuceneBaseStream(_luceneInput);
-        using var filter = BuildLuceneFilter(baseStream);
+        var source = new ReplayTokenStream(_source);
+        using var filter = BuildLuceneFilter(source);
         if (Scenario == "caching")
-            baseStream.Reset();
-        return ValidateCount(ApplyLucene(filter), _expectedLuceneCount, "Lucene.NET cold");
+            source.Reset();
+        return TokenFilterStreams.Validate(TokenFilterStreams.ApplyLucene(filter), _expectedCount, "Lucene.NET cold");
     }
 
-    // --- Helpers ---
-
-    private static Token[] BuildTokens(string[] terms)
+    private int ApplyReused(string row)
     {
-        var tokens = new Token[terms.Length];
-        int offset = 0;
-        for (int i = 0; i < terms.Length; i++)
-        {
-            string term = terms[i];
-            tokens[i] = new Token(term, offset, offset + term.Length);
-            offset += term.Length + 1;
-        }
-
-        return tokens;
+        _sink.Reset();
+        if (_reusedFilter is CachingTokenFilter caching)
+            caching.Reset();
+        TokenFilterStreams.ApplyLean(_source, _reusedFilter, _sink);
+        return TokenFilterStreams.Validate(_sink.Count, _expectedCount, row);
     }
 
-    private int ApplyLean(ISpanTokenFilter filter)
-    {
-        var sink = new CountingTokenSink();
-        foreach (var token in _source)
-        {
-            filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset,
-                token.Type, token.PositionIncrement, token.Payload, sink);
-        }
-        filter.Finish(sink);
-        return sink.Count;
-    }
+    private static LeanToken[] Words(params string[] terms)
+        => TokenFilterStreams.Build(terms.Select(static term => (term, 1)).ToArray());
 
-    private static int ApplyLucene(Lucene.Net.Analysis.TokenStream filter)
-    {
-        int total = 0;
-        filter.Reset();
-        while (filter.IncrementToken())
-            total++;
-        filter.End();
-        return total;
-    }
-
-    private IReadOnlyList<string> CaptureLean(ISpanTokenFilter filter)
-    {
-        var sink = new TermCaptureSink();
-        foreach (var token in _source)
-        {
-            filter.Apply(token.Text.AsSpan(), token.StartOffset, token.EndOffset,
-                token.Type, token.PositionIncrement, token.Payload, sink);
-        }
-        filter.Finish(sink);
-        return sink.Terms;
-    }
-
-    private static IReadOnlyList<string> CaptureLucene(Lucene.Net.Analysis.TokenStream filter)
-    {
-        var terms = new List<string>();
-        var term = filter.AddAttribute<Lucene.Net.Analysis.TokenAttributes.ICharTermAttribute>();
-        filter.Reset();
-        while (filter.IncrementToken())
-            terms.Add(term.ToString());
-        filter.End();
-        return terms;
-    }
-
-    private static int ValidateCount(int actual, int expected, string implementation)
-    {
-        if (actual != expected)
-            throw new InvalidOperationException(
-                $"{implementation} token-filter output changed: expected {expected}, got {actual}.");
-        return actual;
-    }
-
-    private static Token[] BuildTokensWithPositions((string Text, int PosInc)[] terms)
-    {
-        var tokens = new Token[terms.Length];
-        int offset = 0;
-        for (int i = 0; i < terms.Length; i++)
-        {
-            string term = terms[i].Text;
-            tokens[i] = new Token(term, offset, offset + term.Length,
-                positionIncrement: terms[i].PosInc);
-            offset += term.Length + 1;
-        }
-
-        return tokens;
-    }
-
-    /// <summary>
-    /// Builds a whitespace-tokenised base stream matching the LeanCorpus token list.
-    /// </summary>
-    private static Lucene.Net.Analysis.Tokenizer BuildLuceneBaseStream(string input)
-    {
-        return new Lucene.Net.Analysis.Core.WhitespaceTokenizer(
-            Lucene.Net.Util.LuceneVersion.LUCENE_48,
-            new System.IO.StringReader(input));
-    }
-
-    /// <summary>
-    /// Wraps the base stream with the Lucene.NET equivalent of the selected LeanCorpus filter.
-    /// </summary>
     private Lucene.Net.Analysis.TokenStream BuildLuceneFilter(Lucene.Net.Analysis.TokenStream input)
-    {
-        return Scenario switch
+        => Scenario switch
         {
-            "classic-noop" =>
-                new Lucene.Net.Analysis.Standard.ClassicFilter(input),
-
+            "classic-noop" => new Lucene.Net.Analysis.Standard.ClassicFilter(input),
             "pattern-replace-noop" or "pattern-replace-mutating" =>
                 new Lucene.Net.Analysis.Pattern.PatternReplaceFilter(
-                    input,
-                    new System.Text.RegularExpressions.Regex("[0-9]+", RegexOptions.None, TimeSpan.FromSeconds(1)),
-                    "#",
-                    all: true),
-
-            "hyphenated-words" =>
-                new Lucene.Net.Analysis.Miscellaneous.HyphenatedWordsFilter(input),
-
-            "caching" =>
-                new Lucene.Net.Analysis.CachingTokenFilter(input),
-
-            _ => input
+                    input, new Regex("[0-9]+", RegexOptions.None, TimeSpan.FromSeconds(1)), "#", all: true),
+            "caching" => new Lucene.Net.Analysis.CachingTokenFilter(input),
+            _ => throw new InvalidOperationException($"Unknown scenario '{Scenario}'.")
         };
+}
+
+/// <summary>
+/// Measures <see cref="HyphenatedWordsFilter"/> per token over a pregenerated stream. LeanCorpus-only:
+/// Lucene.NET's <c>HyphenatedWordsFilter</c> is a different algorithm. Includes an A/A row.
+/// </summary>
+[MemoryDiagnoser]
+[HtmlExporter]
+[JsonExporterAttribute.Full]
+[MarkdownExporterAttribute.GitHub]
+public class HyphenatedWordsFilterBenchmarks
+{
+    private const int Tokens = TokenFilterStreams.TokensPerInvoke;
+
+    private LeanToken[] _source = [];
+    private ISpanTokenFilter _reusedFilter = null!;
+    private readonly CountingTokenSink _sink = new();
+    private int _expectedCount;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = TokenFilterStreams.Build(("state", 1), ("of", 0), ("the", 0), ("art", 0));
+        _expectedCount = TokenFilterStreams.CaptureLean(_source, new HyphenatedWordsFilter('-')).Length;
+        if (_expectedCount == 0)
+            throw new InvalidOperationException("The hyphenated-words fixture emitted no tokens.");
+        _reusedFilter = new HyphenatedWordsFilter('-');
+        LeanCorpus_Apply();
+        LeanCorpus_Apply();
     }
 
-    private sealed class TermCaptureSink : ISpanTokenSink
-    {
-        internal List<string> Terms { get; } = [];
+    [Benchmark(Baseline = true, Description = "LeanCorpus reused filter", OperationsPerInvoke = Tokens)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_Apply() => ApplyReused("LeanCorpus");
 
-        public void Add(
-            ReadOnlySpan<char> text,
-            int startOffset,
-            int endOffset,
-            string type = Token.DefaultType,
-            int positionIncrement = 1,
-            byte[]? payload = null)
-            => Terms.Add(text.ToString());
+    [Benchmark(Description = "LeanCorpus reused filter (A/A)", OperationsPerInvoke = Tokens)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_Apply_Repeat() => ApplyReused("LeanCorpus A/A");
+
+    [Benchmark(Description = "LeanCorpus cold filter pipeline", OperationsPerInvoke = Tokens)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_ApplyColdPipeline()
+    {
+        var sink = new CountingTokenSink();
+        TokenFilterStreams.ApplyLean(_source, new HyphenatedWordsFilter('-'), sink);
+        return TokenFilterStreams.Validate(sink.Count, _expectedCount, "LeanCorpus cold");
+    }
+
+    private int ApplyReused(string row)
+    {
+        _sink.Reset();
+        TokenFilterStreams.ApplyLean(_source, _reusedFilter, _sink);
+        return TokenFilterStreams.Validate(_sink.Count, _expectedCount, row);
     }
 }

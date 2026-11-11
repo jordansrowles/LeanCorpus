@@ -110,7 +110,7 @@ public sealed class ChineseLexiconTokeniser : IShareableSpanTokeniser
             {
                 int start = i;
                 while (i < input.Length
-                    && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+                    && UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
                 {
                     int nextCodePoint = CjkUnicode.DecodeCodePoint(input, i, out _);
                     if (CjkUnicode.IsIdeograph(nextCodePoint))

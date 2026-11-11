@@ -88,7 +88,7 @@ public sealed class TestRunPlannerTests
         Assert.All(result.Aggregate.Attempts, attempt => Assert.True(File.Exists(attempt.TrxPath)));
         var manifest = Assert.IsType<RunManifest>(result.Manifest);
         Assert.Equal(RunState.Succeeded, manifest.State);
-        Assert.Equal("11.0.100-preview.7.26381.103", manifest.ToolVersions["dotnet-sdk-requested"]);
+        Assert.Equal(RequestedRepositorySdk(), manifest.ToolVersions["dotnet-sdk-requested"]);
         var selectedSdkOutput = await File.ReadAllTextAsync(Path.Combine(result.RunDirectory, "sdk-version.stdout.log"),
             TestContext.Current.CancellationToken);
         Assert.Equal(selectedSdkOutput.Trim(), manifest.ToolVersions["dotnet-sdk-selected"]);
@@ -273,5 +273,21 @@ public sealed class TestRunPlannerTests
     {
         public Task<ProcessResult> RunAsync(ProcessRequest request, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("No process should run during explicit test planning.");
+    }
+
+    private static string RequestedRepositorySdk()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)
+        {
+            var globalJson = Path.Combine(directory.FullName, "global.json");
+            if (File.Exists(globalJson) && File.Exists(Path.Combine(directory.FullName, ".config", "devops", "test-suites.json")))
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(globalJson));
+                return document.RootElement.GetProperty("sdk").GetProperty("version").GetString()
+                    ?? throw new InvalidOperationException("global.json has no sdk version.");
+            }
+        }
+
+        throw new DirectoryNotFoundException("Could not find the repository global.json.");
     }
 }

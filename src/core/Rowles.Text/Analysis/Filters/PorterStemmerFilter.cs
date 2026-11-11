@@ -6,7 +6,7 @@ namespace Rowles.LeanCorpus.Analysis.Filters;
 /// Based on the Porter 1980 specification for English stemming.
 /// Operates on tokens in-place, replacing text with stemmed form.
 /// </summary>
-public sealed class PorterStemmerFilter : ISpanTokenFilter
+public sealed class PorterStemmerFilter : ISpanTokenFilter, IReusableAnalysisFilter
 {
     private readonly KeywordMarkerFilter? _keywordMarker;
 

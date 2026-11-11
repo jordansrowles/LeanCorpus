@@ -7,13 +7,16 @@ namespace Rowles.Text.Benchmarks;
 
 /// <summary>
 /// Compares the pre-RT-06 legacy cache path with graph-aware capture
-/// for a repeated small token graph.
+/// for a repeated small token graph. Each single-invocation iteration replays
+/// enough graph edges to exceed 100 ms, so no minimum iteration time warning applies.
 /// </summary>
 [MemoryDiagnoser]
+[JsonExporterAttribute.Full]
+[MarkdownExporterAttribute.GitHub]
 [InvocationCount(1)]
 public class CachingGraphEdgeBenchmarks
 {
-    private const int GraphRepetitions = 32_768;
+    private const int GraphRepetitions = 1_048_576;
 
     private static readonly Token[] GraphEdges =
     [

@@ -41,6 +41,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 ## Compatibility
 
 - The preserved stop-word position contract affects both LeanCorpus 4.0.0 and Rowles.Text 2.0.0 through shared analysis source. Reindex existing content from the original text for corrected phrase behaviour. Codec migration cannot recover removed positions; `.pos` and catalogue versions are unchanged. Unmarked segments remain readable and can be mixed with new segments, with LLIDX052 reindex guidance.
+- French and Arabic stemming changes, the combining-mark tokenisation fix, and the Hunspell and `StemmedAnalyser` changes, apply to both LeanCorpus (source-included analysis) and Rowles.Text. Indexes containing French or Arabic text must be reindexed to benefit; no index marker or status changes.
 
 ## Added
 
@@ -74,6 +75,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Add the `ITermNormaliser` contract for one-to-one wildcard and range literal normalisation, implemented by the Standard and Keyword analysers. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Add per-parse analyser factory constructors for query parsers, enabling concurrent parser reuse with isolated parse state and analyser instances. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Add optional per-clause distinct-term limits to `WildcardQuery`, `PrefixQuery` and `RegexpQuery`, with `QueryExpansionLimitException` when execution exceeds the limit; existing constructors remain unlimited. ([af6aacfa7](https://github.com/jordansrowles/LeanCorpus/commit/af6aacfa7d1128e0f8876ab1c6d1511cb62f7c25))
+- HunspellDictionary parsing accepts useCache, and ClearCache releases parsed dictionaries.
 
 ## Changed
 
@@ -156,6 +158,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Segment ordinals now use one atomic allocator across detached flush, merge, force-merge and imported-index paths. Detached flushing also sorts compact term IDs directly against its owned UTF-8 pool rather than allocating per-term byte arrays. ([84ba35bf4](https://github.com/jordansrowles/LeanCorpus/commit/84ba35bf4370132c0ffffc06edd6945c4e11ff90))
 - Write stored-fields v5 with segment-level field-name tables and byte-bounded blocks: target 1 MiB raw blocks, isolate larger documents up to 256 MiB, and retain v1-v4 reads. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Return `CharFilterResult` from `ICharFilter` with public `OffsetCorrectionMap` support for composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the previous character-filter API in Rowles.Text and source-included Core analysis. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
+- StemmedAnalyser no longer allocates an analysis context per document.
 
 ## Fixed
 
@@ -268,6 +271,9 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Preflight vector dimensions before DWPT mutation and copy accepted vector storage so caller-side array mutation cannot alter buffered or persisted vectors. ([fcdf4bf38](https://github.com/jordansrowles/LeanCorpus/commit/fcdf4bf38dae863cbc6988cfda0180290c543a4f))
 - Preflight vector merge dimensions and normalisation contracts before writing output, apply the destination writer's quantisation policy across imports and merges, and reuse HNSW seeds only when their vector contract matches the destination. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Fix merge validation for Shape DocValues component trees, empty spatial aggregations after shape deletion, and WKT output for degenerate Geo and XY rectangles and Geo rectangles spanning longitude -180 to 180. ([4d0432e27](https://github.com/jordansrowles/LeanCorpus/commit/4d0432e27fb3027e6987009cde2fad5b41e2c1f0))
+- French stemming now conflates regular plurals and common verb forms, and Arabic stemming no longer removes root letters after the definite article. Indexes containing French or Arabic text must be reindexed to benefit.
+- The standard, CJK bigram and Chinese lexicon tokenisers now keep combining marks (Unicode Mn, Mc and Me) inside words instead of splitting them off, so terms such as Arabic words with harakat or decomposed accented Latin letters are indexed whole. A mark never starts a token. Indexes containing such text must be reindexed to benefit; no codec or index marker changes.
+- HunspellDictionary cache entries are now keyed by a content hash, and null text throws ArgumentNullException.
 
 ## Removed
 

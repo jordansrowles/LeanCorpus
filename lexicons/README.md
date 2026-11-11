@@ -19,6 +19,18 @@ The `lexicons` directory contains optional language data used by text-analysis c
 | `thai-dict.txt` | About 200 entries | `ThaiTokeniser` | Minimal starter data; larger ICU data uses the Unicode licence |
 | `chinese-dict.txt` | About 2,500 entries | `ChineseLexiconTokeniser` | Derived from CC-CEDICT data, BSD |
 | `japanese.jlc` | 325,871 surface forms | `JapaneseTokeniser` | Converted from Lucene.NET Kuromoji data, Apache 2.0 |
+| `en_US.aff`, `en_US.dic` | About 49,000 entries | Hunspell benchmarks (`HunspellDictionary`) | Debian `hunspell-en-us` 1:2020.12.07-4, SCOWL-derived; copyright and permission notice in `en_US.copyright` |
+
+### Hunspell `en_US`
+
+`en_US.aff` and `en_US.dic` are copied unchanged from Debian's `hunspell-en-us` package, version 1:2020.12.07-4 (`/usr/share/hunspell/`), which is derived from SCOWL (Spell Checker Oriented Word Lists) by Kevin Atkinson. They are used by the Rowles.Text Hunspell benchmarks as a real dictionary.
+
+| File | SHA-256 |
+| --- | --- |
+| `en_US.aff` | `70fe5778717d097ce2f3326baaa5c1e4d2206d81a5a81d3ea8e11c4770806dd5` |
+| `en_US.dic` | `829a043cf078d1e80e886289a13823454977f442a239a859d2133ea61944aa60` |
+
+`en_US.copyright` is the package's `/usr/share/doc/hunspell-en-us/copyright`, unchanged. Its notice must accompany any copy: "The collective work is Copyright 2000-2011 by Kevin Atkinson as well as any of the copyrights mentioned below", with permission to use, copy, modify, distribute and sell the word lists provided the copyright and permission notices appear in all copies.
 
 > [!IMPORTANT]
 > The bundled Thai dictionary is intentionally small and is suitable for examples and tests. Production Thai tokenisation normally needs a larger, workload-appropriate dictionary.

@@ -142,8 +142,8 @@ public sealed class ExtendedLanguageAnalyserTests
     public void ArabicStemmer_StripsDefiniteArticleAndCommonPrefixes()
     {
         var s = new ArabicStemmer();
-        // الكتاب: strip "ال" then single-char prefix "ك" per the light stemmer.
-        Assert.Equal("تاب", s.Stem("الكتاب"));
+        // الكتاب: strip the article "ال" only; "ك" is a root letter and stays.
+        Assert.Equal("كتاب", s.Stem("الكتاب"));
     }
 
     /// <summary>

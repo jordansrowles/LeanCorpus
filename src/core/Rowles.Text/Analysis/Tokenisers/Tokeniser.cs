@@ -10,6 +10,11 @@ namespace Rowles.LeanCorpus.Analysis.Tokenisers;
 /// Slices input text into tokens at word boundaries, splitting on
 /// whitespace and punctuation whilst tracking character offsets.
 /// </summary>
+/// <remarks>
+/// A word starts at a letter or digit. Combining marks (Unicode categories Mn, Mc and Me)
+/// continue the current word, so diacritics such as Arabic harakat stay in the token, but a
+/// mark that does not follow a word character never starts a token.
+/// </remarks>
 public sealed class Tokeniser : IShareableSpanTokeniser
 {
     /// <inheritdoc/>
@@ -41,7 +46,7 @@ public sealed class Tokeniser : IShareableSpanTokeniser
 
             int start = i;
             i += scalarLength;
-            while (i < input.Length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+            while (i < input.Length && UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
                 i += scalarLength;
 
             sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
@@ -84,7 +89,7 @@ public sealed class Tokeniser : IShareableSpanTokeniser
 
             int start = i;
             i += scalarLength;
-            while (i < input.Length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+            while (i < input.Length && UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
                 i += scalarLength;
 
             offsets.Add((start, i));
@@ -177,10 +182,11 @@ public sealed class Tokeniser : IShareableSpanTokeniser
     private static void SimdScalarStep(
         ReadOnlySpan<char> input, ref int i, ref int? pendingStart, ISpanTokenSink sink)
     {
-        bool isLetterOrDigit = UnicodeTokenisation.IsLetterOrDigit(input, i, out int scalarLength);
+        int scalarLength;
         if (pendingStart.HasValue)
         {
-            if (isLetterOrDigit)
+            // Combining marks continue a word but never start one (UAX #29 WB4).
+            if (UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
             {
                 i += scalarLength;
                 return;
@@ -192,7 +198,7 @@ public sealed class Tokeniser : IShareableSpanTokeniser
         }
         else
         {
-            if (!isLetterOrDigit)
+            if (!UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
             {
                 i += scalarLength;
                 return;
@@ -209,7 +215,7 @@ public sealed class Tokeniser : IShareableSpanTokeniser
         int scalarLength;
         if (pendingStart.HasValue)
         {
-            while (i < length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+            while (i < length && UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
                 i += scalarLength;
             int start = pendingStart.Value;
             sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
@@ -226,7 +232,7 @@ public sealed class Tokeniser : IShareableSpanTokeniser
 
             int start = i;
             i += scalarLength;
-            while (i < length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+            while (i < length && UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
                 i += scalarLength;
             sink.Add(input[start..i], start, i, UnicodeTokenisation.ClassifyTokenType(input[start..i]));
         }
@@ -236,10 +242,11 @@ public sealed class Tokeniser : IShareableSpanTokeniser
     private static void SimdScalarStepOffsets(
         ReadOnlySpan<char> input, ref int i, ref int? pendingStart, List<(int Start, int End)> offsets)
     {
-        bool isLetterOrDigit = UnicodeTokenisation.IsLetterOrDigit(input, i, out int scalarLength);
+        int scalarLength;
         if (pendingStart.HasValue)
         {
-            if (isLetterOrDigit)
+            // Combining marks continue a word but never start one (UAX #29 WB4).
+            if (UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
             {
                 i += scalarLength;
                 return;
@@ -250,7 +257,7 @@ public sealed class Tokeniser : IShareableSpanTokeniser
         }
         else
         {
-            if (!isLetterOrDigit)
+            if (!UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
             {
                 i += scalarLength;
                 return;
@@ -267,7 +274,7 @@ public sealed class Tokeniser : IShareableSpanTokeniser
         int scalarLength;
         if (pendingStart.HasValue)
         {
-            while (i < length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+            while (i < length && UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
                 i += scalarLength;
             offsets.Add((pendingStart.Value, i));
             pendingStart = null;
@@ -283,7 +290,7 @@ public sealed class Tokeniser : IShareableSpanTokeniser
 
             int start = i;
             i += scalarLength;
-            while (i < length && UnicodeTokenisation.IsLetterOrDigit(input, i, out scalarLength))
+            while (i < length && UnicodeTokenisation.IsWordPart(input, i, out scalarLength))
                 i += scalarLength;
             offsets.Add((start, i));
         }

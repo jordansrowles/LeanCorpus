@@ -57,13 +57,45 @@ public class PatternTokeniserBenchmarks
                 new Regex(@"\S+", RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))),
             _ => throw new InvalidOperationException($"Unknown scenario '{Scenario}'.")
         };
+
+        TextOutputPreflight.Compare(string.Concat("pattern/", Scenario), [_input],
+            input => TextOutputPreflight.CaptureLean(sink => _tokeniser.Tokenise(input.AsSpan(), sink)),
+            input =>
+            {
+                using var stream = new Lucene.Net.Analysis.Pattern.PatternTokenizer(
+                    Lucene.Net.Util.AttributeSource.AttributeFactory.DEFAULT_ATTRIBUTE_FACTORY,
+                    new System.IO.StringReader(input), _lucenePattern, 0);
+                return TextOutputPreflight.CaptureLucene(stream);
+            },
+            PreflightAllowList.None);
+    }
+
+    private readonly ReadingTokenSink _readingSink = new();
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_Tokenise_Reading()
+    {
+        _readingSink.Reset();
+        _tokeniser.Tokenise(_input.AsSpan(), _readingSink);
+        return _readingSink.Count;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_Tokenise_Reading()
+    {
+        using var tokeniser = new Lucene.Net.Analysis.Pattern.PatternTokenizer(
+            Lucene.Net.Util.AttributeSource.AttributeFactory.DEFAULT_ATTRIBUTE_FACTORY,
+            new System.IO.StringReader(_input), _lucenePattern, 0);
+        return LuceneTermReader.ReadAll(tokeniser);
     }
 
     // --- LeanCorpus benchmark ---
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_Tokenise()
+    public int LeanCorpus_Tokenise_CountOnly()
     {
         _sink.Reset();
         _tokeniser.Tokenise(_input.AsSpan(), _sink);
@@ -74,7 +106,7 @@ public class PatternTokeniserBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_Tokenise()
+    public int LuceneNet_Tokenise_CountOnly()
     {
         using var tokeniser = new Lucene.Net.Analysis.Pattern.PatternTokenizer(
             Lucene.Net.Util.AttributeSource.AttributeFactory.DEFAULT_ATTRIBUTE_FACTORY,

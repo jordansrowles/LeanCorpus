@@ -14,14 +14,18 @@ public sealed class FrenchStemmer : SnowballStemmer
         [
             ("issements", ""), ("issement", ""), ("ements", ""), ("ement", ""),
             ("ations", ""), ("ation", ""), ("euses", ""), ("euse", ""),
-            ("eurs", ""), ("eur", ""), ("ités", ""), ("ité", ""),
+            ("eurs", ""), ("eur", ""), ("eux", ""), ("ités", ""), ("ité", ""),
             ("ives", ""), ("ive", ""), ("ifs", ""), ("if", ""),
             ("aux", "al"),
         ],
         [
-            ("issent", ""), ("issons", ""), ("issez", ""), ("irent", ""),
-            ("eront", ""), ("erons", ""), ("erez", ""), ("ent", ""),
-            ("ons", ""), ("ez", ""), ("er", ""), ("es", ""),
+            ("issent", ""), ("issons", ""), ("issez", ""), ("issait", ""), ("issant", ""),
+            ("irent", ""), ("eront", ""), ("erons", ""), ("erez", ""), ("aient", ""),
+            ("ait", ""), ("ais", ""), ("ent", ""), ("ez", ""), ("er", ""), ("ir", ""),
+            ("es", ""), ("és", ""), ("ées", ""), ("ée", ""), ("é", ""), ("it", ""),
+        ],
+        [
+            ("s", ""),
         ],
     ];
 
