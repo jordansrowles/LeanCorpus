@@ -754,60 +754,60 @@ public sealed partial class IndexSearcher
     }
 
     /// <summary>
-    /// Extracts a literal prefix from a regex pattern. Walks the pattern from the start,
-    /// collecting literal characters until a regex metacharacter is encountered. Handles
-    /// escape sequences (\X) and the anchor (^) by skipping them. Stops at ., *, +, ?, [, (, {, |, $.
+    /// Extracts the literal characters every whole-term match must start with (ADR048). Walks the
+    /// pattern from the start, skipping a leading <c>^</c>, and collects literal characters and
+    /// escaped punctuation until a metacharacter. A literal followed by a quantifier is optional, so
+    /// it is not part of the prefix; an escaped letter or digit is a class such as <c>\d</c>, so it
+    /// ends the prefix; and any alternation makes the prefix unsafe, so none is returned.
     /// </summary>
     private static bool TryGetRegexLiteralPrefix(string pattern, out string prefix)
     {
         prefix = string.Empty;
-        if (string.IsNullOrEmpty(pattern))
+        if (string.IsNullOrEmpty(pattern) || pattern.Contains('|'))
             return false;
 
-        int start = 0;
-        if (pattern[0] == '^')
-            start = 1;
-
-        int end = start;
-        while (end < pattern.Length)
+        int index = pattern[0] == '^' ? 1 : 0;
+        var literals = new System.Text.StringBuilder();
+        while (index < pattern.Length)
         {
-            char c = pattern[end];
+            char c = pattern[index];
+            char literal;
+            int width;
             if (c == '\\')
             {
-                // Escaped character: consume the backslash and add the next char literally.
-                end++;
-                if (end < pattern.Length)
-                    end++;
-                continue;
+                if (index + 1 >= pattern.Length || char.IsLetterOrDigit(pattern[index + 1]))
+                    break;
+                literal = pattern[index + 1];
+                width = 2;
             }
-            if (c is '.' or '*' or '+' or '?' or '[' or '(' or '{' or '|' or '$')
-                break;
-            end++;
-        }
-
-        int length = end - start;
-        if (length == 0)
-            return false;
-
-        // Unescape the literal prefix to get the actual bytes.
-        var sb = new System.Text.StringBuilder(length);
-        for (int i = start; i < end; i++)
-        {
-            char c = pattern[i];
-            if (c == '\\' && i + 1 < end)
+            else if (c is '.' or '*' or '+' or '?' or '[' or '(' or '{' or '$' or ')' or ']' or '}')
             {
-                i++;
-                sb.Append(pattern[i]);
+                break;
             }
             else
             {
-                sb.Append(c);
+                literal = c;
+                width = 1;
             }
+
+            int next = index + width;
+            if (next < pattern.Length && pattern[next] is '*' or '+' or '?' or '{')
+                break;
+            literals.Append(literal);
+            index = next;
         }
 
-        prefix = sb.ToString();
+        prefix = literals.ToString();
         return prefix.Length > 0;
     }
+
+    /// <summary>
+    /// The literal-prefix and contains routes are exact only for the default matching rules;
+    /// options such as case-insensitive matching take the general route.
+    /// </summary>
+    private static bool UsesDefaultRegexMatching(System.Text.RegularExpressions.Regex regex)
+        => (regex.Options & ~(System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+                              System.Text.RegularExpressions.RegexOptions.ExplicitCapture)) == 0;
 
     private static bool TryGetSimpleContainsRegexLiteral(string pattern, out string literal)
     {
@@ -950,7 +950,7 @@ public sealed partial class IndexSearcher
 
         // Fast path: literal-contains pattern (e.g. .*nation.*)
         if (globalDFs.Count == 0 &&
-            (regex.Options & System.Text.RegularExpressions.RegexOptions.IgnoreCase) == 0 &&
+            UsesDefaultRegexMatching(regex) &&
             TryGetSimpleContainsRegexLiteral(query.Pattern, out var literal))
         {
             ExecuteRegexpContainsQuery(query, reader, fieldPrefix, literal, ref collector);
@@ -959,7 +959,7 @@ public sealed partial class IndexSearcher
 
         // Fast path: prefix-literal extraction (e.g. gov.*ment → prefix "gov", mark.* → prefix "mark")
         // Enumerate only the FST subtree matching the literal prefix, then regex-verify each term.
-        if (TryGetRegexLiteralPrefix(query.Pattern, out var prefix) && prefix.Length >= 1)
+        if (UsesDefaultRegexMatching(regex) && TryGetRegexLiteralPrefix(query.Pattern, out var prefix) && prefix.Length >= 1)
         {
             var qualifiedPrefix = string.Concat(fieldPrefix, prefix);
             var candidateTerms = reader.GetTermsWithPrefix(qualifiedPrefix);
