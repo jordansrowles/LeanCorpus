@@ -178,7 +178,7 @@ internal sealed record BenchmarkCoreReportIdentity(
             var datasetFingerprint = GetString(provenance, "dataFingerprintSha256");
             var datasetIdentityComplete = datasets.Count > 0 && datasets.All(IsCompleteDatasetIdentity);
             int? schemaVersion = GetInt32(root, "schemaVersion");
-            (bool resultRowsValid, string? resultRowsFailure) = schemaVersion == 5
+            (bool resultRowsValid, string? resultRowsFailure) = schemaVersion is 5 or 6
                 ? ValidateV5ResultRows(root)
                 : (true, null);
             return new BenchmarkCoreReportIdentity(
@@ -366,20 +366,35 @@ internal sealed record BenchmarkCoreReportIdentity(
             : null;
 }
 
+/// <summary>
+/// Run identity input. <see cref="ExpectedCanonicalReportCounts"/> maps each project that writes a
+/// canonical <c>report.json</c> (Core and Rowles.Text) to its planned invocation count.
+/// </summary>
 internal sealed record BenchmarkRunIdentityInput(
     string? SourceCommit,
     bool? SourceDirty,
     BenchmarkHostIdentity Host,
     IReadOnlyList<BenchmarkCoreReportIdentity> CoreReports,
-    int ExpectedCoreReportCount);
+    IReadOnlyDictionary<string, int> ExpectedCanonicalReportCounts);
 
+/// <summary>The benchmark projects whose hosts write a canonical schema v6 <c>report.json</c>.</summary>
+internal static class BenchmarkCanonicalReports
+{
+    public static IReadOnlySet<string> Projects { get; } = new HashSet<string>(["core", "text"], StringComparer.Ordinal);
+
+    public static bool IsCanonical(string projectKey) => Projects.Contains(projectKey);
+}
+
+/// <summary>
+/// Run identity only: source, host, dataset, toolchain and report integrity (ADR047). It says
+/// nothing about comparisons; <see cref="BenchmarkQualificationFinaliser"/> combines it with the
+/// semantic comparison assessment and execution status.
+/// </summary>
 internal sealed record BenchmarkRunIdentityAssessment(
     string IdentityStatus,
-    string QualificationState,
-    bool EligibleForRatio,
     IReadOnlyList<string> ReasonCodes)
 {
-    public bool Comparable => QualificationState == "Qualified" && EligibleForRatio;
+    public bool Validated => IdentityStatus == "Validated";
 }
 
 internal sealed record BenchmarkRunIdentityEvidence(
@@ -387,7 +402,8 @@ internal sealed record BenchmarkRunIdentityEvidence(
     IReadOnlyList<BenchmarkCoreReportIdentity> CoreReports,
     BenchmarkRunIdentityAssessment Assessment,
     BenchmarkComparisonAssessment ComparisonAssessment,
-    BenchmarkExecutionSummary Execution);
+    BenchmarkExecutionSummary Execution,
+    BenchmarkFinalQualification Qualification);
 
 internal sealed record BenchmarkExecutionSummary(
     string Classification,
@@ -408,8 +424,7 @@ internal sealed record BenchmarkExecutionSummary(
 
 internal static class BenchmarkRunIdentityValidator
 {
-    private const int QualifiableCoreReportSchemaVersion = 5;
-    private const string RequiredBenchmarkDotNetVersion = "0.16.0-preview.2";
+    internal const int QualifiableCoreReportSchemaVersion = 6;
 
     public static BenchmarkRunIdentityAssessment Assess(BenchmarkRunIdentityInput input)
     {
@@ -431,13 +446,17 @@ internal static class BenchmarkRunIdentityValidator
         if (!input.Host.IsComplete)
             reasons.Add("HostIdentityIncomplete");
 
-        if (input.ExpectedCoreReportCount <= 0 || input.CoreReports.Count == 0)
+        int expectedReports = input.ExpectedCanonicalReportCounts.Values.Sum();
+        if (expectedReports <= 0 || input.CoreReports.Count == 0)
         {
             reasons.Add("CoreReportIdentityMissing");
             reasons.Add("DatasetIdentityMissing");
         }
-        if (input.CoreReports.Count < input.ExpectedCoreReportCount)
-            reasons.Add("CoreReportIdentityMissing");
+        foreach ((string project, int expected) in input.ExpectedCanonicalReportCounts)
+        {
+            if (input.CoreReports.Count(report => report.Project == project) < expected)
+                reasons.Add(project == "core" ? "CoreReportIdentityMissing" : "CanonicalReportIdentityMissing");
+        }
 
         foreach (var report in input.CoreReports)
         {
@@ -461,7 +480,7 @@ internal static class BenchmarkRunIdentityValidator
 
             if (report.SchemaVersion is null)
                 reasons.Add("CoreReportIdentityMissing");
-            else if (report.SchemaVersion == 4)
+            else if (report.SchemaVersion is 4 or 5)
                 reasons.Add("HistoricalResultSchema");
             else if (report.SchemaVersion != QualifiableCoreReportSchemaVersion)
                 reasons.Add("UnsupportedResultSchema");
@@ -473,17 +492,12 @@ internal static class BenchmarkRunIdentityValidator
 
             if (string.IsNullOrWhiteSpace(report.BenchmarkDotNetVersion))
                 reasons.Add("BenchmarkDotNetVersionMissing");
-            else if (!string.Equals(NormaliseVersion(report.BenchmarkDotNetVersion), RequiredBenchmarkDotNetVersion, StringComparison.Ordinal))
+            else if (!BenchmarkToolchainPolicy.IsAcceptedBenchmarkDotNetVersion(report.BenchmarkDotNetVersion))
                 reasons.Add("BenchmarkDotNetVersionMismatch");
         }
 
         var identityStatus = reasons.Count == 0 ? "Validated" : "Rejected";
-        reasons.Add("ComparisonEvidencePending");
-        return new BenchmarkRunIdentityAssessment(
-            identityStatus,
-            "Unqualified",
-            EligibleForRatio: false,
-            reasons.ToArray());
+        return new BenchmarkRunIdentityAssessment(identityStatus, reasons.ToArray());
     }
 
     internal static bool IsSha256(string? value)
@@ -523,7 +537,4 @@ internal static class BenchmarkRunIdentityValidator
 
     private static bool IsGitCommit(string value)
         => value.Length is 40 or 64 && value.All(Uri.IsHexDigit);
-
-    private static string NormaliseVersion(string value)
-        => value.Split('+', 2)[0].Trim();
 }

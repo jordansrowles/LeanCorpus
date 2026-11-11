@@ -1159,16 +1159,17 @@ internal sealed class BenchmarkCommandService(
                 return $"BenchmarkDotNet result file '{Path.GetFileName(resultJson)}' is truncated or invalid: {exception.Message}";
             }
         }
-        if (project == "core")
+        if (BenchmarkCanonicalReports.IsCanonical(project))
         {
             var reportPath = Path.Combine(projectDirectory, "report.json");
             if (!File.Exists(reportPath))
-                return "The core benchmark runner did not produce its required report.json.";
+                return $"The {project} benchmark runner did not produce its required report.json.";
             try
             {
                 using var report = JsonDocument.Parse(File.ReadAllBytes(reportPath));
                 var root = report.RootElement;
-                if (root.GetProperty("schemaVersion").GetInt32() != 5 || root.GetProperty("totalBenchmarkCount").GetInt32() < 1)
+                if (root.GetProperty("schemaVersion").GetInt32() != BenchmarkRunIdentityValidator.QualifiableCoreReportSchemaVersion ||
+                    root.GetProperty("totalBenchmarkCount").GetInt32() < 1)
                     return "The core benchmark report is incomplete or uses an unsupported schema.";
                 foreach (var suite in root.GetProperty("suites").EnumerateArray())
                 {
@@ -1231,13 +1232,16 @@ internal sealed class BenchmarkCommandService(
         if (!artifacts.Contains("coverage.json", StringComparer.Ordinal))
             artifacts.Add("coverage.json");
         var coreReports = ReadCoreReportIdentities(runDirectory, plan);
-        var expectedCoreReportCount = plan.Invocations.Count(static invocation => invocation.ProjectKey == "core");
+        var expectedCanonicalReportCounts = plan.Invocations
+            .Where(static invocation => BenchmarkCanonicalReports.IsCanonical(invocation.ProjectKey))
+            .GroupBy(static invocation => invocation.ProjectKey, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.Count(), StringComparer.Ordinal);
         var assessment = BenchmarkRunIdentityValidator.Assess(new BenchmarkRunIdentityInput(
             manifest.SourceCommit,
             manifest.SourceDirty,
             hostIdentity,
             coreReports,
-            expectedCoreReportCount));
+            expectedCanonicalReportCounts));
         var comparisonAssessment = BenchmarkComparisonAssessor.Assess(new BenchmarkComparisonEvidence(
             manifest.SourceCommit ?? string.Empty,
             manifest.SourceDirty,
@@ -1245,6 +1249,7 @@ internal sealed class BenchmarkCommandService(
             caseFamilies,
             coreReports.Select(static report => BenchmarkComparisonSourceReport.Read(report.ReportPath)).ToArray()));
         var execution = BuildExecutionSummary(runDirectory, plan, results, terminalOutcome, timeoutSource, coverage);
+        var qualification = BenchmarkQualificationFinaliser.Finalise(assessment, comparisonAssessment, execution.Classification);
         var report = new
         {
             schemaVersion = 1,
@@ -1273,13 +1278,24 @@ internal sealed class BenchmarkCommandService(
                     identities = coreReport.Datasets
                 })
             },
-            qualification = new
+            identityAssessment = new
             {
                 identityStatus = assessment.IdentityStatus,
-                state = assessment.QualificationState,
-                eligibleForRatio = assessment.EligibleForRatio,
-                comparable = assessment.Comparable,
                 reasonCodes = assessment.ReasonCodes
+            },
+            semanticComparisonAssessment = comparisonAssessment,
+            qualification = new
+            {
+                identityStatus = qualification.IdentityStatus,
+                state = qualification.State,
+                eligibleForRatio = qualification.EligibleForRatio,
+                comparable = qualification.Comparable,
+                scope = qualification.Scope,
+                assessedPairCount = qualification.AssessedPairCount,
+                qualifiedPairCount = qualification.QualifiedPairCount,
+                directionalPairCount = qualification.DirectionalPairCount,
+                reasonCodes = qualification.ReasonCodes,
+                pairs = qualification.Pairs
             },
             selectionScope = coverage.SelectionScope,
             coverage = new
@@ -1290,9 +1306,8 @@ internal sealed class BenchmarkCommandService(
                 projects = coverage.Projects,
                 excludedWorkloadCount = coverage.ExcludedWorkloads.Count
             },
-            comparisonAssessment,
             execution,
-            comparable = assessment.Comparable,
+            comparable = qualification.Comparable,
             affectedSelection = plan.Suite == "affected" ? new { paths = plan.AffectedPaths, groups = plan.AffectedGroups } : null,
             coreReportIdentities = coreReports.Select(coreReport => new
             {
@@ -1319,19 +1334,25 @@ internal sealed class BenchmarkCommandService(
         {
             string.Concat("# Benchmark run ", manifest.RunId.ToString("D")),
             string.Empty,
-            string.Concat("Status: ", report.status),
-            string.Concat("Identity: ", assessment.IdentityStatus),
-            string.Concat("Qualification: ", assessment.QualificationState),
-            string.Concat("Semantic comparisons: ", comparisonAssessment.QualificationState,
-                " (", comparisonAssessment.Comparisons.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), " pairs; ratio eligible: ",
-                comparisonAssessment.EligibleForRatio.ToString(), ")"),
-            string.Concat("Comparable: ", assessment.Comparable.ToString()),
-            string.Concat("Execution: ", execution.Classification, "; cases completed/interrupted/failed/never-started/unidentified: ",
+            // Execution, identity and qualification are separate decisions (ADR047): a run can execute
+            // fully and still be unqualified, and each line names its own reasons.
+            string.Concat("Execution: ", execution.Classification, " (status ", report.status,
+                "); cases completed/interrupted/failed/never-started/unidentified: ",
                 execution.TerminalCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
                 execution.IntermediateCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
                 execution.FailedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
                 execution.MissingCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture), "/",
                 execution.UnenumeratedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            string.Concat("Identity: ", assessment.IdentityStatus, "; reasons: ", FormatReasons(assessment.ReasonCodes)),
+            string.Concat("Qualification: ", qualification.State, ", scope ", qualification.Scope,
+                "; qualified pairs ", qualification.QualifiedPairCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                " of ", qualification.AssessedPairCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ", directional ", qualification.DirectionalPairCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "; reasons: ", FormatReasons(qualification.ReasonCodes)),
+            string.Concat("Semantic comparisons: ", comparisonAssessment.QualificationState,
+                " (", comparisonAssessment.Comparisons.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), " pairs; ratio eligible: ",
+                comparisonAssessment.EligibleForRatio.ToString(), ")"),
+            string.Concat("Comparable: ", qualification.Comparable.ToString()),
             string.Concat("Planned case count known: ", execution.PlannedCaseCountKnown.ToString(),
                 "; invocations with unknown case inventory: ", execution.UnenumeratedInvocationCount.ToString(System.Globalization.CultureInfo.InvariantCulture)),
             string.Concat("Selection scope: ", coverage.SelectionScope),
@@ -1355,6 +1376,8 @@ internal sealed class BenchmarkCommandService(
             " | ", project.UnenumeratedCaseCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
             " | ", FormatDuration(project.BuildDuration),
             " | ", FormatDuration(project.RunDuration), " |")));
+        markdown.Add(string.Empty);
+        AddComparisonSection(markdown, comparisonAssessment, qualification);
         markdown.Add(string.Empty);
         markdown.Add("## Excluded workload suites");
         markdown.Add(string.Empty);
@@ -1384,7 +1407,67 @@ internal sealed class BenchmarkCommandService(
             " | ", FormatDuration(result.BuildDuration),
             " | ", FormatDuration(result.RunDuration), " |")));
         await WriteAtomicAsync(Path.Combine(runDirectory, "report.md"), string.Join(Environment.NewLine, markdown) + Environment.NewLine, cancellationToken).ConfigureAwait(false);
-        return new BenchmarkRunIdentityEvidence(hostIdentity, coreReports, assessment, comparisonAssessment, execution);
+        return new BenchmarkRunIdentityEvidence(hostIdentity, coreReports, assessment, comparisonAssessment, execution, qualification);
+    }
+
+    /// <summary>
+    /// Lists every assessed pair case with its samples, variability and failing gates, and explains
+    /// reviewed groups that produced no pair. The 30-sample and 5% limits are reported, not changed.
+    /// </summary>
+    private static void AddComparisonSection(
+        List<string> markdown,
+        BenchmarkComparisonAssessment comparison,
+        BenchmarkFinalQualification qualification)
+    {
+        var culture = System.Globalization.CultureInfo.InvariantCulture;
+        markdown.Add("## Comparison pairs");
+        markdown.Add(string.Empty);
+        if (comparison.Comparisons.Count == 0)
+        {
+            markdown.Add(string.Concat("No reviewed pair was assessed (", string.Join(", ", comparison.ReasonCodes), ")."));
+        }
+        else
+        {
+            markdown.Add("| Group | Parameters | Pair state | Case | Engine | Samples | CV % | Failing gates | Diagnostic flags |");
+            markdown.Add("| --- | --- | --- | --- | --- | ---: | ---: | --- | --- |");
+            foreach (BenchmarkComparisonPairAssessment pair in comparison.Comparisons)
+            {
+                string state = qualification.Pairs.FirstOrDefault(final =>
+                    final.ComparisonGroup == pair.ComparisonGroup && final.ParameterKey == pair.ParameterKey)?.State ?? pair.QualificationState;
+                if (pair.Cases.Count == 0)
+                {
+                    markdown.Add(string.Concat("| ", pair.ComparisonGroup, " | `", pair.ParameterKey, "` | ", state,
+                        " | none | none | | | ", string.Join(", ", pair.ReasonCodes), " | |"));
+                    continue;
+                }
+                foreach (BenchmarkComparisonCaseSummary item in pair.Cases)
+                {
+                    markdown.Add(string.Concat(
+                        "| ", pair.ComparisonGroup,
+                        " | `", pair.ParameterKey,
+                        "` | ", state,
+                        " | ", item.MethodName,
+                        " | ", item.EngineId,
+                        " | ", item.SampleCount?.ToString(culture) ?? "unknown",
+                        " | ", item.CoefficientOfVariationPercent?.ToString("0.00", culture) ?? "unknown",
+                        " | ", item.FailingGates.Count == 0 ? "none" : string.Join(", ", item.FailingGates),
+                        " | ", item.DiagnosticFlags.Count == 0 ? "none" : string.Join(", ", item.DiagnosticFlags), " |"));
+                }
+            }
+        }
+
+        if (comparison.Diagnostics.Count == 0)
+            return;
+        markdown.Add(string.Empty);
+        markdown.Add("## Comparison diagnostics");
+        markdown.Add(string.Empty);
+        markdown.Add("| Group | Diagnostic | Candidate families | Parameter mismatches |");
+        markdown.Add("| --- | --- | --- | --- |");
+        markdown.AddRange(comparison.Diagnostics.Select(diagnostic => string.Concat(
+            "| ", diagnostic.ComparisonGroup,
+            " | ", diagnostic.Code,
+            " | ", string.Join(", ", diagnostic.CandidateFamilies),
+            " | ", diagnostic.ParameterMismatches.Count == 0 ? "none" : string.Join("; ", diagnostic.ParameterMismatches), " |")));
     }
 
     private static IReadOnlyList<BenchmarkCoreReportIdentity> ReadCoreReportIdentities(
@@ -1392,7 +1475,7 @@ internal sealed class BenchmarkCommandService(
         BenchmarkExecutionPlan plan)
         => plan.Invocations
             .Select((invocation, index) => (invocation, index))
-            .Where(static pair => pair.invocation.ProjectKey == "core")
+            .Where(static pair => BenchmarkCanonicalReports.IsCanonical(pair.invocation.ProjectKey))
             .Select(pair => BenchmarkCoreReportIdentity.Read(
                 pair.invocation.ProjectKey,
                 Path.Combine(runDirectory, pair.invocation.ProjectKey,
@@ -1526,6 +1609,9 @@ internal sealed class BenchmarkCommandService(
             coverage.UnenumeratedInvocationCount, plan.TimeoutBudget, timeoutSource);
     }
 
+    private static string FormatReasons(IReadOnlyList<string> reasons)
+        => reasons.Count == 0 ? "none" : string.Join(", ", reasons);
+
     private static string FormatTimeoutBudget(BenchmarkTimeoutBudget budget)
         => $"Resolved timeouts: aggregate {budget.AggregateTimeoutMinutes} minutes ({budget.AggregateTimeoutSource}); " +
            $"build {budget.BuildTimeoutMinutes} minutes per build; project {budget.ProjectTimeoutMinutes} minutes per benchmark child.";
@@ -1590,10 +1676,13 @@ internal sealed class BenchmarkCommandService(
         => new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["identityStatus"] = evidence.Assessment.IdentityStatus,
-            ["qualificationState"] = evidence.Assessment.QualificationState,
-            ["eligibleForRatio"] = evidence.Assessment.EligibleForRatio.ToString().ToLowerInvariant(),
-            ["comparable"] = evidence.Assessment.Comparable.ToString().ToLowerInvariant(),
-            ["qualificationReasonCodes"] = JsonSerializer.Serialize(evidence.Assessment.ReasonCodes),
+            ["identityReasonCodes"] = JsonSerializer.Serialize(evidence.Assessment.ReasonCodes),
+            ["qualificationState"] = evidence.Qualification.State,
+            ["qualificationScope"] = evidence.Qualification.Scope,
+            ["eligibleForRatio"] = evidence.Qualification.EligibleForRatio.ToString().ToLowerInvariant(),
+            ["comparable"] = evidence.Qualification.Comparable.ToString().ToLowerInvariant(),
+            ["qualificationReasonCodes"] = JsonSerializer.Serialize(evidence.Qualification.ReasonCodes),
+            ["qualifiedPairCount"] = evidence.Qualification.QualifiedPairCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["timeoutSource"] = evidence.Execution.TimeoutSource ?? "none",
             ["comparisonQualificationState"] = evidence.ComparisonAssessment.QualificationState,
             ["comparisonEligibleForRatio"] = evidence.ComparisonAssessment.EligibleForRatio.ToString().ToLowerInvariant(),

@@ -27,6 +27,9 @@ internal sealed record BenchmarkComparisonSourceReport(
 {
     public string? ReadFailure { get; init; }
 
+    /// <summary>Content hashes of every dataset identity the report declares.</summary>
+    public IReadOnlyList<string> DatasetContentHashes { get; init; } = [];
+
     public static BenchmarkComparisonSourceReport Read(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -59,7 +62,10 @@ internal sealed record BenchmarkComparisonSourceReport(
                 GetString(provenance, "processArchitecture"),
                 GetString(provenance, "runtimeFramework"),
                 GetString(provenance, "benchmarkDotNetVersion"),
-                rows);
+                rows)
+            {
+                DatasetContentHashes = ReadDatasetContentHashes(provenance)
+            };
         }
         catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException or InvalidOperationException)
         {
@@ -68,6 +74,20 @@ internal sealed record BenchmarkComparisonSourceReport(
                 ReadFailure = exception.Message
             };
         }
+    }
+
+    private static IReadOnlyList<string> ReadDatasetContentHashes(JsonElement provenance)
+    {
+        if (provenance.ValueKind != JsonValueKind.Object ||
+            !provenance.TryGetProperty("datasets", out JsonElement datasets) || datasets.ValueKind != JsonValueKind.Array)
+            return [];
+        return datasets.EnumerateArray()
+            .Select(static dataset => GetString(dataset, "contentSha256"))
+            .Where(static hash => !string.IsNullOrWhiteSpace(hash))
+            .Select(static hash => hash!.ToLowerInvariant())
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
     }
 
     private static IReadOnlyList<string> ReadDatasetProfiles(JsonElement provenance)
@@ -117,8 +137,26 @@ internal sealed record BenchmarkComparisonSourceReport(
             GetDouble(statistics, "coefficientOfVariationPercent"),
             GetDouble(statistics, "meanNanoseconds"),
             ReadStringArray(row, "qualityFlags"),
-            GetBoolean(row, "preflightPassed"));
+            GetBoolean(row, "methodExecutionSucceeded"),
+            ReadProof(TryGetObject(row, "semanticProof")));
     }
+
+    private static BenchmarkSemanticProof? ReadProof(JsonElement proof)
+        => proof.ValueKind != JsonValueKind.Object
+            ? null
+            : new BenchmarkSemanticProof(
+                GetInt32(proof, "proofVersion"),
+                GetString(proof, "proofId") ?? string.Empty,
+                GetString(proof, "fixtureId") ?? string.Empty,
+                GetString(proof, "typeName") ?? string.Empty,
+                ReadStringArray(proof, "methods"),
+                ReadStringMap(proof, "parameters"),
+                GetString(proof, "datasetContentSha256") ?? string.Empty,
+                GetString(proof, "sourceCommit") ?? string.Empty,
+                GetString(proof, "state") ?? string.Empty,
+                ReadStringArray(proof, "reasons"),
+                GetString(proof, "digestSha256") ?? string.Empty,
+                GetInt32(proof, "verificationCount") ?? 0);
 
     private static JsonElement TryGetObject(JsonElement value, string propertyName)
         => value.ValueKind == JsonValueKind.Object && value.TryGetProperty(propertyName, out JsonElement property) && property.ValueKind == JsonValueKind.Object
@@ -205,13 +243,51 @@ internal sealed record BenchmarkComparisonCase(
     double? CoefficientOfVariationPercent,
     double? MeanNanoseconds,
     IReadOnlyList<string> QualityFlags,
-    bool? PreflightPassed);
+    bool? MethodExecutionSucceeded,
+    BenchmarkSemanticProof? SemanticProof);
+
+/// <summary>A row's versioned semantic proof (ADR047), as written by the benchmark report.</summary>
+internal sealed record BenchmarkSemanticProof(
+    int? ProofVersion,
+    string ProofId,
+    string FixtureId,
+    string TypeName,
+    IReadOnlyList<string> Methods,
+    IReadOnlyDictionary<string, string> Parameters,
+    string DatasetContentSha256,
+    string SourceCommit,
+    string State,
+    IReadOnlyList<string> Reasons,
+    string DigestSha256,
+    int VerificationCount);
 
 internal sealed record BenchmarkComparisonAssessment(
     string QualificationState,
     bool EligibleForRatio,
     IReadOnlyList<string> ReasonCodes,
-    IReadOnlyList<BenchmarkComparisonPairAssessment> Comparisons);
+    IReadOnlyList<BenchmarkComparisonPairAssessment> Comparisons)
+{
+    /// <summary>Why reviewed groups produced no pair, for example a document-count mismatch.</summary>
+    public IReadOnlyList<BenchmarkComparisonDiagnostic> Diagnostics { get; init; } = [];
+}
+
+/// <summary>Explains a reviewed comparison group that ran but produced no eligible variant.</summary>
+internal sealed record BenchmarkComparisonDiagnostic(
+    string Code,
+    string ComparisonGroup,
+    IReadOnlyList<string> CandidateFamilies,
+    IReadOnlyList<string> ParameterMismatches);
+
+/// <summary>One engine's case in a pair: its statistics and the gates it failed.</summary>
+internal sealed record BenchmarkComparisonCaseSummary(
+    string FamilyId,
+    string EngineId,
+    string MethodName,
+    int? SampleCount,
+    double? CoefficientOfVariationPercent,
+    double? MeanNanoseconds,
+    IReadOnlyList<string> FailingGates,
+    IReadOnlyList<string> DiagnosticFlags);
 
 internal sealed record BenchmarkComparisonPairAssessment(
     string ComparisonGroup,
@@ -223,14 +299,30 @@ internal sealed record BenchmarkComparisonPairAssessment(
     string QualificationState,
     bool EligibleForRatio,
     double? MeanRatio,
-    IReadOnlyList<string> ReasonCodes);
+    IReadOnlyList<string> ReasonCodes)
+{
+    /// <summary>Row quality flags that inform but do not decide qualification.</summary>
+    public IReadOnlyList<string> DiagnosticFlags { get; init; } = [];
+
+    public IReadOnlyList<BenchmarkComparisonCaseSummary> Cases { get; init; } = [];
+}
 
 internal static class BenchmarkComparisonAssessor
 {
-    private const int CurrentSchemaVersion = 5;
+    private const int CurrentSchemaVersion = BenchmarkRunIdentityValidator.QualifiableCoreReportSchemaVersion;
+
+    /// <summary>Reasons that make a pair <c>Directional</c> rather than <c>Unqualified</c>: only the statistical gates.</summary>
+    internal static readonly IReadOnlySet<string> StatisticalReasons =
+        new HashSet<string>(["InsufficientSamples", "NoisyMeasurements"], StringComparer.Ordinal);
+
+    /// <summary>
+    /// Row flags that only describe statistics already gated by <see cref="MinimumSamples"/> and the
+    /// variability limit; every other flag, including unknown ones, blocks qualification.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> DiagnosticOnlyFlags =
+        new HashSet<string>(["Noisy", "Directional", "InsufficientSamples"], StringComparer.Ordinal);
     private const int MinimumSamples = 30;
     private const double MaximumCoefficientOfVariationPercent = 5d;
-    private const string RequiredBenchmarkDotNetVersion = "0.16.0-preview.2";
 
     public static BenchmarkComparisonAssessment Assess(BenchmarkComparisonEvidence evidence)
     {
@@ -240,6 +332,7 @@ internal static class BenchmarkComparisonAssessor
         ArgumentNullException.ThrowIfNull(evidence.Reports);
 
         var comparisons = new List<BenchmarkComparisonPairAssessment>();
+        var diagnostics = new List<BenchmarkComparisonDiagnostic>();
         foreach (var group in evidence.CaseFamilies
                      .Where(static family => family.Project == "core" && family.ComparisonGroup is not null && IsParity(family.Classification))
                      .GroupBy(static family => family.ComparisonGroup!, StringComparer.Ordinal)
@@ -253,7 +346,11 @@ internal static class BenchmarkComparisonAssessor
                 .OrderBy(static key => key, StringComparer.Ordinal)
                 .ToArray();
             if (variants.Length == 0)
+            {
+                if (Diagnose(group.Key, families, evidence.Reports) is { } diagnostic)
+                    diagnostics.Add(diagnostic);
                 continue;
+            }
 
             foreach (string variant in variants)
             {
@@ -298,7 +395,12 @@ internal static class BenchmarkComparisonAssessor
 
         if (comparisons.Count == 0)
         {
-            return new BenchmarkComparisonAssessment("Unqualified", false, ["NoPairedRows"], []);
+            string[] reasons = ["NoPairedRows", .. diagnostics.Select(static diagnostic => diagnostic.Code).Distinct(StringComparer.Ordinal)];
+            return new BenchmarkComparisonAssessment("Unqualified", false,
+                reasons.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(), [])
+            {
+                Diagnostics = diagnostics
+            };
         }
 
         bool eligible = comparisons.All(static comparison => comparison.EligibleForRatio);
@@ -307,7 +409,50 @@ internal static class BenchmarkComparisonAssessor
             .Distinct(StringComparer.Ordinal)
             .OrderBy(static reason => reason, StringComparer.Ordinal)
             .ToArray();
-        return new BenchmarkComparisonAssessment(state, eligible, reasonCodes, comparisons);
+        return new BenchmarkComparisonAssessment(state, eligible, reasonCodes, comparisons)
+        {
+            Diagnostics = diagnostics
+        };
+    }
+
+    /// <summary>
+    /// Names the candidate families and parameter mismatches of a group whose class and methods ran
+    /// but whose reviewed parameter values did not, such as a 20,000-document family in a 100,000 run.
+    /// </summary>
+    private static BenchmarkComparisonDiagnostic? Diagnose(
+        string group,
+        IReadOnlyList<BenchmarkCaseConfiguration> families,
+        IReadOnlyList<BenchmarkComparisonSourceReport> reports)
+    {
+        var mismatches = new SortedSet<string>(StringComparer.Ordinal);
+        bool documentCount = false;
+        bool candidateRan = false;
+        foreach (BenchmarkCaseConfiguration family in families)
+        {
+            foreach (BenchmarkComparisonCase row in reports.SelectMany(static report => report.Rows))
+            {
+                if (!row.TypeName.Split('.').Last().Equals(family.BenchmarkClass, StringComparison.Ordinal) ||
+                    !(family.BenchmarkMethods.Contains(row.MethodName, StringComparer.Ordinal) || family.MethodAliases.Contains(row.MethodName, StringComparer.Ordinal)))
+                    continue;
+                candidateRan = true;
+                foreach ((string name, var allowed) in family.ParameterValues)
+                {
+                    row.Parameters.TryGetValue(name, out string? actual);
+                    if (actual is not null && allowed.Contains(actual, StringComparer.Ordinal))
+                        continue;
+                    documentCount |= name == "DocumentCount";
+                    mismatches.Add(string.Concat(family.Id, ": ", name, "=", actual ?? "(absent)",
+                        " (reviewed: ", string.Join("|", allowed), ")"));
+                }
+            }
+        }
+        if (!candidateRan)
+            return null;
+        return new BenchmarkComparisonDiagnostic(
+            documentCount ? "NoEligibleVariantForDocumentCount" : "NoEligibleVariantForParameters",
+            group,
+            families.Select(static family => family.Id).ToArray(),
+            mismatches.ToArray());
     }
 
     private static List<MatchedCase> FindMatches(
@@ -374,14 +519,18 @@ internal static class BenchmarkComparisonAssessor
         if (!string.Equals(left.Report.DatasetFingerprintSha256, right.Report.DatasetFingerprintSha256, StringComparison.OrdinalIgnoreCase))
             reasons.Add("DatasetMismatch");
 
-        ValidateCase(left.Row, reasons);
-        ValidateCase(right.Row, reasons);
-        if (!Same(left.Row.RuntimeName, right.Row.RuntimeName) ||
+        ValidateCase(left.Row, left.Report, reasons);
+        ValidateCase(right.Row, right.Report, reasons);
+        if (!Same(left.Report.RuntimeFramework, right.Report.RuntimeFramework) ||
+            !Same(left.Row.RuntimeName, right.Row.RuntimeName) ||
             !Same(left.Row.RuntimeVersion, right.Row.RuntimeVersion) ||
             !Same(left.Row.ToolchainType, right.Row.ToolchainType) ||
             !Same(left.Row.ToolchainRuntimeName, right.Row.ToolchainRuntimeName) ||
-            !Same(left.Row.ToolchainRuntimeVersion, right.Row.ToolchainRuntimeVersion))
+            !Same(left.Row.ToolchainRuntimeVersion, right.Row.ToolchainRuntimeVersion) ||
+            !string.Equals(GetIgnoreCase(left.Row.JobSettings, "environment.jit"), GetIgnoreCase(right.Row.JobSettings, "environment.jit"), StringComparison.Ordinal))
             reasons.Add("RuntimeMismatch");
+        if (!MapsEqual(SelectJobSettings(left.Row.JobSettings), SelectJobSettings(right.Row.JobSettings)))
+            reasons.Add("JobMismatch");
 
         IReadOnlyDictionary<string, string> leftGc = SelectSettings(left.Row.JobSettings, "gc.");
         IReadOnlyDictionary<string, string> rightGc = SelectSettings(right.Row.JobSettings, "gc.");
@@ -408,7 +557,7 @@ internal static class BenchmarkComparisonAssessor
     {
         if (!string.IsNullOrWhiteSpace(report.ReadFailure))
             reasons.Add("CoreReportInvalid");
-        if (report.SchemaVersion == 4)
+        if (report.SchemaVersion is 4 or 5)
             reasons.Add("HistoricalResultSchema");
         else if (report.SchemaVersion != CurrentSchemaVersion)
             reasons.Add("UnsupportedResultSchema");
@@ -420,32 +569,36 @@ internal static class BenchmarkComparisonAssessor
         else if (report.SourceDirty.Value)
             reasons.Add("SourceTreeDirty");
 
+        // Machine identity is compared with the orchestrator. The child runtime is not: a .NET 10
+        // host may run .NET 11 children, so runtimes are compared between the paired children.
         if (!string.Equals(report.HostMachineName, evidence.Host.MachineName, StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(report.OsDescription, evidence.Host.OsDescription, StringComparison.Ordinal) ||
             !string.Equals(report.RuntimeIdentifier, evidence.Host.RuntimeIdentifier, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(report.ProcessArchitecture, evidence.Host.ProcessArchitecture, StringComparison.OrdinalIgnoreCase) ||
-            !string.Equals(report.RuntimeFramework, evidence.Host.RuntimeFramework, StringComparison.Ordinal))
+            !string.Equals(report.ProcessArchitecture, evidence.Host.ProcessArchitecture, StringComparison.OrdinalIgnoreCase))
             reasons.Add("HostIdentityMismatch");
 
         if (!BenchmarkRunIdentityValidator.IsSha256(report.DatasetFingerprintSha256))
             reasons.Add("DatasetIdentityMissing");
         if (!report.DatasetProfiles.Contains(family.DatasetProfile, StringComparer.Ordinal))
             reasons.Add("DatasetProfileMismatch");
-        if (!string.Equals(report.BenchmarkDotNetVersion, RequiredBenchmarkDotNetVersion, StringComparison.Ordinal))
+        if (!BenchmarkToolchainPolicy.IsAcceptedBenchmarkDotNetVersion(report.BenchmarkDotNetVersion))
             reasons.Add("BenchmarkDotNetVersionMismatch");
     }
 
-    private static void ValidateCase(BenchmarkComparisonCase row, ISet<string> reasons)
+    private const int SupportedProofVersion = 1;
+
+    private static void ValidateCase(BenchmarkComparisonCase row, BenchmarkComparisonSourceReport report, ISet<string> reasons)
     {
         if (row.ResultState != "TerminalResult")
             reasons.Add("NonTerminalOrFailedResult");
         if (row.IdentityComplete != true)
             reasons.Add("IncompleteCaseIdentity");
-        if (row.PreflightPassed is null)
-            reasons.Add("PreflightEvidenceMissing");
-        else if (!row.PreflightPassed.Value)
-            reasons.Add("PreflightFailed");
-        if (row.QualityFlags.Count != 0)
+        if (row.MethodExecutionSucceeded is null)
+            reasons.Add("MethodExecutionEvidenceMissing");
+        else if (!row.MethodExecutionSucceeded.Value)
+            reasons.Add("MethodExecutionFailed");
+        ValidateProof(row, report, reasons);
+        if (row.QualityFlags.Any(static flag => !DiagnosticOnlyFlags.Contains(flag)))
             reasons.Add("CaseQualityFlagsPresent");
 
         if (row.SampleCount is null || row.SampleCount < MinimumSamples ||
@@ -455,6 +608,36 @@ internal static class BenchmarkComparisonAssessor
             reasons.Add("NoisyMeasurements");
         if (row.MeanNanoseconds is not { } mean || !double.IsFinite(mean) || mean <= 0)
             reasons.Add("InvalidStatistics");
+    }
+
+    /// <summary>
+    /// A terminal measurement is never a semantic pass: the row needs its own passed proof, bound to
+    /// its case, the report's dataset and the report's commit.
+    /// </summary>
+    private static void ValidateProof(BenchmarkComparisonCase row, BenchmarkComparisonSourceReport report, ISet<string> reasons)
+    {
+        BenchmarkSemanticProof? proof = row.SemanticProof;
+        if (proof is null)
+        {
+            reasons.Add("SemanticProofMissing");
+            return;
+        }
+        if (proof.ProofVersion != SupportedProofVersion)
+            reasons.Add("SemanticProofVersionUnsupported");
+        if (!string.Equals(proof.State, "Passed", StringComparison.Ordinal) || proof.Reasons.Count != 0 || proof.VerificationCount <= 0)
+            reasons.Add("SemanticProofFailed");
+        if (string.IsNullOrWhiteSpace(proof.ProofId) || !BenchmarkRunIdentityValidator.IsSha256(proof.DigestSha256))
+            reasons.Add("SemanticProofIncomplete");
+        if (!string.Equals(proof.TypeName, row.TypeName.Split('.').Last(), StringComparison.Ordinal) ||
+            !proof.Methods.Contains(row.MethodName, StringComparer.Ordinal) ||
+            !MapsEqual(proof.Parameters, row.Parameters))
+            reasons.Add("SemanticProofCaseMismatch");
+        if (string.IsNullOrWhiteSpace(proof.DatasetContentSha256) ||
+            !report.DatasetContentHashes.Contains(proof.DatasetContentSha256.ToLowerInvariant(), StringComparer.Ordinal))
+            reasons.Add("SemanticProofDatasetMismatch");
+        if (string.IsNullOrWhiteSpace(proof.SourceCommit) ||
+            !string.Equals(proof.SourceCommit, report.SourceCommit, StringComparison.OrdinalIgnoreCase))
+            reasons.Add("SemanticProofStale");
     }
 
     private static BenchmarkComparisonPairAssessment BuildPair(
@@ -470,6 +653,22 @@ internal static class BenchmarkComparisonAssessor
             leftMean > 0 && rightMean > 0 && double.IsFinite(leftMean) && double.IsFinite(rightMean))
             ratio = leftMean / rightMean;
         bool eligible = ratio is not null;
+        string state = eligible
+            ? "Qualified"
+            : left is not null && right is not null && reasons.Count > 0 && reasons.All(StatisticalReasons.Contains)
+                ? "Directional"
+                : "Unqualified";
+        var cases = new List<BenchmarkComparisonCaseSummary>();
+        foreach ((MatchedCase? matched, BenchmarkCaseConfiguration? family) in new[] { (left, families.ElementAtOrDefault(0)), (right, families.ElementAtOrDefault(1)) })
+        {
+            if (matched is null || family is null)
+                continue;
+            var gates = new SortedSet<string>(StringComparer.Ordinal);
+            ValidateCase(matched.Row, matched.Report, gates);
+            cases.Add(new BenchmarkComparisonCaseSummary(family.Id, family.EngineId, matched.Row.MethodName,
+                matched.Row.SampleCount, matched.Row.CoefficientOfVariationPercent, matched.Row.MeanNanoseconds,
+                gates.ToArray(), matched.Row.QualityFlags.Order(StringComparer.Ordinal).ToArray()));
+        }
         return new BenchmarkComparisonPairAssessment(
             group,
             parameterKey,
@@ -477,10 +676,14 @@ internal static class BenchmarkComparisonAssessor
             families.ElementAtOrDefault(0)?.EngineId ?? string.Empty,
             families.ElementAtOrDefault(1)?.Id ?? string.Empty,
             families.ElementAtOrDefault(1)?.EngineId ?? string.Empty,
-            eligible ? "Qualified" : "Unqualified",
+            state,
             eligible,
             ratio,
-            reasons.ToArray());
+            reasons.ToArray())
+        {
+            DiagnosticFlags = cases.SelectMany(static item => item.DiagnosticFlags).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray(),
+            Cases = cases
+        };
     }
 
     private static bool IsParity(string classification)
@@ -501,6 +704,11 @@ internal static class BenchmarkComparisonAssessor
     private static Dictionary<string, string> SelectSettings(IReadOnlyDictionary<string, string> values, string prefix)
         => values.Where(pair => pair.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             .OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Job settings that define how a child measures; <c>meta.*</c> labels are excluded.</summary>
+    private static Dictionary<string, string> SelectJobSettings(IReadOnlyDictionary<string, string> values)
+        => values.Where(static pair => !pair.Key.StartsWith("meta.", StringComparison.OrdinalIgnoreCase))
             .ToDictionary(static pair => pair.Key, static pair => pair.Value, StringComparer.OrdinalIgnoreCase);
 
     private static bool HasValue(IReadOnlyDictionary<string, string> values, string name)

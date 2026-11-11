@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Rowles.LeanCorpus.DevOps.Benchmarks;
 using Rowles.LeanCorpus.DevOps.Configuration;
 
 namespace Rowles.LeanCorpus.DevOps.Documentation;
@@ -394,7 +395,7 @@ internal sealed class BenchmarkDocumentationGenerator
 
     private static string GetQualificationState(JsonElement coreReport, JsonElement runReport)
     {
-        if (GetInt64(coreReport, "schemaVersion") != 5)
+        if (GetInt64(coreReport, "schemaVersion") != BenchmarkRunIdentityValidator.QualifiableCoreReportSchemaVersion)
             return "Historical / unqualified";
         if (TryGetDateTimeOffset(coreReport, "generatedAtUtc", out var generatedAt) &&
             generatedAt is { Year: 2026, Month: 8 })

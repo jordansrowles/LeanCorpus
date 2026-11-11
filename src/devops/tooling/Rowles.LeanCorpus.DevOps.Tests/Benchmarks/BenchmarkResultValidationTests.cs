@@ -54,14 +54,14 @@ public sealed class BenchmarkResultValidationTests
     }
 
     [Fact]
-    public void AcceptsCompleteVersionFiveCoreReportAndNonEmptyBenchmarkDotNetOutput()
+    public void AcceptsCompleteVersionSixCoreReportAndNonEmptyBenchmarkDotNetOutput()
     {
         using var directory = TemporaryDirectory.Create();
         var results = Path.Combine(directory.Path, "_runner", "results");
         Directory.CreateDirectory(results);
         File.WriteAllText(Path.Combine(results, "report.md"), "benchmark results");
         File.WriteAllText(Path.Combine(directory.Path, "report.json"),
-            "{\"schemaVersion\":5,\"totalBenchmarkCount\":1,\"suites\":[{\"failedBenchmarkCount\":0,\"intermediateBenchmarkCount\":0,\"missingBenchmarkCount\":0}]}");
+            "{\"schemaVersion\":6,\"totalBenchmarkCount\":1,\"suites\":[{\"failedBenchmarkCount\":0,\"intermediateBenchmarkCount\":0,\"missingBenchmarkCount\":0}]}");
 
         var failure = BenchmarkCommandService.ValidateResults("core", directory.Path);
 
@@ -91,7 +91,7 @@ public sealed class BenchmarkResultValidationTests
         Directory.CreateDirectory(results);
         File.WriteAllText(Path.Combine(results, "report.md"), "benchmark results");
         File.WriteAllText(Path.Combine(directory.Path, "report.json"),
-            "{\"schemaVersion\":5,\"totalBenchmarkCount\":1,\"suites\":[{\"failedBenchmarkCount\":0,\"intermediateBenchmarkCount\":1,\"missingBenchmarkCount\":0}]}");
+            "{\"schemaVersion\":6,\"totalBenchmarkCount\":1,\"suites\":[{\"failedBenchmarkCount\":0,\"intermediateBenchmarkCount\":1,\"missingBenchmarkCount\":0}]}");
 
         var failure = BenchmarkCommandService.ValidateResults("core", directory.Path);
 

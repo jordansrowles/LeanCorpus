@@ -36,6 +36,24 @@ public sealed class BenchmarkCampaignPolicyTests
     }
 
     [Fact]
+    public async Task Report_opens_with_separate_execution_identity_and_qualification_lines()
+    {
+        using var checkout = new CampaignCheckout();
+        var runner = new ScriptedProcessRunner(static (target, phase) =>
+            phase == "run" && target == "core" ? OutcomeKind.CommandFailure : OutcomeKind.Success);
+
+        var result = await checkout.RunAsync(runner);
+
+        string[] lines = File.ReadAllLines(Path.Combine(result.RunDirectory!, "report.md"));
+        Assert.StartsWith("# Benchmark run ", lines[0], StringComparison.Ordinal);
+        Assert.StartsWith("Execution: ", lines[2], StringComparison.Ordinal);
+        Assert.StartsWith("Identity: Rejected; reasons: ", lines[3], StringComparison.Ordinal);
+        Assert.DoesNotContain("reasons: none", lines[3], StringComparison.Ordinal);
+        Assert.StartsWith("Qualification: Unqualified, scope none;", lines[4], StringComparison.Ordinal);
+        Assert.Contains("ExecutionIncomplete", lines[4], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_build_failure_still_stops_the_campaign()
     {
         using var checkout = new CampaignCheckout();
@@ -148,6 +166,10 @@ public sealed class BenchmarkCampaignPolicyTests
                 var results = Path.Combine(Path.GetDirectoryName(request.StandardOutputLogPath)!, "_runner", "results");
                 Directory.CreateDirectory(results);
                 File.WriteAllText(Path.Combine(results, "result.md"), "result");
+                // Core and Rowles.Text hosts must also write a canonical schema v6 report (ADR047).
+                if (target is "core" or "text")
+                    File.WriteAllText(Path.Combine(Path.GetDirectoryName(request.StandardOutputLogPath)!, "report.json"),
+                        "{\"schemaVersion\":6,\"totalBenchmarkCount\":1,\"suites\":[{\"failedBenchmarkCount\":0,\"intermediateBenchmarkCount\":0,\"missingBenchmarkCount\":0}]}");
             }
 
             return Task.FromResult(new ProcessResult(outcome, outcome == OutcomeKind.Success ? 0 : 1, [], [], 0, 0,

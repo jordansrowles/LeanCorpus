@@ -9,6 +9,8 @@ public sealed class BenchmarkComparisonAssessorTests
 {
     private const string Commit = "940334da5e5132e4a2d8378e21e8eedc1771ca95";
     private const string Fingerprint = "a3d0bfead0e32241fcb0c7d0e954f64c72d7a1e0f08e2b18b46b9a983ef88c12";
+    private const string DatasetContent = "c3d0bfead0e32241fcb0c7d0e954f64c72d7a1e0f08e2b18b46b9a983ef88c13";
+    private const string ProofDigest = "d3d0bfead0e32241fcb0c7d0e954f64c72d7a1e0f08e2b18b46b9a983ef88c14";
 
     [Fact]
     public void MatchedSyntheticPairQualifiesOnlyWithCompleteParityAndPreflightEvidence()
@@ -106,14 +108,14 @@ public sealed class BenchmarkComparisonAssessorTests
     }
 
     [Theory]
-    [InlineData("preflight", "PreflightFailed")]
+    [InlineData("preflight", "SemanticProofFailed")]
     [InlineData("recall", "CaseQualityFlagsPresent")]
     [InlineData("cache", "CaseQualityFlagsPresent")]
     public void FailedVectorRecallAndCachedNoHitShortcutCannotQualify(string failure, string reason)
     {
         BenchmarkComparisonCase row = failure switch
         {
-            "preflight" => CreateRow("LeanCorpus_Search", 100) with { PreflightPassed = false },
+            "preflight" => CreateRow("LeanCorpus_Search", 100) with { SemanticProof = Proof("LeanCorpus_Search") with { State = "Failed", Reasons = ["EngineOutputsDiffer"] } },
             "recall" => CreateRow("LeanCorpus_Search", 100) with { QualityFlags = ["RecallBelowFloor"] },
             _ => CreateRow("LeanCorpus_Search", 100) with { QualityFlags = ["CacheNoHitShortcut"] }
         };
@@ -228,7 +230,7 @@ public sealed class BenchmarkComparisonAssessorTests
     [InlineData(true, true)]
     [InlineData(false, false)]
     [InlineData(null, null)]
-    public void V5ReportReaderPreservesMissingAndTerminalPreflightEvidence(bool? preflightPassed, bool? expected)
+    public void ReportReaderPreservesMethodExecutionEvidenceAndNeverTreatsItAsProof(bool? methodExecutionSucceeded, bool? expected)
     {
         string path = Path.Combine(RepositoryTemporaryStorage.GetAreaRoot("devops-tests"), "benchmark-comparison-preflight-" + Guid.NewGuid().ToString("N") + ".json");
         var row = new Dictionary<string, object?>(StringComparer.Ordinal)
@@ -240,21 +242,22 @@ public sealed class BenchmarkComparisonAssessorTests
             ["identityComplete"] = true,
             ["qualityFlags"] = Array.Empty<string>()
         };
-        if (preflightPassed.HasValue)
-            row["preflightPassed"] = preflightPassed.Value;
+        if (methodExecutionSucceeded.HasValue)
+            row["methodExecutionSucceeded"] = methodExecutionSucceeded.Value;
 
         try
         {
             File.WriteAllText(path, JsonSerializer.Serialize(new
             {
-                schemaVersion = 5,
+                schemaVersion = 6,
                 suites = new[] { new { benchmarks = new[] { row } } }
             }));
 
             BenchmarkComparisonSourceReport report = BenchmarkComparisonSourceReport.Read(path);
 
             Assert.Null(report.ReadFailure);
-            Assert.Equal(expected, Assert.Single(report.Rows).PreflightPassed);
+            Assert.Equal(expected, Assert.Single(report.Rows).MethodExecutionSucceeded);
+            Assert.Null(Assert.Single(report.Rows).SemanticProof);
 
             BenchmarkComparisonAssessment assessment = Assess(CreateEvidence() with
             {
@@ -264,11 +267,223 @@ public sealed class BenchmarkComparisonAssessorTests
             Assert.False(assessment.EligibleForRatio);
             Assert.Contains("SourceCommitMismatch", assessment.ReasonCodes);
             Assert.Contains("DatasetIdentityMissing", assessment.ReasonCodes);
+            Assert.Contains("SemanticProofMissing", assessment.ReasonCodes);
         }
         finally
         {
             File.Delete(path);
         }
+    }
+
+    [Theory]
+    [InlineData("0.16.0-preview.2", true)]
+    [InlineData("0.16.0-preview.2+962da56e99ff7ab706c3c6f0aeb24e4af91a0d4f", true)]
+    [InlineData("0.16.0-preview.1", false)]
+    [InlineData("0.16.0-preview.1+962da56e99ff7ab706c3c6f0aeb24e4af91a0d4f", false)]
+    [InlineData("0.16.0", false)]
+    [InlineData("0.17.0-preview.1", false)]
+    [InlineData("0.16.0-preview.2+", false)]
+    public void OneVersionPolicyAcceptsOnlyTheRequiredBenchmarkDotNetVersion(string version, bool accepted)
+    {
+        Assert.Equal(accepted, BenchmarkToolchainPolicy.IsAcceptedBenchmarkDotNetVersion(version));
+
+        var result = Assess(CreateEvidence() with
+        {
+            Reports = [CreateReport(rows: [CreateRow("LeanCorpus_Search", 100), CreateRow("LuceneNet_Search", 125)]) with
+            { BenchmarkDotNetVersion = version }]
+        });
+
+        Assert.Equal(accepted, result.EligibleForRatio);
+        if (!accepted)
+            Assert.Contains("BenchmarkDotNetVersionMismatch", Assert.Single(result.Comparisons).ReasonCodes);
+    }
+
+    [Fact]
+    public void NetTenHostWithTwoNetElevenChildrenPassesHostIdentity()
+    {
+        var result = Assess(CreateEvidence() with
+        {
+            Host = CreateHost() with { RuntimeFramework = ".NET 10.0.7" },
+            Reports = [CreateReport(rows: [NetEleven(CreateRow("LeanCorpus_Search", 100)), NetEleven(CreateRow("LuceneNet_Search", 125))]) with
+            { RuntimeFramework = ".NET 11.0.0" }]
+        });
+
+        Assert.True(result.EligibleForRatio);
+        Assert.Equal("Qualified", Assert.Single(result.Comparisons).QualificationState);
+    }
+
+    [Fact]
+    public void NetTenChildAgainstNetElevenChildFailsWithRuntimeMismatch()
+    {
+        var result = Assess(CreateEvidence() with
+        {
+            Reports = [
+                CreateReport(rows: [CreateRow("LeanCorpus_Search", 100)]) with { RuntimeFramework = ".NET 10.0.7" },
+                CreateReport(rows: [NetEleven(CreateRow("LuceneNet_Search", 125))]) with { RuntimeFramework = ".NET 11.0.0" }]
+        });
+
+        Assert.False(result.EligibleForRatio);
+        var pair = Assert.Single(result.Comparisons);
+        Assert.Contains("RuntimeMismatch", pair.ReasonCodes);
+        Assert.DoesNotContain("HostIdentityMismatch", pair.ReasonCodes);
+    }
+
+    [Fact]
+    public void DifferentHostArchitectureFailsHostIdentity()
+    {
+        var result = Assess(CreateEvidence() with
+        {
+            Reports = [CreateReport(rows: [CreateRow("LeanCorpus_Search", 100), CreateRow("LuceneNet_Search", 125)]) with
+            { ProcessArchitecture = "Arm64" }]
+        });
+
+        Assert.Contains("HostIdentityMismatch", Assert.Single(result.Comparisons).ReasonCodes);
+    }
+
+    [Fact]
+    public void DifferentJobSettingsBetweenChildrenFailWithJobMismatch()
+    {
+        var right = CreateRow("LuceneNet_Search", 125);
+        right = right with { JobSettings = new Dictionary<string, string>(right.JobSettings, StringComparer.Ordinal) { ["run.iterationCount"] = "30" } };
+
+        var result = Assess(CreateEvidence() with { Reports = [CreateReport(rows: [CreateRow("LeanCorpus_Search", 100), right])] });
+
+        Assert.Contains("JobMismatch", Assert.Single(result.Comparisons).ReasonCodes);
+    }
+
+    private static BenchmarkComparisonCase NetEleven(BenchmarkComparisonCase row)
+        => row with { RuntimeVersion = "11.0.0", ToolchainRuntimeVersion = "11.0.0" };
+
+    [Theory]
+    [InlineData("wrong-hits", "SemanticProofFailed")]
+    [InlineData("missing", "SemanticProofMissing")]
+    [InlineData("stale", "SemanticProofStale")]
+    [InlineData("dataset", "SemanticProofDatasetMismatch")]
+    [InlineData("case", "SemanticProofCaseMismatch")]
+    [InlineData("version", "SemanticProofVersionUnsupported")]
+    public void RowWithoutAValidBoundProofStaysUnqualified(string defect, string reason)
+    {
+        BenchmarkSemanticProof proof = Proof("LeanCorpus_Search");
+        BenchmarkComparisonCase row = CreateRow("LeanCorpus_Search", 100) with
+        {
+            SemanticProof = defect switch
+            {
+                // A method that returned a wrong hit set still finished successfully.
+                "wrong-hits" => proof with { State = "Failed", Reasons = ["EngineOutputsDiffer"] },
+                "missing" => null,
+                "stale" => proof with { SourceCommit = new string('b', 40) },
+                "dataset" => proof with { DatasetContentSha256 = new string('e', 64) },
+                "case" => proof with { Parameters = new Dictionary<string, string>(StringComparer.Ordinal) { ["Count"] = "200" } },
+                _ => proof with { ProofVersion = 2 }
+            }
+        };
+
+        var result = Assess(CreateEvidence() with { Reports = [CreateReport(rows: [row, CreateRow("LuceneNet_Search", 125)])] });
+
+        Assert.False(result.EligibleForRatio);
+        var pair = Assert.Single(result.Comparisons);
+        Assert.Equal("Unqualified", pair.QualificationState);
+        Assert.Contains(reason, pair.ReasonCodes);
+    }
+
+    [Fact]
+    public void PassingProofWithAFailedTimedRowStaysUnqualified()
+    {
+        BenchmarkComparisonCase row = CreateRow("LeanCorpus_Search", 100) with
+        {
+            ResultState = "Failed",
+            MethodExecutionSucceeded = false
+        };
+
+        var result = Assess(CreateEvidence() with { Reports = [CreateReport(rows: [row, CreateRow("LuceneNet_Search", 125)])] });
+
+        var pair = Assert.Single(result.Comparisons);
+        Assert.Equal("Unqualified", pair.QualificationState);
+        Assert.Contains("MethodExecutionFailed", pair.ReasonCodes);
+        Assert.Contains("NonTerminalOrFailedResult", pair.ReasonCodes);
+    }
+
+    [Fact]
+    public void SchemaFiveReportsStayReadableAndUnqualified()
+    {
+        var result = Assess(CreateEvidence() with
+        {
+            Reports = [CreateReport(schemaVersion: 5, rows: [CreateRow("LeanCorpus_Search", 100), CreateRow("LuceneNet_Search", 125)])]
+        });
+
+        Assert.False(result.EligibleForRatio);
+        Assert.Contains("HistoricalResultSchema", Assert.Single(result.Comparisons).ReasonCodes);
+    }
+
+    [Fact]
+    public void TwentyThousandFamilyInAHundredThousandRunExplainsTheDocumentCountMismatch()
+    {
+        var parameters = ImmutableDictionary<string, ImmutableArray<string>>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("Count", ["20000"]);
+        BenchmarkComparisonEvidence evidence = CreateEvidence() with
+        {
+            CaseFamilies = [LeftFamily() with { ParameterValues = parameters }, RightFamily() with { ParameterValues = parameters }]
+        };
+
+        var result = Assess(evidence);
+
+        Assert.Empty(result.Comparisons);
+        Assert.Contains("NoPairedRows", result.ReasonCodes);
+        var diagnostic = Assert.Single(result.Diagnostics);
+        Assert.Equal("NoEligibleVariantForParameters", diagnostic.Code);
+        Assert.Equal(["left-search", "right-search"], diagnostic.CandidateFamilies);
+        Assert.Contains("left-search: Count=100 (reviewed: 20000)", diagnostic.ParameterMismatches);
+
+        var documentCountFamilies = ImmutableDictionary<string, ImmutableArray<string>>.Empty.WithComparers(StringComparer.Ordinal)
+            .Add("DocumentCount", ["20000"]);
+        BenchmarkComparisonCase Row(string method) => CreateRow(method, 100) with
+        {
+            Parameters = new Dictionary<string, string>(StringComparer.Ordinal) { ["DocumentCount"] = "100000" }
+        };
+        var documentCount = Assess(CreateEvidence() with
+        {
+            CaseFamilies = [LeftFamily() with { ParameterValues = documentCountFamilies }, RightFamily() with { ParameterValues = documentCountFamilies }],
+            Reports = [CreateReport(rows: [Row("LeanCorpus_Search"), Row("LuceneNet_Search")])]
+        });
+        Assert.Contains("NoEligibleVariantForDocumentCount", documentCount.ReasonCodes);
+        Assert.Equal("NoEligibleVariantForDocumentCount", Assert.Single(documentCount.Diagnostics).Code);
+    }
+
+    [Fact]
+    public void GroupThatDidNotRunAddsNoDiagnostic()
+    {
+        var result = Assess(CreateEvidence() with { Reports = [CreateReport(rows: [])] });
+
+        Assert.Empty(result.Diagnostics);
+    }
+
+    [Fact]
+    public void StatisticalFlagsAreDiagnosticsNotQualificationReasons()
+    {
+        BenchmarkComparisonCase row = CreateRow("LeanCorpus_Search", 100) with { QualityFlags = ["Directional"] };
+
+        var result = Assess(CreateEvidence() with { Reports = [CreateReport(rows: [row, CreateRow("LuceneNet_Search", 125)])] });
+
+        var pair = Assert.Single(result.Comparisons);
+        Assert.Equal("Qualified", pair.QualificationState);
+        Assert.DoesNotContain("CaseQualityFlagsPresent", pair.ReasonCodes);
+        Assert.Equal(["Directional"], pair.DiagnosticFlags);
+    }
+
+    [Fact]
+    public void EachCaseShowsItsSamplesVariabilityAndFailingGates()
+    {
+        BenchmarkComparisonCase row = CreateRow("LeanCorpus_Search", 100) with { SampleCount = 12, ActualWorkloadMeasurementCount = 12 };
+
+        var result = Assess(CreateEvidence() with { Reports = [CreateReport(rows: [row, CreateRow("LuceneNet_Search", 125)])] });
+
+        var pair = Assert.Single(result.Comparisons);
+        Assert.Equal("Directional", pair.QualificationState);
+        var lean = Assert.Single(pair.Cases, static item => item.EngineId == "leancorpus");
+        Assert.Equal(12, lean.SampleCount);
+        Assert.Equal(4d, lean.CoefficientOfVariationPercent);
+        Assert.Equal(["InsufficientSamples"], lean.FailingGates);
+        Assert.Empty(Assert.Single(pair.Cases, static item => item.EngineId == "lucenenet").FailingGates);
     }
 
     private static BenchmarkComparisonAssessment Assess(BenchmarkComparisonEvidence evidence)
@@ -293,18 +508,26 @@ public sealed class BenchmarkComparisonAssessorTests
             "BVAL-99 paired exact result assertion", [], "short");
 
     private static BenchmarkComparisonSourceReport CreateReport(
-        int schemaVersion = 5,
+        int schemaVersion = 6,
         IReadOnlyList<BenchmarkComparisonCase>? rows = null)
         => new(schemaVersion, Commit, false, Fingerprint, ["test-profile-v1"],
             "test-host", "Test OS", "linux-x64", "X64", ".NET 10.0",
-            "0.16.0-preview.2", rows ?? []);
+            "0.16.0-preview.2", rows ?? [])
+        {
+            DatasetContentHashes = [DatasetContent]
+        };
 
     private static BenchmarkComparisonCase CreateRow(string method, double meanNanoseconds)
         => new("Tests.PairBenchmarks", method, new Dictionary<string, string>(StringComparer.Ordinal) { ["Count"] = "100" },
             "TerminalResult", true, ".NET", "10.0.0", "DotNetCliToolchain", ".NET", "10.0.0",
             new Dictionary<string, string>(StringComparer.Ordinal) { ["gc.server"] = "false", ["gc.concurrent"] = "true" },
             new Dictionary<string, string>(StringComparer.Ordinal) { ["DOTNET_TieredPGO"] = "1" },
-            30, 30, 4, meanNanoseconds, [], true);
+            30, 30, 4, meanNanoseconds, [], true, Proof(method));
+
+    private static BenchmarkSemanticProof Proof(string method)
+        => new(1, "bval-99-pair", "bval-99-fixture", "PairBenchmarks", [method],
+            new Dictionary<string, string>(StringComparer.Ordinal) { ["Count"] = "100" },
+            DatasetContent, Commit, "Passed", [], ProofDigest, 1);
 
     private static BenchmarkHostIdentity CreateHost()
         => new("test-host", "Test OS", "linux-x64", "X64", 8, "Test CPU", ".NET 10.0", false, Fingerprint);

@@ -172,7 +172,11 @@ internal static class BenchmarkQualificationSummaryBuilder
             report.ValueKind != JsonValueKind.Object)
             return false;
 
-        JsonElement comparison = GetObject(report, "comparisonAssessment");
+        // Finalised reports (ADR047) carry the published decision in "qualification"; older reports
+        // only had the pair assessment, which is read as before and can never be newer evidence.
+        JsonElement comparison = report.TryGetProperty("identityAssessment", out _)
+            ? GetObject(report, "qualification")
+            : GetObject(report, "comparisonAssessment");
         JsonElement source = GetObject(report, "source");
         JsonElement? execution = report.TryGetProperty("execution", out JsonElement executionValue)
             ? executionValue.Clone()
@@ -184,7 +188,7 @@ internal static class BenchmarkQualificationSummaryBuilder
             ReadScalar(report, "runId"),
             ReadScalar(report, "status"),
             execution,
-            ReadScalar(comparison, "qualificationState"),
+            ReadScalar(comparison, "qualificationState") ?? ReadScalar(comparison, "state"),
             eligible,
             ReadStringArray(comparison, "reasonCodes"),
             ReadScalar(item, "path"),
