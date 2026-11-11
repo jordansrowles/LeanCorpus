@@ -132,8 +132,15 @@ internal sealed class BenchmarkCaseReport
 
     /// <summary>The versioned semantic proof covering this row, or <see langword="null"/> when none applies (ADR047).</summary>
     public BenchmarkSemanticProofReport? SemanticProof { get; set; }
-    public Dictionary<string, string> JobSettings { get; set; } = new(StringComparer.Ordinal);
+    /// <summary>
+    /// The job settings as configured on the BenchmarkDotNet job. An empty value means the job left
+    /// it unset and BenchmarkDotNet's default applied; see <see cref="EffectiveRuntime"/> for what ran.
+    /// </summary>
+    public Dictionary<string, string> ConfiguredJobSettings { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> EnvironmentVariables { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>The runtime the benchmark child observed, or <see langword="null"/> when it was not recorded.</summary>
+    public BenchmarkEffectiveRuntimeReport? EffectiveRuntime { get; set; }
     public int MeasurementCount { get; set; }
     public int ActualWorkloadMeasurementCount { get; set; }
     public string MeasurementFingerprintSha256 { get; set; } = string.Empty;
@@ -235,11 +242,13 @@ internal static partial class BenchmarkRunReportBuilder
         DateTimeOffset generatedAtUtc,
         string[] benchmarkArgs,
         IReadOnlyList<(string Suite, Summary Summary)> suiteSummaries,
-        IReadOnlyList<BenchmarkSemanticProofReport>? semanticProofs = null)
+        IReadOnlyList<BenchmarkSemanticProofReport>? semanticProofs = null,
+        IReadOnlyDictionary<string, IReadOnlyList<BenchmarkEffectiveRuntimeReport>>? childRuntimes = null)
     {
         IReadOnlyList<BenchmarkSemanticProofReport> proofs = semanticProofs ?? [];
+        var runtimes = childRuntimes ?? new Dictionary<string, IReadOnlyList<BenchmarkEffectiveRuntimeReport>>(StringComparer.Ordinal);
         var suiteReports = suiteSummaries
-            .Select(source => BuildSuiteReport(source, proofs))
+            .Select(source => BuildSuiteReport(source, proofs, runtimes))
             .OrderBy(r => r.SuiteName, StringComparer.Ordinal)
             .ToList();
 
@@ -263,9 +272,10 @@ internal static partial class BenchmarkRunReportBuilder
 
     private static BenchmarkSuiteReport BuildSuiteReport(
         (string Suite, Summary Summary) source,
-        IReadOnlyList<BenchmarkSemanticProofReport> proofs)
+        IReadOnlyList<BenchmarkSemanticProofReport> proofs,
+        IReadOnlyDictionary<string, IReadOnlyList<BenchmarkEffectiveRuntimeReport>> runtimes)
     {
-        var benchmarks = PreserveReportRows(source.Summary.Reports.Select(report => BuildCaseReport(report, proofs)));
+        var benchmarks = PreserveReportRows(source.Summary.Reports.Select(report => BuildCaseReport(report, proofs, runtimes)));
 
         var registeredKeys = source.Summary.BenchmarksCases
             .Select(static benchmarkCase => CreateCaseIdentity(BuildIdentitySource(benchmarkCase)).Key)
@@ -310,12 +320,19 @@ internal static partial class BenchmarkRunReportBuilder
         };
     }
 
-    private static BenchmarkCaseReport BuildCaseReport(BenchmarkReport report, IReadOnlyList<BenchmarkSemanticProofReport> proofs)
+    private static BenchmarkCaseReport BuildCaseReport(
+        BenchmarkReport report,
+        IReadOnlyList<BenchmarkSemanticProofReport> proofs,
+        IReadOnlyDictionary<string, IReadOnlyList<BenchmarkEffectiveRuntimeReport>> runtimes)
     {
         BenchmarkCaseIdentityReport identity = CreateCaseIdentity(BuildIdentitySource(report.BenchmarkCase));
         var statistics = BuildStatisticsReport(report.ResultStatistics);
-        return BuildCaseReport(identity, report.Success, report.AllMeasurements, statistics, BuildGcReport(report.GcStats, report.Metrics),
+        var row = BuildCaseReport(identity, report.Success, report.AllMeasurements, statistics, BuildGcReport(report.GcStats, report.Metrics),
             BenchmarkSemanticProofs.ForRow(proofs, identity.TypeName, identity.MethodName, identity.Parameters));
+        // BenchmarkDotNet passes each child its full benchmark name, which the child records.
+        row.EffectiveRuntime = BenchmarkChildRuntime.ForCase(runtimes,
+            BenchmarkDotNet.Exporters.FullNameProvider.GetBenchmarkName(report.BenchmarkCase));
+        return row;
     }
 
     internal static BenchmarkCaseReport BuildCaseReport(
@@ -385,7 +402,7 @@ internal static partial class BenchmarkRunReportBuilder
             IdentityComplete = identity.IdentityComplete,
             MethodExecutionSucceeded = success,
             SemanticProof = semanticProof,
-            JobSettings = identity.Settings,
+            ConfiguredJobSettings = identity.Settings,
             EnvironmentVariables = identity.EnvironmentVariables,
             MeasurementCount = measurements.Count,
             ActualWorkloadMeasurementCount = actualWorkloadMeasurementCount,

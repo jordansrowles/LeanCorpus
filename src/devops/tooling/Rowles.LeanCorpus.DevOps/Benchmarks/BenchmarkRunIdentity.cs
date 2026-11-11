@@ -261,7 +261,8 @@ internal sealed record BenchmarkCoreReportIdentity(
                     string.IsNullOrWhiteSpace(GetString(row, "toolchainRuntimeVersion")) ||
                     !BenchmarkRunIdentityValidator.IsSha256(GetString(row, "measurementFingerprintSha256")) ||
                     measurementCount <= 0 || actualWorkloadMeasurementCount <= 0 || actualWorkloadMeasurementCount > measurementCount ||
-                    !HasObject(row, "parameters") || !HasObject(row, "jobSettings") || !HasObject(row, "environmentVariables") ||
+                    !HasObject(row, "parameters") || !(HasObject(row, "configuredJobSettings") || HasObject(row, "jobSettings")) ||
+                    !HasObject(row, "environmentVariables") ||
                     !HasValidTerminalStatistics(row))
                     return (false, "Schema v5 report contains a missing, duplicate, non-terminal or incomplete result row.");
 

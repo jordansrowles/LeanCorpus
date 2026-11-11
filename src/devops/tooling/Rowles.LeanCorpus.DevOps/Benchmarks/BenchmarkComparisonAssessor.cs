@@ -130,7 +130,10 @@ internal sealed record BenchmarkComparisonSourceReport(
             GetString(row, "toolchainType"),
             GetString(row, "toolchainRuntimeName"),
             GetString(row, "toolchainRuntimeVersion"),
-            ReadStringMap(row, "jobSettings"),
+            // Schema v6 names configured settings explicitly; v5 called them jobSettings.
+            TryGetObject(row, "configuredJobSettings").ValueKind == JsonValueKind.Object
+                ? ReadStringMap(row, "configuredJobSettings")
+                : ReadStringMap(row, "jobSettings"),
             ReadStringMap(row, "environmentVariables"),
             GetInt32(statistics, "sampleCount"),
             GetInt32(row, "actualWorkloadMeasurementCount"),
@@ -138,8 +141,23 @@ internal sealed record BenchmarkComparisonSourceReport(
             GetDouble(statistics, "meanNanoseconds"),
             ReadStringArray(row, "qualityFlags"),
             GetBoolean(row, "methodExecutionSucceeded"),
-            ReadProof(TryGetObject(row, "semanticProof")));
+            ReadProof(TryGetObject(row, "semanticProof")))
+        {
+            EffectiveRuntime = ReadEffectiveRuntime(TryGetObject(row, "effectiveRuntime"))
+        };
     }
+
+    private static BenchmarkEffectiveRuntime? ReadEffectiveRuntime(JsonElement runtime)
+        => runtime.ValueKind != JsonValueKind.Object
+            ? null
+            : new BenchmarkEffectiveRuntime(
+                GetString(runtime, "runtimeFramework"),
+                GetBoolean(runtime, "gcServer"),
+                GetBoolean(runtime, "gcConcurrent"),
+                GetString(runtime, "tieredPgo"),
+                GetInt32(runtime, "vectorWidthBits"),
+                ReadStringArray(runtime, "instructionSets"),
+                GetString(runtime, "intrinsicsFingerprintSha256"));
 
     private static BenchmarkSemanticProof? ReadProof(JsonElement proof)
         => proof.ValueKind != JsonValueKind.Object
@@ -244,7 +262,21 @@ internal sealed record BenchmarkComparisonCase(
     double? MeanNanoseconds,
     IReadOnlyList<string> QualityFlags,
     bool? MethodExecutionSucceeded,
-    BenchmarkSemanticProof? SemanticProof);
+    BenchmarkSemanticProof? SemanticProof)
+{
+    /// <summary>The runtime the benchmark child observed, or <see langword="null"/> when unrecorded.</summary>
+    public BenchmarkEffectiveRuntime? EffectiveRuntime { get; init; }
+}
+
+/// <summary>The effective runtime a benchmark child recorded (ADR047): GC, PGO, vector width and intrinsics.</summary>
+internal sealed record BenchmarkEffectiveRuntime(
+    string? RuntimeFramework,
+    bool? GcServer,
+    bool? GcConcurrent,
+    string? TieredPgo,
+    int? VectorWidthBits,
+    IReadOnlyList<string> InstructionSets,
+    string? IntrinsicsFingerprintSha256);
 
 /// <summary>A row's versioned semantic proof (ADR047), as written by the benchmark report.</summary>
 internal sealed record BenchmarkSemanticProof(
@@ -531,6 +563,7 @@ internal static class BenchmarkComparisonAssessor
             reasons.Add("RuntimeMismatch");
         if (!MapsEqual(SelectJobSettings(left.Row.JobSettings), SelectJobSettings(right.Row.JobSettings)))
             reasons.Add("JobMismatch");
+        ValidateEffectiveRuntime(left.Row.EffectiveRuntime, right.Row.EffectiveRuntime, reasons);
 
         IReadOnlyDictionary<string, string> leftGc = SelectSettings(left.Row.JobSettings, "gc.");
         IReadOnlyDictionary<string, string> rightGc = SelectSettings(right.Row.JobSettings, "gc.");
@@ -547,6 +580,32 @@ internal static class BenchmarkComparisonAssessor
         else if (!string.Equals(leftPgo, rightPgo, StringComparison.OrdinalIgnoreCase) ||
                  !MapsEqual(SelectSettings(left.Row.EnvironmentVariables, "DOTNET_"), SelectSettings(right.Row.EnvironmentVariables, "DOTNET_")))
             reasons.Add("PgoSettingsMismatch");
+    }
+
+    /// <summary>
+    /// A pair must run on the same observed runtime: both children must have recorded one, with the
+    /// same instruction sets and vector width, GC mode and tiered PGO.
+    /// </summary>
+    private static void ValidateEffectiveRuntime(BenchmarkEffectiveRuntime? left, BenchmarkEffectiveRuntime? right, ISet<string> reasons)
+    {
+        if (left is null || right is null ||
+            !BenchmarkRunIdentityValidator.IsSha256(left.IntrinsicsFingerprintSha256) ||
+            !BenchmarkRunIdentityValidator.IsSha256(right.IntrinsicsFingerprintSha256) ||
+            left.VectorWidthBits is not > 0 || right.VectorWidthBits is not > 0)
+        {
+            reasons.Add("EffectiveRuntimeMissing");
+            return;
+        }
+        if (!string.Equals(left.IntrinsicsFingerprintSha256, right.IntrinsicsFingerprintSha256, StringComparison.OrdinalIgnoreCase) ||
+            left.VectorWidthBits != right.VectorWidthBits ||
+            !left.InstructionSets.SequenceEqual(right.InstructionSets, StringComparer.Ordinal))
+            reasons.Add("IntrinsicsMismatch");
+        if (left.GcServer != right.GcServer || left.GcConcurrent != right.GcConcurrent)
+            reasons.Add("GcSettingsMismatch");
+        if (!string.Equals(left.TieredPgo, right.TieredPgo, StringComparison.Ordinal))
+            reasons.Add("PgoSettingsMismatch");
+        if (!string.Equals(left.RuntimeFramework, right.RuntimeFramework, StringComparison.Ordinal))
+            reasons.Add("RuntimeMismatch");
     }
 
     private static void ValidateReport(

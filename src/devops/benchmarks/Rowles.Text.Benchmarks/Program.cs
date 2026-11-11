@@ -67,7 +67,8 @@ internal static class Program
             ? orchestrated
             : startedAtUtc.ToString("yyyy-MM-dd HH-mm", System.Globalization.CultureInfo.InvariantCulture);
         var report = BenchmarkRunReportBuilder.Build(runId, startedAtUtc, benchmarkArgs, suiteSummaries,
-            BenchmarkSemanticProofs.ReadAll(artifactsPath));
+            BenchmarkSemanticProofs.ReadAll(artifactsPath),
+            BenchmarkChildRuntime.ReadAll(artifactsPath));
         report.CommitHash = gitCommit;
         report.RunType = "text";
         report.Provenance = BenchmarkProvenanceBuilder.Build(repositoryRoot, gitCommit, effectiveDocCount: null, artifactsPath);

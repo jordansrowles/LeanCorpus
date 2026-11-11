@@ -486,6 +486,28 @@ public sealed class BenchmarkComparisonAssessorTests
         Assert.Empty(Assert.Single(pair.Cases, static item => item.EngineId == "lucenenet").FailingGates);
     }
 
+    [Theory]
+    [InlineData("instruction-sets", "IntrinsicsMismatch")]
+    [InlineData("vector-width", "IntrinsicsMismatch")]
+    [InlineData("missing", "EffectiveRuntimeMissing")]
+    public void PairAcrossIntrinsicSetsFailsWithANamedReason(string difference, string reason)
+    {
+        BenchmarkComparisonCase right = CreateRow("LuceneNet_Search", 125) with
+        {
+            EffectiveRuntime = difference switch
+            {
+                "instruction-sets" => Runtime(["Sse", "Sse2", "Sse42", "Avx", "Avx2"]),
+                "vector-width" => Runtime(vectorWidthBits: 256),
+                _ => null
+            }
+        };
+
+        var result = Assess(CreateEvidence() with { Reports = [CreateReport(rows: [CreateRow("LeanCorpus_Search", 100), right])] });
+
+        Assert.False(result.EligibleForRatio);
+        Assert.Contains(reason, Assert.Single(result.Comparisons).ReasonCodes);
+    }
+
     private static BenchmarkComparisonAssessment Assess(BenchmarkComparisonEvidence evidence)
         => BenchmarkComparisonAssessor.Assess(evidence);
 
@@ -522,7 +544,14 @@ public sealed class BenchmarkComparisonAssessorTests
             "TerminalResult", true, ".NET", "10.0.0", "DotNetCliToolchain", ".NET", "10.0.0",
             new Dictionary<string, string>(StringComparer.Ordinal) { ["gc.server"] = "false", ["gc.concurrent"] = "true" },
             new Dictionary<string, string>(StringComparer.Ordinal) { ["DOTNET_TieredPGO"] = "1" },
-            30, 30, 4, meanNanoseconds, [], true, Proof(method));
+            30, 30, 4, meanNanoseconds, [], true, Proof(method))
+        {
+            EffectiveRuntime = Runtime()
+        };
+
+    private static BenchmarkEffectiveRuntime Runtime(string[]? instructionSets = null, int vectorWidthBits = 128)
+        => new(".NET 10.0", false, true, "1", vectorWidthBits, instructionSets ?? ["Sse", "Sse2", "Sse42"],
+            instructionSets is null && vectorWidthBits == 128 ? new string('f', 64) : new string('e', 64));
 
     private static BenchmarkSemanticProof Proof(string method)
         => new(1, "bval-99-pair", "bval-99-fixture", "PairBenchmarks", [method],
