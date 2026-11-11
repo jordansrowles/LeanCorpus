@@ -1,4 +1,6 @@
 using BenchmarkDotNet.Attributes;
+using Lucene.Net.Analysis;
+using Lucene.Net.Analysis.Core;
 using Lucene.Net.Analysis.NGram;
 using Lucene.Net.Util;
 using Rowles.LeanCorpus.Analysis;
@@ -8,7 +10,11 @@ namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
 /// Compares <see cref="EdgeNGramTokeniser"/> and <see cref="NGramTokeniser"/> throughput against Lucene.NET equivalents.
-/// Only the zero-allocation span-sink and streaming enumerator paths are benchmarked.
+/// Only the zero-allocation span-sink and streaming enumerator paths are benchmarked. The edge pair is
+/// Lucene.NET <see cref="WhitespaceTokenizer"/> plus <see cref="EdgeNGramTokenFilter"/>, which grams each
+/// whitespace word as LeanCorpus does; setup asserts equal grams on the first 500 documents. Lucene.NET
+/// keeps the whole word's offsets on each gram, so the edge comparison is of gram terms. Directional
+/// head-to-head rows.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -53,6 +59,33 @@ public class NGramTokeniserBenchmarks
                 return TextOutputPreflight.CaptureLucene(tokenizer);
             },
             PreflightAllowList.None);
+
+        ValidateEdgeGrams();
+    }
+
+    private TokenStream CreateLuceneEdge(string document)
+        => new EdgeNGramTokenFilter(LuceneVersion.LUCENE_48,
+            new WhitespaceTokenizer(LuceneVersion.LUCENE_48, new StringReader(document)), _min, _max);
+
+    /// <summary>Fails setup unless both engines emit the same edge grams, in order, per document.</summary>
+    private void ValidateEdgeGrams()
+    {
+        int count = Math.Min(TextOutputPreflight.DocumentCount, _documents.Length);
+        long grams = 0;
+        for (int i = 0; i < count; i++)
+        {
+            var lean = TextOutputPreflight.CaptureLean(sink => _edgeTokeniser.Tokenise(_documents[i].AsSpan(), sink)).Select(static t => t.Term).ToArray();
+            string[] lucene;
+            using (var stream = CreateLuceneEdge(_documents[i]))
+                lucene = TextOutputPreflight.CaptureLucene(stream).Select(static t => t.Term).ToArray();
+            if (!lean.SequenceEqual(lucene, StringComparer.Ordinal))
+                throw new InvalidOperationException(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                    $"Edge n-gram preflight {GramRange}: document {i} has {lean.Length} LeanCorpus grams and {lucene.Length} Lucene.NET grams, or a different gram sequence."));
+            grams += lean.Length;
+        }
+
+        Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"Benchmark preflight text edge-ngram/{GramRange}: documents={count}, identical-grams={count}, grams={grams}"));
     }
 
     private readonly ReadingTokenSink _readingSink = new();
@@ -169,16 +202,43 @@ public class NGramTokeniserBenchmarks
 
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_EdgeNGramTokenizer()
+    public int LuceneNet_EdgeNGramFilter_CountOnly()
     {
         int total = 0;
         foreach (var doc in _documents)
         {
-            using var tokenizer = new EdgeNGramTokenizer(
-                LuceneVersion.LUCENE_48, new StringReader(doc), _min, _max);
-            tokenizer.Reset();
-            while (tokenizer.IncrementToken())
+            using var stream = CreateLuceneEdge(doc);
+            stream.Reset();
+            while (stream.IncrementToken())
                 total++;
+            stream.End();
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_EdgeNGramTokeniser_Reading()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            _readingSink.Reset();
+            _edgeTokeniser.Tokenise(doc.AsSpan(), _readingSink);
+            total += _readingSink.Count;
+        }
+        return total;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LuceneNet_EdgeNGramFilter_Reading()
+    {
+        int total = 0;
+        foreach (var doc in _documents)
+        {
+            using var stream = CreateLuceneEdge(doc);
+            total += LuceneTermReader.ReadAll(stream);
         }
         return total;
     }
@@ -209,7 +269,7 @@ public class NGramTokeniserBenchmarks
             ReadOnlySpan<char> text,
             int startOffset,
             int endOffset,
-            string type = Token.DefaultType,
+            string type = Rowles.LeanCorpus.Analysis.Token.DefaultType,
             int positionIncrement = 1,
             byte[]? payload = null)
         {

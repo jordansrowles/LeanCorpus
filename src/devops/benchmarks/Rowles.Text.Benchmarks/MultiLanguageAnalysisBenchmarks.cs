@@ -1,8 +1,9 @@
+using System.Globalization;
 using BenchmarkDotNet.Attributes;
 using Lucene.Net.Analysis;
 using Lucene.Net.Analysis.Ar;
-using Lucene.Net.Analysis.Core;
 using Lucene.Net.Analysis.De;
+using Lucene.Net.Analysis.En;
 using Lucene.Net.Analysis.Es;
 using Lucene.Net.Analysis.Fr;
 using Lucene.Net.Analysis.It;
@@ -18,9 +19,13 @@ using Rowles.LeanCorpus.Analysis.Analysers;
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Measures analysis pipeline throughput across all twelve languages supported
-/// by <see cref="AnalyserFactory"/>. Each iteration analyses a representative
-/// sample paragraph for the language under test.
+/// Compares the <see cref="AnalyserFactory"/> pipeline for each language that has a Lucene.NET
+/// analyser of the same family, over a multi-sentence DataForge input. Lucene.NET analysers are
+/// built once in setup and disposed in cleanup. <c>en</c> uses <see cref="EnglishAnalyzer"/>, the
+/// Porter pipeline matching LeanCorpus. Setup records each language's term-overlap class
+/// (<c>matched</c> or <c>same-family</c>) and vocabulary size in evidence. Directional head-to-head
+/// rows: only a <c>matched</c> language may support a ratio, after qualification. <c>ja</c> and
+/// <c>zh</c> have no Lucene.NET pair and are measured by <see cref="MultiLanguageInternalAnalysisBenchmarks"/>.
 /// </summary>
 [MemoryDiagnoser]
 [HtmlExporter]
@@ -28,32 +33,47 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 public class MultiLanguageAnalysisBenchmarks
 {
-    public static IEnumerable<string> Languages => RowlesTextMultilingualProfile.Languages;
+    public static IEnumerable<string> Languages => RowlesTextMultilingualProfile.Languages.Where(MultilingualInput.HasLucenePair);
 
     [ParamsSource(nameof(Languages))]
     public string Language { get; set; } = "en";
 
     private IAnalyser _analyser = null!;
+    private Analyzer _luceneAnalyser = null!;
     private string _sample = string.Empty;
+    private readonly ReadingTokenSink _readingSink = new();
 
     [GlobalSetup]
     public void Setup()
     {
         _analyser = AnalyserFactory.Create(Language);
-        _sample = TextBenchmarkData.BuildMultilingualInputs(Language, 1)[0];
+        _luceneAnalyser = MultilingualInput.CreateLuceneAnalyser(Language);
+        _sample = MultilingualInput.Build(Language);
+
+        var lean = TextOutputPreflight.CaptureLean(sink => _analyser.Analyse(_sample.AsSpan(), sink));
+        IReadOnlyList<AnalysedToken> lucene;
+        using (var stream = _luceneAnalyser.GetTokenStream("text", new StringReader(_sample)))
+            lucene = TextOutputPreflight.CaptureLucene(stream);
+
+        bool matched = lean.Select(static t => t.Term).SequenceEqual(lucene.Select(static t => t.Term));
+        MultilingualInput.Record(Language, matched ? "matched" : "same-family", lean, lucene.Count);
+        if (lean.Count == 0 || lucene.Count == 0)
+            throw new InvalidOperationException($"Multilingual setup for '{Language}' produced no terms on one engine.");
     }
 
-    [Benchmark]
+    [GlobalCleanup]
+    public void Cleanup() => _luceneAnalyser?.Dispose();
+
+    [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
     public int Analyse()
     {
         int total = 0;
-        // Repeat the sample to amortise per-call overhead.
-        for (int i = 0; i < 100; i++)
+        for (int i = 0; i < MultilingualInput.Repetitions; i++)
         {
-            var sink = new CountingTokenSink();
-            _analyser.Analyse(_sample.AsSpan(), sink);
-            total += sink.Count;
+            _readingSink.Reset();
+            _analyser.Analyse(_sample.AsSpan(), _readingSink);
+            total += _readingSink.Count;
         }
         return total;
     }
@@ -63,36 +83,102 @@ public class MultiLanguageAnalysisBenchmarks
     public int LuceneNet_Analyse()
     {
         int total = 0;
-        if (LuceneAnalysers.TryGetValue(Language, out var factory))
+        for (int i = 0; i < MultilingualInput.Repetitions; i++)
         {
-            var analyser = factory();
-            for (int i = 0; i < 100; i++)
-            {
-                using var ts = analyser.GetTokenStream("text", new System.IO.StringReader(_sample));
-                ts.Reset();
-                while (ts.IncrementToken())
-                    total++;
-                ts.End();
-            }
+            using var stream = _luceneAnalyser.GetTokenStream("text", new StringReader(_sample));
+            total += LuceneTermReader.ReadAll(stream);
         }
         return total;
     }
+}
 
-    private static readonly Dictionary<string, Func<Analyzer>> LuceneAnalysers = new()
+/// <summary>
+/// Measures the <c>ja</c> and <c>zh</c> <see cref="AnalyserFactory"/> pipelines with no Lucene.NET
+/// pair (<c>internal-only</c>): the Lucene.NET Kuromoji and SmartCn analysers are not referenced.
+/// Setup fails when the language's lexicon is absent and records its path and SHA-256.
+/// </summary>
+[MemoryDiagnoser]
+[HtmlExporter]
+[JsonExporterAttribute.Full]
+[MarkdownExporterAttribute.GitHub]
+public class MultiLanguageInternalAnalysisBenchmarks
+{
+    public static IEnumerable<string> Languages => RowlesTextMultilingualProfile.Languages.Where(static l => !MultilingualInput.HasLucenePair(l));
+
+    [ParamsSource(nameof(Languages))]
+    public string Language { get; set; } = "zh";
+
+    private IAnalyser _analyser = null!;
+    private string _sample = string.Empty;
+    private readonly ReadingTokenSink _readingSink = new();
+
+    [GlobalSetup]
+    public void Setup()
     {
-        ["en"] = () => new StandardAnalyzer(LuceneVersion.LUCENE_48),
-        ["fr"] = () => new FrenchAnalyzer(LuceneVersion.LUCENE_48),
-        ["de"] = () => new GermanAnalyzer(LuceneVersion.LUCENE_48),
-        ["es"] = () => new SpanishAnalyzer(LuceneVersion.LUCENE_48),
-        ["it"] = () => new ItalianAnalyzer(LuceneVersion.LUCENE_48),
-        ["pt"] = () => new PortugueseAnalyzer(LuceneVersion.LUCENE_48),
-        ["nl"] = () => new DutchAnalyzer(LuceneVersion.LUCENE_48),
-        ["ru"] = () => new RussianAnalyzer(LuceneVersion.LUCENE_48),
-        ["ar"] = () => new ArabicAnalyzer(LuceneVersion.LUCENE_48),
-        // zh/ja/ko use StandardAnalyzer — language-specific packages not referenced.
-        ["zh"] = () => new StandardAnalyzer(LuceneVersion.LUCENE_48),
-        ["ja"] = () => new StandardAnalyzer(LuceneVersion.LUCENE_48),
-        ["ko"] = () => new StandardAnalyzer(LuceneVersion.LUCENE_48),
+        TextLexicons.RequireAndRecord(Language, Language switch
+        {
+            "zh" => "chinese-dict.txt",
+            "ja" => "japanese.jlc",
+            _ => throw new InvalidOperationException($"No lexicon is declared for internal-only language '{Language}'."),
+        });
+        _analyser = AnalyserFactory.Create(Language);
+        _sample = MultilingualInput.Build(Language);
+        var lean = TextOutputPreflight.CaptureLean(sink => _analyser.Analyse(_sample.AsSpan(), sink));
+        MultilingualInput.Record(Language, "internal-only", lean, luceneTerms: null);
+        if (lean.Count == 0)
+            throw new InvalidOperationException($"Multilingual setup for '{Language}' produced no terms.");
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int Analyse()
+    {
+        int total = 0;
+        for (int i = 0; i < MultilingualInput.Repetitions; i++)
+        {
+            _readingSink.Reset();
+            _analyser.Analyse(_sample.AsSpan(), _readingSink);
+            total += _readingSink.Count;
+        }
+        return total;
+    }
+}
+
+/// <summary>Shared multilingual input, pairing and evidence.</summary>
+internal static class MultilingualInput
+{
+    /// <summary>DataForge records joined into one multi-sentence input per language.</summary>
+    public const int Sentences = 16;
+
+    /// <summary>Analyses of the input per invocation, amortising per-call overhead.</summary>
+    public const int Repetitions = 10;
+
+    public static bool HasLucenePair(string language) => language is not ("ja" or "zh");
+
+    public static string Build(string language)
+        => string.Join(" ", TextBenchmarkData.BuildMultilingualInputs(language, Sentences));
+
+    public static Analyzer CreateLuceneAnalyser(string language) => language switch
+    {
+        "en" => new EnglishAnalyzer(LuceneVersion.LUCENE_48),
+        "fr" => new FrenchAnalyzer(LuceneVersion.LUCENE_48),
+        "de" => new GermanAnalyzer(LuceneVersion.LUCENE_48),
+        "es" => new SpanishAnalyzer(LuceneVersion.LUCENE_48),
+        "it" => new ItalianAnalyzer(LuceneVersion.LUCENE_48),
+        "pt" => new PortugueseAnalyzer(LuceneVersion.LUCENE_48),
+        "nl" => new DutchAnalyzer(LuceneVersion.LUCENE_48),
+        "ru" => new RussianAnalyzer(LuceneVersion.LUCENE_48),
+        "ar" => new ArabicAnalyzer(LuceneVersion.LUCENE_48),
+        // Hangul runs: StandardAnalyzer emits the same whitespace-separated words as LeanCorpus.
+        "ko" => new StandardAnalyzer(LuceneVersion.LUCENE_48),
+        _ => throw new InvalidOperationException($"Language '{language}' has no Lucene.NET pair."),
     };
 
+    /// <summary>Logs the overlap class, sizes and leading terms of one language as benchmark evidence.</summary>
+    public static void Record(string language, string overlap, IReadOnlyList<AnalysedToken> lean, int? luceneTerms)
+    {
+        int vocabulary = lean.Select(static t => t.Term).Distinct(StringComparer.Ordinal).Count();
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"Benchmark multilingual {language}: overlap={overlap}, sentences={Sentences}, leanTerms={lean.Count}, luceneTerms={(luceneTerms is { } n ? n.ToString(CultureInfo.InvariantCulture) : "none")}, vocabulary={vocabulary}, first=[{string.Join(" ", lean.Take(8).Select(static t => t.Term))}]"));
+    }
 }
