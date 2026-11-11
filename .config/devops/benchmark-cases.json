@@ -2272,6 +2272,9 @@
       "project": "core",
       "benchmarkClass": "DeletionQueueBenchmarks",
       "benchmarkMethods": [
+        "LeanCorpus_QueueDeletes"
+      ],
+      "methodAliases": [
         "LeanLucene_QueueDeletes"
       ],
       "parameterValues": {
@@ -2364,6 +2367,9 @@
       "project": "core",
       "benchmarkClass": "DeletionCommitBenchmarks",
       "benchmarkMethods": [
+        "LeanCorpus_CommitDeletes"
+      ],
+      "methodAliases": [
         "LeanLucene_CommitDeletes"
       ],
       "parameterValues": {
@@ -3003,7 +3009,7 @@
     {
       "project": "core",
       "benchmarkClass": "BlockJoinIndexBenchmarks",
-      "benchmarkMethod": "LeanLucene_IndexBlocks",
+      "benchmarkMethod": "LeanCorpus_IndexBlocks",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },
@@ -3017,7 +3023,7 @@
     {
       "project": "core",
       "benchmarkClass": "BlockJoinSearchBenchmarks",
-      "benchmarkMethod": "LeanLucene_BlockJoinQuery",
+      "benchmarkMethod": "LeanCorpus_BlockJoinQuery",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },

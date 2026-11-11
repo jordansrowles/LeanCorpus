@@ -64,7 +64,7 @@ public class BlockJoinIndexBenchmarks
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanLucene_IndexBlocks()
+    public int LeanCorpus_IndexBlocks()
     {
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-block-index-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
@@ -312,7 +312,7 @@ public class BlockJoinSearchBenchmarks
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanLucene_BlockJoinQuery()
+    public int LeanCorpus_BlockJoinQuery()
     {
         var childQuery = new LeanTermQuery("body", "said");
         var blockJoin = new Rowles.LeanCorpus.Search.Queries.BlockJoinQuery(childQuery);

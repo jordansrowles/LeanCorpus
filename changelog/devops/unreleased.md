@@ -32,6 +32,8 @@
 
 ## Changed
 
+- Benchmark reports now record effective settings, intrinsics and per-case warnings, and list every workload that did not run.
+- Four benchmark methods moved from the LeanLucene prefix to LeanCorpus, which changes their case identity.
 - The benchmark report schema is now version 6. Older reports remain readable and unqualified.
 - Run benchmark children with tiered PGO explicitly enabled and record the setting in the run manifest and report rows.
 - Continue benchmark campaigns after case-level failures and still report an overall failure, so Rowles.Text is no longer skipped when Core fails; build failures, timeouts and cancellation still stop at once.

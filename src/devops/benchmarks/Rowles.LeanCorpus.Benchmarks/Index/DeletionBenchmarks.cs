@@ -44,7 +44,7 @@ public class DeletionQueueBenchmarks
     private bool _leanDeletesQueued;
     private bool _luceneDeletesQueued;
     private readonly DeletionSurvivorProof _proof = new(typeof(DeletionQueueBenchmarks), "deletion-queue-survivors",
-        nameof(LeanLucene_QueueDeletes), nameof(LuceneNet_QueueDeletes));
+        nameof(LeanCorpus_QueueDeletes), nameof(LuceneNet_QueueDeletes));
 
     private string _leanIndexPath = string.Empty;
     private LeanMMapDirectory? _leanDirectory;
@@ -132,7 +132,7 @@ public class DeletionQueueBenchmarks
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanLucene_QueueDeletes()
+    public int LeanCorpus_QueueDeletes()
     {
         for (int i = 0; i < _deleteCount; i++)
             _leanWriter!.DeleteDocuments(new LeanTermQuery("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
@@ -209,7 +209,7 @@ public class DeletionCommitBenchmarks
     private LuceneMMapDirectory? _lucenePreDeleteDirectory;
     private Lucene.Net.Index.DirectoryReader? _lucenePreDeleteReader;
     private readonly DeletionSurvivorProof _proof = new(typeof(DeletionCommitBenchmarks), "deletion-commit-survivors",
-        nameof(LeanLucene_CommitDeletes), nameof(LuceneNet_CommitDeletes));
+        nameof(LeanCorpus_CommitDeletes), nameof(LuceneNet_CommitDeletes));
 
     [GlobalSetup]
     public void Setup()
@@ -303,7 +303,7 @@ public class DeletionCommitBenchmarks
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanLucene_CommitDeletes()
+    public int LeanCorpus_CommitDeletes()
     {
         _leanWriter!.Commit();
         _leanCommitMeasured = true;
