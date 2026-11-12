@@ -103,16 +103,33 @@ internal static class NumericFieldValues
         NumericFieldAccessor accessor,
         out NumericDocumentValues values)
     {
-        if (!reader.HasNumericField(fieldName))
-        {
-            values = default;
+        var segment = default(NumericSegmentAccessor);
+        return segment.TryRead(reader, fieldName, localDocId, accessor, out values);
+    }
+
+    /// <summary>
+    /// Resolves one segment's representation of <paramref name="fieldName"/> and checks it against
+    /// the collection-wide <paramref name="accessor"/>. Returns <see langword="false"/> when the
+    /// segment has no numeric values for the field.
+    /// </summary>
+    internal static bool TryResolveSegment(
+        SegmentReader reader,
+        string fieldName,
+        NumericFieldAccessor accessor,
+        out NumericFieldAccessor segmentAccessor)
+    {
+        // One query pin covers the several facade lookups below instead of a read lease each.
+        var resolved = reader.WithQueryPin(fieldName, static (pinned, field) =>
+            pinned.HasNumericField(field)
+                ? (HasValues: true, Accessor: ResolveFieldAccessor(field, [pinned]))
+                : (HasValues: false, Accessor: default(NumericFieldAccessor)));
+        segmentAccessor = resolved.Accessor;
+        if (!resolved.HasValues)
             return false;
-        }
 
         // Segment layouts may legitimately differ when old and new segments coexist.
         // Do not let the first segment's representation silently discard values from a
         // later segment with an incompatible numeric shape.
-        var segmentAccessor = ResolveFieldAccessor(fieldName, [reader]);
         if (segmentAccessor.IsInt64 != accessor.IsInt64
             || segmentAccessor.IsSortedNumeric != accessor.IsSortedNumeric)
         {
@@ -120,10 +137,10 @@ internal static class NumericFieldValues
                 $"Numeric field '{fieldName}' has incompatible DocValues representations across segments.");
         }
 
-        return TryReadCore(reader, fieldName, localDocId, segmentAccessor, out values);
+        return true;
     }
 
-    private static bool TryReadCore(
+    internal static bool TryReadCore(
         SegmentReader reader,
         string fieldName,
         int localDocId,
@@ -165,5 +182,43 @@ internal static class NumericFieldValues
 
         values = default;
         return false;
+    }
+}
+
+/// <summary>
+/// Caches one field's segment-level resolution for a collector, so the representation check runs
+/// once per segment rather than once per matching document.
+/// </summary>
+/// <remarks>
+/// Only the representation descriptor is cached, never a segment state, value or view, so nothing
+/// outlives the lease under which the reader is used (ADR011, ADR027). A collector keeps one per
+/// field and passes it by reference.
+/// </remarks>
+internal struct NumericSegmentAccessor
+{
+    private SegmentReader? _reader;
+    private bool _hasValues;
+    private NumericFieldAccessor _segmentAccessor;
+
+    public bool TryRead(
+        SegmentReader reader,
+        string fieldName,
+        int localDocId,
+        NumericFieldAccessor accessor,
+        out NumericDocumentValues values)
+    {
+        if (!ReferenceEquals(_reader, reader))
+        {
+            _hasValues = NumericFieldValues.TryResolveSegment(reader, fieldName, accessor, out _segmentAccessor);
+            _reader = reader;
+        }
+
+        if (!_hasValues)
+        {
+            values = default;
+            return false;
+        }
+
+        return NumericFieldValues.TryReadCore(reader, fieldName, localDocId, _segmentAccessor, out values);
     }
 }

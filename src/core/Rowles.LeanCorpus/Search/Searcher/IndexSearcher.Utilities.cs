@@ -1073,6 +1073,7 @@ public sealed partial class IndexSearcher
         private readonly IFacetRequest[] _facetRequests;
         private readonly FacetsCollector _facetsCollector;
         private readonly NumericFieldAccessor[] _numericAccessors;
+        private readonly NumericSegmentAccessor[] _numericSegmentAccessors;
         private readonly NumericRangeExecutionPlan?[] _numericRangePlans;
         private readonly Int64RangeExecutionPlan?[] _int64RangePlans;
         private readonly Dictionary<string, FlatFacetOrdinalPlan> _flatOrdinalPlans = new(StringComparer.Ordinal);
@@ -1093,6 +1094,7 @@ public sealed partial class IndexSearcher
                 includeEmptyResults: false,
                 maxExactBuckets: maxExactFacetBuckets);
             _numericAccessors = ResolveNumericAccessors(_facetRequests, readers);
+            _numericSegmentAccessors = new NumericSegmentAccessor[_facetRequests.Length];
             (_numericRangePlans, _int64RangePlans) = BuildRangePlans(_facetRequests);
             _cancellationToken = cancellationToken;
             InitialiseStringFacetPlans(readers);
@@ -1108,6 +1110,7 @@ public sealed partial class IndexSearcher
             _facetRequests = facetRequests.ToArray();
             _facetsCollector = new FacetsCollector(facetRequests, maxExactBuckets: maxExactFacetBuckets);
             _numericAccessors = ResolveNumericAccessors(_facetRequests, readers);
+            _numericSegmentAccessors = new NumericSegmentAccessor[_facetRequests.Length];
             (_numericRangePlans, _int64RangePlans) = BuildRangePlans(_facetRequests);
             _cancellationToken = cancellationToken;
             InitialiseStringFacetPlans(readers);
@@ -1294,7 +1297,7 @@ public sealed partial class IndexSearcher
             Index.Segment.SegmentReader reader,
             int localDocId)
         {
-            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+            if (!_numericSegmentAccessors[requestIndex].TryRead(reader, request.Field, localDocId, accessor, out var values))
                 return false;
 
             if (values.IsInt64)
@@ -1369,7 +1372,7 @@ public sealed partial class IndexSearcher
             Index.Segment.SegmentReader reader,
             int localDocId)
         {
-            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+            if (!_numericSegmentAccessors[requestIndex].TryRead(reader, request.Field, localDocId, accessor, out var values))
                 return false;
 
             if (!values.IsInt64)
@@ -1415,7 +1418,7 @@ public sealed partial class IndexSearcher
             Index.Segment.SegmentReader reader,
             int localDocId)
         {
-            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+            if (!_numericSegmentAccessors[requestIndex].TryRead(reader, request.Field, localDocId, accessor, out var values))
                 return false;
 
             if (!values.IsInt64)
@@ -1461,7 +1464,7 @@ public sealed partial class IndexSearcher
             Index.Segment.SegmentReader reader,
             int localDocId)
         {
-            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+            if (!_numericSegmentAccessors[requestIndex].TryRead(reader, request.Field, localDocId, accessor, out var values))
                 return false;
 
             if (!values.IsInt64)

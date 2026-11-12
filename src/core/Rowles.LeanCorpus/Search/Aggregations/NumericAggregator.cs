@@ -105,15 +105,19 @@ public static class NumericAggregator
             states[r] = NumericAggregationStateFactory.Create(requests[r]);
         }
 
-        // Traverse matching documents once. Every state receives the same
-        // representation-aware values without owning document traversal.
+        // Traverse matching documents once, in their given order. Every state receives the same
+        // representation-aware values without owning document traversal. Matching documents may
+        // interleave segments, so each (segment, request) pair keeps its own resolution and the
+        // representation check runs once per pair.
+        var segmentAccessors = new NumericSegmentAccessor[readers.Count * requests.Length];
         foreach (int globalDocId in matchingDocs)
         {
             var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
             var reader = readers[readerIdx];
+            int row = readerIdx * requests.Length;
             for (int r = 0; r < requests.Length; r++)
             {
-                if (NumericFieldValues.TryRead(reader, requests[r].Field, localDocId, fieldAccessors[r], out var values))
+                if (segmentAccessors[row + r].TryRead(reader, requests[r].Field, localDocId, fieldAccessors[r], out var values))
                     states[r].Collect(values);
             }
         }
@@ -142,7 +146,10 @@ public static class NumericAggregator
 /// <summary>Consumes matching documents directly from search execution without retaining their IDs.</summary>
 internal sealed class NumericAggregationCollector
 {
-    private readonly Dictionary<string, (NumericFieldAccessor Accessor, List<int> RequestIndexes)> _fieldPlans;
+    private readonly string[] _fields;
+    private readonly NumericFieldAccessor[] _accessors;
+    private readonly int[][] _requestIndexes;
+    private readonly NumericSegmentAccessor[] _segmentAccessors;
     private readonly INumericAggregationState[] _states;
 
     public NumericAggregationCollector(
@@ -151,29 +158,43 @@ internal sealed class NumericAggregationCollector
     {
         ArgumentNullException.ThrowIfNull(requests);
         _states = new INumericAggregationState[requests.Length];
-        _fieldPlans = new Dictionary<string, (NumericFieldAccessor, List<int>)>(StringComparer.Ordinal);
+        // One plan per distinct field, in first-request order.
+        var fieldPlans = new Dictionary<string, (NumericFieldAccessor Accessor, List<int> RequestIndexes)>(StringComparer.Ordinal);
+        var fieldOrder = new List<string>();
         for (int i = 0; i < requests.Length; i++)
         {
             ArgumentNullException.ThrowIfNull(requests[i]);
             requests[i].Validate();
             _states[i] = NumericAggregationStateFactory.Create(requests[i]);
-            if (!_fieldPlans.TryGetValue(requests[i].Field, out var plan))
+            if (!fieldPlans.TryGetValue(requests[i].Field, out var plan))
             {
                 plan = (NumericFieldValues.ResolveFieldAccessor(requests[i].Field, readers), []);
-                _fieldPlans.Add(requests[i].Field, plan);
+                fieldPlans.Add(requests[i].Field, plan);
+                fieldOrder.Add(requests[i].Field);
             }
             plan.RequestIndexes.Add(i);
+        }
+
+        _fields = fieldOrder.ToArray();
+        _accessors = new NumericFieldAccessor[_fields.Length];
+        _requestIndexes = new int[_fields.Length][];
+        _segmentAccessors = new NumericSegmentAccessor[_fields.Length];
+        for (int f = 0; f < _fields.Length; f++)
+        {
+            var plan = fieldPlans[_fields[f]];
+            _accessors[f] = plan.Accessor;
+            _requestIndexes[f] = plan.RequestIndexes.ToArray();
         }
     }
 
     public void Collect(Index.Segment.SegmentReader reader, int localDocId)
     {
-        foreach (var (field, plan) in _fieldPlans)
+        for (int f = 0; f < _fields.Length; f++)
         {
-            if (!NumericFieldValues.TryRead(reader, field, localDocId, plan.Accessor, out var values))
+            if (!_segmentAccessors[f].TryRead(reader, _fields[f], localDocId, _accessors[f], out var values))
                 continue;
 
-            foreach (int requestIndex in plan.RequestIndexes)
+            foreach (int requestIndex in _requestIndexes[f])
                 _states[requestIndex].Collect(values);
         }
     }
