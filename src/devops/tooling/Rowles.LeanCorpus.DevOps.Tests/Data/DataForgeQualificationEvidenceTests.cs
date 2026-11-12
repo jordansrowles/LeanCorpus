@@ -56,7 +56,7 @@ public sealed class DataForgeQualificationEvidenceTests
         Assert.Null(DataForgeQualificationEvidence.ReadWikipediaReportError(directory.Path, identity));
 
         File.WriteAllText(Path.Combine(core000, "report.json"), BuildReport(identity.DatasetId, schemaVersion: 4));
-        Assert.Contains("schema v5 is required", DataForgeQualificationEvidence.ReadWikipediaReportError(directory.Path, identity), StringComparison.Ordinal);
+        Assert.Contains("schema v5 or v6 is required", DataForgeQualificationEvidence.ReadWikipediaReportError(directory.Path, identity), StringComparison.Ordinal);
         File.WriteAllText(Path.Combine(core000, "report.json"), BuildReport(identity.DatasetId));
 
         File.WriteAllText(Path.Combine(core001, "report.json"), BuildReport("other-dataset"));

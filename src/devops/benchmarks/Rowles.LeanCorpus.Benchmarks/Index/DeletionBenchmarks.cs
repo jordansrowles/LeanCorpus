@@ -30,7 +30,10 @@ namespace Rowles.LeanCorpus.Benchmarks;
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [WarmupCount(1)]
-[IterationCount(3)]
+// Bounds, not a fixed count: a class-level IterationCount overrides the command line, so the
+// reviewed qualification runs could not force the 30 samples their gate needs (ADR047).
+[MinIterationCount(3)]
+[MaxIterationCount(15)]
 [InvocationCount(1)]
 public class DeletionQueueBenchmarks
 {
@@ -43,6 +46,8 @@ public class DeletionQueueBenchmarks
     private int _deleteCount;
     private bool _leanDeletesQueued;
     private bool _luceneDeletesQueued;
+    private readonly DeletionSurvivorProof _proof = new(typeof(DeletionQueueBenchmarks), "deletion-queue-survivors",
+        nameof(LeanCorpus_QueueDeletes), nameof(LuceneNet_QueueDeletes));
 
     private string _leanIndexPath = string.Empty;
     private LeanMMapDirectory? _leanDirectory;
@@ -60,6 +65,9 @@ public class DeletionQueueBenchmarks
         _deleteCount = Math.Max(1, DocumentCount / 10);
         DeletionBenchmarkFixture.RecordDurability("deletion-queue");
     }
+
+    [GlobalCleanup]
+    public void Cleanup() => _proof.Record(DocumentCount, _deleteCount);
 
     [IterationSetup]
     public void IterationSetup()
@@ -90,8 +98,9 @@ public class DeletionQueueBenchmarks
             DeletionBenchmarkFixture.VerifyLeanIds(_leanIndexPath, DeletionBenchmarkFixture.GetSurvivingIds(DocumentCount, 0));
             DeletionBenchmarkFixture.VerifyLuceneIds(_luceneIndexPath, DeletionBenchmarkFixture.GetSurvivingIds(DocumentCount, 0));
         }
-        catch
+        catch (Exception exception)
         {
+            _proof.Fail(exception, DocumentCount, _deleteCount);
             DisposeWriters();
             BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
             BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
@@ -110,6 +119,12 @@ public class DeletionQueueBenchmarks
             DeletionBenchmarkFixture.VerifyLuceneIds(
                 _luceneIndexPath,
                 DeletionBenchmarkFixture.GetSurvivingIds(DocumentCount, _luceneDeletesQueued ? _deleteCount : 0));
+            _proof.Verified(_leanDeletesQueued, _luceneDeletesQueued);
+        }
+        catch (Exception exception)
+        {
+            _proof.Fail(exception, DocumentCount, _deleteCount);
+            throw;
         }
         finally
         {
@@ -120,7 +135,7 @@ public class DeletionQueueBenchmarks
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanLucene_QueueDeletes()
+    public int LeanCorpus_QueueDeletes()
     {
         for (int i = 0; i < _deleteCount; i++)
             _leanWriter!.DeleteDocuments(new LeanTermQuery("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
@@ -169,7 +184,10 @@ public class DeletionQueueBenchmarks
 [MarkdownExporterAttribute.GitHub]
 [RPlotExporter]
 [WarmupCount(1)]
-[IterationCount(3)]
+// Bounds, not a fixed count: a class-level IterationCount overrides the command line, so the
+// reviewed qualification runs could not force the 30 samples their gate needs (ADR047).
+[MinIterationCount(3)]
+[MaxIterationCount(15)]
 [InvocationCount(1)]
 public class DeletionCommitBenchmarks
 {
@@ -196,6 +214,8 @@ public class DeletionCommitBenchmarks
     private LeanIndexSearcher? _leanPreDeleteSearcher;
     private LuceneMMapDirectory? _lucenePreDeleteDirectory;
     private Lucene.Net.Index.DirectoryReader? _lucenePreDeleteReader;
+    private readonly DeletionSurvivorProof _proof = new(typeof(DeletionCommitBenchmarks), "deletion-commit-survivors",
+        nameof(LeanCorpus_CommitDeletes), nameof(LuceneNet_CommitDeletes));
 
     [GlobalSetup]
     public void Setup()
@@ -204,6 +224,9 @@ public class DeletionCommitBenchmarks
         _deleteCount = Math.Max(1, DocumentCount / 10);
         DeletionBenchmarkFixture.RecordDurability("deletion-commit");
     }
+
+    [GlobalCleanup]
+    public void Cleanup() => _proof.Record(DocumentCount, _deleteCount);
 
     [IterationSetup]
     public void IterationSetup()
@@ -244,8 +267,9 @@ public class DeletionCommitBenchmarks
                 DeletionBenchmarkFixture.GetSurvivingIds(DocumentCount, _luceneCommitMeasured ? _deleteCount : 0));
             DeletionBenchmarkFixture.VerifyPointInTime(DocumentCount, _leanPreDeleteSearcher!, _lucenePreDeleteReader!);
         }
-        catch
+        catch (Exception exception)
         {
+            _proof.Fail(exception, DocumentCount, _deleteCount);
             ReleaseAll();
             throw;
         }
@@ -269,6 +293,12 @@ public class DeletionCommitBenchmarks
             DeletionBenchmarkFixture.VerifyLuceneIds(
                 _luceneIndexPath,
                 DeletionBenchmarkFixture.GetSurvivingIds(DocumentCount, _deleteCount));
+            _proof.Verified(_leanCommitMeasured, _luceneCommitMeasured);
+        }
+        catch (Exception exception)
+        {
+            _proof.Fail(exception, DocumentCount, _deleteCount);
+            throw;
         }
         finally
         {
@@ -279,7 +309,7 @@ public class DeletionCommitBenchmarks
 
     [Benchmark(Baseline = true)]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanLucene_CommitDeletes()
+    public int LeanCorpus_CommitDeletes()
     {
         _leanWriter!.Commit();
         _leanCommitMeasured = true;
@@ -308,6 +338,60 @@ public class DeletionCommitBenchmarks
         BenchmarkHelpers.DeleteDirectory(_leanIndexPath);
         BenchmarkHelpers.DeleteDirectory(_luceneIndexPath);
     }
+}
+
+/// <summary>
+/// Records the semantic proof for a deletion benchmark process (ADR047): every verified iteration
+/// checked the exact sorted survivor IDs of both indexes after the timed operation. The proof names
+/// only the method whose engine this process measured.
+/// </summary>
+internal sealed class DeletionSurvivorProof(Type benchmarkType, string proofId, string leanMethod, string luceneMethod)
+{
+    private int _leanVerifications;
+    private int _luceneVerifications;
+    private bool _recorded;
+
+    public void Verified(bool leanMeasured, bool luceneMeasured)
+    {
+        if (leanMeasured)
+            _leanVerifications++;
+        if (luceneMeasured)
+            _luceneVerifications++;
+    }
+
+    public void Fail(Exception exception, int documentCount, int deleteCount)
+    {
+        Write(leanMethod, documentCount, deleteCount, Math.Max(1, _leanVerifications), [string.Concat("SurvivorSetMismatch: ", exception.GetType().Name)]);
+        Write(luceneMethod, documentCount, deleteCount, Math.Max(1, _luceneVerifications), [string.Concat("SurvivorSetMismatch: ", exception.GetType().Name)]);
+        _recorded = true;
+    }
+
+    public void Record(int documentCount, int deleteCount)
+    {
+        if (_recorded)
+            return;
+        if (_leanVerifications > 0)
+            Write(leanMethod, documentCount, deleteCount, _leanVerifications, []);
+        if (_luceneVerifications > 0)
+            Write(luceneMethod, documentCount, deleteCount, _luceneVerifications, []);
+        _recorded = true;
+    }
+
+    private void Write(string method, int documentCount, int deleteCount, int verifications, IReadOnlyList<string> reasons)
+        => BenchmarkSemanticProofs.Record(
+            benchmarkType,
+            [method],
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["DocumentCount"] = documentCount.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            },
+            proofId,
+            "deletion-survivor-set-v1",
+            BenchmarkSemanticProofs.SearchDatasetContentSha256(documentCount),
+            passed: reasons.Count == 0,
+            reasons,
+            BenchmarkSemanticProofs.Digest(string.Join("\n", DeletionBenchmarkFixture.GetSurvivingIds(documentCount, deleteCount))),
+            verifications);
 }
 
 /// <summary>Deterministic DataForge-backed fixtures and read-back checks for deletion benchmarks.</summary>

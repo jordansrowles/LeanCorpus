@@ -83,7 +83,9 @@ walk/RD
         {
             _affixText = FixtureAffix;
             _dictionaryText = FixtureDictionary;
-            _words = ["playing", "reworked", "running", "walking", "jumpness", "replay"];
+            // Every word must have a fixture stem: Lucene.NET's filter passes an unstemmed word
+            // through, so a word without one would compare a stem with no stem.
+            _words = ["playing", "reworked", "runness", "walking", "jumpness", "replay"];
         }
 
         _affixBytes = Encoding.UTF8.GetBytes(_affixText);

@@ -281,6 +281,53 @@ public sealed class ServerQueryTranslatorTests
         Assert.Equal("query_too_complex", failure?.Code);
     }
 
+    [Theory]
+    [InlineData("gov.*ment")]
+    [InlineData("^gov.*ment$")]
+    [InlineData(".*ment.*")]
+    public void RegexpDefinitionAndQueryStringTranslateToTheSameWholeTermRegexp(string pattern)
+    {
+        bool translated = ServerQueryTranslator.TryTranslate(
+            new RegexpQueryDefinition("title", pattern),
+            CreateSchema(),
+            new ServerCoreOptions(),
+            defaultField: "title",
+            maximumBooleanClauses: null,
+            out var definitionQuery,
+            out var failure);
+        var queryStringQuery = TranslateQueryString($"title:/{pattern}/");
+
+        Assert.True(translated, failure?.Message);
+        var fromDefinition = Assert.IsType<Rowles.LeanCorpus.Search.Queries.RegexpQuery>(definitionQuery);
+        var fromQueryString = Assert.IsType<Rowles.LeanCorpus.Search.Queries.RegexpQuery>(queryStringQuery);
+        Assert.Equal("title", fromDefinition.Field);
+        Assert.Equal(pattern, fromDefinition.Pattern);
+        Assert.Equal(pattern, fromQueryString.Pattern);
+    }
+
+    [Fact]
+    public void RegexpDefinitionWithAnUnbalancedPatternIsRejected()
+    {
+        bool translated;
+        try
+        {
+            translated = ServerQueryTranslator.TryTranslate(
+                new RegexpQueryDefinition("title", "a)|(b"),
+                CreateSchema(),
+                new ServerCoreOptions(),
+                defaultField: "title",
+                maximumBooleanClauses: null,
+                out _,
+                out _);
+        }
+        catch (ArgumentException)
+        {
+            translated = false;
+        }
+
+        Assert.False(translated);
+    }
+
     private static Rowles.LeanCorpus.Search.Query TranslateQueryString(string text)
     {
         bool translated = ServerQueryTranslator.TryTranslate(

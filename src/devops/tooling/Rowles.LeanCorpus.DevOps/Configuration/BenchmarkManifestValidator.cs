@@ -263,6 +263,12 @@ internal static class BenchmarkManifestValidator
                 var workloads = manifestWorkloads.Where(workload => workload.SuiteIds.Contains(suiteId, StringComparer.Ordinal)).ToArray();
                 if (workloads.Length == 0)
                     throw Error($"Core host suite '{suiteId}' has no registered benchmark classes.");
+                // The exclusion table lists these classes for workloads that did not run, so they
+                // must match the host registry exactly.
+                if (!suite.RegisteredClasses.IsDefaultOrEmpty && !new HashSet<string>(suite.RegisteredClasses, StringComparer.Ordinal)
+                        .SetEquals(workloads.Select(static workload => workload.ClassName)))
+                    throw Error($"benchmark-suites.json $.suiteMetadata.{suiteId}.RegisteredClasses differs from the Core host manifest: " +
+                        string.Join(", ", workloads.Select(static workload => workload.ClassName).Order(StringComparer.Ordinal)) + ".");
 
                 var expectedInAll = suite.IncludeInAll ?? (!suite.ExplicitOnly && !suite.RequiresGutenbergData);
                 var expectedWithExplicit = suite.IncludeWithExplicit ?? suite.ExplicitOnly;

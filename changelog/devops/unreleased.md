@@ -2,6 +2,7 @@
 
 ## Added
 
+- Rowles.Text benchmarks write a canonical report and can validate as a Text-only run.
 - Add managed `test` and `aot` apphost commands backed by the shared test planner and executor; route the PowerShell compatibility dispatcher and CI through the managed executor.
 - Run the Build workflow on `issue-97` pushes so the migration branch receives exact-source CI qualification.
 - Establish DevOps `1.0.0` independently of the LeanCorpus Core package version.
@@ -31,6 +32,9 @@
 
 ## Changed
 
+- Benchmark reports now record effective settings, intrinsics and per-case warnings, and list every workload that did not run.
+- Four benchmark methods moved from the LeanLucene prefix to LeanCorpus, which changes their case identity.
+- The benchmark report schema is now version 6. Older reports remain readable and unqualified.
 - Run benchmark children with tiered PGO explicitly enabled and record the setting in the run manifest and report rows.
 - Continue benchmark campaigns after case-level failures and still report an overall failure, so Rowles.Text is no longer skipped when Core fails; build failures, timeouts and cancellation still stop at once.
 - Include Rowles.Text in the explicit benchmark selector.
@@ -92,6 +96,7 @@
 
 ## Fixed
 
+- Benchmark qualification now finalises from run identity and per-pair evidence, compares benchmark children rather than the orchestrator, and needs a versioned semantic proof.
 - Rowles.Text benchmarks now apply the synonym filter, measure real Hunspell parsing, verify output across engines and no longer report single-invocation timings.
 - Validate exact Float32 benchmark results against the documented score and boundary-tie contract; retain literal recall measurements and unchanged ANN and Int8 quality floors.
 

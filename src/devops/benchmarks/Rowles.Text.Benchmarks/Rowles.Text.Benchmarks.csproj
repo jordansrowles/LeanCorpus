@@ -2,6 +2,10 @@
 
   <ItemGroup>
     <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\BenchmarkParameterSelectionFilter.cs" Link="Infrastructure\BenchmarkParameterSelectionFilter.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\BenchmarkRunReport.cs" Link="Infrastructure\BenchmarkRunReport.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\BenchmarkDatasetSidecars.cs" Link="Infrastructure\BenchmarkDatasetSidecars.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\BenchmarkSemanticProofs.cs" Link="Infrastructure\BenchmarkSemanticProofs.cs" />
+    <Compile Include="..\Rowles.LeanCorpus.Benchmarks\Infrastructure\BenchmarkChildRuntime.cs" Link="Infrastructure\BenchmarkChildRuntime.cs" />
     <ProjectReference Include="..\..\..\core\Rowles.Text\Rowles.Text.csproj" />
     <ProjectReference Include="..\..\dataforge\Rowles.DataForge.Workloads\Rowles.DataForge.Workloads.csproj" />
   </ItemGroup>

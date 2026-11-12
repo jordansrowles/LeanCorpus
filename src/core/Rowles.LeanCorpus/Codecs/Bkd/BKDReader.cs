@@ -105,12 +105,24 @@ internal sealed class BKDReader : IDisposable
         if (marker == 1)
         {
             int count = ValidateLeafCount(input, bodyEnd);
-            for (int i = 0; i < count; i++)
+            // Read the leaf's (value, docId) entries in one bounded copy, then decode them in the
+            // native byte order ReadDouble and ReadInt32 use. This removes two guarded reads per point.
+            int bytes = count * LeafEntryBytes;
+            byte[] buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(Math.Max(bytes, 1));
+            try
             {
-                double value = input.ReadDouble();
-                int docId = input.ReadInt32();
-                if (value >= min && value <= max)
-                    visitor(docId, value);
+                input.ReadBytes(buffer.AsSpan(0, bytes));
+                ReadOnlySpan<byte> leaf = buffer.AsSpan(0, bytes);
+                for (int offset = 0; offset < bytes; offset += LeafEntryBytes)
+                {
+                    double value = System.Runtime.InteropServices.MemoryMarshal.Read<double>(leaf.Slice(offset, sizeof(double)));
+                    if (value >= min && value <= max)
+                        visitor(System.Runtime.InteropServices.MemoryMarshal.Read<int>(leaf.Slice(offset + sizeof(double), sizeof(int))), value);
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
             }
         }
         else if (marker == 0)
@@ -183,6 +195,9 @@ internal sealed class BKDReader : IDisposable
             throw new InvalidDataException($"BKD tree has invalid node marker: {marker}.");
         }
     }
+
+    /// <summary>Bytes per leaf entry: an 8-byte value followed by a 4-byte document ID.</summary>
+    private const int LeafEntryBytes = 12;
 
     private static int ValidateLeafCount(Store.IndexInput input, long bodyEnd)
     {

@@ -148,7 +148,9 @@ internal static class Program
             runId,
             now,
             benchmarkArgs,
-            suiteSummaries);
+            suiteSummaries,
+            BenchmarkSemanticProofs.ReadAll(runDir),
+            BenchmarkChildRuntime.ReadAll(runDir));
         report.CommitHash = commitHash;
         report.RunType = effectiveRunType;
         report.Provenance = BenchmarkProvenanceBuilder.Build(

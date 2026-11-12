@@ -59,6 +59,22 @@ public class RegexpQueryBenchmarks
         BenchmarkFixtureEvidence.RequireWork("regexp", string.Concat(caseName, " as-shipped"), BenchmarkFixtureEvidence.LuceneNetEngine, LuceneNet_RegexpQuery());
         BenchmarkFixtureEvidence.RequireWork("regexp", string.Concat(caseName, " single-segment"), BenchmarkFixtureEvidence.LeanCorpusEngine, LeanCorpus_RegexpQuery_SingleSegment());
         BenchmarkFixtureEvidence.RequireWork("regexp", string.Concat(caseName, " single-segment"), BenchmarkFixtureEvidence.LuceneNetEngine, LuceneNet_RegexpQuery_SingleSegment());
+        ValidateWholeTermParity();
+    }
+
+    /// <summary>
+    /// Both engines match whole terms (ADR048), so every route must return the same document count;
+    /// <c>gov.*ment</c> on the 100,000-document corpus is the reviewed reference value.
+    /// </summary>
+    private void ValidateWholeTermParity()
+    {
+        int[] counts = [LeanCorpus_RegexpQuery(), LuceneNet_RegexpQuery(), LeanCorpus_RegexpQuery_SingleSegment(), LuceneNet_RegexpQuery_SingleSegment()];
+        if (counts.Distinct().Count() != 1)
+            throw new InvalidOperationException(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Regexp '{Pattern}' parity failed: LeanCorpus {counts[0]}, Lucene.NET {counts[1]}, single-segment LeanCorpus {counts[2]}, Lucene.NET {counts[3]}."));
+        if (Pattern == "gov.*ment" && DocumentCount == 100_000 && counts[0] != 18_946)
+            throw new InvalidOperationException(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Regexp 'gov.*ment' matched {counts[0]} documents on both engines; the reviewed value is 18,946."));
     }
 
     [GlobalCleanup]

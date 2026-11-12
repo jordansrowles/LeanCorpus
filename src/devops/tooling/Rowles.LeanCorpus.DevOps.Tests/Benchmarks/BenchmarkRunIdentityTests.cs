@@ -12,12 +12,39 @@ public sealed class BenchmarkRunIdentityTests
     public void ValidIdentityDoesNotByItselfQualifyAComparison()
     {
         var result = BenchmarkRunIdentityValidator.Assess(CreateIdentity());
+        var final = BenchmarkQualificationFinaliser.Finalise(result,
+            new BenchmarkComparisonAssessment("Unqualified", false, ["NoPairedRows"], []), "Completed");
 
         Assert.Equal("Validated", result.IdentityStatus);
-        Assert.Equal("Unqualified", result.QualificationState);
-        Assert.False(result.EligibleForRatio);
-        Assert.False(result.Comparable);
-        Assert.Contains("ComparisonEvidencePending", result.ReasonCodes);
+        Assert.True(result.Validated);
+        Assert.Empty(result.ReasonCodes);
+        Assert.Equal("Unqualified", final.State);
+        Assert.False(final.EligibleForRatio);
+        Assert.False(final.Comparable);
+        Assert.Contains("NoPairedRows", final.ReasonCodes);
+    }
+
+    [Fact]
+    public void RejectsHistoricalSchemaFiveBenchmarkReport()
+    {
+        var result = BenchmarkRunIdentityValidator.Assess(CreateIdentity(
+            coreReports: [CreateReport(schemaVersion: 5)]));
+
+        Assert.Equal("Rejected", result.IdentityStatus);
+        Assert.Contains("HistoricalResultSchema", result.ReasonCodes);
+    }
+
+    [Theory]
+    [InlineData("0.16.0-preview.2+962da56e99ff7ab706c3c6f0aeb24e4af91a0d4f", true)]
+    [InlineData("0.16.0-preview.1", false)]
+    [InlineData("0.18.0", false)]
+    public void IdentityUsesTheSameBenchmarkDotNetVersionPolicy(string version, bool accepted)
+    {
+        var result = BenchmarkRunIdentityValidator.Assess(CreateIdentity(
+            coreReports: [CreateReport(benchmarkDotNetVersion: version)]));
+
+        Assert.Equal(accepted, result.Validated);
+        Assert.Equal(!accepted, result.ReasonCodes.Contains("BenchmarkDotNetVersionMismatch"));
     }
 
     [Fact]
@@ -27,8 +54,7 @@ public sealed class BenchmarkRunIdentityTests
             coreReports: [CreateReport(schemaVersion: 4)]));
 
         Assert.Equal("Rejected", result.IdentityStatus);
-        Assert.Equal("Unqualified", result.QualificationState);
-        Assert.False(result.EligibleForRatio);
+        Assert.False(result.Validated);
         Assert.Contains("HistoricalResultSchema", result.ReasonCodes);
     }
 
@@ -40,7 +66,7 @@ public sealed class BenchmarkRunIdentityTests
 
         Assert.Contains("HistoricalAugust2026Result", result.ReasonCodes);
         Assert.Equal("Rejected", result.IdentityStatus);
-        Assert.False(result.Comparable);
+        Assert.False(result.Validated);
     }
 
     [Fact]
@@ -52,7 +78,7 @@ public sealed class BenchmarkRunIdentityTests
 
         Assert.Contains("SourceTreeDirty", dirty.ReasonCodes);
         Assert.Contains("ChildSourceMismatch", mismatched.ReasonCodes);
-        Assert.All([dirty, mismatched], result => Assert.False(result.EligibleForRatio));
+        Assert.All([dirty, mismatched], result => Assert.False(result.Validated));
     }
 
     [Fact]
@@ -63,7 +89,7 @@ public sealed class BenchmarkRunIdentityTests
 
         Assert.Equal("Rejected", result.IdentityStatus);
         Assert.Contains("HostMachineMismatch", result.ReasonCodes);
-        Assert.False(result.Comparable);
+        Assert.False(result.Validated);
     }
 
     [Theory]
@@ -76,7 +102,7 @@ public sealed class BenchmarkRunIdentityTests
 
         Assert.Contains(reason, result.ReasonCodes);
         Assert.Equal("Rejected", result.IdentityStatus);
-        Assert.False(result.EligibleForRatio);
+        Assert.False(result.Validated);
     }
 
     [Fact]
@@ -87,7 +113,7 @@ public sealed class BenchmarkRunIdentityTests
 
         Assert.Equal("Rejected", result.IdentityStatus);
         Assert.Contains("DatasetIdentityMissing", result.ReasonCodes);
-        Assert.False(result.Comparable);
+        Assert.False(result.Validated);
     }
 
     [Fact]
@@ -98,7 +124,7 @@ public sealed class BenchmarkRunIdentityTests
 
         Assert.Equal("Rejected", result.IdentityStatus);
         Assert.Contains("HostIdentityIncomplete", result.ReasonCodes);
-        Assert.False(result.EligibleForRatio);
+        Assert.False(result.Validated);
     }
 
     [Fact]
@@ -106,12 +132,42 @@ public sealed class BenchmarkRunIdentityTests
     {
         var result = BenchmarkRunIdentityValidator.Assess(CreateIdentity(
             coreReports: [],
-            expectedCoreReportCount: 1));
+            expectedCanonicalReportCounts: new Dictionary<string, int>(StringComparer.Ordinal) { ["core"] = 1 }));
 
         Assert.Equal("Rejected", result.IdentityStatus);
         Assert.Contains("CoreReportIdentityMissing", result.ReasonCodes);
         Assert.Contains("DatasetIdentityMissing", result.ReasonCodes);
-        Assert.False(result.Comparable);
+        Assert.False(result.Validated);
+    }
+
+    [Fact]
+    public void TextOnlyRunWithItsCanonicalReportValidates()
+    {
+        var result = BenchmarkRunIdentityValidator.Assess(CreateIdentity(
+            coreReports: [CreateReport() with { Project = "text" }],
+            expectedCanonicalReportCounts: new Dictionary<string, int>(StringComparer.Ordinal) { ["text"] = 1 }));
+
+        Assert.Equal("Validated", result.IdentityStatus);
+        Assert.Empty(result.ReasonCodes);
+    }
+
+    [Fact]
+    public void TextOnlyRunWithoutItsReportOrDatasetSidecarFailsClosed()
+    {
+        var expected = new Dictionary<string, int>(StringComparer.Ordinal) { ["text"] = 1 };
+        var missingReport = BenchmarkRunIdentityValidator.Assess(CreateIdentity(coreReports: [], expectedCanonicalReportCounts: expected));
+        var missingSidecar = BenchmarkRunIdentityValidator.Assess(CreateIdentity(
+            coreReports: [CreateReport(hasDatasetIdentity: false) with { Project = "text" }],
+            expectedCanonicalReportCounts: expected));
+        var coreAndText = BenchmarkRunIdentityValidator.Assess(CreateIdentity(
+            coreReports: [CreateReport()],
+            expectedCanonicalReportCounts: new Dictionary<string, int>(StringComparer.Ordinal) { ["core"] = 1, ["text"] = 1 }));
+
+        Assert.Contains("CanonicalReportIdentityMissing", missingReport.ReasonCodes);
+        Assert.Contains("DatasetIdentityMissing", missingReport.ReasonCodes);
+        Assert.Contains("DatasetIdentityMissing", missingSidecar.ReasonCodes);
+        Assert.Contains("CanonicalReportIdentityMissing", coreAndText.ReasonCodes);
+        Assert.All([missingReport, missingSidecar, coreAndText], static result => Assert.False(result.Validated));
     }
 
     [Fact]
@@ -171,8 +227,7 @@ public sealed class BenchmarkRunIdentityTests
 
         Assert.Equal("Rejected", invalid.IdentityStatus);
         Assert.Contains("BenchmarkRowsInvalid", invalid.ReasonCodes);
-        Assert.False(invalid.EligibleForRatio);
-        Assert.False(invalid.Comparable);
+        Assert.False(invalid.Validated);
     }
 
     [Theory]
@@ -276,20 +331,20 @@ public sealed class BenchmarkRunIdentityTests
         bool sourceDirty = false,
         BenchmarkHostIdentity? host = null,
         IReadOnlyList<BenchmarkCoreReportIdentity>? coreReports = null,
-        int expectedCoreReportCount = 1)
+        IReadOnlyDictionary<string, int>? expectedCanonicalReportCounts = null)
         => new(
             sourceCommit ?? SourceCommit,
             sourceDirty,
             host ?? CreateHost(),
             coreReports ?? [CreateReport()],
-            expectedCoreReportCount);
+            expectedCanonicalReportCounts ?? new Dictionary<string, int>(StringComparer.Ordinal) { ["core"] = 1 });
 
     private static BenchmarkHostIdentity CreateHost(string cpuIdentifier = "Test CPU")
         => new("test-host", "Test OS", "linux-x64", "X64", 8, cpuIdentifier,
             ".NET 11.0", ServerGc: false, Fingerprint);
 
     private static BenchmarkCoreReportIdentity CreateReport(
-        int? schemaVersion = 5,
+        int? schemaVersion = 6,
         DateTimeOffset? generatedAtUtc = null,
         string? sourceCommit = null,
         bool? sourceDirty = false,

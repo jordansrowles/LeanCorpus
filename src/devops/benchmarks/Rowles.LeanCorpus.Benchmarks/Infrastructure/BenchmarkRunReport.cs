@@ -15,12 +15,21 @@ using Rowles.DataForge;
 
 namespace Rowles.LeanCorpus.Benchmarks;
 
-internal sealed class BenchmarkRunReport
+/// <summary>
+/// The canonical benchmark report (schema v6, ADR030 and ADR047). Shared by the Core and Rowles.Text
+/// benchmark hosts; Core-only evidence lives in <c>BenchmarkRunReport.Core.cs</c>.
+/// </summary>
+internal sealed partial class BenchmarkRunReport
 {
-    public int SchemaVersion { get; set; } = 5;
+    public int SchemaVersion { get; set; } = 6;
     public string RunId { get; set; } = string.Empty;
     public string RunType { get; set; } = "full";
+    /// <summary>When the report was written, after the last benchmark finished.</summary>
     public string GeneratedAtUtc { get; set; } = string.Empty;
+
+    /// <summary>When the benchmark host process started.</summary>
+    public string ProcessStartedAtUtc { get; set; } = string.Empty;
+
     public string[] CommandLineArgs { get; set; } = [];
     public string HostMachineName { get; set; } = Environment.MachineName;
     public string CommitHash { get; set; } = string.Empty;
@@ -29,8 +38,6 @@ internal sealed class BenchmarkRunReport
     public int RegisteredBenchmarkCount { get; set; }
     public int TotalBenchmarkCount { get; set; }
     public List<string> QualityFlags { get; set; } = [];
-    public List<GutenbergPersistenceVerification> PersistenceVerifications { get; set; } = [];
-    public List<SuggesterQualityEvidence> SuggesterQuality { get; set; } = [];
     public List<BenchmarkSuiteReport> Suites { get; set; } = [];
 }
 
@@ -124,17 +131,39 @@ internal sealed class BenchmarkCaseReport
     public string ToolchainRuntimeVersion { get; set; } = string.Empty;
     public bool ToolchainIsInProcess { get; set; }
     public bool IdentityComplete { get; set; }
-    public bool PreflightPassed { get; set; }
-    public Dictionary<string, string> JobSettings { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>Whether BenchmarkDotNet ran the method to completion. This is not a semantic proof.</summary>
+    public bool MethodExecutionSucceeded { get; set; }
+
+    /// <summary>The versioned semantic proof covering this row, or <see langword="null"/> when none applies (ADR047).</summary>
+    public BenchmarkSemanticProofReport? SemanticProof { get; set; }
+    /// <summary>
+    /// The job settings as configured on the BenchmarkDotNet job. An empty value means the job left
+    /// it unset and BenchmarkDotNet's default applied; see <see cref="EffectiveRuntime"/> for what ran.
+    /// </summary>
+    public Dictionary<string, string> ConfiguredJobSettings { get; set; } = new(StringComparer.Ordinal);
     public Dictionary<string, string> EnvironmentVariables { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>The runtime the benchmark child observed, or <see langword="null"/> when it was not recorded.</summary>
+    public BenchmarkEffectiveRuntimeReport? EffectiveRuntime { get; set; }
     public int MeasurementCount { get; set; }
     public int ActualWorkloadMeasurementCount { get; set; }
     public string MeasurementFingerprintSha256 { get; set; } = string.Empty;
     public List<string> QualityFlags { get; set; } = [];
+
+    /// <summary>
+    /// BenchmarkDotNet analyser warnings for this case, such as a minimum iteration time or a
+    /// bimodal or multimodal distribution, plus <c>NoCanonicalStatistics</c> when the row has no
+    /// terminal statistics. Warnings do not change pass or fail.
+    /// </summary>
+    public List<BenchmarkCaseWarning> Warnings { get; set; } = [];
     public BenchmarkStatisticsReport? Statistics { get; set; }
     public BenchmarkGcReport? Gc { get; set; }
     internal string ResultFingerprintSha256 { get; set; } = string.Empty;
 }
+
+/// <summary>One machine-readable BenchmarkDotNet warning for a case.</summary>
+internal sealed record BenchmarkCaseWarning(string Code, string Kind, string Message);
 
 internal sealed record BenchmarkCaseIdentitySource(
     string TypeName,
@@ -215,26 +244,33 @@ internal sealed class BenchmarkRunIndexEntry
     public string Toolchain { get; set; } = string.Empty;
 }
 
-internal static class BenchmarkRunReportBuilder
+internal static partial class BenchmarkRunReportBuilder
 {
+    /// <summary>Adds project-specific report evidence; implemented by the Core host only.</summary>
+    static partial void AddProjectEvidence(BenchmarkRunReport report, IReadOnlyList<(string Suite, Summary Summary)> suiteSummaries);
+
+    /// <summary>Adds project-specific comparison caveat flags; implemented by the Core host only.</summary>
+    static partial void AddProjectQualityFlags(string typeName, string methodName, IReadOnlyDictionary<string, string> parameters, List<string> flags);
+
     public static BenchmarkRunReport Build(
         string runId,
-        DateTimeOffset generatedAtUtc,
+        DateTimeOffset processStartedAtUtc,
         string[] benchmarkArgs,
-        IReadOnlyList<(string Suite, Summary Summary)> suiteSummaries)
+        IReadOnlyList<(string Suite, Summary Summary)> suiteSummaries,
+        IReadOnlyList<BenchmarkSemanticProofReport>? semanticProofs = null,
+        IReadOnlyDictionary<string, IReadOnlyList<BenchmarkEffectiveRuntimeReport>>? childRuntimes = null)
     {
+        IReadOnlyList<BenchmarkSemanticProofReport> proofs = semanticProofs ?? [];
+        var runtimes = childRuntimes ?? new Dictionary<string, IReadOnlyList<BenchmarkEffectiveRuntimeReport>>(StringComparer.Ordinal);
         var suiteReports = suiteSummaries
-            .Select(BuildSuiteReport)
+            .Select(source => BuildSuiteReport(source, proofs, runtimes))
             .OrderBy(r => r.SuiteName, StringComparer.Ordinal)
             .ToList();
-        bool includesGutenbergPersistence = suiteSummaries
-            .SelectMany(static source => source.Summary.BenchmarksCases)
-            .Any(static benchmarkCase => benchmarkCase.Descriptor.Type == typeof(GutenbergIndexingBenchmarks));
 
-        return new BenchmarkRunReport
+        var report = new BenchmarkRunReport
         {
             RunId = runId,
-            GeneratedAtUtc = generatedAtUtc.ToString("O", CultureInfo.InvariantCulture),
+            ProcessStartedAtUtc = processStartedAtUtc.ToString("O", CultureInfo.InvariantCulture),
             CommandLineArgs = benchmarkArgs,
             RegisteredBenchmarkCount = suiteReports.Sum(r => r.RegisteredBenchmarkCount),
             TotalBenchmarkCount = suiteReports.Sum(r => r.BenchmarkCount),
@@ -243,16 +279,28 @@ internal static class BenchmarkRunReportBuilder
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(static flag => flag, StringComparer.Ordinal)
                 .ToList(),
-            PersistenceVerifications = includesGutenbergPersistence
-                ? GutenbergPersistenceFixtureVerifier.Verify(BenchmarkHelpers.RepositoryRoot).ToList()
-                : [],
             Suites = suiteReports
         };
+        AddProjectEvidence(report, suiteSummaries);
+        return report;
     }
 
-    private static BenchmarkSuiteReport BuildSuiteReport((string Suite, Summary Summary) source)
+    private static BenchmarkSuiteReport BuildSuiteReport(
+        (string Suite, Summary Summary) source,
+        IReadOnlyList<BenchmarkSemanticProofReport> proofs,
+        IReadOnlyDictionary<string, IReadOnlyList<BenchmarkEffectiveRuntimeReport>> runtimes)
     {
-        var benchmarks = PreserveReportRows(source.Summary.Reports.Select(BuildCaseReport));
+        var warnings = CollectWarnings(source.Summary);
+        var benchmarks = PreserveReportRows(source.Summary.Reports.Select(report =>
+        {
+            var row = BuildCaseReport(report, proofs, runtimes);
+            if (warnings.TryGetValue(report.BenchmarkCase, out var caseWarnings))
+                row.Warnings.AddRange(caseWarnings);
+            if (row.Statistics is null)
+                row.Warnings.Add(new BenchmarkCaseWarning("NoCanonicalStatistics", "Warning",
+                    "The case has no terminal statistics, so it has no canonical timing."));
+            return row;
+        }));
 
         var registeredKeys = source.Summary.BenchmarksCases
             .Select(static benchmarkCase => CreateCaseIdentity(BuildIdentitySource(benchmarkCase)).Key)
@@ -297,11 +345,19 @@ internal static class BenchmarkRunReportBuilder
         };
     }
 
-    private static BenchmarkCaseReport BuildCaseReport(BenchmarkReport report)
+    private static BenchmarkCaseReport BuildCaseReport(
+        BenchmarkReport report,
+        IReadOnlyList<BenchmarkSemanticProofReport> proofs,
+        IReadOnlyDictionary<string, IReadOnlyList<BenchmarkEffectiveRuntimeReport>> runtimes)
     {
         BenchmarkCaseIdentityReport identity = CreateCaseIdentity(BuildIdentitySource(report.BenchmarkCase));
         var statistics = BuildStatisticsReport(report.ResultStatistics);
-        return BuildCaseReport(identity, report.Success, report.AllMeasurements, statistics, BuildGcReport(report.GcStats, report.Metrics));
+        var row = BuildCaseReport(identity, report.Success, report.AllMeasurements, statistics, BuildGcReport(report.GcStats, report.Metrics),
+            BenchmarkSemanticProofs.ForRow(proofs, identity.TypeName, identity.MethodName, identity.Parameters));
+        // BenchmarkDotNet passes each child its full benchmark name, which the child records.
+        row.EffectiveRuntime = BenchmarkChildRuntime.ForCase(runtimes,
+            BenchmarkDotNet.Exporters.FullNameProvider.GetBenchmarkName(report.BenchmarkCase));
+        return row;
     }
 
     internal static BenchmarkCaseReport BuildCaseReport(
@@ -309,7 +365,8 @@ internal static class BenchmarkRunReportBuilder
         bool success,
         IReadOnlyList<Measurement> measurements,
         BenchmarkStatisticsReport? statistics,
-        BenchmarkGcReport? gc)
+        BenchmarkGcReport? gc,
+        BenchmarkSemanticProofReport? semanticProof = null)
     {
         string resultState = ClassifyResultState(success, statistics, measurements);
         BenchmarkStatisticsReport? terminalStatistics = resultState == "TerminalResult" ? statistics : null;
@@ -368,8 +425,9 @@ internal static class BenchmarkRunReportBuilder
             ToolchainRuntimeVersion = identity.ToolchainRuntimeVersion,
             ToolchainIsInProcess = identity.ToolchainIsInProcess,
             IdentityComplete = identity.IdentityComplete,
-            PreflightPassed = resultState == "TerminalResult",
-            JobSettings = identity.Settings,
+            MethodExecutionSucceeded = success,
+            SemanticProof = semanticProof,
+            ConfiguredJobSettings = identity.Settings,
             EnvironmentVariables = identity.EnvironmentVariables,
             MeasurementCount = measurements.Count,
             ActualWorkloadMeasurementCount = actualWorkloadMeasurementCount,
@@ -380,6 +438,43 @@ internal static class BenchmarkRunReportBuilder
             Gc = resultState == "TerminalResult" ? gc : null
         };
     }
+
+    /// <summary>
+    /// Runs the minimum iteration time and distribution analysers over a summary and groups their
+    /// conclusions by case. These are the analysers whose warnings otherwise exist only in logs.
+    /// </summary>
+    private static Dictionary<BenchmarkCase, List<BenchmarkCaseWarning>> CollectWarnings(Summary summary)
+    {
+        var result = new Dictionary<BenchmarkCase, List<BenchmarkCaseWarning>>();
+        BenchmarkDotNet.Analysers.IAnalyser[] analysers =
+        [
+            BenchmarkDotNet.Analysers.MinIterationTimeAnalyser.Default,
+            BenchmarkDotNet.Analysers.MultimodalDistributionAnalyzer.Default
+        ];
+        foreach (var analyser in analysers)
+        {
+            foreach (var conclusion in analyser.Analyse(summary))
+            {
+                if (conclusion.Report?.BenchmarkCase is not { } benchmarkCase)
+                    continue;
+                if (!result.TryGetValue(benchmarkCase, out var list))
+                    result[benchmarkCase] = list = [];
+                list.Add(new BenchmarkCaseWarning(WarningCode(conclusion.AnalyserId, conclusion.Message),
+                    conclusion.Kind.ToString(), conclusion.Message));
+            }
+        }
+        return result;
+    }
+
+    internal static string WarningCode(string analyserId, string message)
+        => analyserId switch
+        {
+            "MinIterationTime" => "MinIterationTime",
+            "MultimodalDistribution" when message.Contains("bimodal", StringComparison.OrdinalIgnoreCase) => "BimodalDistribution",
+            "MultimodalDistribution" when message.Contains("multimodal", StringComparison.OrdinalIgnoreCase) => "MultimodalDistribution",
+            "MultimodalDistribution" => "PossibleMultimodalDistribution",
+            _ => analyserId
+        };
 
     internal static List<BenchmarkCaseReport> PreserveReportRows(IEnumerable<BenchmarkCaseReport> reports)
     {
@@ -691,29 +786,7 @@ internal static class BenchmarkRunReportBuilder
         if (statistics.SampleCount is < 3)
             flags.Add("InsufficientSamples");
 
-        if (methodName.Contains("ColdPerWordAdapter", StringComparison.Ordinal))
-            flags.Add("AdapterOverhead");
-
-        if (typeName == nameof(CombinedFieldsQueryBenchmarks)
-            && methodName.Contains("CombinedFieldsQuery", StringComparison.Ordinal))
-            flags.Add("DifferentSemantics");
-
-        if (typeName == nameof(GeoQueryBenchmarks))
-            flags.Add("DifferentIndexAlgorithm");
-
-        if (typeName == nameof(HnswSearchBenchmarks)
-            && methodName.Contains("Reference_ScalarFlatScan", StringComparison.Ordinal))
-            flags.Add("ExactReference");
-
-        if (typeName == nameof(IndexSortSearchBenchmarks)
-            && methodName.Contains("LuceneNet", StringComparison.Ordinal))
-            flags.Add("DifferentLifecycle");
-
-        if (typeName == nameof(GutenbergIndexingBenchmarks)
-            && parameters.TryGetValue("PersistenceProfile", out string? persistenceProfile)
-            && string.Equals(persistenceProfile, "as-shipped-persistence", StringComparison.Ordinal))
-            flags.Add("DirectionalPersistenceMismatch");
-
+        AddProjectQualityFlags(typeName, methodName, parameters, flags);
         return flags;
     }
 
@@ -779,8 +852,11 @@ internal static class BenchmarkRunReportBuilder
     }
 }
 
-internal static class BenchmarkProvenanceBuilder
+internal static partial class BenchmarkProvenanceBuilder
 {
+    /// <summary>Adds corpus statistics for the shared search dataset; implemented by the Core host only.</summary>
+    static partial void BuildCorpus(int? effectiveDocCount, IReadOnlyList<BenchmarkDatasetEvidence> datasets, ref BenchmarkCorpusReport? corpus);
+
     public static BenchmarkProvenanceReport Build(
         string repoRoot,
         string gitCommitHash,
@@ -792,16 +868,8 @@ internal static class BenchmarkProvenanceBuilder
             Environment.GetEnvironmentVariable("BENCH_SOURCE_COMMIT"),
             gitCommitHash);
 
-        var hasSearchDataset = effectiveDocCount is > 0 && datasets.Any(dataset =>
-            dataset.Identity.SourceKind == DataForgeSourceKind.Generated &&
-            string.Equals(dataset.Identity.ProfileId, "leancorpus-search", StringComparison.Ordinal) &&
-            dataset.Identity.RecordCount == effectiveDocCount.Value ||
-            dataset.Identity.SourceKind == DataForgeSourceKind.Imported &&
-            string.Equals(dataset.Identity.DatasetId, "leancorpus-wikipedia-en", StringComparison.Ordinal) &&
-            dataset.Identity.DatasetVersion == 1 && dataset.Identity.RecordCount == 20_000);
-        var corpus = hasSearchDataset
-            ? BenchmarkCorpusReportBuilder.Build(effectiveDocCount)
-            : null;
+        BenchmarkCorpusReport? corpus = null;
+        BuildCorpus(effectiveDocCount, datasets, ref corpus);
         return new BenchmarkProvenanceReport
         {
             SourceCommit = sourceCommit,
@@ -897,53 +965,6 @@ internal static class BenchmarkProvenanceBuilder
     }
 }
 
-internal static class BenchmarkCorpusReportBuilder
-{
-    public static BenchmarkCorpusReport? Build(int? documentCount)
-    {
-        if (documentCount is not > 0)
-            return null;
-
-        var documents = BenchmarkData.BuildDocuments(documentCount.Value);
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        var sink = new CorpusTokenSink();
-        var analyser = new Rowles.LeanCorpus.Analysis.Analysers.StandardAnalyser();
-        long byteCount = 0;
-
-        foreach (var body in documents)
-        {
-            var bytes = Encoding.UTF8.GetBytes(body);
-            byteCount += bytes.Length;
-            hash.AppendData(bytes);
-            hash.AppendData([ (byte)'\n' ]);
-            analyser.Analyse(body.AsSpan(), sink);
-        }
-
-        return new BenchmarkCorpusReport
-        {
-            DocumentCount = documents.Length,
-            Utf8ByteCount = byteCount,
-            TokenCount = sink.TokenCount,
-            UniqueTermCount = sink.UniqueTerms.Count,
-            PayloadSha256 = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant()
-        };
-    }
-
-    private sealed class CorpusTokenSink : Rowles.LeanCorpus.Analysis.ISpanTokenSink
-    {
-        public long TokenCount { get; private set; }
-        public HashSet<string> UniqueTerms { get; } = new(StringComparer.Ordinal);
-
-        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset,
-            string type = Rowles.LeanCorpus.Analysis.Token.DefaultType,
-            int positionIncrement = 1, byte[]? payload = null)
-        {
-            TokenCount++;
-            UniqueTerms.Add(text.ToString());
-        }
-    }
-}
-
 internal static class BenchmarkRunReportWriter
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -957,6 +978,8 @@ internal static class BenchmarkRunReportWriter
         Directory.CreateDirectory(runDir);
 
         var reportPath = Path.Combine(runDir, "report.json");
+        // The generation time is taken at write, after every benchmark has finished.
+        report.GeneratedAtUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
         File.WriteAllText(reportPath, JsonSerializer.Serialize(report, JsonOptions));
 
         Directory.CreateDirectory(machineDir);

@@ -43,7 +43,7 @@ These queries require indexed positions.
 | `SpanTermQuery` | A term represented as a span | Leaf for other span queries. |
 | `SpanNearQuery` | Ordered or unordered span proximity | Composes span leaves or other span queries. |
 | `SpanOrQuery` | Alternative spans | All clauses must target the same field. |
-| `SpanNotQuery` | Include spans from documents without an excluded span | Exclusion currently applies to the whole document. |
+| `SpanNotQuery` | Include spans that do not overlap an excluded span | A document matches while any include span survives; an excluded term elsewhere in the document does not remove it. |
 | `SpanFirstQuery` | Spans ending before a field position | Wraps any span query. |
 | `SpanContainingQuery` | Enclosing spans containing another span | Both clauses target the same field. |
 | `SpanWithinQuery` | Inner spans contained by another span | Both clauses target the same field. |
@@ -64,9 +64,15 @@ See [Phrase and proximity](03-phrase-and-proximity.md) and [Intervals](10-interv
 |---|---|---|
 | `PrefixQuery` | Terms beginning with a fixed prefix | Longer fixed prefixes reduce dictionary expansion. |
 | `WildcardQuery` | `*` and `?` patterns | Avoid leading wildcards on large term dictionaries. |
-| `RegexpQuery` | Regular-expression term matching | Bound user patterns and test worst cases. |
+| `RegexpQuery` | Regular-expression matching of whole terms | Bound user patterns and test worst cases. |
 | `FuzzyQuery` | Terms within edit distance 0 to 2 | `MaxExpansions` limits candidate terms. |
 | `TermRangeQuery` | Lexicographic term range | Bounds may be inclusive, exclusive, or `null` for unbounded. |
+
+`RegexpQuery` matches the whole term, like Lucene: `gov.*ment` and
+`^gov.*ment$` are the same query and match `government`, while `ment` matches
+no part of `government`. Match within a term with explicit wildcards, such as
+`.*ment.*`. A document matching several terms is returned once, with the
+terms' scores summed.
 
 ```csharp
 var names = new TermRangeQuery(

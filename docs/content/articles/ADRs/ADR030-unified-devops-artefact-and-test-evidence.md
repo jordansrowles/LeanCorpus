@@ -2,11 +2,12 @@
 adr: ADR030
 title: "DevOps owns unified artefact and test evidence"
 date: 2026-09-07
-last-updated: 2026-10-24
+last-updated: 2026-11-11
 status: Accepted
 version-added: vNext
 summary: "Build, test, coverage, benchmark, diagnostics, package and documentation output share one artefact root and provenance contract."
 areas: [devops, testing, telemetry, benchmarks]
+relates-to: [ADR047]
 ---
 
 # ADR030: DevOps owns unified artefact and test evidence
@@ -92,6 +93,11 @@ intermediate or missing cases remain. Schema v4 remains readable as historical
 dataset provenance, but it cannot qualify a comparison or appear as current
 benchmark evidence.
 
+Schema v6 adds a versioned semantic proof to each row and keeps method
+execution success as a separate field. Qualification finalisation, the
+semantic proof contract and the campaign failure policy are defined by ADR047.
+Schema v5 reports remain readable and are unqualified.
+
 ## Rationale
 
 The SDK already implements collision-safe project, configuration, framework and
@@ -131,3 +137,4 @@ the only safe correlation key once tests may execute concurrently.
 | 2026-09-24 | Amended | Added canonical DataForge dataset identities and fingerprints to benchmark report schema v4. | `096b06467` |
 | 2026-10-04 | Amended | Separated aggregate CI, stress and flaky telemetry from full diagnostic test-process capture. | `e3e6733e9` |
 | 2026-10-24 | Amended | Added stable BDN result-row identity and terminal-statistics requirements to Core benchmark report schema v5; retained v4 as historical-only evidence. | Issue 97 BVAL-14 |
+| 2026-11-11 | Amended | Moved qualification finalisation, semantic proof, report schema v6 and the campaign failure policy to ADR047. | Sprint 5 PR 1 |

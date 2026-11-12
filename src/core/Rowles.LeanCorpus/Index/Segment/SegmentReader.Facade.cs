@@ -437,6 +437,7 @@ public sealed partial class SegmentReader : IDisposable
     public List<(string Term, long Offset)> GetTermsInRange(string fieldPrefix, string? lowerTerm, string? upperTerm, bool includeLower, bool includeUpper) { using var lease = AcquireReadLease(); return lease.State.GetTermsInRange(fieldPrefix, lowerTerm, upperTerm, includeLower, includeUpper); }
     public List<(string Term, long Offset)> GetTermsMatchingRegex(string fieldPrefix, Regex regex) { using var lease = AcquireReadLease(); return lease.State.GetTermsMatchingRegex(fieldPrefix, regex); }
     internal List<long> GetTermOffsetsContaining(string fieldPrefix, ReadOnlySpan<char> literal) { using var lease = AcquireReadLease(); return lease.State.GetTermOffsetsContaining(fieldPrefix, literal); }
+    internal List<(string Term, long Offset)> GetTermsContaining(string fieldPrefix, ReadOnlySpan<char> literal) { using var lease = AcquireReadLease(); return lease.State.GetTermsContaining(fieldPrefix, literal); }
 
     internal IReadOnlyDictionary<string, IReadOnlyList<StoredFieldValue>> GetStoredFieldValues(int docId) { using var lease = AcquireReadLease(); return lease.State.GetStoredFieldValues(docId); }
     internal IReadOnlyDictionary<string, IReadOnlyList<StoredFieldValue>> GetStoredFieldValues(int docId, ISet<string>? fieldsToLoad) { using var lease = AcquireReadLease(); return lease.State.GetStoredFieldValues(docId, fieldsToLoad); }

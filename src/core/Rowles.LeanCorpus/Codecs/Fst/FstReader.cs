@@ -385,11 +385,11 @@ public sealed class FstReader
     private void CollectIntersectRecursive(long nodeAddr, int automatonState, long accumulatedOutput, IAutomaton automaton, List<long> sink)
     {
         // When the automaton is in a fully-permissive sink state, every remaining
-        // FST path is a match. Skip automaton calls and collect all outputs.
+        // FST path is a match. Skip automaton calls and collect all outputs. The node's
+        // own final output was already added by the caller, so only descendants remain;
+        // adding it here returned a term such as "market" twice for "m*rket*".
         if (automaton.IsSink(automatonState))
         {
-            if (TryGetFinalOutput(nodeAddr, out long final))
-                sink.Add(accumulatedOutput + final);
             CollectOutputsRecursive(nodeAddr, accumulatedOutput, sink);
             return;
         }
@@ -514,6 +514,12 @@ public sealed class FstReader
         }
     }
 
+    /// <summary>
+    /// Walks the field's subtree once, collecting every key containing <paramref name="needle"/>.
+    /// Only a match ending at the newest byte needs checking, because shorter prefixes were checked
+    /// on the way down; once a prefix contains the needle, every key below it matches, so the rest
+    /// of that subtree is collected without further comparison.
+    /// </summary>
     private void CollectContainsRecursive(long nodeAddr, long accumulatedOutput, ref Span<byte> keyBuf, ref byte[]? rented, int keyLen, ReadOnlySpan<byte> needle, List<long> sink)
     {
         int firstArc = FirstRealArcOffset(nodeAddr);
@@ -526,21 +532,89 @@ public sealed class FstReader
             keyBuf[keyLen] = arc.Label;
             int childKeyLen = keyLen + 1;
             long childOutput = accumulatedOutput + arc.Output;
+            bool contains = childKeyLen >= needle.Length && keyBuf.Slice(childKeyLen - needle.Length, needle.Length).SequenceEqual(needle);
 
             if (arc.HasTarget)
             {
                 long childAddr = arc.Target;
-                if (TryGetFinalOutput(childAddr, out long childFinal))
+                if (contains)
                 {
-                    if (keyBuf.Slice(0, childKeyLen).IndexOf(needle) >= 0)
-                        sink.Add(childOutput + childFinal);
+                    if (TryGetFinalOutput(childAddr, out long matchedFinal))
+                        sink.Add(childOutput + matchedFinal);
+                    CollectOutputsRecursive(childAddr, childOutput, sink);
                 }
-                CollectContainsRecursive(childAddr, childOutput, ref keyBuf, ref rented, childKeyLen, needle, sink);
+                else
+                {
+                    CollectContainsRecursive(childAddr, childOutput, ref keyBuf, ref rented, childKeyLen, needle, sink);
+                }
             }
-            else
+            else if (contains)
             {
-                if (keyBuf.Slice(0, childKeyLen).IndexOf(needle) >= 0)
-                    sink.Add(childOutput);
+                sink.Add(childOutput);
+            }
+
+            if (arc.IsLastArc) break;
+        }
+    }
+
+    /// <summary>
+    /// Collects the keys and outputs under <paramref name="qualifier"/> whose remainder contains
+    /// <paramref name="needle"/>, in one walk with the same shortcuts as the outputs-only variant.
+    /// Keys are returned without the qualifier.
+    /// </summary>
+    public void CollectContainsKeys(ReadOnlySpan<byte> qualifier, ReadOnlySpan<byte> needle, List<(byte[] Key, long Output)> sink)
+    {
+        if (_count == 0 || _rootAddress == NoAddress || needle.Length == 0) return;
+
+        long nodeAddr = _rootAddress;
+        long accumulated = 0;
+        for (int i = 0; i < qualifier.Length; i++)
+        {
+            if (!TryFollowArc(nodeAddr, qualifier[i], out long target, out long arcOutput, out _, out _))
+                return;
+            accumulated += arcOutput;
+            if (target == NoAddress) return;
+            nodeAddr = target;
+        }
+
+        Span<byte> keyBuf = stackalloc byte[256];
+        byte[]? rented = null;
+        try
+        {
+            CollectContainsKeysRecursive(nodeAddr, accumulated, ref keyBuf, ref rented, 0, needle, matched: false, sink);
+        }
+        finally
+        {
+            if (rented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
+        }
+    }
+
+    private void CollectContainsKeysRecursive(long nodeAddr, long accumulatedOutput, ref Span<byte> keyBuf, ref byte[]? rented,
+        int keyLen, ReadOnlySpan<byte> needle, bool matched, List<(byte[] Key, long Output)> sink)
+    {
+        int firstArc = FirstRealArcOffset(nodeAddr);
+        if (firstArc < 0) return;
+        int pos = firstArc;
+        while (true)
+        {
+            var arc = DecodeArc(ref pos);
+            EnsureKeyCapacity(ref keyBuf, ref rented, keyLen + 1);
+            keyBuf[keyLen] = arc.Label;
+            int childKeyLen = keyLen + 1;
+            long childOutput = accumulatedOutput + arc.Output;
+            bool contains = matched || (childKeyLen >= needle.Length &&
+                                        keyBuf.Slice(childKeyLen - needle.Length, needle.Length).SequenceEqual(needle));
+
+            if (arc.HasTarget)
+            {
+                long childAddr = arc.Target;
+                if (contains && TryGetFinalOutput(childAddr, out long childFinal))
+                    sink.Add((keyBuf[..childKeyLen].ToArray(), childOutput + childFinal));
+                CollectContainsKeysRecursive(childAddr, childOutput, ref keyBuf, ref rented, childKeyLen, needle, contains, sink);
+            }
+            else if (contains)
+            {
+                sink.Add((keyBuf[..childKeyLen].ToArray(), childOutput));
             }
 
             if (arc.IsLastArc) break;

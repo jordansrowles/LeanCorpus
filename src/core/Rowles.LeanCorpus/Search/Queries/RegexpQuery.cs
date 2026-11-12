@@ -4,14 +4,16 @@ namespace Rowles.LeanCorpus.Search.Queries;
 
 /// <summary>
 /// Matches all documents that contain a term matching the provided regular expression.
-/// The regex is applied to the bare term text (not the qualified field\0term form).
+/// The expression must match the whole bare term, like Lucene's <c>RegexpQuery</c> (ADR048):
+/// <c>gov.*ment</c> and <c>^gov.*ment$</c> are the same query, and <c>ment</c> does not match
+/// <c>government</c>. Use explicit wildcards, such as <c>.*ment.*</c>, to match within a term.
 /// </summary>
 public sealed class RegexpQuery : Query
 {
     /// <inheritdoc/>
     public override string Field { get; }
 
-    /// <summary>Gets the regular expression pattern applied to bare term text.</summary>
+    /// <summary>Gets the regular expression pattern, which must match the whole bare term text.</summary>
     public string Pattern { get; }
 
     internal Regex CompiledRegex { get; }
@@ -36,7 +38,11 @@ public sealed class RegexpQuery : Query
         MaximumExpansions = maximumExpansions;
         Field = field;
         Pattern = pattern;
-        CompiledRegex = new Regex(pattern, options & ~RegexOptions.Compiled, TimeSpan.FromSeconds(1));
+        var regexOptions = options & ~RegexOptions.Compiled;
+        // Compile the caller's pattern on its own first, so an unbalanced group such as "a)|(b"
+        // is rejected rather than escaping the whole-term anchors below.
+        _ = new Regex(pattern, regexOptions, TimeSpan.FromSeconds(1));
+        CompiledRegex = new Regex(string.Concat(@"\A(?:", pattern, @")\z"), regexOptions, TimeSpan.FromSeconds(1));
     }
 
     /// <summary>Gets the distinct matched-term limit, or null for trusted unbounded execution.</summary>

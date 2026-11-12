@@ -273,12 +273,18 @@ public sealed class Stage2SearchTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        // Include docs with "brown", exclude docs with "fox"
+        // Include "brown fox" spans, excluding those that overlap "fox": only the doc without the
+        // phrase keeps a span. An exclude term elsewhere in a document does not remove it.
         var q = new SpanNotQuery(
-            new SpanTermQuery("body", "brown"),
+            new SpanNearQuery([new SpanTermQuery("body", "brown"), new SpanTermQuery("body", "fox")], slop: 0),
             new SpanTermQuery("body", "fox"));
         var results = searcher.Search(q, 10, TestContext.Current.CancellationToken);
-        Assert.Equal(1, results.TotalHits);
+        Assert.Equal(0, results.TotalHits);
+
+        var nonOverlapping = searcher.Search(new SpanNotQuery(
+            new SpanTermQuery("body", "brown"),
+            new SpanTermQuery("body", "fox")), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(2, nonOverlapping.TotalHits);
     }
 
     // ── Facets ──────────────────────────────────────────────────────────────

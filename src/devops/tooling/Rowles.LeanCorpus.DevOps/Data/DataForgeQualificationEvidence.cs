@@ -215,8 +215,8 @@ internal static class DataForgeQualificationEvidence
             {
                 using var document = JsonDocument.Parse(File.ReadAllBytes(reportPath));
                 var root = document.RootElement;
-                if (root.GetProperty("schemaVersion").GetInt32() != 5)
-                    return $"The benchmark report '{reportPath}' uses schema {root.GetProperty("schemaVersion")}; schema v5 is required.";
+                if (root.GetProperty("schemaVersion").GetInt32() is not (5 or 6))
+                    return $"The benchmark report '{reportPath}' uses schema {root.GetProperty("schemaVersion")}; schema v5 or v6 is required.";
                 var datasets = root.GetProperty("provenance").GetProperty("datasets");
                 if (datasets.ValueKind != JsonValueKind.Array || datasets.GetArrayLength() != 1)
                     return $"The benchmark report '{reportPath}' contains {(datasets.ValueKind == JsonValueKind.Array ? datasets.GetArrayLength() : 0)} dataset identities; exactly one imported Wikipedia identity is required.";

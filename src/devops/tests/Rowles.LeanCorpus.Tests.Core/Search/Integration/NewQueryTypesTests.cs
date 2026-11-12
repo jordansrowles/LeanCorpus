@@ -294,8 +294,10 @@ public sealed class NewQueryTypesTests : IClassFixture<TestDirectoryFixture>
         writer.Commit();
 
         using var searcher = new IndexSearcher(dir);
-        // Matches "car" and "card" and "cargo" — all starting with "car"
-        var results = searcher.Search(new RegexpQuery("word", "^car"), 10, TestContext.Current.CancellationToken);
+        // Whole-term matching (ADR048): "^car" matches only "car"; "car.*" matches every term starting with it.
+        var exact = searcher.Search(new RegexpQuery("word", "^car"), 10, TestContext.Current.CancellationToken);
+        Assert.Equal(1, exact.TotalHits);
+        var results = searcher.Search(new RegexpQuery("word", "car.*"), 10, TestContext.Current.CancellationToken);
         Assert.Equal(3, results.TotalHits);
     }
 

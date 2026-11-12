@@ -146,7 +146,7 @@ internal sealed class TermDictionaryReader : IDisposable
     {
         Span<byte> qualStack = stackalloc byte[256];
         var qualifier = EncodeUtf8(fieldPrefix.AsSpan(), qualStack, out byte[]? rented);
-        var wildcard = new WildcardAutomaton(pattern.ToString());
+        var wildcard = GetOrAddWildcardAutomaton(pattern);
         var results = new List<(string, long)>();
         try
         {
@@ -525,6 +525,19 @@ internal sealed class TermDictionaryReader : IDisposable
         {
             if (rented is not null) System.Buffers.ArrayPool<byte>.Shared.Return(rented);
         }
+        return results;
+    }
+
+    /// <summary>Returns the qualified terms and postings offsets of a field whose text contains a literal.</summary>
+    internal List<(string Term, long Offset)> GetTermsContaining(string fieldPrefix, ReadOnlySpan<char> literal)
+    {
+        var qualifier = Encoding.UTF8.GetBytes(fieldPrefix);
+        var needle = Encoding.UTF8.GetBytes(literal.ToString());
+        var keys = new List<(byte[] Key, long Output)>();
+        _fst.CollectContainsKeys(qualifier, needle, keys);
+        var results = new List<(string, long)>(keys.Count);
+        foreach (var (key, output) in keys)
+            results.Add((string.Concat(fieldPrefix, Encoding.UTF8.GetString(key)), output));
         return results;
     }
 
