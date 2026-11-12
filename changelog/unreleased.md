@@ -164,6 +164,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - StemmedAnalyser no longer allocates an analysis context per document.
 - Boolean queries avoid guarded postings access under a query lease, reducing query cost.
 - Combined-fields queries no longer take a read lease per posting while preparing statistics.
+- Numeric aggregations and geo queries allocate far less per matching document.
 
 ## Fixed
 

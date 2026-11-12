@@ -14,7 +14,14 @@ namespace Rowles.LeanCorpus.Index.Segment;
 internal sealed partial class SegmentReaderState
 {
     /// <summary>Lazy-loads the numeric index (.num) for range queries.</summary>
+    /// <remarks>
+    /// The built index is returned without allocating; only the first call creates the
+    /// capturing factory that loads it.
+    /// </remarks>
     private Dictionary<string, Dictionary<int, double>> EnsureNumericIndex()
+        => Volatile.Read(ref _numericIndex) ?? LoadNumericIndex();
+
+    private Dictionary<string, Dictionary<int, double>> LoadNumericIndex()
     {
         return LazyInitializer.EnsureInitialized(ref _numericIndex, ref _lazyInitLock, () =>
         {
@@ -28,7 +35,11 @@ internal sealed partial class SegmentReaderState
         => EnsureDocValuesColumns(ref _numericDocValueColumns, ".dvn", NumericDocValuesReader.OpenColumns);
 
     /// <summary>Lazy-loads the 64-bit integer index (.numl) for range queries.</summary>
+    /// <remarks>As <see cref="EnsureNumericIndex"/>, the built index is returned without allocating.</remarks>
     private Dictionary<string, Dictionary<int, long>> EnsureInt64Index()
+        => Volatile.Read(ref _int64Index) ?? LoadInt64Index();
+
+    private Dictionary<string, Dictionary<int, long>> LoadInt64Index()
     {
         return LazyInitializer.EnsureInitialized(ref _int64Index, ref _lazyInitLock, () =>
         {
