@@ -79,6 +79,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Reduced the cost of numeric range and regexp contains queries.
 - Prefix, wildcard and regexp expansions now score with global document frequency, so scores and order may change and no longer depend on segmentation. No reindexing is needed.
 - RegexpQuery now matches whole terms on every route, like Lucene. Queries relying on search-within behaviour must use explicit wildcards such as .*term.*.
 - Score phrase queries by phrase frequency, counting exact occurrences and weighting sloppy matches by 1 / (distance + 1) as Lucene does, instead of by the leading term's frequency. Phrase scores and rankings change.
