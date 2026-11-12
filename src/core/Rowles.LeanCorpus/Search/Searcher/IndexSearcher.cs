@@ -1252,6 +1252,11 @@ public sealed partial class IndexSearcher : IDisposable
                 case WildcardQuery wildcard:
                     AddMatching(wildcard.Field, reader => Visit(reader, wildcard.Field, null, wildcard.Pattern, null));
                     break;
+                case RegexpQuery regexp when UsesDefaultRegexMatching(regexp.CompiledRegex) &&
+                                             TryGetSimpleContainsRegexLiteral(regexp.Pattern, out var containsLiteral):
+                    AddMatching(regexp.Field, reader => reader.GetTermsContaining(string.Concat(regexp.Field, "\0"), containsLiteral)
+                        .Select(static match => match.Term).ToList());
+                    break;
                 case RegexpQuery regexp:
                     string? literal = UsesDefaultRegexMatching(regexp.CompiledRegex) &&
                                       TryGetRegexLiteralPrefix(regexp.Pattern, out var regexPrefix) ? regexPrefix : null;

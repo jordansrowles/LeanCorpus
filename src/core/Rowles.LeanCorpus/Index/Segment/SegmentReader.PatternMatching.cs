@@ -118,6 +118,9 @@ internal sealed partial class SegmentReaderState
     }
 
     /// <summary>Returns postings offsets for terms whose bare text contains the supplied literal.</summary>
+    internal List<(string Term, long Offset)> GetTermsContaining(string fieldPrefix, ReadOnlySpan<char> literal)
+        => DictionaryReader.GetTermsContaining(fieldPrefix, literal);
+
     internal List<long> GetTermOffsetsContaining(string fieldPrefix, ReadOnlySpan<char> literal)
     {
         return DictionaryReader.GetTermOffsetsContaining(fieldPrefix, literal);

@@ -949,11 +949,18 @@ public sealed partial class IndexSearcher
         var regex = query.CompiledRegex;
 
         // Fast path: literal-contains pattern (e.g. .*nation.*)
-        if (globalDFs.Count == 0 && !RequiresCollectionStatistics(query.Field) &&
-            UsesDefaultRegexMatching(regex) &&
-            TryGetSimpleContainsRegexLiteral(query.Pattern, out var literal))
+        if (UsesDefaultRegexMatching(regex) && TryGetSimpleContainsRegexLiteral(query.Pattern, out var literal))
         {
-            ExecuteRegexpContainsQuery(query, reader, fieldPrefix, literal, ref collector);
+            if (globalDFs.Count == 0 && !RequiresCollectionStatistics(query.Field))
+            {
+                ExecuteRegexpContainsQuery(query, reader, fieldPrefix, literal, ref collector);
+                return;
+            }
+
+            // Across segments the contains walk also returns each term, so it can score with the
+            // global document frequency without a regex scan of the whole dictionary.
+            ExecuteRegexpFromCandidates(query, reader, globalDFs, ref collector,
+                reader.GetTermsContaining(fieldPrefix, literal), fieldPrefix, regex);
             return;
         }
 
