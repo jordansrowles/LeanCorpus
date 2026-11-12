@@ -131,7 +131,7 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
             Assert.Equal(3, searcher.Search(new TermQuery("status", "active"), 10, TestContext.Current.CancellationToken).TotalHits);
             Assert.Equal(1, searcher.Search(new PhraseQuery("title", "native", "aot"), 10, TestContext.Current.CancellationToken).TotalHits);
             Assert.Equal(1, searcher.Search(new PrefixQuery("title", "nat"), 10, TestContext.Current.CancellationToken).TotalHits);
-            Assert.Equal(1, searcher.Search(new RegexpQuery("code", "^nat"), 10, TestContext.Current.CancellationToken).TotalHits);
+            Assert.Equal(1, searcher.Search(new RegexpQuery("code", "^nat.*"), 10, TestContext.Current.CancellationToken).TotalHits);
             Assert.Equal(2, searcher.Search(new RangeQuery("year", 2024, 2026), 10, TestContext.Current.CancellationToken).TotalHits);
             Assert.Equal(2, searcher.Search(new GeoDistanceQuery("location", 51.5074, -0.1278, 250_000), 10, TestContext.Current.CancellationToken).TotalHits);
             Assert.Equal(2, searcher.Search(new GeoBoundingBoxQuery("location", 51.0, 52.0, -3.0, 0.5), 10, TestContext.Current.CancellationToken).TotalHits);
