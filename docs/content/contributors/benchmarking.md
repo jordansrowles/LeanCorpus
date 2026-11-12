@@ -26,6 +26,27 @@ Before comparing results, record:
 
 Per-operation allocation is only comparable when each operation performs the same work. Resident memory, memory-mapped pages, managed allocation, and index size are separate measurements.
 
+## Fuzzy cache working sets
+
+The `fuzzy-cache` suite includes the existing cache-effect rows and
+`FuzzyCacheWorkingSetBenchmarks` for 1, 127, 128, 129 and 256 distinct no-hit queries.
+Each query is checked against every indexed body term using UTF-8 byte edit distance.
+The cache capacity and generation reset policy are unchanged.
+
+- **Cold first pass:** one pass of N searches with a fresh searcher per iteration.
+  Searcher opening and dictionary loading happen outside timing; the expansion cache starts empty.
+- **Primed replay:** one pass of N searches after a complete priming pass.
+- **Repeated churn:** three consecutive passes, or 3N searches, after priming.
+
+Time and allocation values are per batch. Divide by N or 3N for a per-search value.
+Preflight logs report cache hits and misses per segment dictionary lookup, the reader
+count, entries retained at each pass end, zero expansions and zero logical hits.
+These counters are collected outside the measured methods. The preflight also checks
+that hits reuse the cached empty result. A sequential working set above 128 cannot
+remain warm: its replay and churn rows report actual misses rather than assuming hits.
+The single-invocation cold rows can produce BenchmarkDotNet's minimum-iteration-time
+warning for small sets; those rows describe cache state and do not establish small timing differences.
+
 ## Runtime configuration and failures
 
 The managed host runs every benchmark child with `DOTNET_TieredPGO=1` and records the setting in the run manifest and in report rows. Runs from before this setting was recorded did not capture it, so compare them with care.

@@ -79,6 +79,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Fuzzy cache benchmarks report cold, primed and repeated workloads and cache hit and miss counts around the 128-entry limit.
+
 - Fuzzy query compilation allocates far less for long terms.
 
 - Boolean term clauses now apply their individual boosts to scores on every execution path, including MoreLikeThis term weights. Scores and rankings may change without reindexing.

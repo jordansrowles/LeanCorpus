@@ -155,7 +155,6 @@ public sealed class BenchmarkCommandPlannerTests
     [Theory]
     [InlineData("fuzzy", "FuzzyQueryBenchmarks")]
     [InlineData("fuzzy-parity", "FuzzyQueryBenchmarks")]
-    [InlineData("fuzzy-cache", "FuzzyExpansionCacheBenchmarks")]
     public void RoutesFuzzyAliasesToDisjointBenchmarkClasses(string suite, string benchmarkClass)
     {
         var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
@@ -168,6 +167,22 @@ public sealed class BenchmarkCommandPlannerTests
         Assert.Equal(benchmarkClass, invocation.BenchmarkClass);
         Assert.Contains("--filter", invocation.Arguments);
         Assert.Contains($"*{benchmarkClass}*", invocation.Arguments);
+    }
+
+    [Fact]
+    public void RoutesFuzzyCacheToBothCacheBenchmarkClasses()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        var configuration = new ConfigurationLoader(checkout.RepositoryRoot).Load();
+        var plan = BenchmarkCommandPlanner.Create(Options(suite: "fuzzy-cache"), configuration, checkout.RepositoryRoot);
+        Assert.Equal(["FuzzyExpansionCacheBenchmarks", "FuzzyCacheWorkingSetBenchmarks"],
+            plan.Invocations.Select(invocation => invocation.BenchmarkClass));
+        foreach (var invocation in plan.Invocations)
+        {
+            Assert.Equal("core", invocation.ProjectKey);
+            Assert.Contains("--filter", invocation.Arguments);
+            Assert.Contains($"*{invocation.BenchmarkClass}*", invocation.Arguments);
+        }
     }
 
     [Theory]
