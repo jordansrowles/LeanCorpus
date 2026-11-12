@@ -717,7 +717,9 @@ public sealed partial class IndexSearcher
     private static MltCacheKey CreateMltCacheKey(MoreLikeThisQuery mlt)
     {
         var p = mlt.Parameters;
-        return new MltCacheKey(mlt.DocId, p.MaxQueryTerms, p.MinTermFreq, p.MinDocFreq, p.MinWordLength);
+        // Field names cannot contain NUL (it separates qualified terms), so the join is unambiguous.
+        return new MltCacheKey(
+            mlt.DocId, string.Join('\0', mlt.Fields), p.MaxQueryTerms, p.MinTermFreq, p.MinDocFreq, p.MaxDocFreq, p.MinWordLength);
     }
 
     private void StoreMoreLikeThisTerms(MltCacheKey cacheKey, (string Field, string Term, float Score)[] terms)

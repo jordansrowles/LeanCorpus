@@ -78,8 +78,13 @@ public sealed partial class IndexSearcher : IDisposable
     private bool CanSearchSegmentsInParallel()
         => _readers.Count > 1 && _config.ParallelSearch && ResolvedSearchConcurrency > 1;
 
+    /// <summary>
+    /// Identifies one MoreLikeThis term extraction: the source document, its fields in order, every
+    /// frequency limit and the word length. <c>BoostByScore</c> applies after lookup and is not part
+    /// of it. The key is per searcher, so entries never cross generations.
+    /// </summary>
     private readonly record struct MltCacheKey(
-        int DocId, int MaxQueryTerms, int MinTermFreq, int MinDocFreq, int MinWordLength);
+        int DocId, string Fields, int MaxQueryTerms, int MinTermFreq, int MinDocFreq, int MaxDocFreq, int MinWordLength);
 
     private static IndexSearcherConfig CreateConfig(ISimilarity? similarity)
     {
