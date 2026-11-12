@@ -25,6 +25,12 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// Measures multi-field BM25F and Boolean-query workloads across title and body
 /// fields. The Boolean cases do not implement BM25F-equivalent scoring.
 /// </summary>
+/// <remarks>
+/// <see cref="MinimumShouldMatch"/> applies only to <see cref="LeanCorpus_CombinedFieldsQuery"/>.
+/// The two Boolean controls are a disjunction of four per-field term clauses that matches any
+/// document containing either term in either field; they ignore the parameter, so their rows repeat
+/// the same work at each value.
+/// </remarks>
 [MemoryDiagnoser]
 [HtmlExporter]
 [JsonExporterAttribute.Full]
@@ -91,9 +97,10 @@ public class CombinedFieldsQueryBenchmarks
         return _leanSearcher!.Search(q, TopN).TotalHits;
     }
 
+    /// <summary>LeanCorpus SHOULD over both terms in both fields; ignores <see cref="MinimumShouldMatch"/>.</summary>
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LeanCorpus_BooleanQuery_MultiField()
+    public int LeanCorpus_BooleanShould_AnyTermAnyField_MinimumShouldMatchIgnored()
     {
         var builder = new Rowles.LeanCorpus.Search.Queries.BooleanQuery.Builder();
         builder.Add(new TermQuery(FieldTitle, QueryTerm1), Rowles.LeanCorpus.Search.Occur.Should);
@@ -103,9 +110,10 @@ public class CombinedFieldsQueryBenchmarks
         return _leanSearcher!.Search(builder.Build(), TopN).TotalHits;
     }
 
+    /// <summary>Lucene.NET SHOULD over both terms in both fields; ignores <see cref="MinimumShouldMatch"/>.</summary>
     [Benchmark]
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public int LuceneNet_BooleanQuery_MultiField()
+    public int LuceneNet_BooleanShould_AnyTermAnyField_MinimumShouldMatchIgnored()
     {
         var bq = new Lucene.Net.Search.BooleanQuery();
         bq.Add(new LuceneTermQuery(new LuceneTerm(FieldTitle, QueryTerm1)), Occur.SHOULD);
