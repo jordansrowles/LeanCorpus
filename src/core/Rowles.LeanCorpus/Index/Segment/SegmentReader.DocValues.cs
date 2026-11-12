@@ -361,6 +361,51 @@ internal sealed partial class SegmentReaderState
         return true;
     }
 
+    /// <summary>
+    /// Reads a document's only sorted-numeric value without materialising a slice. Returns
+    /// <see langword="false"/> with <paramref name="multiValued"/> set when it has more than one.
+    /// </summary>
+    internal bool TryGetSingleSortedNumericValue(string field, int docId, out double value, out bool multiValued)
+    {
+        value = 0;
+        multiValued = false;
+        if (!EnsureSortedNumericDocValueColumns().TryGetValue(field, out var column))
+            return false;
+        int count = column.GetValueRange(docId, out int firstValueIndex);
+        if (count != 1)
+        {
+            multiValued = count > 1;
+            return false;
+        }
+
+        value = column.GetFlatValue(firstValueIndex);
+        return true;
+    }
+
+    /// <summary>The Int64 form of <see cref="TryGetSingleSortedNumericValue"/>.</summary>
+    internal bool TryGetSingleSortedInt64Value(string field, int docId, out long value, out bool multiValued)
+    {
+        value = 0;
+        multiValued = false;
+        if (!EnsureInt64SortedDocValueColumns().TryGetValue(field, out var column))
+            return false;
+        int count = column.GetValueRange(docId, out int firstValueIndex);
+        if (count != 1)
+        {
+            multiValued = count > 1;
+            return false;
+        }
+
+        value = column.GetFlatValue(firstValueIndex);
+        return true;
+    }
+
+    /// <summary>Gets the binary DocValues column for a caller holding a segment lease or query pin.</summary>
+    internal bool TryGetBinaryDocValuesColumn(
+        string field,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out BinaryDocValuesColumn? column)
+        => EnsureBinaryDocValueColumns().TryGetValue(field, out column);
+
     public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values)
     {
         if (!EnsureBinaryDocValueColumns().TryGetValue(field, out var column)

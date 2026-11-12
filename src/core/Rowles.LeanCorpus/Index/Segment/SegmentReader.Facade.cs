@@ -521,6 +521,34 @@ public sealed partial class SegmentReader : IDisposable
         values = view.ToArray();
         return true;
     }
+    internal bool TryGetSingleSortedNumericValue(string field, int docId, out double value, out bool multiValued)
+    {
+        if (TryGetFastState(out var state)) return state.TryGetSingleSortedNumericValue(field, docId, out value, out multiValued);
+        using var lease = AcquireReadLease();
+        return lease.State.TryGetSingleSortedNumericValue(field, docId, out value, out multiValued);
+    }
+
+    internal bool TryGetSingleSortedInt64Value(string field, int docId, out long value, out bool multiValued)
+    {
+        if (TryGetFastState(out var state)) return state.TryGetSingleSortedInt64Value(field, docId, out value, out multiValued);
+        using var lease = AcquireReadLease();
+        return lease.State.TryGetSingleSortedInt64Value(field, docId, out value, out multiValued);
+    }
+
+    /// <summary>
+    /// Gets the binary DocValues column of the state pinned by the caller's query lease. The column
+    /// and its mapped input are valid only until that pin is released, so it must not be retained.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The calling thread holds no query pin for this reader.</exception>
+    internal bool TryGetPinnedBinaryDocValuesColumn(
+        string field,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out BinaryDocValuesColumn? column)
+    {
+        if (!TryGetFastState(out var state))
+            throw new InvalidOperationException("Reading a binary DocValues column requires a query pin for this segment reader.");
+        return state.TryGetBinaryDocValuesColumn(field, out column);
+    }
+
     public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values)
     {
         using var lease = AcquireReadLease();

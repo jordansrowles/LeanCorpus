@@ -149,11 +149,21 @@ internal static class NumericFieldValues
     {
         if (accessor.IsInt64)
         {
-            if (accessor.IsSortedNumeric
-                && reader.TryGetSortedInt64DocValues(fieldName, localDocId, out var int64Values))
+            // A single value is read straight from the packed column; only documents with more
+            // than one value take the materialising multi-value path.
+            if (accessor.IsSortedNumeric)
             {
-                values = NumericDocumentValues.Multiple(int64Values);
-                return true;
+                if (reader.TryGetSingleSortedInt64Value(fieldName, localDocId, out long single, out bool multiValued))
+                {
+                    values = NumericDocumentValues.Single(single);
+                    return true;
+                }
+
+                if (multiValued && reader.TryGetSortedInt64DocValues(fieldName, localDocId, out var int64Values))
+                {
+                    values = NumericDocumentValues.Multiple(int64Values);
+                    return true;
+                }
             }
 
             if (accessor.IsSingleNumeric
@@ -165,11 +175,19 @@ internal static class NumericFieldValues
         }
         else
         {
-            if (accessor.IsSortedNumeric
-                && reader.TryGetSortedNumericDocValues(fieldName, localDocId, out var doubleValues))
+            if (accessor.IsSortedNumeric)
             {
-                values = NumericDocumentValues.Multiple(doubleValues);
-                return true;
+                if (reader.TryGetSingleSortedNumericValue(fieldName, localDocId, out double single, out bool multiValued))
+                {
+                    values = NumericDocumentValues.Single(single);
+                    return true;
+                }
+
+                if (multiValued && reader.TryGetSortedNumericDocValues(fieldName, localDocId, out var doubleValues))
+                {
+                    values = NumericDocumentValues.Multiple(doubleValues);
+                    return true;
+                }
             }
 
             if (accessor.IsSingleNumeric

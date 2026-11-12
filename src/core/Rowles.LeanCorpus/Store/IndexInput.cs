@@ -255,6 +255,14 @@ public sealed unsafe class IndexInput : IDisposable
         return value;
     }
 
+    /// <summary>Copies bytes at an absolute input position into a caller-owned buffer without changing the shared cursor.</summary>
+    internal void ReadBytesAt(long position, Span<byte> destination)
+    {
+        using var operation = EnterReadScope();
+        EnsureAvailable(position, destination.Length);
+        new ReadOnlySpan<byte>(_ptr + position, destination.Length).CopyTo(destination);
+    }
+
     /// <summary>Copies bytes at an absolute input position without changing the shared cursor.</summary>
     internal byte[] ReadBytesAt(long position, int count)
     {
