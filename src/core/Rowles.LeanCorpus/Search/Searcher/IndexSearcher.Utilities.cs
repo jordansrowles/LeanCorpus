@@ -586,34 +586,42 @@ public sealed partial class IndexSearcher
     internal TopDocs ExecuteMoreLikeThis(MoreLikeThisQuery mlt, int topN, ISideCollector? sideCollector = null)
     {
         var p = mlt.Parameters;
+
+        // The cache holds term extraction only; the query is always built by one routine, so a
+        // warm search runs exactly the query a cold search would.
+        var cacheKey = CreateMltCacheKey(mlt);
+        if (_mltCache is null || !_mltCache.TryGetValue(cacheKey, out var terms))
+        {
+            terms = ExtractMoreLikeThisTerms(mlt);
+            if (terms.Length == 0)
+                return TopDocs.Empty;
+            StoreMoreLikeThisTerms(cacheKey, terms);
+        }
+
+        var query = BuildMoreLikeThisQuery(terms, p.BoostByScore);
+        return SearchMoreLikeThis(query, mlt.DocId, topN, sideCollector);
+    }
+
+    /// <summary>
+    /// Extracts the source document's candidate terms in ascending score order, at most
+    /// <see cref="MoreLikeThisParameters.MaxQueryTerms"/> of them.
+    /// </summary>
+    /// <summary>Gets the cached term extraction for <paramref name="mlt"/>, if any. For tests.</summary>
+    internal bool TryGetCachedMoreLikeThisTerms(
+        MoreLikeThisQuery mlt,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out (string Field, string Term, float Score)[]? terms)
+    {
+        terms = null;
+        return _mltCache is { } cache && cache.TryGetValue(CreateMltCacheKey(mlt), out terms);
+    }
+
+    internal (string Field, string Term, float Score)[] ExtractMoreLikeThisTerms(MoreLikeThisQuery mlt)
+    {
+        var p = mlt.Parameters;
         int readerIdx = ResolveReaderIndex(mlt.DocId);
         var reader = _readers[readerIdx];
         int localDocId = mlt.DocId - _docBases[readerIdx];
         int segmentCount = _readers.Count;
-
-        // Check the MLT term cache for a previous extraction with the same parameters.
-        var cacheKey = new MltCacheKey(mlt.DocId, p.MaxQueryTerms,
-            p.MinTermFreq, p.MinDocFreq, p.MinWordLength);
-        if (_mltCache != null && _mltCache.TryGetValue(cacheKey, out var cachedTerms))
-        {
-            var cachedBuilder = new BooleanQuery.Builder();
-            for (int i = cachedTerms.Length - 1; i >= 0; i--)
-                cachedBuilder.Add(new TermQuery(cachedTerms[i].Field, cachedTerms[i].Term), Occur.Should);
-            var cachedBoolQ = cachedBuilder.Build();
-            var cachedResults = SearchCore(cachedBoolQ, topN,
-                sideCollector is null ? null : new ExcludingSideCollector(sideCollector, mlt.DocId));
-            var cachedScoreDocs = cachedResults.ScoreDocs;
-            int cachedSrcIdx = -1;
-            for (int i = 0; i < cachedScoreDocs.Length; i++)
-                if (cachedScoreDocs[i].DocId == mlt.DocId) { cachedSrcIdx = i; break; }
-            if (cachedSrcIdx < 0) return cachedResults;
-            var cachedFiltered = new ScoreDoc[cachedScoreDocs.Length - 1];
-            if (cachedSrcIdx > 0) Array.Copy(cachedScoreDocs, 0, cachedFiltered, 0, cachedSrcIdx);
-            if (cachedSrcIdx < cachedScoreDocs.Length - 1)
-                Array.Copy(cachedScoreDocs, cachedSrcIdx + 1, cachedFiltered, cachedSrcIdx,
-                    cachedScoreDocs.Length - cachedSrcIdx - 1);
-            return new TopDocs(cachedResults.TotalHits - 1, cachedFiltered, cachedResults.IsPartial);
-        }
 
         // Bounded min-heap (priority = score). We keep the smallest score at the
         // top so we can evict the weakest candidate when the heap exceeds MaxQueryTerms.
@@ -691,7 +699,7 @@ public sealed partial class IndexSearcher
         }
 
         if (heap.Count == 0)
-            return TopDocs.Empty;
+            return [];
 
         // Dequeue into a list (ascending score order; we'll iterate in reverse).
         int termCount = heap.Count;
@@ -700,42 +708,63 @@ public sealed partial class IndexSearcher
         while (heap.TryDequeue(out var c, out _))
             candidates.Add(c);
 
-        // Cache the extracted candidate terms for reuse.
-        var cacheTerms = new (string Field, string Term, float Score)[termCount];
-        for (int i = 0; i < termCount; i++)
-            cacheTerms[i] = (candidates[i].Field, candidates[i].Term, candidates[i].Score);
+        var terms = new (string Field, string Term, float Score)[candidates.Count];
+        for (int i = 0; i < terms.Length; i++)
+            terms[i] = (candidates[i].Field, candidates[i].Term, candidates[i].Score);
+        return terms;
+    }
+
+    private static MltCacheKey CreateMltCacheKey(MoreLikeThisQuery mlt)
+    {
+        var p = mlt.Parameters;
+        return new MltCacheKey(mlt.DocId, p.MaxQueryTerms, p.MinTermFreq, p.MinDocFreq, p.MinWordLength);
+    }
+
+    private void StoreMoreLikeThisTerms(MltCacheKey cacheKey, (string Field, string Term, float Score)[] terms)
+    {
         _mltCache ??= new ConcurrentDictionary<MltCacheKey, (string, string, float)[]>();
-        _mltCache[cacheKey] = cacheTerms;
+        _mltCache[cacheKey] = terms;
         if (Interlocked.Increment(ref _mltCacheCount) >= MltCacheSoftCap)
         {
             Interlocked.Exchange(ref _mltCache,
                 new ConcurrentDictionary<MltCacheKey, (string, string, float)[]>());
             Interlocked.Exchange(ref _mltCacheCount, 0);
         }
+    }
 
-        // Build a BooleanQuery with Should clauses (highest score first).
-        var boolQBuilder = new BooleanQuery.Builder();
-        float maxScore = candidates[termCount - 1].Score;
-
-        for (int i = termCount - 1; i >= 0; i--)
+    /// <summary>
+    /// Builds the MoreLikeThis query from extracted terms in ascending score order: one SHOULD
+    /// clause per term, highest score first, boosted relative to the best term when
+    /// <paramref name="boostByScore"/> is set.
+    /// </summary>
+    private static BooleanQuery BuildMoreLikeThisQuery((string Field, string Term, float Score)[] terms, bool boostByScore)
+    {
+        var builder = new BooleanQuery.Builder();
+        float maxScore = terms[^1].Score;
+        for (int i = terms.Length - 1; i >= 0; i--)
         {
-            var (score, field, term) = candidates[i];
-            var tq = new TermQuery(field, term);
-            if (p.BoostByScore && maxScore > 0)
-                tq.Boost = score / maxScore;
-            boolQBuilder.Add(tq, Occur.Should);
+            var (field, term, score) = terms[i];
+            var termQuery = new TermQuery(field, term);
+            if (boostByScore && maxScore > 0)
+                termQuery.Boost = score / maxScore;
+            builder.Add(termQuery, Occur.Should);
         }
 
-        var boolQ = boolQBuilder.Build();
-        var results = SearchCore(boolQ, topN,
-            sideCollector is null ? null : new ExcludingSideCollector(sideCollector, mlt.DocId));
+        return builder.Build();
+    }
+
+    /// <summary>Runs the MoreLikeThis query and removes the source document from the results.</summary>
+    private TopDocs SearchMoreLikeThis(BooleanQuery query, int sourceDocId, int topN, ISideCollector? sideCollector)
+    {
+        var results = SearchCore(query, topN,
+            sideCollector is null ? null : new ExcludingSideCollector(sideCollector, sourceDocId));
 
         // Exclude the source document from results.
         var scoreDocs = results.ScoreDocs;
         int sourceIdx = -1;
         for (int i = 0; i < scoreDocs.Length; i++)
         {
-            if (scoreDocs[i].DocId == mlt.DocId)
+            if (scoreDocs[i].DocId == sourceDocId)
             {
                 sourceIdx = i;
                 break;
