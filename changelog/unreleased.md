@@ -172,6 +172,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 ## Fixed
 
 - MoreLikeThis results no longer depend on cache warmth or segment count, and MaxDocFreq is always honoured. Results and scores may change without reindexing.
+- MoreLikeThis excludes its source from TotalHits and fills the requested top-N page when enough other documents match, including when the source ranks outside that page.
 
 - A cancelled or failed DevOps execution-lease acquisition no longer leaves a lease marker behind that blocks later DevOps commands until they time out.
 - SpanNotQuery now removes only include spans that overlap an excluded span, as documented and as in Lucene, instead of every document containing the excluded term.

@@ -743,8 +743,11 @@ public sealed partial class IndexSearcher
     /// <summary>Runs the MoreLikeThis query and removes the source document from the results.</summary>
     private TopDocs SearchMoreLikeThis(BooleanQuery query, int sourceDocId, int topN, ISideCollector? sideCollector)
     {
-        var results = SearchCore(query, topN,
-            sideCollector is null ? null : new ExcludingSideCollector(sideCollector, sourceDocId));
+        // Count the source match independently of the competitive heap. The exhaustive side
+        // collector also prevents WAND from skipping matches needed for an exact TotalHits.
+        var excluding = new ExcludingSideCollector(sideCollector, sourceDocId);
+        int candidates = topN < _totalDocCount ? topN + 1 : topN;
+        var results = SearchCore(query, candidates, excluding);
 
         // Exclude the source document from results.
         var scoreDocs = results.ScoreDocs;
@@ -758,17 +761,15 @@ public sealed partial class IndexSearcher
             }
         }
 
-        if (sourceIdx < 0)
-            return results;
+        int resultCount = Math.Min(topN, scoreDocs.Length - (sourceIdx >= 0 ? 1 : 0));
+        var filtered = new ScoreDoc[resultCount];
+        for (int input = 0, output = 0; input < scoreDocs.Length && output < resultCount; input++)
+        {
+            if (input != sourceIdx)
+                filtered[output++] = scoreDocs[input];
+        }
 
-        // Build a new array without the source document.
-        var filtered = new ScoreDoc[scoreDocs.Length - 1];
-        if (sourceIdx > 0)
-            Array.Copy(scoreDocs, 0, filtered, 0, sourceIdx);
-        if (sourceIdx < scoreDocs.Length - 1)
-            Array.Copy(scoreDocs, sourceIdx + 1, filtered, sourceIdx, scoreDocs.Length - sourceIdx - 1);
-
-        return new TopDocs(results.TotalHits - 1, filtered, results.IsPartial);
+        return new TopDocs(results.TotalHits - (excluding.SourceMatched ? 1 : 0), filtered, results.IsPartial);
     }
 
     /// <summary>Enqueues a candidate into a bounded min-heap, evicting the
@@ -923,12 +924,16 @@ public sealed partial class IndexSearcher
         }
     }
 
-    private sealed class ExcludingSideCollector(ISideCollector inner, int excludedGlobalDocId) : ISideCollector
+    private sealed class ExcludingSideCollector(ISideCollector? inner, int excludedGlobalDocId) : ISideCollector
     {
+        public bool SourceMatched { get; private set; }
+
         public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
         {
-            if (globalDocId != excludedGlobalDocId)
-                inner.Collect(globalDocId, score, reader, localDocId);
+            if (globalDocId == excludedGlobalDocId)
+                SourceMatched = true;
+            else
+                inner?.Collect(globalDocId, score, reader, localDocId);
         }
     }
 

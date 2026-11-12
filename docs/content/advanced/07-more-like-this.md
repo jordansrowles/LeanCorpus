@@ -36,6 +36,12 @@ segment snapshot. Both frequency limits apply on cold and cached searches,
 and `BoostByScore` weights the generated Boolean term clauses. Results and
 scores may change in 4.0 without reindexing.
 
+The source document is excluded from both the returned hits and `TotalHits`,
+even when it ranks below the requested page. The page still fills up to
+`topN` when enough other documents match. Aggregations exclude the source too.
+MLT counts matches exhaustively to preserve these totals, including when
+Block-Max WAND is enabled for ordinary Boolean searches.
+
 ## See also
 
 - <xref:Rowles.LeanCorpus.Search.Queries.MoreLikeThisQuery>
