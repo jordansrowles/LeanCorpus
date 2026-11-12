@@ -322,6 +322,19 @@ internal sealed partial class SegmentReaderState
         return true;
     }
 
+    /// <summary>Reads a document's sorted-set ordinals without copying, for a caller holding a lease or pin.</summary>
+    internal bool TryGetSortedSetDocOrdinalSpan(string field, int docId, out ReadOnlySpan<int> ordinals)
+    {
+        if (!EnsureSortedSetDocValueColumns().TryGetValue(field, out var column))
+        {
+            ordinals = [];
+            return false;
+        }
+
+        ordinals = column.GetOrdinalSpan(docId);
+        return !ordinals.IsEmpty;
+    }
+
     public bool TryGetSortedSetDocOrdinals(string field, int docId, out IReadOnlyList<int> ordinals)
     {
         if (!EnsureSortedSetDocValueColumns().TryGetValue(field, out var column)

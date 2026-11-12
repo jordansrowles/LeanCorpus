@@ -1499,17 +1499,36 @@ public sealed partial class IndexSearcher
             var plan = _flatOrdinalPlans[facetField];
             int readerIndex = _readerIndexes[reader];
             bool hasValue = false;
-            if (plan.SortedSet && reader.TryGetSortedSetDocOrdinals(facetField, localDocId, out var setOrdinals))
+            if (plan.SortedSet)
             {
-                int lastOrdinal = -1;
-                foreach (int localOrdinal in setOrdinals)
+                // Under the segment query pin the ordinals are read in place; otherwise the
+                // copying facade read is used.
+                if (reader.TryGetPinnedSortedSetDocOrdinals(facetField, localDocId, out var pinnedOrdinals, out bool pinned))
                 {
-                    int globalOrdinal = plan.OrdinalMap.GetGlobalOrdinal(readerIndex, localOrdinal);
-                    if (globalOrdinal != lastOrdinal)
+                    int lastOrdinal = -1;
+                    foreach (int localOrdinal in pinnedOrdinals)
                     {
-                        _facetsCollector.CollectFlatDocumentOrdinal(requestIndex, globalOrdinal);
-                        lastOrdinal = globalOrdinal;
-                        hasValue = true;
+                        int globalOrdinal = plan.OrdinalMap.GetGlobalOrdinal(readerIndex, localOrdinal);
+                        if (globalOrdinal != lastOrdinal)
+                        {
+                            _facetsCollector.CollectFlatDocumentOrdinal(requestIndex, globalOrdinal);
+                            lastOrdinal = globalOrdinal;
+                            hasValue = true;
+                        }
+                    }
+                }
+                else if (!pinned && reader.TryGetSortedSetDocOrdinals(facetField, localDocId, out var setOrdinals))
+                {
+                    int lastOrdinal = -1;
+                    foreach (int localOrdinal in setOrdinals)
+                    {
+                        int globalOrdinal = plan.OrdinalMap.GetGlobalOrdinal(readerIndex, localOrdinal);
+                        if (globalOrdinal != lastOrdinal)
+                        {
+                            _facetsCollector.CollectFlatDocumentOrdinal(requestIndex, globalOrdinal);
+                            lastOrdinal = globalOrdinal;
+                            hasValue = true;
+                        }
                     }
                 }
             }

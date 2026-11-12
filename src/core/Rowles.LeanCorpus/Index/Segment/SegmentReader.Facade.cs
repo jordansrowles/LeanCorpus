@@ -500,6 +500,25 @@ public sealed partial class SegmentReader : IDisposable
         values = view.ToArray();
         return true;
     }
+    /// <summary>
+    /// Reads a document's sorted-set ordinals without a lease or copy when the calling thread holds a
+    /// query pin for this reader. <paramref name="pinned"/> is <see langword="false"/> when it does not,
+    /// and the caller must then use <see cref="TryGetSortedSetDocOrdinals"/>. The span is valid only
+    /// while that pin is held.
+    /// </summary>
+    internal bool TryGetPinnedSortedSetDocOrdinals(string field, int docId, out ReadOnlySpan<int> ordinals, out bool pinned)
+    {
+        if (!TryGetFastState(out var state))
+        {
+            pinned = false;
+            ordinals = [];
+            return false;
+        }
+
+        pinned = true;
+        return state.TryGetSortedSetDocOrdinalSpan(field, docId, out ordinals);
+    }
+
     public bool TryGetSortedSetDocOrdinals(string field, int docId, out IReadOnlyList<int> ordinals)
     {
         using var lease = AcquireReadLease();

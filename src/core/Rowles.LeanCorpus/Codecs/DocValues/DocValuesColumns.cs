@@ -214,6 +214,16 @@ internal sealed class SortedSetDocValuesColumn
         => (uint)documentId < (uint)DocumentCount
             && _documentStarts[documentId] < _documentStarts[documentId + 1];
 
+    /// <summary>Returns a document's local ordinals as a view of the column; empty when it has none.</summary>
+    /// <remarks>The span borrows the column's array and must not outlive the caller's lease or pin.</remarks>
+    internal ReadOnlySpan<int> GetOrdinalSpan(int documentId)
+    {
+        if ((uint)documentId >= (uint)DocumentCount)
+            return [];
+        int start = _documentStarts[documentId];
+        return _ordinals.AsSpan(start, _documentStarts[documentId + 1] - start);
+    }
+
     internal IReadOnlyList<int> GetOrdinals(int documentId)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(documentId);
