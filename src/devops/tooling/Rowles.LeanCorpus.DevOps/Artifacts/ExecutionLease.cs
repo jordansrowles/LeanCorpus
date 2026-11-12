@@ -143,14 +143,30 @@ internal sealed class ExecutionLease : IAsyncDisposable, IDisposable
         await Task.Delay(remaining < PollInterval ? remaining : PollInterval, cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task CreateMarkerAsync(string path, CancellationToken cancellationToken)
+    /// <summary>
+    /// Creates a marker file atomically from the caller's point of view: if writing it fails or is
+    /// cancelled after the file was created, the file is removed, so a caller that sees an
+    /// exception never leaves behind a marker it does not know it owns.
+    /// </summary>
+    internal static async Task CreateMarkerAsync(string path, CancellationToken cancellationToken)
     {
         var (processId, processStartedUtc) = GetCurrentProcessIdentity();
         var marker = JsonSerializer.SerializeToUtf8Bytes(new LeaseMarker(processId, processStartedUtc));
-        await using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024, FileOptions.Asynchronous | FileOptions.WriteThrough);
-        await stream.WriteAsync(marker, cancellationToken).ConfigureAwait(false);
-        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
-        stream.Flush(flushToDisk: true);
+        var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024, FileOptions.Asynchronous | FileOptions.WriteThrough);
+        try
+        {
+            await using (stream.ConfigureAwait(false))
+            {
+                await stream.WriteAsync(marker, cancellationToken).ConfigureAwait(false);
+                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                stream.Flush(flushToDisk: true);
+            }
+        }
+        catch
+        {
+            TryDelete(path);
+            throw;
+        }
     }
 
     private static bool HasLiveReaders(string leaseDirectory)
