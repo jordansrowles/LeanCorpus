@@ -163,6 +163,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Return `CharFilterResult` from `ICharFilter` with public `OffsetCorrectionMap` support for composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the previous character-filter API in Rowles.Text and source-included Core analysis. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - StemmedAnalyser no longer allocates an analysis context per document.
 - Boolean queries avoid guarded postings access under a query lease, reducing query cost.
+- Combined-fields queries no longer take a read lease per posting while preparing statistics.
 
 ## Fixed
 
