@@ -602,10 +602,6 @@ public sealed partial class IndexSearcher
         return SearchMoreLikeThis(query, mlt.DocId, topN, sideCollector);
     }
 
-    /// <summary>
-    /// Extracts the source document's candidate terms in ascending score order, at most
-    /// <see cref="MoreLikeThisParameters.MaxQueryTerms"/> of them.
-    /// </summary>
     /// <summary>Gets the cached term extraction for <paramref name="mlt"/>, if any. For tests.</summary>
     internal bool TryGetCachedMoreLikeThisTerms(
         MoreLikeThisQuery mlt,
@@ -615,13 +611,13 @@ public sealed partial class IndexSearcher
         return _mltCache is { } cache && cache.TryGetValue(CreateMltCacheKey(mlt), out terms);
     }
 
+    /// <summary>Extracts candidates using exact global DF, in ascending score order.</summary>
     internal (string Field, string Term, float Score)[] ExtractMoreLikeThisTerms(MoreLikeThisQuery mlt)
     {
         var p = mlt.Parameters;
         int readerIdx = ResolveReaderIndex(mlt.DocId);
         var reader = _readers[readerIdx];
         int localDocId = mlt.DocId - _docBases[readerIdx];
-        int segmentCount = _readers.Count;
 
         // Bounded min-heap (priority = score). We keep the smallest score at the
         // top so we can evict the weakest candidate when the heap exceeds MaxQueryTerms.
@@ -658,38 +654,13 @@ public sealed partial class IndexSearcher
                     field.AsSpan().CopyTo(buf);
                     buf[fieldLen] = '\0';
                     entry.Term.AsSpan().CopyTo(buf.AsSpan(fieldLen + 1));
-                    ReadOnlySpan<char> qt = buf.AsSpan(0, qtLen);
                     string qtStr = new string(buf, 0, qtLen);
-                    // Fast path: MinDocFreq <= 1 with multiple segments; use local
-                    // segment's docFreq scaled by segment count as an IDF approximation.
-                    if (p.MinDocFreq <= 1 && segmentCount > 1)
-                    {
-                        int currDocFreq = reader.GetDocFreqByQualified(qtStr);
-                        if (currDocFreq < 1) continue;
-                        float estimatedGlobal = (float)currDocFreq * segmentCount;
-                        float idf = MathF.Log((float)_totalDocCount / (estimatedGlobal + 1));
-                        float score = tf * idf;
-                        EnqueueCandidate(heap, capacity, score, field, entry.Term);
-                        continue;
-                    }
+                    int docFreq = GetMoreLikeThisDocFreq(qtStr);
+                    if (docFreq < p.MinDocFreq || docFreq > p.MaxDocFreq) continue;
 
-                    // Full cross-segment scan for MinDocFreq > 1 or single-segment index.
-                    {
-                        int docFreq = 0;
-                        foreach (var r in _readers)
-                        {
-                            docFreq += r.GetDocFreqByQualified(qtStr);
-                            if (docFreq > p.MaxDocFreq)
-                                goto nextTerm;
-                        }
-
-                        if (docFreq < p.MinDocFreq) continue;
-
-                        float idf = MathF.Log((float)_totalDocCount / (docFreq + 1));
-                        float score = tf * idf;
-                        EnqueueCandidate(heap, capacity, score, field, entry.Term);
-                    }
-                nextTerm: ;
+                    float idf = MathF.Log((float)_totalDocCount / (docFreq + 1));
+                    float score = tf * idf;
+                    EnqueueCandidate(heap, capacity, score, field, entry.Term);
                 }
             }
         }
@@ -712,6 +683,20 @@ public sealed partial class IndexSearcher
         for (int i = 0; i < terms.Length; i++)
             terms[i] = (candidates[i].Field, candidates[i].Term, candidates[i].Score);
         return terms;
+    }
+
+    private int GetMoreLikeThisDocFreq(string qualifiedTerm)
+        => qualifiedTerm.Length > MltDocFreqCacheMaximumTermLength
+            ? ComputeMoreLikeThisDocFreq(qualifiedTerm)
+            : _mltDocFreqCache.GetOrAdd(qualifiedTerm, this, static (term, searcher) =>
+                searcher.ComputeMoreLikeThisDocFreq(term));
+
+    private int ComputeMoreLikeThisDocFreq(string qualifiedTerm)
+    {
+        int total = 0;
+        foreach (var reader in _readers)
+            total += reader.GetDocFreqByQualified(qualifiedTerm);
+        return total;
     }
 
     private static MltCacheKey CreateMltCacheKey(MoreLikeThisQuery mlt)

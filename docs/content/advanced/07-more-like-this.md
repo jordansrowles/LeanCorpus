@@ -31,6 +31,11 @@ var hits = searcher.Search(mlt, topN: 10);
 
 Raise `MinDocFreq` to filter rare terms that dominate similarity. Lower `MaxDocFreq` to filter ultra-common terms.
 
+Term selection uses exact document frequencies across the searcher's complete
+segment snapshot. Both frequency limits apply on cold and cached searches,
+and `BoostByScore` weights the generated Boolean term clauses. Results and
+scores may change in 4.0 without reindexing.
+
 ## See also
 
 - <xref:Rowles.LeanCorpus.Search.Queries.MoreLikeThisQuery>

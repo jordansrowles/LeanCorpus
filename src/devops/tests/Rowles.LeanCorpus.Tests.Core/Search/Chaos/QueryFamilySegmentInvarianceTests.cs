@@ -13,8 +13,8 @@ namespace Rowles.LeanCorpus.Tests.Core.Search.Chaos;
 /// <summary>
 /// Metamorphic relation (ADR048): hits, scores and order are the same whether a fixed document set
 /// is searched as many segments or after merging to one, for every scored query family. MoreLikeThis
-/// passes here because every term of this small corpus qualifies; its term selection on larger
-/// corpora still uses segment statistics (Sprint 9 PR 1).
+/// uses exact global document frequencies for term selection, including frequency limits.
+/// MoreLikeThisGlobalStatisticsTests also covers an unrepresentative source segment.
 /// </summary>
 [Category(TestCategory.Chaos)]
 [Area(TestArea.Search)]

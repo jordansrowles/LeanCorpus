@@ -45,6 +45,9 @@ public sealed partial class IndexSearcher : IDisposable
     private ConcurrentDictionary<MltCacheKey, (string Field, string Term, float Score)[]>? _mltCache;
     private int _mltCacheCount;
     private const int MltCacheSoftCap = 64;
+    private const int MltDocFreqCacheMaximumEntries = 1024;
+    private const int MltDocFreqCacheMaximumTermLength = 512;
+    private readonly BoundedGenerationCache<string, int> _mltDocFreqCache = new(MltDocFreqCacheMaximumEntries);
 
     private FuzzyQueryExecutionContext? CurrentFuzzyQueryExecutionContext
         => _fuzzyQueryExecutionContext.Value;
