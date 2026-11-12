@@ -1607,6 +1607,10 @@ public sealed partial class IndexSearcher
             && reader.TryGetPackedBkdFieldMetadata(query.Field, out PackedBkdFieldMetadata metadata)
             && metadata.PointCount == metadata.DocumentCount;
         bool useNumericDocValues = singleValuedPackedField && !hasLegacyGeoDocuments;
+        // This pin (nested under the caller's segment query lease when there is one) keeps the
+        // column and its mapped input valid for the loop.
+        using var columnPin = reader.AcquireQueryLease();
+        reader.TryGetPinnedBinaryDocValuesColumn(exactField, out var exactColumn);
         foreach (int docId in documentIds)
         {
             if (!reader.IsLive(docId))
@@ -1629,13 +1633,12 @@ public sealed partial class IndexSearcher
                     query.CentreLat, query.CentreLon, numericLatitude, numericLongitude);
             }
             else if (resolution == SpatialPointFieldResolution.GeoPoint
-                && reader.TryGetBinaryDocValues(exactField, docId, out var exactValues))
+                && exactColumn is not null
+                && exactColumn.GetValueRange(docId, out int firstValue) is int valueCount and > 0)
             {
-                foreach (byte[] value in exactValues)
+                for (int valueIndex = firstValue; valueIndex < firstValue + valueCount; valueIndex++)
                 {
-                    if (!GeoPointDocValues.TryDecode(value, out double latitude, out double longitude))
-                        throw new InvalidDataException($"Geo point DocValues for field '{query.Field}' are malformed.");
-
+                    DecodeGeoPoint(exactColumn, valueIndex, query.Field, out double latitude, out double longitude);
                     double distance = GeoEncodingUtils.HaversineDistance(
                         query.CentreLat, query.CentreLon, latitude, longitude);
                     if (distance < minimumDistance)
@@ -1844,18 +1847,27 @@ public sealed partial class IndexSearcher
     {
         int docBase = reader.DocBase;
         string exactField = GeoPointDocValues.GetFieldName(field);
+        // This pin (nested under the caller's segment query lease when there is one) keeps the
+        // column and its mapped input valid for the loop.
+        using var columnPin = reader.AcquireQueryLease();
+        BinaryDocValuesColumn? exactColumn = null;
+        if (useExactGeoDocValues)
+            reader.TryGetPinnedBinaryDocValuesColumn(exactField, out exactColumn);
         foreach (int docId in documentIds)
         {
             if (!reader.IsLive(docId))
                 continue;
 
             bool matches = false;
-            if (useExactGeoDocValues && reader.TryGetBinaryDocValues(exactField, docId, out var exactValues))
+            int valueCount = 0;
+            int firstValue = 0;
+            if (exactColumn is not null)
+                valueCount = exactColumn.GetValueRange(docId, out firstValue);
+            if (valueCount > 0)
             {
-                foreach (byte[] value in exactValues)
+                for (int valueIndex = firstValue; valueIndex < firstValue + valueCount; valueIndex++)
                 {
-                    if (!GeoPointDocValues.TryDecode(value, out double latitude, out double longitude))
-                        throw new InvalidDataException($"Geo point DocValues for field '{field}' are malformed.");
+                    DecodeGeoPoint(exactColumn!, valueIndex, field, out double latitude, out double longitude);
                     if (latitude >= bounds.MinimumLatitude && latitude <= bounds.MaximumLatitude
                         && bounds.ContainsLongitude(longitude))
                     {
@@ -1872,6 +1884,21 @@ public sealed partial class IndexSearcher
             if (matches)
                 collector.Collect(docBase + docId, ApplyFieldBoost(reader, docId, field, boost));
         }
+    }
+
+    /// <summary>Decodes one exact geo point from a pinned binary column through a stack buffer.</summary>
+    private static void DecodeGeoPoint(
+        BinaryDocValuesColumn column,
+        int valueIndex,
+        string field,
+        out double latitude,
+        out double longitude)
+    {
+        Span<byte> buffer = stackalloc byte[GeoPointDocValues.ValueLength];
+        int length = column.CopyValue(valueIndex, buffer);
+        if (length != GeoPointDocValues.ValueLength
+            || !GeoPointDocValues.TryDecode(buffer, out latitude, out longitude))
+            throw new InvalidDataException($"Geo point DocValues for field '{field}' are malformed.");
     }
 
     private sealed class LiveDocsPostFilterMask : Util.IBitSet

@@ -14,7 +14,14 @@ namespace Rowles.LeanCorpus.Index.Segment;
 internal sealed partial class SegmentReaderState
 {
     /// <summary>Lazy-loads the numeric index (.num) for range queries.</summary>
+    /// <remarks>
+    /// The built index is returned without allocating; only the first call creates the
+    /// capturing factory that loads it.
+    /// </remarks>
     private Dictionary<string, Dictionary<int, double>> EnsureNumericIndex()
+        => Volatile.Read(ref _numericIndex) ?? LoadNumericIndex();
+
+    private Dictionary<string, Dictionary<int, double>> LoadNumericIndex()
     {
         return LazyInitializer.EnsureInitialized(ref _numericIndex, ref _lazyInitLock, () =>
         {
@@ -28,7 +35,11 @@ internal sealed partial class SegmentReaderState
         => EnsureDocValuesColumns(ref _numericDocValueColumns, ".dvn", NumericDocValuesReader.OpenColumns);
 
     /// <summary>Lazy-loads the 64-bit integer index (.numl) for range queries.</summary>
+    /// <remarks>As <see cref="EnsureNumericIndex"/>, the built index is returned without allocating.</remarks>
     private Dictionary<string, Dictionary<int, long>> EnsureInt64Index()
+        => Volatile.Read(ref _int64Index) ?? LoadInt64Index();
+
+    private Dictionary<string, Dictionary<int, long>> LoadInt64Index()
     {
         return LazyInitializer.EnsureInitialized(ref _int64Index, ref _lazyInitLock, () =>
         {
@@ -311,6 +322,19 @@ internal sealed partial class SegmentReaderState
         return true;
     }
 
+    /// <summary>Reads a document's sorted-set ordinals without copying, for a caller holding a lease or pin.</summary>
+    internal bool TryGetSortedSetDocOrdinalSpan(string field, int docId, out ReadOnlySpan<int> ordinals)
+    {
+        if (!EnsureSortedSetDocValueColumns().TryGetValue(field, out var column))
+        {
+            ordinals = [];
+            return false;
+        }
+
+        ordinals = column.GetOrdinalSpan(docId);
+        return !ordinals.IsEmpty;
+    }
+
     public bool TryGetSortedSetDocOrdinals(string field, int docId, out IReadOnlyList<int> ordinals)
     {
         if (!EnsureSortedSetDocValueColumns().TryGetValue(field, out var column)
@@ -349,6 +373,51 @@ internal sealed partial class SegmentReaderState
         values = column.GetValues(docId);
         return true;
     }
+
+    /// <summary>
+    /// Reads a document's only sorted-numeric value without materialising a slice. Returns
+    /// <see langword="false"/> with <paramref name="multiValued"/> set when it has more than one.
+    /// </summary>
+    internal bool TryGetSingleSortedNumericValue(string field, int docId, out double value, out bool multiValued)
+    {
+        value = 0;
+        multiValued = false;
+        if (!EnsureSortedNumericDocValueColumns().TryGetValue(field, out var column))
+            return false;
+        int count = column.GetValueRange(docId, out int firstValueIndex);
+        if (count != 1)
+        {
+            multiValued = count > 1;
+            return false;
+        }
+
+        value = column.GetFlatValue(firstValueIndex);
+        return true;
+    }
+
+    /// <summary>The Int64 form of <see cref="TryGetSingleSortedNumericValue"/>.</summary>
+    internal bool TryGetSingleSortedInt64Value(string field, int docId, out long value, out bool multiValued)
+    {
+        value = 0;
+        multiValued = false;
+        if (!EnsureInt64SortedDocValueColumns().TryGetValue(field, out var column))
+            return false;
+        int count = column.GetValueRange(docId, out int firstValueIndex);
+        if (count != 1)
+        {
+            multiValued = count > 1;
+            return false;
+        }
+
+        value = column.GetFlatValue(firstValueIndex);
+        return true;
+    }
+
+    /// <summary>Gets the binary DocValues column for a caller holding a segment lease or query pin.</summary>
+    internal bool TryGetBinaryDocValuesColumn(
+        string field,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out BinaryDocValuesColumn? column)
+        => EnsureBinaryDocValueColumns().TryGetValue(field, out column);
 
     public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values)
     {

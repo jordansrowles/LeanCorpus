@@ -135,6 +135,37 @@ public sealed class SegmentReaderCorruptionTests : IClassFixture<ChaosDirectoryF
         }));
     }
 
+    [Fact]
+    public void SegmentReader_CorruptedSortedNumericDocValues_FailsOnSingleValueRead()
+    {
+        var path = Path.Combine(_fixture.Path, $"sr_corrupt_dsn_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        using var directory = new MMapDirectory(path);
+        SegmentInfo segmentInfo;
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig()))
+        {
+            var doc = new LeanDocument();
+            doc.Add(new NumericField("price", 1.5));
+            doc.Add(new StringField("id", "a"));
+            writer.AddDocument(doc);
+            writer.Commit();
+            segmentInfo = writer.GetNrtSegments()[0];
+        }
+
+        var dsnFile = Directory.GetFiles(path, "*.dsn").Single();
+        FlipByte(dsnFile, new FileInfo(dsnFile).Length - 1);
+
+        // The single-value fast path must surface the damage, never return a value, and stay
+        // failing on retry.
+        using var reader = new SegmentReader(directory, segmentInfo);
+        var failure = Assert.Throws<CodecFileException>(
+            () => reader.TryGetSingleSortedNumericValue("price", 0, out _, out _));
+        Assert.Equal(CodecFileErrorCode.ChecksumMismatch, failure.ErrorCode);
+        var retry = Assert.Throws<CodecFileException>(
+            () => reader.TryGetSingleSortedNumericValue("price", 0, out _, out _));
+        Assert.Equal(CodecFileErrorCode.ChecksumMismatch, retry.ErrorCode);
+    }
+
     private static void FlipByte(string path, long offset)
     {
         using var stream = File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);

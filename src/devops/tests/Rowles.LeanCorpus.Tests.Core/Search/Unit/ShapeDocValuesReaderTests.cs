@@ -335,6 +335,45 @@ public sealed class ShapeDocValuesReaderTests
         }
     }
 
+    [Fact(DisplayName = "Shape DocValues traversal from already-read record metadata rejects the same corruption")]
+    public void Reader_RecordTraversalRejectsTreeCorruption()
+    {
+        string path = GetPath();
+        try
+        {
+            WriteSinglePointField(path);
+            using (ShapeDocValuesReader reader = ShapeDocValuesReader.Open(path))
+            {
+                Assert.True(reader.TryGetRecordMetadata("shape", 0, out ShapeDocValuesRecordMetadata record));
+                int expected = reader.VisitPrimitives("shape", 0, static _ => { });
+                Assert.Equal(expected, reader.VisitPrimitives("shape", record, static _ => { }));
+            }
+
+            (long bodyStart, _) = ReadFrameBody(path);
+            long treeStart = bodyStart + 16 + 72;
+            WriteUInt16(path, treeStart + 24, 17);
+            using (ShapeDocValuesReader reader = ShapeDocValuesReader.Open(path))
+            {
+                Assert.True(reader.TryGetRecordMetadata("shape", 0, out ShapeDocValuesRecordMetadata record));
+                Assert.Throws<InvalidDataException>(() => reader.VisitPrimitives("shape", record, static _ => { }));
+            }
+
+            WriteSinglePointField(path);
+            (bodyStart, _) = ReadFrameBody(path);
+            treeStart = bodyStart + 16 + 72;
+            WriteByte(path, treeStart + 4, 2);
+            using (ShapeDocValuesReader reader = ShapeDocValuesReader.Open(path))
+            {
+                Assert.True(reader.TryGetRecordMetadata("shape", 0, out ShapeDocValuesRecordMetadata record));
+                Assert.Throws<InvalidDataException>(() => reader.VisitPrimitives("shape", record, static _ => { }));
+            }
+        }
+        finally
+        {
+            DeleteFile(path);
+        }
+    }
+
     [Fact(DisplayName = "Shape DocValues disposal is idempotent and prevents later reads")]
     public void Reader_DisposeIsIdempotentAndPreventsLaterReads()
     {

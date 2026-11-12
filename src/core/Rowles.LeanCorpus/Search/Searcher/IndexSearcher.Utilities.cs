@@ -803,6 +803,7 @@ public sealed partial class IndexSearcher
         private readonly NumericAggregationCollector? _numericCollector;
         private readonly int[] _numericResultIndexes;
         private readonly ISpatialAggregationState[] _spatialStates;
+        private readonly SpatialDocumentValues _spatialDocument = new();
         private readonly int[] _spatialResultIndexes;
         private readonly int _resultCount;
         private readonly CancellationToken _cancellationToken;
@@ -877,8 +878,13 @@ public sealed partial class IndexSearcher
         {
             _cancellationToken.ThrowIfCancellationRequested();
             _numericCollector?.Collect(reader, localDocId);
+            if (_spatialStates.Length == 0)
+                return;
+
+            // Every spatial state reads the document through one shared, decode-once view.
+            _spatialDocument.MoveTo(reader, localDocId);
             for (int i = 0; i < _spatialStates.Length; i++)
-                _spatialStates[i].Collect(reader, localDocId);
+                _spatialStates[i].Collect(_spatialDocument);
         }
 
         internal IReadOnlyList<ISearchAggregationResult> GetResults(CancellationToken cancellationToken)
@@ -1073,6 +1079,7 @@ public sealed partial class IndexSearcher
         private readonly IFacetRequest[] _facetRequests;
         private readonly FacetsCollector _facetsCollector;
         private readonly NumericFieldAccessor[] _numericAccessors;
+        private readonly NumericSegmentAccessor[] _numericSegmentAccessors;
         private readonly NumericRangeExecutionPlan?[] _numericRangePlans;
         private readonly Int64RangeExecutionPlan?[] _int64RangePlans;
         private readonly Dictionary<string, FlatFacetOrdinalPlan> _flatOrdinalPlans = new(StringComparer.Ordinal);
@@ -1093,6 +1100,7 @@ public sealed partial class IndexSearcher
                 includeEmptyResults: false,
                 maxExactBuckets: maxExactFacetBuckets);
             _numericAccessors = ResolveNumericAccessors(_facetRequests, readers);
+            _numericSegmentAccessors = new NumericSegmentAccessor[_facetRequests.Length];
             (_numericRangePlans, _int64RangePlans) = BuildRangePlans(_facetRequests);
             _cancellationToken = cancellationToken;
             InitialiseStringFacetPlans(readers);
@@ -1108,6 +1116,7 @@ public sealed partial class IndexSearcher
             _facetRequests = facetRequests.ToArray();
             _facetsCollector = new FacetsCollector(facetRequests, maxExactBuckets: maxExactFacetBuckets);
             _numericAccessors = ResolveNumericAccessors(_facetRequests, readers);
+            _numericSegmentAccessors = new NumericSegmentAccessor[_facetRequests.Length];
             (_numericRangePlans, _int64RangePlans) = BuildRangePlans(_facetRequests);
             _cancellationToken = cancellationToken;
             InitialiseStringFacetPlans(readers);
@@ -1294,7 +1303,7 @@ public sealed partial class IndexSearcher
             Index.Segment.SegmentReader reader,
             int localDocId)
         {
-            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+            if (!_numericSegmentAccessors[requestIndex].TryRead(reader, request.Field, localDocId, accessor, out var values))
                 return false;
 
             if (values.IsInt64)
@@ -1369,7 +1378,7 @@ public sealed partial class IndexSearcher
             Index.Segment.SegmentReader reader,
             int localDocId)
         {
-            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+            if (!_numericSegmentAccessors[requestIndex].TryRead(reader, request.Field, localDocId, accessor, out var values))
                 return false;
 
             if (!values.IsInt64)
@@ -1415,7 +1424,7 @@ public sealed partial class IndexSearcher
             Index.Segment.SegmentReader reader,
             int localDocId)
         {
-            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+            if (!_numericSegmentAccessors[requestIndex].TryRead(reader, request.Field, localDocId, accessor, out var values))
                 return false;
 
             if (!values.IsInt64)
@@ -1461,7 +1470,7 @@ public sealed partial class IndexSearcher
             Index.Segment.SegmentReader reader,
             int localDocId)
         {
-            if (!NumericFieldValues.TryRead(reader, request.Field, localDocId, accessor, out var values))
+            if (!_numericSegmentAccessors[requestIndex].TryRead(reader, request.Field, localDocId, accessor, out var values))
                 return false;
 
             if (!values.IsInt64)
@@ -1496,17 +1505,36 @@ public sealed partial class IndexSearcher
             var plan = _flatOrdinalPlans[facetField];
             int readerIndex = _readerIndexes[reader];
             bool hasValue = false;
-            if (plan.SortedSet && reader.TryGetSortedSetDocOrdinals(facetField, localDocId, out var setOrdinals))
+            if (plan.SortedSet)
             {
-                int lastOrdinal = -1;
-                foreach (int localOrdinal in setOrdinals)
+                // Under the segment query pin the ordinals are read in place; otherwise the
+                // copying facade read is used.
+                if (reader.TryGetPinnedSortedSetDocOrdinals(facetField, localDocId, out var pinnedOrdinals, out bool pinned))
                 {
-                    int globalOrdinal = plan.OrdinalMap.GetGlobalOrdinal(readerIndex, localOrdinal);
-                    if (globalOrdinal != lastOrdinal)
+                    int lastOrdinal = -1;
+                    foreach (int localOrdinal in pinnedOrdinals)
                     {
-                        _facetsCollector.CollectFlatDocumentOrdinal(requestIndex, globalOrdinal);
-                        lastOrdinal = globalOrdinal;
-                        hasValue = true;
+                        int globalOrdinal = plan.OrdinalMap.GetGlobalOrdinal(readerIndex, localOrdinal);
+                        if (globalOrdinal != lastOrdinal)
+                        {
+                            _facetsCollector.CollectFlatDocumentOrdinal(requestIndex, globalOrdinal);
+                            lastOrdinal = globalOrdinal;
+                            hasValue = true;
+                        }
+                    }
+                }
+                else if (!pinned && reader.TryGetSortedSetDocOrdinals(facetField, localDocId, out var setOrdinals))
+                {
+                    int lastOrdinal = -1;
+                    foreach (int localOrdinal in setOrdinals)
+                    {
+                        int globalOrdinal = plan.OrdinalMap.GetGlobalOrdinal(readerIndex, localOrdinal);
+                        if (globalOrdinal != lastOrdinal)
+                        {
+                            _facetsCollector.CollectFlatDocumentOrdinal(requestIndex, globalOrdinal);
+                            lastOrdinal = globalOrdinal;
+                            hasValue = true;
+                        }
                     }
                 }
             }

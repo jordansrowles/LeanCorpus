@@ -45,6 +45,9 @@ internal sealed partial class SegmentReaderState : IDisposable
 
     // Lazy-loaded Stage 2 features (thread-safe via LazyInitializer)
     private Dictionary<string, Dictionary<int, double>>? _numericIndex;
+    // Cached materialised DocValues estimate, keyed by which compatibility arrays exist.
+    private int _materialisedDocValuesEstimateMask = -1;
+    private long _materialisedDocValuesEstimateBytes;
     private Dictionary<string, Dictionary<int, long>>? _int64Index;
     private Dictionary<string, NumericDocValuesColumn>? _numericDocValueColumns;
     private Dictionary<string, Int64DocValuesColumn>? _int64DocValueColumns;
@@ -562,7 +565,7 @@ internal sealed partial class SegmentReaderState : IDisposable
 
             foreach (IndexInput input in _docValuesInputs)
                 docValuesBytes += Math.Max(0, input.Length);
-            docValuesBytes += EstimateMaterialisedDocValues();
+            docValuesBytes += GetMaterialisedDocValuesEstimate();
 
             if (_numericIndex is not null)
                 numericIndexesBytes += FileBytes(".num") + EstimateNumericIndex(_numericIndex);
@@ -625,6 +628,32 @@ internal sealed partial class SegmentReaderState : IDisposable
             _fileLengthCache.Add(extension, length);
             return length;
         }
+    }
+
+    /// <summary>
+    /// Returns <see cref="EstimateMaterialisedDocValues"/>, recomputing it only when a compatibility
+    /// array has been materialised since the last call. Each array is assigned once and never changed
+    /// or released while the state lives, so the set that exists determines the estimate exactly.
+    /// Callers hold the state's lazy-initialisation lock.
+    /// </summary>
+    private long GetMaterialisedDocValuesEstimate()
+    {
+        int mask = (_numericDocValues is not null ? 1 : 0)
+            | (_int64DocValues is not null ? 2 : 0)
+            | (_sortedDocValues is not null ? 4 : 0)
+            | (_sortedDocValueTerms is not null ? 8 : 0)
+            | (_sortedSetDocValues is not null ? 16 : 0)
+            | (_sortedSetDocValueTerms is not null ? 32 : 0)
+            | (_sortedNumericDocValues is not null ? 64 : 0)
+            | (_int64SortedDocValues is not null ? 128 : 0)
+            | (_binaryDocValues is not null ? 256 : 0);
+        if (mask != _materialisedDocValuesEstimateMask)
+        {
+            _materialisedDocValuesEstimateBytes = EstimateMaterialisedDocValues();
+            _materialisedDocValuesEstimateMask = mask;
+        }
+
+        return _materialisedDocValuesEstimateBytes;
     }
 
     private long EstimateMaterialisedDocValues()

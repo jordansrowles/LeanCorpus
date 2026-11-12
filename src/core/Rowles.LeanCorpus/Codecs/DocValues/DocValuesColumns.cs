@@ -214,6 +214,16 @@ internal sealed class SortedSetDocValuesColumn
         => (uint)documentId < (uint)DocumentCount
             && _documentStarts[documentId] < _documentStarts[documentId + 1];
 
+    /// <summary>Returns a document's local ordinals as a view of the column; empty when it has none.</summary>
+    /// <remarks>The span borrows the column's array and must not outlive the caller's lease or pin.</remarks>
+    internal ReadOnlySpan<int> GetOrdinalSpan(int documentId)
+    {
+        if ((uint)documentId >= (uint)DocumentCount)
+            return [];
+        int start = _documentStarts[documentId];
+        return _ordinals.AsSpan(start, _documentStarts[documentId + 1] - start);
+    }
+
     internal IReadOnlyList<int> GetOrdinals(int documentId)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(documentId);
@@ -273,6 +283,19 @@ internal sealed class SortedNumericDocValuesColumn
         => (uint)documentId < (uint)DocumentCount
             && _documentStarts[documentId] < _documentStarts[documentId + 1];
 
+    /// <summary>Returns a document's value count and the flat index of its first value; zero when it has none.</summary>
+    internal int GetValueRange(int documentId, out int firstValueIndex)
+    {
+        if ((uint)documentId >= (uint)DocumentCount)
+        {
+            firstValueIndex = 0;
+            return 0;
+        }
+
+        firstValueIndex = _documentStarts[documentId];
+        return _documentStarts[documentId + 1] - firstValueIndex;
+    }
+
     internal IReadOnlyList<double> GetValues(int documentId)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(documentId);
@@ -327,6 +350,19 @@ internal sealed class Int64SortedNumericDocValuesColumn
         => (uint)documentId < (uint)DocumentCount
             && _documentStarts[documentId] < _documentStarts[documentId + 1];
 
+    /// <summary>Returns a document's value count and the flat index of its first value; zero when it has none.</summary>
+    internal int GetValueRange(int documentId, out int firstValueIndex)
+    {
+        if ((uint)documentId >= (uint)DocumentCount)
+        {
+            firstValueIndex = 0;
+            return 0;
+        }
+
+        firstValueIndex = _documentStarts[documentId];
+        return _documentStarts[documentId + 1] - firstValueIndex;
+    }
+
     internal IReadOnlyList<long> GetValues(int documentId)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(documentId);
@@ -378,6 +414,19 @@ internal sealed class BinaryDocValuesColumn
         => (uint)documentId < (uint)DocumentCount
             && _documentStarts[documentId] < _documentStarts[documentId + 1];
 
+    /// <summary>Returns a document's value count and the flat index of its first value; zero when it has none.</summary>
+    internal int GetValueRange(int documentId, out int firstValueIndex)
+    {
+        if ((uint)documentId >= (uint)DocumentCount)
+        {
+            firstValueIndex = 0;
+            return 0;
+        }
+
+        firstValueIndex = _documentStarts[documentId];
+        return _documentStarts[documentId + 1] - firstValueIndex;
+    }
+
     internal IReadOnlyList<byte[]> GetValues(int documentId)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(documentId);
@@ -387,6 +436,21 @@ internal sealed class BinaryDocValuesColumn
         return count == 0
             ? Array.Empty<byte[]>()
             : new DocValuesSlice<byte[]>(count, index => GetValue(start + index));
+    }
+
+    /// <summary>
+    /// Copies one value into <paramref name="destination"/> when it fits, and returns its length
+    /// either way. Nothing is copied when the value is longer than the buffer.
+    /// </summary>
+    internal int CopyValue(int valueIndex, Span<byte> destination)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(valueIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(valueIndex, _valueByteOffsets.Length - 1);
+        int start = _valueByteOffsets[valueIndex];
+        int length = _valueByteOffsets[valueIndex + 1] - start;
+        if (length <= destination.Length)
+            _input.ReadBytesAt(checked(_payloadOffset + start), destination[..length]);
+        return length;
     }
 
     internal byte[] GetValue(int valueIndex)

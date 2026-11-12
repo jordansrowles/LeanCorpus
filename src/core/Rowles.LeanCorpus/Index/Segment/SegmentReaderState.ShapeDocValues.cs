@@ -51,6 +51,17 @@ internal sealed partial class SegmentReaderState
         return reader?.VisitPrimitives(field, documentId, visitor) ?? 0;
     }
 
+    internal int VisitShapeDocValuesPrimitives(
+        string field,
+        in ShapeDocValuesRecordMetadata record,
+        Action<ShapePrimitive> visitor)
+    {
+        ArgumentNullException.ThrowIfNull(field);
+        ArgumentNullException.ThrowIfNull(visitor);
+        ShapeDocValuesReader? reader = EnsureShapeDocValuesReader();
+        return reader?.VisitPrimitives(field, record, visitor) ?? 0;
+    }
+
     internal byte[] ReadShapeDocValuesRecordBytes(string field, int documentId)
     {
         ArgumentNullException.ThrowIfNull(field);

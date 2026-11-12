@@ -143,6 +143,31 @@ internal sealed class ShapeDocValuesReader : IDisposable
         return summary.PrimitiveCount;
     }
 
+    /// <summary>
+    /// Visits one record's decoded primitives using metadata already read by
+    /// <see cref="TryGetRecordMetadata"/>, without repeating the record lookup.
+    /// </summary>
+    internal int VisitPrimitives(string fieldName, in ShapeDocValuesRecordMetadata record, Action<ShapePrimitive> visitor)
+    {
+        ArgumentNullException.ThrowIfNull(visitor);
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ShapeDocValuesFieldMetadata field = GetFieldMetadata(fieldName);
+        using IndexInput section = OpenFieldInput(field);
+        long treeStart = checked(record.RecordOffset + RecordHeaderLength);
+        long treeEnd = checked(treeStart + record.TreeLength);
+        NodeValidationSummary summary = TraverseNode(
+            section,
+            treeStart,
+            treeEnd,
+            depth: 0,
+            field.Kind,
+            record.ValueCount,
+            visitor);
+        if (summary.NodeLength != record.TreeLength || summary.PrimitiveCount != record.PrimitiveCount)
+            throw new InvalidDataException("Shape DocValues component tree length or primitive count does not match its record header.");
+        return summary.PrimitiveCount;
+    }
+
     /// <summary>Verifies the checksum and every field record and component tree.</summary>
     internal void DeepValidate()
     {

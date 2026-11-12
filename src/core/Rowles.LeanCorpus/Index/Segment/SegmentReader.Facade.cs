@@ -500,6 +500,25 @@ public sealed partial class SegmentReader : IDisposable
         values = view.ToArray();
         return true;
     }
+    /// <summary>
+    /// Reads a document's sorted-set ordinals without a lease or copy when the calling thread holds a
+    /// query pin for this reader. <paramref name="pinned"/> is <see langword="false"/> when it does not,
+    /// and the caller must then use <see cref="TryGetSortedSetDocOrdinals"/>. The span is valid only
+    /// while that pin is held.
+    /// </summary>
+    internal bool TryGetPinnedSortedSetDocOrdinals(string field, int docId, out ReadOnlySpan<int> ordinals, out bool pinned)
+    {
+        if (!TryGetFastState(out var state))
+        {
+            pinned = false;
+            ordinals = [];
+            return false;
+        }
+
+        pinned = true;
+        return state.TryGetSortedSetDocOrdinalSpan(field, docId, out ordinals);
+    }
+
     public bool TryGetSortedSetDocOrdinals(string field, int docId, out IReadOnlyList<int> ordinals)
     {
         using var lease = AcquireReadLease();
@@ -521,6 +540,55 @@ public sealed partial class SegmentReader : IDisposable
         values = view.ToArray();
         return true;
     }
+    internal bool TryGetSingleSortedNumericValue(string field, int docId, out double value, out bool multiValued)
+    {
+        if (TryGetFastState(out var state)) return state.TryGetSingleSortedNumericValue(field, docId, out value, out multiValued);
+        using var lease = AcquireReadLease();
+        return lease.State.TryGetSingleSortedNumericValue(field, docId, out value, out multiValued);
+    }
+
+    internal bool TryGetSingleSortedInt64Value(string field, int docId, out long value, out bool multiValued)
+    {
+        if (TryGetFastState(out var state)) return state.TryGetSingleSortedInt64Value(field, docId, out value, out multiValued);
+        using var lease = AcquireReadLease();
+        return lease.State.TryGetSingleSortedInt64Value(field, docId, out value, out multiValued);
+    }
+
+    /// <summary>
+    /// Gets the binary DocValues column of the state pinned by the caller's query lease. The column
+    /// and its mapped input are valid only until that pin is released, so it must not be retained.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The calling thread holds no query pin for this reader.</exception>
+    /// <summary>
+    /// Gets the binary DocValues column when the calling thread holds a query pin for this reader;
+    /// <paramref name="pinned"/> is <see langword="false"/> otherwise. The column is valid only while
+    /// that pin is held.
+    /// </summary>
+    internal bool TryGetBinaryDocValuesColumnIfPinned(
+        string field,
+        out BinaryDocValuesColumn? column,
+        out bool pinned)
+    {
+        if (!TryGetFastState(out var state))
+        {
+            column = null;
+            pinned = false;
+            return false;
+        }
+
+        pinned = true;
+        return state.TryGetBinaryDocValuesColumn(field, out column);
+    }
+
+    internal bool TryGetPinnedBinaryDocValuesColumn(
+        string field,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out BinaryDocValuesColumn? column)
+    {
+        if (!TryGetFastState(out var state))
+            throw new InvalidOperationException("Reading a binary DocValues column requires a query pin for this segment reader.");
+        return state.TryGetBinaryDocValuesColumn(field, out column);
+    }
+
     public bool TryGetBinaryDocValues(string field, int docId, out IReadOnlyList<byte[]> values)
     {
         using var lease = AcquireReadLease();
