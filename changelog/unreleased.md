@@ -79,6 +79,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Changed
 
+- Boolean term clauses now apply their individual boosts to scores on every execution path, including MoreLikeThis term weights. Scores and rankings may change without reindexing.
+
 - Reduced the cost of numeric range and regexp contains queries.
 - Prefix, wildcard and regexp expansions now score with global document frequency, so scores and order may change and no longer depend on segmentation. No reindexing is needed.
 - RegexpQuery now matches whole terms on every route, like Lucene. Queries relying on search-within behaviour must use explicit wildcards such as .*term.*.

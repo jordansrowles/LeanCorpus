@@ -341,6 +341,9 @@ public sealed partial class IndexSearcher
         var shouldFactors = shouldCount > 0 ? new (float Idf, float K1BOverAvgDL, float CollectionProb)[shouldCount] : null;
         var shouldFields = shouldCount > 0 ? new string[shouldCount] : null;
         var mustNotEnums = mustNotCount > 0 ? new PostingsEnum[mustNotCount] : null;
+        // Each term clause's own boost multiplies that clause's score contribution.
+        var mustBoosts = mustCount > 0 ? new float[mustCount] : null;
+        var shouldBoosts = shouldCount > 0 ? new float[shouldCount] : null;
 
         int mi = 0, si = 0, mni = 0;
 
@@ -376,12 +379,14 @@ public sealed partial class IndexSearcher
                     case Occur.Must:
                         mustEnums![mi] = postings;
                         mustFactors![mi] = (f1, f2, f3);
+                        mustBoosts![mi] = tq.Boost;
                         mustFields![mi] = tq.Field;
                         mi++;
                         break;
                     case Occur.Should:
                         shouldEnums![si] = postings;
                         shouldFactors![si] = (f1, f2, f3);
+                        shouldBoosts![si] = tq.Boost;
                         shouldFields![si] = tq.Field;
                         si++;
                         break;
@@ -440,6 +445,7 @@ public sealed partial class IndexSearcher
                     (mustFields![0], mustFields[leaderIdx]) = (mustFields[leaderIdx], mustFields[0]);
                     (mustFieldLens![0], mustFieldLens[leaderIdx]) = (mustFieldLens[leaderIdx], mustFieldLens[0]);
                     (mustFieldBoosts![0], mustFieldBoosts[leaderIdx]) = (mustFieldBoosts[leaderIdx], mustFieldBoosts[0]);
+                    (mustBoosts![0], mustBoosts[leaderIdx]) = (mustBoosts[leaderIdx], mustBoosts[0]);
                 }
 
                 // Stream through leader, advance followers. Every cursor here is owned by
@@ -480,7 +486,7 @@ public sealed partial class IndexSearcher
                     for (int i = 0; i < mustCount; i++)
                     {
                         int docLength = mustFieldLens![i] is { } mfl && (uint)docId < (uint)mfl.Length ? mfl.Span[docId] : 1;
-                        score += ApplyFieldBoost(mustFieldBoosts![i], docId, ScoreTerm(
+                        score += mustBoosts![i] * ApplyFieldBoost(mustFieldBoosts![i], docId, ScoreTerm(
                             mustFactors![i].Idf, mustFactors[i].K1BOverAvgDL, mustFactors[i].CollectionProb,
                             mustFreqs[i], docLength, mustFields![i]));
                     }
@@ -493,7 +499,7 @@ public sealed partial class IndexSearcher
                         {
                             shouldMatches++;
                             int docLength = shouldFieldLens![i] is { } sfl && (uint)docId < (uint)sfl.Length ? sfl.Span[docId] : 1;
-                            score += ApplyFieldBoost(shouldFieldBoosts![i], docId, ScoreTerm(
+                            score += shouldBoosts![i] * ApplyFieldBoost(shouldFieldBoosts![i], docId, ScoreTerm(
                                 shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
                                 shouldFreq, docLength, shouldFields![i]));
                         }
@@ -517,7 +523,9 @@ public sealed partial class IndexSearcher
                     && minimumShouldMatch <= 1
                     // WAND may skip non-competitive documents. Exact facet and
                     // aggregation side collectors must see every live match.
-                    && !collector.HasSideCollector;
+                    && !collector.HasSideCollector
+                    // Block-max upper bounds are computed without clause boosts.
+                    && AllClauseBoostsAreOne(shouldBoosts!, shouldCount);
                 if (useWand)
                 {
                     for (int i = 0; i < shouldCount; i++)
@@ -573,7 +581,7 @@ public sealed partial class IndexSearcher
                             {
                                 shouldMatches++;
                                 int docLength = shouldFieldLens![i] is { } fl && (uint)minDoc < (uint)fl.Length ? fl.Span[minDoc] : 1;
-                                score += ApplyFieldBoost(shouldFieldBoosts![i], minDoc, ScoreTerm(
+                                score += shouldBoosts![i] * ApplyFieldBoost(shouldFieldBoosts![i], minDoc, ScoreTerm(
                                     shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
                                     currentFreqs[i], docLength, shouldFields![i]));
                                 currentDocs[i] = localShouldEnums[i].MoveNextUnchecked(out int doc, out currentFreqs[i]) ? doc : int.MaxValue;
@@ -596,7 +604,7 @@ public sealed partial class IndexSearcher
                 else
                 {
                     ExecuteShouldOnlyHeap(localShouldEnums, shouldFieldLens!, shouldFieldBoosts!, shouldFactors!,
-                        shouldFields!, mustNotEnums, reader, ref collector,
+                        shouldFields!, shouldBoosts!, mustNotEnums, reader, ref collector,
                         docBase, hasDeletions, shouldCount, mustNotCount,
                         minimumShouldMatch);
                 }
@@ -871,6 +879,8 @@ public sealed partial class IndexSearcher
                     var (f1, f2, f3) = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, tq.Field);
                     var fieldLengths = reader.GetFieldLengthsForQuery(tq.Field);
                     reader.TryGetFieldBoosts(tq.Field, out var fieldBoosts);
+                    // The clause's own boost multiplies its score, as in the streaming path.
+                    float clauseBoost = tq.Boost;
                     // For selective queries (fewer than 2 batches), use an inline loop to avoid
                     // stackalloc + two-pass batch overhead. The batch+SIMD path only pays off
                     // when there are many matches per term (high docFreq).
@@ -885,7 +895,7 @@ public sealed partial class IndexSearcher
                                 ? fieldLengths.Value.Span[docId] : 1;
                             float score = ScoreTerm(
                                 f1, f2, f3, postings.Freq, docLength, tq.Field);
-                            score = ApplyFieldBoost(fieldBoosts, docId, score);
+                            score = clauseBoost * ApplyFieldBoost(fieldBoosts, docId, score);
                             results.Add(new ScoreDoc(docId, score));
                         }
                     }
@@ -921,7 +931,7 @@ public sealed partial class IndexSearcher
                                 }
                                 for (int j = 0; j < batchSize; j++)
                                 {
-                                    float score = ApplyFieldBoost(fieldBoosts, docIds[j], batchScores[j]);
+                                    float score = clauseBoost * ApplyFieldBoost(fieldBoosts, docIds[j], batchScores[j]);
                                     results.Add(new ScoreDoc(docIds[j], score));
                                 }
                                 batchCount = 0;
@@ -943,7 +953,7 @@ public sealed partial class IndexSearcher
                             }
                             for (int j = 0; j < batchCount; j++)
                             {
-                                float score = ApplyFieldBoost(fieldBoosts, docIds[j], batchScores[j]);
+                                float score = clauseBoost * ApplyFieldBoost(fieldBoosts, docIds[j], batchScores[j]);
                                 results.Add(new ScoreDoc(docIds[j], score));
                             }
                         }
@@ -1164,6 +1174,17 @@ public sealed partial class IndexSearcher
         }
     }
 
+    private static bool AllClauseBoostsAreOne(float[] boosts, int count)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            if (boosts[i] != 1f)
+                return false;
+        }
+
+        return true;
+    }
+
     // --- Should-only WAND for block-max skipping ---
 
     private void ExecuteShouldOnlyWand(
@@ -1202,6 +1223,7 @@ public sealed partial class IndexSearcher
         PostingsEnum[] se, ReadOnlyMemory<int>?[] sfl, float[]?[] sfb,
         (float Idf, float K1BOverAvgDL, float CollectionProb)[] shouldFactors,
         string[] shouldFields,
+        float[] shouldBoosts,
         PostingsEnum[]? mustNotEnums,
         SegmentReader reader, ref TopNCollector collector,
         int docBase, bool hasDeletions, int shouldCount, int mustNotCount,
@@ -1243,7 +1265,7 @@ public sealed partial class IndexSearcher
                     anyLive = true;
                     shouldMatches++;
                     int docLength = sfl[idx] is { } fl && (uint)minDoc < (uint)fl.Length ? fl.Span[minDoc] : 1;
-                    score += ApplyFieldBoost(sfb[idx], minDoc, ScoreTerm(
+                    score += shouldBoosts[idx] * ApplyFieldBoost(sfb[idx], minDoc, ScoreTerm(
                         shouldFactors[idx].Idf, shouldFactors[idx].K1BOverAvgDL,
                         shouldFactors[idx].CollectionProb, currentFreqs[idx], docLength,
                         shouldFields[idx]));

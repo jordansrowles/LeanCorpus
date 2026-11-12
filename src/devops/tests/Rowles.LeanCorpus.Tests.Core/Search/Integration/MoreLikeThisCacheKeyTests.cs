@@ -92,6 +92,9 @@ public sealed class MoreLikeThisCacheKeyTests : IClassFixture<TestDirectoryFixtu
         var expectedUnboosted = freshUnboosted.MoreLikeThis(docId, ["body"], 10, baseline with { BoostByScore = false });
         Assert.Equal(expectedUnboosted.ScoreDocs.Select(static h => h.DocId), unboosted.ScoreDocs.Select(static h => h.DocId));
         Assert.Equal(expectedUnboosted.ScoreDocs.Select(static h => h.Score), unboosted.ScoreDocs.Select(static h => h.Score));
+        var boosted = searcher.MoreLikeThis(docId, ["body"], 10, baseline);
+        var boostedScores = boosted.ScoreDocs.ToDictionary(static hit => hit.DocId, static hit => hit.Score);
+        Assert.Contains(unboosted.ScoreDocs, hit => boostedScores.TryGetValue(hit.DocId, out float score) && score != hit.Score);
     }
 
     [Fact(DisplayName = "MoreLikeThis: Cache Entries Do Not Cross Searcher Generations")]
