@@ -17,26 +17,19 @@ internal sealed class GeoBoundsAggregationState(GeoBoundsAggregationRequest requ
     private double _minimumLongitude = double.PositiveInfinity;
     private double _maximumLongitude = double.NegativeInfinity;
     private long _documentCount;
+    private Action<ShapePrimitive>? _visitPrimitive;
+    private bool _contributed;
 
     public string Name => request.Name;
     public string Field => request.Field;
 
-    public void Collect(SegmentReader reader, int documentId)
+    public void Collect(SpatialDocumentValues document)
     {
-        if (!SpatialAggregationValidation.IsGeoShapeField(reader, request.Field)
-            && GeoPointValueAccess.TryGetPoints(
-                reader,
-                request.Field,
-                documentId,
-                out IReadOnlyList<byte[]>? exactValues,
-                out double legacyLatitude,
-                out double legacyLongitude))
+        if (!document.IsGeoShapeField(request.Field)
+            && document.TryGetPoints(request.Field, out ReadOnlySpan<GeoPoint> points))
         {
-            int pointCount = GeoPointValueAccess.GetPointCount(exactValues);
-            for (int i = 0; i < pointCount; i++)
+            foreach (GeoPoint point in points)
             {
-                GeoPoint point = GeoPointValueAccess.GetPoint(
-                    request.Field, documentId, exactValues, legacyLatitude, legacyLongitude, i);
                 AddLatitude(point.Latitude);
                 AddLongitudeInterval(point.Longitude, point.Longitude);
             }
@@ -44,23 +37,25 @@ internal sealed class GeoBoundsAggregationState(GeoBoundsAggregationRequest requ
             return;
         }
 
-        if (!reader.TryGetShapeDocValuesRecordMetadata(request.Field, documentId, out _))
+        if (!document.TryGetShapeRecord(request.Field, out ShapeDocValuesRecordMetadata record))
             return;
 
-        bool contributed = false;
-        reader.VisitShapeDocValuesPrimitives(request.Field, documentId, primitive =>
-        {
-            double minimumLatitude = Math.Min(primitive.A.Y, Math.Min(primitive.B.Y, primitive.C.Y));
-            double maximumLatitude = Math.Max(primitive.A.Y, Math.Max(primitive.B.Y, primitive.C.Y));
-            double minimumLongitude = Math.Min(primitive.A.X, Math.Min(primitive.B.X, primitive.C.X));
-            double maximumLongitude = Math.Max(primitive.A.X, Math.Max(primitive.B.X, primitive.C.X));
-            AddLatitude(minimumLatitude);
-            AddLatitude(maximumLatitude);
-            AddLongitudeInterval(minimumLongitude, maximumLongitude);
-            contributed = true;
-        });
-        if (contributed)
+        _contributed = false;
+        document.VisitShapePrimitives(request.Field, record, _visitPrimitive ??= VisitPrimitive);
+        if (_contributed)
             _documentCount = checked(_documentCount + 1);
+    }
+
+    private void VisitPrimitive(ShapePrimitive primitive)
+    {
+        double minimumLatitude = Math.Min(primitive.A.Y, Math.Min(primitive.B.Y, primitive.C.Y));
+        double maximumLatitude = Math.Max(primitive.A.Y, Math.Max(primitive.B.Y, primitive.C.Y));
+        double minimumLongitude = Math.Min(primitive.A.X, Math.Min(primitive.B.X, primitive.C.X));
+        double maximumLongitude = Math.Max(primitive.A.X, Math.Max(primitive.B.X, primitive.C.X));
+        AddLatitude(minimumLatitude);
+        AddLatitude(maximumLatitude);
+        AddLongitudeInterval(minimumLongitude, maximumLongitude);
+        _contributed = true;
     }
 
     public ISearchAggregationResult Finish()

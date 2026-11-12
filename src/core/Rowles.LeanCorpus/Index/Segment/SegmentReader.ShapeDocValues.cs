@@ -22,14 +22,30 @@ public sealed partial class SegmentReader
         int documentId,
         out ShapeDocValuesRecordMetadata metadata)
     {
+        if (TryGetFastState(out var state))
+            return state.TryGetShapeDocValuesRecordMetadata(field, documentId, out metadata);
         using var lease = AcquireReadLease();
         return lease.State.TryGetShapeDocValuesRecordMetadata(field, documentId, out metadata);
     }
 
     internal int VisitShapeDocValuesPrimitives(string field, int documentId, Action<ShapePrimitive> visitor)
     {
+        if (TryGetFastState(out var state))
+            return state.VisitShapeDocValuesPrimitives(field, documentId, visitor);
         using var lease = AcquireReadLease();
         return lease.State.VisitShapeDocValuesPrimitives(field, documentId, visitor);
+    }
+
+    /// <summary>Visits a document's primitives using record metadata already read for it.</summary>
+    internal int VisitShapeDocValuesPrimitives(
+        string field,
+        in ShapeDocValuesRecordMetadata record,
+        Action<ShapePrimitive> visitor)
+    {
+        if (TryGetFastState(out var state))
+            return state.VisitShapeDocValuesPrimitives(field, record, visitor);
+        using var lease = AcquireReadLease();
+        return lease.State.VisitShapeDocValuesPrimitives(field, record, visitor);
     }
 
     internal byte[] ReadShapeDocValuesRecordBytes(string field, int documentId)

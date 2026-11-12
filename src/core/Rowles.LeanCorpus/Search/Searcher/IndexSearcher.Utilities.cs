@@ -803,6 +803,7 @@ public sealed partial class IndexSearcher
         private readonly NumericAggregationCollector? _numericCollector;
         private readonly int[] _numericResultIndexes;
         private readonly ISpatialAggregationState[] _spatialStates;
+        private readonly SpatialDocumentValues _spatialDocument = new();
         private readonly int[] _spatialResultIndexes;
         private readonly int _resultCount;
         private readonly CancellationToken _cancellationToken;
@@ -877,8 +878,13 @@ public sealed partial class IndexSearcher
         {
             _cancellationToken.ThrowIfCancellationRequested();
             _numericCollector?.Collect(reader, localDocId);
+            if (_spatialStates.Length == 0)
+                return;
+
+            // Every spatial state reads the document through one shared, decode-once view.
+            _spatialDocument.MoveTo(reader, localDocId);
             for (int i = 0; i < _spatialStates.Length; i++)
-                _spatialStates[i].Collect(reader, localDocId);
+                _spatialStates[i].Collect(_spatialDocument);
         }
 
         internal IReadOnlyList<ISearchAggregationResult> GetResults(CancellationToken cancellationToken)

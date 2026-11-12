@@ -21,33 +21,22 @@ internal sealed class GeoCentroidAggregationState(GeoCentroidAggregationRequest 
     public string Name => request.Name;
     public string Field => request.Field;
 
-    public void Collect(SegmentReader reader, int documentId)
+    public void Collect(SpatialDocumentValues document)
     {
-        if (!SpatialAggregationValidation.IsGeoShapeField(reader, request.Field)
-            && GeoPointValueAccess.TryGetPoints(
-                reader,
-                request.Field,
-                documentId,
-                out IReadOnlyList<byte[]>? exactValues,
-                out double legacyLatitude,
-                out double legacyLongitude))
+        if (!document.IsGeoShapeField(request.Field)
+            && document.TryGetPoints(request.Field, out ReadOnlySpan<GeoPoint> points))
         {
             if (_dimension is not null and not SpatialDimension.Point)
                 return;
 
-            int pointCount = GeoPointValueAccess.GetPointCount(exactValues);
-            for (int i = 0; i < pointCount; i++)
-            {
-                GeoPoint point = GeoPointValueAccess.GetPoint(
-                    request.Field, documentId, exactValues, legacyLatitude, legacyLongitude, i);
+            foreach (GeoPoint point in points)
                 AddGeoCoordinate(point.Latitude, point.Longitude, 1d);
-            }
             _dimension = SpatialDimension.Point;
             _documentCount = checked(_documentCount + 1);
             return;
         }
 
-        if (!reader.TryGetShapeDocValuesRecordMetadata(request.Field, documentId, out ShapeDocValuesRecordMetadata record))
+        if (!document.TryGetShapeRecord(request.Field, out ShapeDocValuesRecordMetadata record))
             return;
 
         if (_dimension.HasValue && record.HighestDimension < _dimension.Value)

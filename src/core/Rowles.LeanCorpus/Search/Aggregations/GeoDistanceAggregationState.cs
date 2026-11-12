@@ -16,25 +16,18 @@ internal sealed class GeoDistanceAggregationState(GeoDistanceAggregationRequest 
     public string Name => request.Name;
     public string Field => request.Field;
 
-    public void Collect(SegmentReader reader, int documentId)
+    public void Collect(SpatialDocumentValues document)
     {
-        if (!GeoPointValueAccess.TryGetPoints(
-                reader,
-                request.Field,
-                documentId,
-                out IReadOnlyList<byte[]>? exactValues,
-                out double legacyLatitude,
-                out double legacyLongitude))
+        if (!document.TryGetPoints(request.Field, out ReadOnlySpan<GeoPoint> points))
             return;
 
-        int pointCount = GeoPointValueAccess.GetPointCount(exactValues);
+        int pointCount = points.Length;
         double[] rented = ArrayPool<double>.Shared.Rent(Math.Max(1, pointCount));
         try
         {
             for (int i = 0; i < pointCount; i++)
             {
-                GeoPoint point = GeoPointValueAccess.GetPoint(
-                    request.Field, documentId, exactValues, legacyLatitude, legacyLongitude, i);
+                GeoPoint point = points[i];
                 rented[i] = GeoEncodingUtils.HaversineDistance(
                     request.Origin.Latitude,
                     request.Origin.Longitude,

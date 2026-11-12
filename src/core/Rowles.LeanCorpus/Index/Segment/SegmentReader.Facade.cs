@@ -559,6 +559,27 @@ public sealed partial class SegmentReader : IDisposable
     /// and its mapped input are valid only until that pin is released, so it must not be retained.
     /// </summary>
     /// <exception cref="InvalidOperationException">The calling thread holds no query pin for this reader.</exception>
+    /// <summary>
+    /// Gets the binary DocValues column when the calling thread holds a query pin for this reader;
+    /// <paramref name="pinned"/> is <see langword="false"/> otherwise. The column is valid only while
+    /// that pin is held.
+    /// </summary>
+    internal bool TryGetBinaryDocValuesColumnIfPinned(
+        string field,
+        out BinaryDocValuesColumn? column,
+        out bool pinned)
+    {
+        if (!TryGetFastState(out var state))
+        {
+            column = null;
+            pinned = false;
+            return false;
+        }
+
+        pinned = true;
+        return state.TryGetBinaryDocValuesColumn(field, out column);
+    }
+
     internal bool TryGetPinnedBinaryDocValuesColumn(
         string field,
         [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out BinaryDocValuesColumn? column)

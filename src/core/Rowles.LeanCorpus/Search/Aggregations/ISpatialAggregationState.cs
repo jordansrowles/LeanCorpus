@@ -13,6 +13,7 @@ internal interface ISpatialAggregationState
 {
     string Name { get; }
     string Field { get; }
-    void Collect(SegmentReader reader, int documentId);
+    /// <summary>Collects the current document of <paramref name="document"/>, whose decoded values are shared by every state.</summary>
+    void Collect(SpatialDocumentValues document);
     ISearchAggregationResult Finish();
 }
