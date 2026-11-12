@@ -37,7 +37,8 @@ public sealed class CanonicalInt8VectorTests : IClassFixture<TestDirectoryFixtur
                 Assert.Equal((float)((double)metadata.Offset + (double)metadata.Scale * codes[index]), decoded[index]);
         }
 
-        for (int iteration = 0; iteration < 4; iteration++)
+        // Warm up past the JIT's tier-up threshold so tiering cannot land inside the measured loop.
+        for (int iteration = 0; iteration < 200; iteration++)
         {
             reader.ReadVector(0, decoded);
             reader.CopyCanonicalRecordTo(0, record);

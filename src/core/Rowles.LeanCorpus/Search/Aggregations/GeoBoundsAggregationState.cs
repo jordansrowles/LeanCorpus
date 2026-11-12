@@ -18,7 +18,6 @@ internal sealed class GeoBoundsAggregationState(GeoBoundsAggregationRequest requ
     private double _maximumLongitude = double.NegativeInfinity;
     private long _documentCount;
     private Action<ShapePrimitive>? _visitPrimitive;
-    private bool _contributed;
 
     public string Name => request.Name;
     public string Field => request.Field;
@@ -40,9 +39,8 @@ internal sealed class GeoBoundsAggregationState(GeoBoundsAggregationRequest requ
         if (!document.TryGetShapeRecord(request.Field, out ShapeDocValuesRecordMetadata record))
             return;
 
-        _contributed = false;
-        document.VisitShapePrimitives(request.Field, record, _visitPrimitive ??= VisitPrimitive);
-        if (_contributed)
+        // The visit returns the number of primitives it passed to the visitor.
+        if (document.VisitShapePrimitives(request.Field, record, _visitPrimitive ??= VisitPrimitive) > 0)
             _documentCount = checked(_documentCount + 1);
     }
 
@@ -55,7 +53,6 @@ internal sealed class GeoBoundsAggregationState(GeoBoundsAggregationRequest requ
         AddLatitude(minimumLatitude);
         AddLatitude(maximumLatitude);
         AddLongitudeInterval(minimumLongitude, maximumLongitude);
-        _contributed = true;
     }
 
     public ISearchAggregationResult Finish()

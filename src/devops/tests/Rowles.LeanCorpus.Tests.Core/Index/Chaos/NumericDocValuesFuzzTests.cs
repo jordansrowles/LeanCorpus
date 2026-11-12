@@ -46,11 +46,20 @@ public sealed class NumericDocValuesFuzzTests : IClassFixture<ChaosDirectoryFixt
     /// list, and a document without values reads nothing. Inputs include NaN, infinities, signed
     /// zeros, missing values and multi-valued documents.
     /// </summary>
+    /// <remarks>
+    /// <paramref name="valueCounts"/> gives each document's value count (0 to 3); the documents
+    /// take their values from <paramref name="values"/> in order, wrapping when it runs out.
+    /// </remarks>
     [Property(MaxTest = 60)]
-    public void SortedNumeric_SingleValueReads_MatchMaterialisedValues(double[][] documents)
+    public void SortedNumeric_SingleValueReads_MatchMaterialisedValues(double[] values, byte[] valueCounts)
     {
-        if (documents is null || documents.Length == 0 || documents.Length > 200) return;
-        documents = documents.Select(static values => (values ?? []).Take(3).ToArray()).ToArray();
+        if (values is null || valueCounts is null || valueCounts.Length == 0 || valueCounts.Length > 200) return;
+        int next = 0;
+        double[][] documents = valueCounts
+            .Select(count => Enumerable.Range(0, values.Length == 0 ? 0 : count % 4)
+                .Select(_ => values[next++ % values.Length])
+                .ToArray())
+            .ToArray();
 
         string path = System.IO.Path.Combine(_fixture.Path, "sorted_single_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
