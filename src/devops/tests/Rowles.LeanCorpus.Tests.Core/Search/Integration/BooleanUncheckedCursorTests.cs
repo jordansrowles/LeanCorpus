@@ -35,7 +35,7 @@ public sealed class BooleanUncheckedCursorTests : IClassFixture<TestDirectoryFix
     {
         using var directory = BuildIndex("unchecked_streams", segments: 3);
         using var searcher = new IndexSearcher(directory);
-        var random = new Random(4021);
+        var random = new Random(4021); // NOSONAR: S2245, a seeded generator makes the seek sequence reproducible; nothing here is security-sensitive.
 
         foreach (var reader in searcher.GetSegmentReaders())
         foreach (string term in Vocabulary.Append("absent"))
@@ -225,7 +225,7 @@ public sealed class BooleanUncheckedCursorTests : IClassFixture<TestDirectoryFix
 
         await writerTask;
         await Task.WhenAll(readers);
-        manager.MaybeRefresh();
+        await manager.MaybeRefreshAsync(TestContext.Current.CancellationToken);
         using var final = manager.AcquireLease();
         Assert.Equal(baseline + (20 * 16), Search(final.Searcher, ("alpha", Occur.Must), ("beta", Occur.Must)).TotalHits);
     }
@@ -277,7 +277,7 @@ public sealed class BooleanUncheckedCursorTests : IClassFixture<TestDirectoryFix
     // repeated occurrences so frequencies vary.
     private static string[] Terms(int i)
     {
-        var random = new Random(i * 7919 + 17);
+        var random = new Random(i * 7919 + 17); // NOSONAR: S2245, a seeded generator makes each document reproducible; nothing here is security-sensitive.
         var terms = new List<string>();
         int[] weights = [70, 55, 30, 18, 12, 6];
         for (int t = 0; t < Vocabulary.Length; t++)

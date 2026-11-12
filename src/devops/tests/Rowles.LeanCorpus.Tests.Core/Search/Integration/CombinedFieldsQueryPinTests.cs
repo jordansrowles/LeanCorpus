@@ -129,7 +129,7 @@ public sealed class CombinedFieldsQueryPinTests : IClassFixture<TestDirectoryFix
 
         await writerTask;
         await Task.WhenAll(readers);
-        manager.MaybeRefresh();
+        await manager.MaybeRefreshAsync(TestContext.Current.CancellationToken);
         using var final = manager.AcquireLease();
         Assert.Equal(baseline + (20 * 16), Search(final.Searcher).TotalHits);
     }
