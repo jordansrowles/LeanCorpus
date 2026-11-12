@@ -48,15 +48,18 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         var exceptions = new List<Exception>();
         var tasks = new Task[producerCount];
 
+        // Producers block inside analysis on purpose, so they run on dedicated threads rather
+        // than holding thread-pool workers that disposal and parallel tests also need.
         for (int t = 0; t < producerCount; t++)
         {
-            tasks[t] = Task.Run(
+            int producer = t;
+            tasks[t] = Task.Factory.StartNew(
                 () =>
                 {
                     try
                     {
                         var doc = new LeanDocument();
-                        doc.Add(new TextField("body", $"producer-{t}"));
+                        doc.Add(new TextField("body", $"producer-{producer}"));
                         writer.AddDocument(doc);
                     }
                     catch (Exception ex)
@@ -65,7 +68,9 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
                             exceptions.Add(ex);
                     }
                 },
-                TestContext.Current.CancellationToken);
+                TestContext.Current.CancellationToken,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
         }
 
         Task? disposeTask = null;
@@ -73,7 +78,11 @@ public sealed class IndexWriterDisposeTests : IClassFixture<TestDirectoryFixture
         {
             Assert.True(entered.Wait(TimeSpan.FromSeconds(10)), "All admitted producers did not reach analysis.");
 
-            disposeTask = Task.Run(writer.Dispose, TestContext.Current.CancellationToken);
+            disposeTask = Task.Factory.StartNew(
+                writer.Dispose,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
             Assert.True(
                 SpinWait.SpinUntil(() => writer.IsClosing, TimeSpan.FromSeconds(5)),
                 "Writer disposal did not begin.");

@@ -285,6 +285,22 @@ public sealed partial class SegmentReader : IDisposable
         }
     }
 
+    /// <summary>
+    /// Runs a bounded operation while one query pin holds this reader's state. Facade calls made by
+    /// <paramref name="operation"/> on the same thread reuse the pinned state instead of taking a
+    /// read lease each, and postings cursors it opens may use unchecked steps until it returns.
+    /// </summary>
+    /// <remarks>
+    /// The pin is released when the operation returns or throws. The operation must not retain the
+    /// reader's state, cursors or borrowed spans after it returns (ADR011, ADR027).
+    /// </remarks>
+    internal TResult WithQueryPin<TState, TResult>(TState state, Func<SegmentReader, TState, TResult> operation)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        using var pin = AcquireQueryLease();
+        return operation(this, state);
+    }
+
     internal static string[] SelectSegmentFiles(string segmentId, IReadOnlyCollection<string> inventory)
     {
         var selected = new HashSet<string>(

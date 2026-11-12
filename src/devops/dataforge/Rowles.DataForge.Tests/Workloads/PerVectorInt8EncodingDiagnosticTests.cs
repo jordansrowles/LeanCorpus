@@ -5,6 +5,7 @@ using Rowles.LeanCorpus.Search.Simd;
 
 namespace Rowles.DataForge.Tests.Workloads;
 
+[Collection(BenchmarkArtifactDirectoryCollection.Name)]
 public sealed class PerVectorInt8EncodingDiagnosticTests
 {
     [Fact]

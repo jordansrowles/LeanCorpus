@@ -3177,7 +3177,7 @@
     {
       "project": "core",
       "benchmarkClass": "CombinedFieldsQueryBenchmarks",
-      "benchmarkMethod": "LeanCorpus_BooleanQuery_MultiField",
+      "benchmarkMethod": "LeanCorpus_BooleanShould_AnyTermAnyField_MinimumShouldMatchIgnored",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },
@@ -3191,7 +3191,7 @@
     {
       "project": "core",
       "benchmarkClass": "CombinedFieldsQueryBenchmarks",
-      "benchmarkMethod": "LuceneNet_BooleanQuery_MultiField",
+      "benchmarkMethod": "LuceneNet_BooleanShould_AnyTermAnyField_MinimumShouldMatchIgnored",
       "reason": "Unqualified: this discovered method has no reviewed workload, operation and result-quality contract. It is excluded from competitive claims until its semantic case family and correctness proof are added.",
       "expiresOn": "2027-01-31"
     },

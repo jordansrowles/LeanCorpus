@@ -36,6 +36,44 @@ public class BooleanQueryBenchmarks
         _leanSearcher = SharedStandardIndex.LeanSearcher;
         _leanQuery = BuildLeanQuery(BooleanShape);
         _luceneQuery = BuildLuceneQuery(BooleanShape);
+        ValidateParity();
+    }
+
+    /// <summary>
+    /// Proves both engines return the same documents for this shape: the complete hit set, compared
+    /// by logical document identifier, and the same total hit count.
+    /// </summary>
+    private void ValidateParity()
+    {
+        var leanResults = _leanSearcher!.Search(_leanQuery!, DocumentCount);
+        var luceneSearcher = SharedStandardIndex.LuceneSearcher;
+        var luceneResults = luceneSearcher.Search(_luceneQuery!, DocumentCount);
+        string?[] luceneLogicalIds = BenchmarkFixtureEvidence.BuildLuceneLogicalIds(luceneSearcher.IndexReader);
+
+        string[] leanIds = leanResults.ScoreDocs
+            .Select(hit => _leanSearcher.GetStoredFields(hit.DocId)["id"][0])
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        string[] luceneIds = luceneResults.ScoreDocs
+            .Select(hit => luceneLogicalIds[hit.Doc]
+                ?? throw new InvalidOperationException($"Lucene.NET document {hit.Doc} has no logical id."))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        if (leanResults.TotalHits != luceneResults.TotalHits
+            || leanIds.Length != leanResults.TotalHits
+            || luceneIds.Length != luceneResults.TotalHits
+            || leanIds.Length == 0
+            || !leanIds.SequenceEqual(luceneIds, StringComparer.Ordinal))
+        {
+            string leanOnly = string.Join(",", leanIds.Except(luceneIds, StringComparer.Ordinal).Take(5));
+            string luceneOnly = string.Join(",", luceneIds.Except(leanIds, StringComparer.Ordinal).Take(5));
+            throw new InvalidOperationException(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"Boolean parity failed for {BooleanShape}: LeanCorpus returned {leanResults.TotalHits} hits and Lucene.NET returned {luceneResults.TotalHits}. LeanCorpus-only: [{leanOnly}]; Lucene.NET-only: [{luceneOnly}]."));
+        }
+
+        Console.WriteLine(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"Benchmark preflight boolean {BooleanShape}: hits={leanIds.Length}, logicalIdSha256={BenchmarkSemanticProofs.Digest(string.Join("\n", leanIds))}"));
     }
 
     [GlobalCleanup]

@@ -1560,29 +1560,38 @@ public sealed partial class IndexSearcher : IDisposable
 
     private Dictionary<(string Field, string Term), int> PrecomputeCombinedFieldUnionDocFreqs(CombinedFieldsQuery query)
     {
-        var result = new Dictionary<(string Field, string Term), int>(query.Terms.Count);
-        foreach (var term in query.Terms)
+        // One query pin per segment covers every term and field, so liveness checks and cursor
+        // steps reuse the pinned state instead of taking a read lease per posting.
+        var totals = new int[query.Terms.Count];
+        var docs = new HashSet<int>();
+        foreach (var reader in _readers)
         {
-            int total = 0;
-            foreach (var reader in _readers)
+            reader.WithQueryPin((Query: query, Totals: totals, Docs: docs), static (pinned, state) =>
             {
-                var docs = new HashSet<int>();
-                foreach (var field in query.Fields)
+                var terms = state.Query.Terms;
+                for (int t = 0; t < terms.Count; t++)
                 {
-                    using var postings = reader.GetPostingsEnum(string.Concat(field, "\x00", term));
-                    while (postings.MoveNext())
+                    state.Docs.Clear();
+                    foreach (var field in state.Query.Fields)
                     {
-                        if (reader.IsLive(postings.DocId))
-                            docs.Add(postings.DocId);
+                        using var postings = pinned.GetPostingsEnum(string.Concat(field, "\x00", terms[t]));
+                        while (postings.MoveNextUnchecked(out int docId, out _))
+                        {
+                            if (pinned.IsLive(docId))
+                                state.Docs.Add(docId);
+                        }
                     }
+
+                    state.Totals[t] += state.Docs.Count;
                 }
 
-                total += docs.Count;
-            }
-
-            result[(CombinedFieldsDocFreqKey, term)] = total;
+                return 0;
+            });
         }
 
+        var result = new Dictionary<(string Field, string Term), int>(query.Terms.Count);
+        for (int t = 0; t < totals.Length; t++)
+            result[(CombinedFieldsDocFreqKey, query.Terms[t])] = totals[t];
         return result;
     }
 
