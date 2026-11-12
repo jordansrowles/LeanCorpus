@@ -172,35 +172,6 @@ public sealed class ActivitySourceTests : IDisposable
         Assert.All(snapshot, a => Assert.Equal(SourceName, a.Source.Name));
     }
 
-    /// <summary>
-    /// Verifies the No Listener: Produces No Activities scenario.
-    /// </summary>
-    [Fact(DisplayName = "No Listener: Produces No Activities")]
-    public void NoListener_ProducesNoActivities()
-    {
-        // Dispose our listener and drain anything already captured from other test classes
-        // running in parallel (the listener listens globally on the production source).
-        _listener.Dispose();
-        while (_captured.TryTake(out _)) { }
-
-        var noListenPath = RepositoryTemporaryStorage.NewPath("tests", "act_nolisten_");
-        Directory.CreateDirectory(noListenPath);
-
-        var writer = new IndexWriter(new MMapDirectory(noListenPath), new IndexWriterConfig());
-        var doc = new LeanDocument();
-        doc.Add(new TextField("body", "no listener test"));
-        writer.AddDocument(doc);
-        writer.Commit();
-        writer.Dispose();
-
-        TestDirectoryFixture.TryDeleteDirectory(noListenPath);
-
-        // Our listener is disposed, so writes above should not flow into _captured.
-        // Activities from other parallel tests can still produce items via *their* listeners
-        // but never via ours, so _captured remains empty.
-        Assert.DoesNotContain(_captured, a => a.OperationName == "leancorpus.index.flush");
-    }
-
     private IndexWriter CreateAndPopulateIndex()
     {
         var writer = new IndexWriter(new MMapDirectory(_dir), new IndexWriterConfig());
@@ -209,5 +180,58 @@ public sealed class ActivitySourceTests : IDisposable
         writer.AddDocument(doc);
         writer.Commit();
         return writer;
+    }
+}
+
+/// <summary>
+/// Verifies that the production source emits nothing once no listener is attached. It runs outside
+/// the parallel collections: a parallel test's listener or in-flight stop callback would otherwise
+/// make the check depend on timing.
+/// </summary>
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class ActivityListenerProcessStateCollection
+{
+    public const string Name = "Activity listener process state";
+}
+
+[Collection(ActivityListenerProcessStateCollection.Name)]
+[Category(TestCategory.Unit)]
+[Area(TestArea.Diagnostics)]
+public sealed class ActivitySourceNoListenerTests
+{
+    /// <summary>
+    /// Verifies the No Listener: Produces No Activities scenario.
+    /// </summary>
+    [Fact(DisplayName = "No Listener: Produces No Activities")]
+    public void NoListener_ProducesNoActivities()
+    {
+        var captured = new ConcurrentBag<Activity>();
+        var listener = new ActivityListener
+        {
+            ShouldListenTo = static source => source.Name == "Rowles.LeanCorpus",
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = captured.Add
+        };
+        ActivitySource.AddActivityListener(listener);
+        listener.Dispose();
+
+        Assert.False(LeanCorpusActivitySource.Source.HasListeners());
+
+        var noListenPath = RepositoryTemporaryStorage.NewPath("tests", "act_nolisten_");
+        Directory.CreateDirectory(noListenPath);
+        try
+        {
+            using var writer = new IndexWriter(new MMapDirectory(noListenPath), new IndexWriterConfig());
+            var doc = new LeanDocument();
+            doc.Add(new TextField("body", "no listener test"));
+            writer.AddDocument(doc);
+            writer.Commit();
+        }
+        finally
+        {
+            TestDirectoryFixture.TryDeleteDirectory(noListenPath);
+        }
+
+        Assert.Empty(captured);
     }
 }

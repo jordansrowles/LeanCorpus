@@ -3,6 +3,7 @@ using System.Text.Json;
 
 namespace Rowles.DataForge.Tests.Workloads;
 
+[Collection(BenchmarkArtifactDirectoryCollection.Name)]
 public sealed class SuggesterQualityFixtureTests
 {
     [Fact]

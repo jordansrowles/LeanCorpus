@@ -7,6 +7,7 @@ namespace Rowles.DataForge.Tests.Workloads;
 /// Re-creates each head-to-head fixture defect that ADR045 removes and proves that the setup
 /// gate now rejects it.
 /// </summary>
+[Collection(BenchmarkArtifactDirectoryCollection.Name)]
 public sealed class HeadToHeadFixtureContractTests
 {
     private const int CorpusSize = 2_000;

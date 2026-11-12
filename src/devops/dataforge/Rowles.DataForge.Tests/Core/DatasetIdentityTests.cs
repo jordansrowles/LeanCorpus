@@ -3,6 +3,7 @@ using Rowles.LeanCorpus.Benchmarks;
 
 namespace Rowles.DataForge.Tests.Core;
 
+[Collection(BenchmarkArtifactDirectoryCollection.Name)]
 public sealed class DatasetIdentityTests
 {
     private const string ContentHash = "0000000000000000000000000000000000000000000000000000000000000000";
