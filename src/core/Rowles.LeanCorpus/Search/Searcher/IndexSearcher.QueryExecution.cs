@@ -442,17 +442,20 @@ public sealed partial class IndexSearcher
                     (mustFieldBoosts![0], mustFieldBoosts[leaderIdx]) = (mustFieldBoosts[leaderIdx], mustFieldBoosts[0]);
                 }
 
-                // Stream through leader, advance followers
-                while (mustEnums![0].MoveNext())
+                // Stream through leader, advance followers. Every cursor here is owned by
+                // this method and the caller's segment query lease pins its backing state,
+                // so the unchecked cursor steps are safe (ADR011, ADR027). Each step
+                // returns the current document and frequency, so no guarded getter is read.
+                Span<int> mustFreqs = stackalloc int[mustCount];
+                while (mustEnums![0].MoveNextUnchecked(out int docId, out mustFreqs[0]))
                 {
-                    int docId = mustEnums[0].DocId;
                     if (hasDeletions && !reader.IsLive(docId)) continue;
 
                     // Check all followers match this doc
                     bool allMatch = true;
                     for (int i = 1; i < mustCount; i++)
                     {
-                        if (!mustEnums[i].Advance(docId) || mustEnums[i].DocId != docId)
+                        if (!mustEnums[i].AdvanceUnchecked(docId, out int followerDoc, out mustFreqs[i]) || followerDoc != docId)
                         {
                             allMatch = false;
                             break;
@@ -464,7 +467,7 @@ public sealed partial class IndexSearcher
                     bool excluded = false;
                     for (int i = 0; i < mustNotCount; i++)
                     {
-                        if (mustNotEnums![i].Advance(docId) && mustNotEnums[i].DocId == docId)
+                        if (mustNotEnums![i].AdvanceUnchecked(docId, out int excludedDoc, out _) && excludedDoc == docId)
                         {
                             excluded = true;
                             break;
@@ -479,20 +482,20 @@ public sealed partial class IndexSearcher
                         int docLength = mustFieldLens![i] is { } mfl && (uint)docId < (uint)mfl.Length ? mfl.Span[docId] : 1;
                         score += ApplyFieldBoost(mustFieldBoosts![i], docId, ScoreTerm(
                             mustFactors![i].Idf, mustFactors[i].K1BOverAvgDL, mustFactors[i].CollectionProb,
-                            mustEnums[i].Freq, docLength, mustFields![i]));
+                            mustFreqs[i], docLength, mustFields![i]));
                     }
 
                     // Add Should bonus
                     int shouldMatches = 0;
                     for (int i = 0; i < shouldCount; i++)
                     {
-                        if (shouldEnums![i].Advance(docId) && shouldEnums[i].DocId == docId)
+                        if (shouldEnums![i].AdvanceUnchecked(docId, out int shouldDoc, out int shouldFreq) && shouldDoc == docId)
                         {
                             shouldMatches++;
                             int docLength = shouldFieldLens![i] is { } sfl && (uint)docId < (uint)sfl.Length ? sfl.Span[docId] : 1;
                             score += ApplyFieldBoost(shouldFieldBoosts![i], docId, ScoreTerm(
                                 shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
-                                shouldEnums[i].Freq, docLength, shouldFields![i]));
+                                shouldFreq, docLength, shouldFields![i]));
                         }
                     }
 
@@ -535,9 +538,12 @@ public sealed partial class IndexSearcher
                 }
                 else if (shouldCount <= HeapThreshold)
                 {
+                    // Unchecked steps under the caller's query lease; each cursor's current
+                    // frequency is cached beside its current document.
                     Span<int> currentDocs = stackalloc int[shouldCount];
+                    Span<int> currentFreqs = stackalloc int[shouldCount];
                     for (int i = 0; i < shouldCount; i++)
-                        currentDocs[i] = localShouldEnums[i].MoveNext() ? localShouldEnums[i].DocId : int.MaxValue;
+                        currentDocs[i] = localShouldEnums[i].MoveNextUnchecked(out int doc, out currentFreqs[i]) ? doc : int.MaxValue;
 
                     while (true)
                     {
@@ -554,7 +560,7 @@ public sealed partial class IndexSearcher
                             for (int i = 0; i < shouldCount; i++)
                             {
                                 if (currentDocs[i] == minDoc)
-                                    currentDocs[i] = localShouldEnums[i].MoveNext() ? localShouldEnums[i].DocId : int.MaxValue;
+                                    currentDocs[i] = localShouldEnums[i].MoveNextUnchecked(out int doc, out currentFreqs[i]) ? doc : int.MaxValue;
                             }
                             continue;
                         }
@@ -569,15 +575,15 @@ public sealed partial class IndexSearcher
                                 int docLength = shouldFieldLens![i] is { } fl && (uint)minDoc < (uint)fl.Length ? fl.Span[minDoc] : 1;
                                 score += ApplyFieldBoost(shouldFieldBoosts![i], minDoc, ScoreTerm(
                                     shouldFactors![i].Idf, shouldFactors[i].K1BOverAvgDL, shouldFactors[i].CollectionProb,
-                                    localShouldEnums[i].Freq, docLength, shouldFields![i]));
-                                currentDocs[i] = localShouldEnums[i].MoveNext() ? localShouldEnums[i].DocId : int.MaxValue;
+                                    currentFreqs[i], docLength, shouldFields![i]));
+                                currentDocs[i] = localShouldEnums[i].MoveNextUnchecked(out int doc, out currentFreqs[i]) ? doc : int.MaxValue;
                             }
                         }
 
                         bool excluded = false;
                         for (int i = 0; i < mustNotCount; i++)
                         {
-                            if (mustNotEnums![i].Advance(minDoc) && mustNotEnums[i].DocId == minDoc)
+                            if (mustNotEnums![i].AdvanceUnchecked(minDoc, out int excludedDoc, out _) && excludedDoc == minDoc)
                             {
                                 excluded = true;
                                 break;
@@ -1201,16 +1207,19 @@ public sealed partial class IndexSearcher
         int docBase, bool hasDeletions, int shouldCount, int mustNotCount,
         int minimumShouldMatch)
     {
+        // Unchecked steps under the caller's query lease; each cursor's current frequency is
+        // cached by clause index beside the heap.
         Span<int> heapDocs = stackalloc int[shouldCount];
         Span<int> heapIdx = stackalloc int[shouldCount];
+        Span<int> currentFreqs = stackalloc int[shouldCount];
         int heapSize = 0;
 
         // Build initial heap
         for (int i = 0; i < shouldCount; i++)
         {
-            if (se[i].MoveNext())
+            if (se[i].MoveNextUnchecked(out int doc, out currentFreqs[i]))
             {
-                heapDocs[heapSize] = se[i].DocId;
+                heapDocs[heapSize] = doc;
                 heapIdx[heapSize] = i;
                 heapSize++;
                 SiftUp(heapDocs, heapIdx, heapSize - 1);
@@ -1236,13 +1245,13 @@ public sealed partial class IndexSearcher
                     int docLength = sfl[idx] is { } fl && (uint)minDoc < (uint)fl.Length ? fl.Span[minDoc] : 1;
                     score += ApplyFieldBoost(sfb[idx], minDoc, ScoreTerm(
                         shouldFactors[idx].Idf, shouldFactors[idx].K1BOverAvgDL,
-                        shouldFactors[idx].CollectionProb, se[idx].Freq, docLength,
+                        shouldFactors[idx].CollectionProb, currentFreqs[idx], docLength,
                         shouldFields[idx]));
                 }
 
                 // Advance and re-insert if not exhausted.
-                if (se[idx].MoveNext())
-                    InsertHeap(heapDocs, heapIdx, ref heapSize, se[idx].DocId, idx);
+                if (se[idx].MoveNextUnchecked(out int nextDoc, out currentFreqs[idx]))
+                    InsertHeap(heapDocs, heapIdx, ref heapSize, nextDoc, idx);
             }
 
             // Check MustNot.
@@ -1251,7 +1260,7 @@ public sealed partial class IndexSearcher
                 bool excluded = false;
                 for (int i = 0; i < mustNotCount; i++)
                 {
-                    if (mustNotEnums![i].Advance(minDoc) && mustNotEnums[i].DocId == minDoc)
+                    if (mustNotEnums![i].AdvanceUnchecked(minDoc, out int excludedDoc, out _) && excludedDoc == minDoc)
                     { excluded = true; break; }
                 }
                 if (!excluded && shouldMatches >= minimumShouldMatch)

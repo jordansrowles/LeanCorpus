@@ -162,6 +162,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Write stored-fields v5 with segment-level field-name tables and byte-bounded blocks: target 1 MiB raw blocks, isolate larger documents up to 256 MiB, and retain v1-v4 reads. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Return `CharFilterResult` from `ICharFilter` with public `OffsetCorrectionMap` support for composable UTF-16 offset corrections, mapping indexed token offsets back to original input across chained transformations. This breaks the previous character-filter API in Rowles.Text and source-included Core analysis. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - StemmedAnalyser no longer allocates an analysis context per document.
+- Boolean queries avoid guarded postings access under a query lease, reducing query cost.
 
 ## Fixed
 
