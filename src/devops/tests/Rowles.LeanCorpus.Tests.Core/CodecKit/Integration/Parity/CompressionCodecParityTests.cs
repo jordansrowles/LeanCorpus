@@ -130,7 +130,7 @@ public sealed class CompressionCodecParityTests
     private static byte[] CreateTextPayload(int size)
     {
         var builder = new StringBuilder(size);
-        var random = new Random(31 + size);
+        var random = new Random(31 + size); // NOSONAR: S2245, a seeded generator makes the golden payload reproducible; nothing here is security-sensitive.
         string[] words = ["index", "segment", "postings", "vector", "stored", "field", "codec", "frame", "merge", "query"];
         while (builder.Length < size)
             builder.Append(words[random.Next(words.Length)]).Append(' ');

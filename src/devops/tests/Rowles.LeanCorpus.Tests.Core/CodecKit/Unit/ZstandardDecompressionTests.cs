@@ -76,7 +76,7 @@ public sealed class ZstandardDecompressionTests
         byte[] payload = CreateTextPayload(64 * 1024);
         byte[] compressed = _codec.Compress(payload);
         // Overwrite the compressed body after the frame and block headers with noise.
-        new Random(99).NextBytes(compressed.AsSpan(12, Math.Min(64, compressed.Length - 12)));
+        new Random(99).NextBytes(compressed.AsSpan(12, Math.Min(64, compressed.Length - 12))); // NOSONAR: S2245, a seeded generator makes the corruption reproducible; nothing here is security-sensitive.
 
         AssertRejected(() => _codec.Decompress(compressed, payload.Length));
     }
@@ -110,13 +110,13 @@ public sealed class ZstandardDecompressionTests
     private static byte[] CreatePayload(int size)
     {
         var payload = new byte[size];
-        new Random(17 + size).NextBytes(payload);
+        new Random(17 + size).NextBytes(payload); // NOSONAR: S2245, a seeded generator makes the payload reproducible; nothing here is security-sensitive.
         return payload;
     }
 
     private static byte[] CreateTextPayload(int size)
     {
-        var random = new Random(23 + size);
+        var random = new Random(23 + size); // NOSONAR: S2245, a seeded generator makes the payload reproducible; nothing here is security-sensitive.
         string[] words = ["index", "segment", "postings", "vector", "stored", "field", "codec", "frame"];
         var builder = new System.Text.StringBuilder(size);
         while (builder.Length < size)

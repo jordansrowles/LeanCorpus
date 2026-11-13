@@ -249,7 +249,7 @@ public class HybridSearchBenchmarks
                 throw new InvalidOperationException(
                     $"{scenario} rank {rank + 1} is document {docId}; ground truth has {expected[rank]}.");
 
-            if (rank > 0 && engine[rank - 1].Score == engine[rank].Score && engine[rank - 1].DocId > docId)
+            if (rank > 0 && SameScore(engine[rank - 1].Score, engine[rank].Score) && engine[rank - 1].DocId > docId)
                 throw new InvalidOperationException(
                     $"{scenario} breaks a score tie at rank {rank + 1} by descending document ID.");
         }
@@ -383,7 +383,7 @@ public class HybridSearchBenchmarks
                 $"{scenario} fused {fused.Length} documents; independent RRF has {expected.Length}.");
         for (var rank = 0; rank < fused.Length; rank++)
         {
-            if (fused[rank].Score != expected[rank].Score)
+            if (!SameScore(fused[rank].Score, expected[rank].Score))
                 throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
                     $"{scenario} fused rank {rank + 1} scores {fused[rank].Score:R}; independent RRF scores {expected[rank].Score:R}."));
         }
@@ -392,7 +392,7 @@ public class HybridSearchBenchmarks
         while (start < fused.Length)
         {
             var end = start;
-            while (end + 1 < fused.Length && fused[end + 1].Score == fused[start].Score)
+            while (end + 1 < fused.Length && SameScore(fused[end + 1].Score, fused[start].Score))
                 end++;
             var actualGroup = fused[start..(end + 1)].Select(static item => item.DocId).ToHashSet();
             var expectedGroup = expected[start..(end + 1)].Select(static item => item.DocId).ToHashSet();
@@ -401,7 +401,7 @@ public class HybridSearchBenchmarks
                 // The last group may be cut by the limit, so it must be drawn from every
                 // expected document with that score, not only the ones that survived the cut.
                 var score = fused[start].Score;
-                var candidates = expected.Where(item => item.Score == score).Select(static item => item.DocId).ToHashSet();
+                var candidates = expected.Where(item => SameScore(item.Score, score)).Select(static item => item.DocId).ToHashSet();
                 if (!actualGroup.IsSubsetOf(candidates) || actualGroup.Count != expectedGroup.Count)
                     throw new InvalidOperationException($"{scenario} fused tie group at rank {start + 1} differs from independent RRF.");
             }
@@ -437,6 +437,13 @@ public class HybridSearchBenchmarks
             Dependencies: profile.Dependencies.ToArray(),
             ContentSha256: Convert.ToHexString(writer.GetSha256()).ToLowerInvariant()));
     }
+
+    /// <summary>
+    /// Exact score identity. Fused scores are sums of the same single-precision terms in the
+    /// same order, and engine ties are exact, so a tolerance would hide a real difference.
+    /// </summary>
+    private static bool SameScore(float left, float right)
+        => BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
 
     private static int Checksum(IEnumerable<int> documentIds)
     {

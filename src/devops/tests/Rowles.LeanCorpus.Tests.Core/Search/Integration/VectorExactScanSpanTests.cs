@@ -41,7 +41,7 @@ public sealed class VectorExactScanSpanTests(TestDirectoryFixture fixture) : ICl
     [InlineData(129)]
     public void BorrowedVectors_ScoreAndNormaliseLikeArrays(int dimension)
     {
-        var random = new Random(9_100 + dimension);
+        var random = new Random(9_100 + dimension); // NOSONAR: S2245, a seeded generator makes the vectors reproducible; nothing here is security-sensitive.
         float[][] vectors = Enumerable.Range(0, 40).Select(_ => RandomVector(random, dimension)).ToArray();
         string path = SubDir($"{nameof(BorrowedVectors_ScoreAndNormaliseLikeArrays)}_{dimension}");
         BuildIndex(path, vectors, groups: null);
@@ -100,7 +100,7 @@ public sealed class VectorExactScanSpanTests(TestDirectoryFixture fixture) : ICl
     [Fact(DisplayName = "Exact Scan Spans: Filtered Search Returns Only Eligible Documents With Exact Scores")]
     public void FilteredExactScan_ReturnsOnlyEligibleDocumentsWithExactScores()
     {
-        var random = new Random(4_242);
+        var random = new Random(4_242); // NOSONAR: S2245, a seeded generator makes the vectors reproducible; nothing here is security-sensitive.
         float[][] vectors = Enumerable.Range(0, 300).Select(_ => RandomVector(random, 24)).ToArray();
         string[] groups = vectors.Select((_, index) => index % 7 == 0 ? "eligible" : "other").ToArray();
         string path = SubDir(nameof(FilteredExactScan_ReturnsOnlyEligibleDocumentsWithExactScores));
@@ -122,7 +122,7 @@ public sealed class VectorExactScanSpanTests(TestDirectoryFixture fixture) : ICl
     [Fact(DisplayName = "Exact Scan Spans: Deleted Documents Are Excluded From Filtered And Unfiltered Scans")]
     public void ExactScan_ExcludesDeletedDocuments()
     {
-        var random = new Random(5_151);
+        var random = new Random(5_151); // NOSONAR: S2245, a seeded generator makes the vectors reproducible; nothing here is security-sensitive.
         float[][] vectors = Enumerable.Range(0, 120).Select(_ => RandomVector(random, 16)).ToArray();
         string[] groups = vectors.Select((_, index) => index % 2 == 0 ? "eligible" : "other").ToArray();
         string path = SubDir(nameof(ExactScan_ExcludesDeletedDocuments));
@@ -152,7 +152,7 @@ public sealed class VectorExactScanSpanTests(TestDirectoryFixture fixture) : ICl
     [Fact(DisplayName = "Exact Scan Spans: Historical Int8 Vectors Decode Exactly As Before")]
     public void HistoricalInt8_BorrowedVectorsMatchDecodedArrays()
     {
-        var random = new Random(8_008);
+        var random = new Random(8_008); // NOSONAR: S2245, a seeded generator makes the vectors reproducible; nothing here is security-sensitive.
         float[][] vectors = Enumerable.Range(0, 48).Select(_ => RandomVector(random, 32)).ToArray();
         string path = SubDir(nameof(HistoricalInt8_BorrowedVectorsMatchDecodedArrays));
         BuildIndex(path, vectors, groups: null);
@@ -185,7 +185,7 @@ public sealed class VectorExactScanSpanTests(TestDirectoryFixture fixture) : ICl
     {
         const int documentCount = 4_000;
         const int dimension = 256;
-        var random = new Random(6_464);
+        var random = new Random(6_464); // NOSONAR: S2245, a seeded generator makes the vectors reproducible; nothing here is security-sensitive.
         float[][] vectors = Enumerable.Range(0, documentCount).Select(_ => RandomVector(random, dimension)).ToArray();
         string[] groups = vectors.Select((_, index) => index % 2 == 0 ? "eligible" : "other").ToArray();
         string path = SubDir(nameof(FlatScan_DoesNotAllocatePerVector));
