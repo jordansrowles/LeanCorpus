@@ -80,11 +80,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 ## Changed
 
 - Fuzzy cache benchmarks report cold, primed and repeated workloads and cache hit and miss counts around the 128-entry limit.
-
 - Fuzzy query compilation allocates far less for long terms.
-
 - Boolean term clauses now apply their individual boosts to scores on every execution path, including MoreLikeThis term weights. Scores and rankings may change without reindexing.
-
 - Reduced the cost of numeric range and regexp contains queries.
 - Prefix, wildcard and regexp expansions now score with global document frequency, so scores and order may change and no longer depend on segmentation. No reindexing is needed.
 - RegexpQuery now matches whole terms on every route, like Lucene. Queries relying on search-within behaviour must use explicit wildcards such as .*term.*.
@@ -177,7 +174,6 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 - MoreLikeThis results no longer depend on cache warmth or segment count, and MaxDocFreq is always honoured. Results and scores may change without reindexing.
 - MoreLikeThis excludes its source from TotalHits and fills the requested top-N page when enough other documents match, including when the source ranks outside that page.
-
 - A cancelled or failed DevOps execution-lease acquisition no longer leaves a lease marker behind that blocks later DevOps commands until they time out.
 - SpanNotQuery now removes only include spans that overlap an excluded span, as documented and as in Lucene, instead of every document containing the excluded term.
 - Regexp queries no longer return a document more than once, and TotalHits counts unique documents.
