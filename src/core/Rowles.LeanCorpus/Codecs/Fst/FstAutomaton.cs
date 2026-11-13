@@ -246,32 +246,7 @@ public sealed class WildcardAutomaton : IAutomaton
     }
 
     private void ComputeCanMatch()
-    {
-        // Start with accept states
-        for (int s = 0; s < _stateCount; s++)
-            _canMatch[s] = _accept[s];
-
-        // Fixed-point: if any transition from s leads to a canMatch state, s canMatch
-        bool changed = true;
-        while (changed)
-        {
-            changed = false;
-            for (int s = 0; s < _stateCount; s++)
-            {
-                if (_canMatch[s]) continue;
-                for (int b = 0; b < 256; b++)
-                {
-                    int next = _transitions[s * 256 + b];
-                    if (next >= 0 && _canMatch[next])
-                    {
-                        _canMatch[s] = true;
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-        }
-    }
+        => FSTAutomaton.ComputeCanMatch(_stateCount, _accept, _transitions, _canMatch);
 
     /// <inheritdoc/>
     public int Start => 0;
@@ -554,28 +529,7 @@ public sealed class LevenshteinAutomaton : IAutomaton
             Array.Copy(dfaTransitions[s], 0, _transitions, s * 256, 256);
 
         // Compute canMatch via backward reachability
-        for (int s = 0; s < _stateCount; s++)
-            _canMatch[s] = _accept[s];
-
-        bool changed = true;
-        while (changed)
-        {
-            changed = false;
-            for (int s = 0; s < _stateCount; s++)
-            {
-                if (_canMatch[s]) continue;
-                for (int b = 0; b < 256; b++)
-                {
-                    int next = _transitions[s * 256 + b];
-                    if (next >= 0 && _canMatch[next])
-                    {
-                        _canMatch[s] = true;
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-        }
+        FSTAutomaton.ComputeCanMatch(_stateCount, _accept, _transitions, _canMatch);
     }
 
     /// <inheritdoc/>
@@ -819,6 +773,36 @@ public sealed class LevenshteinAutomaton : IAutomaton
 /// </summary>
 internal static class FSTAutomaton
 {
+    /// <summary>
+    /// Marks every state from which an accept state is reachable, by fixed-point iteration over a
+    /// dense 256-way transition table (-1 for no transition).
+    /// </summary>
+    internal static void ComputeCanMatch(int stateCount, bool[] accept, int[] transitions, bool[] canMatch)
+    {
+        for (int s = 0; s < stateCount; s++)
+            canMatch[s] = accept[s];
+
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            for (int s = 0; s < stateCount; s++)
+            {
+                if (canMatch[s]) continue;
+                for (int b = 0; b < 256; b++)
+                {
+                    int next = transitions[s * 256 + b];
+                    if (next >= 0 && canMatch[next])
+                    {
+                        canMatch[s] = true;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     /// <summary>
     /// Intersects the term dictionary with the automaton, returning all matching terms.
     /// The automaton operates on the bare term bytes (after the fieldPrefix).

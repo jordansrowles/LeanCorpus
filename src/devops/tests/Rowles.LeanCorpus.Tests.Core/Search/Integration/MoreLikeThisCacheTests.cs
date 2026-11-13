@@ -19,13 +19,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class MoreLikeThisCacheTests : IClassFixture<TestDirectoryFixture>
 {
-    private const int DocumentCount = 400;
-    private static readonly string[] Words =
-    [
-        "market", "government", "economy", "reform", "policy", "growth", "trade", "budget", "tax", "bank",
-        "export", "import", "labour", "wages", "energy", "oil", "climate", "science", "school", "health",
-        "court", "law", "vote", "party", "minister", "council", "city", "rural", "farm", "harvest"
-    ];
+    private const int DocumentCount = MoreLikeThisTestCorpus.DocumentCount;
 
     private readonly TestDirectoryFixture _fixture;
 
@@ -61,7 +55,7 @@ public sealed class MoreLikeThisCacheTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(directory);
         foreach (int source in new[] { 3, 77, 250 })
         {
-            int docId = DocId(searcher, source);
+            int docId = MoreLikeThisTestCorpus.DocId(searcher, source);
             var query = new MoreLikeThisQuery(docId, ["body", "title"], parameters);
             var extracted = searcher.ExtractMoreLikeThisTerms(query);
 
@@ -77,52 +71,5 @@ public sealed class MoreLikeThisCacheTests : IClassFixture<TestDirectoryFixture>
         }
     }
 
-    private static int DocId(IndexSearcher searcher, int id)
-        => searcher.Search(new TermQuery("id", id.ToString(CultureInfo.InvariantCulture)), 1, TestContext.Current.CancellationToken).ScoreDocs[0].DocId;
-
-    private MMapDirectory Build(string name, int segments)
-    {
-        var directory = new MMapDirectory(NewPath(name));
-        Write(directory, 0, DocumentCount, segments);
-        return directory;
-    }
-
-    private static void Write(MMapDirectory directory, int start, int count, int segments)
-    {
-        using var writer = new IndexWriter(directory, new IndexWriterConfig
-        {
-            MaxBufferedDocs = (int)Math.Ceiling(count / (double)segments),
-            MergePolicy = NoMergePolicy.Instance,
-            StoreTermVectors = true
-        });
-        for (int i = start; i < start + count; i++)
-        {
-            var document = new LeanDocument();
-            document.Add(new StringField("id", i.ToString(CultureInfo.InvariantCulture), stored: true));
-            document.Add(new TextField("title", Text(i, 3, 3)));
-            document.Add(new TextField("body", Text(i, 12, 7)));
-            writer.AddDocument(document);
-        }
-        writer.Commit();
-    }
-
-    // Deterministic text: a skewed choice of words with repeats, so frequencies and document
-    // frequencies vary widely.
-    private static string Text(int i, int length, int salt)
-    {
-        var words = new string[length];
-        for (int w = 0; w < length; w++)
-        {
-            int pick = (int)((((long)(i + 1) * 2654435761L) + (w * 40503L) + salt) % 997);
-            words[w] = Words[(pick * pick) % Words.Length];
-        }
-        return string.Join(' ', words);
-    }
-
-    private string NewPath(string name)
-    {
-        string path = Path.Combine(_fixture.Path, name + "_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
+    private MMapDirectory Build(string name, int segments) => MoreLikeThisTestCorpus.Build(_fixture.Path, name, segments);
 }

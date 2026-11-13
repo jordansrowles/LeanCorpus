@@ -20,13 +20,7 @@ namespace Rowles.LeanCorpus.Tests.Core.Search;
 [Area(TestArea.Search)]
 public sealed class MoreLikeThisCacheKeyTests : IClassFixture<TestDirectoryFixture>
 {
-    private const int DocumentCount = 400;
-    private static readonly string[] Words =
-    [
-        "market", "government", "economy", "reform", "policy", "growth", "trade", "budget", "tax", "bank",
-        "export", "import", "labour", "wages", "energy", "oil", "climate", "science", "school", "health",
-        "court", "law", "vote", "party", "minister", "council", "city", "rural", "farm", "harvest"
-    ];
+    private const int DocumentCount = MoreLikeThisTestCorpus.DocumentCount;
 
     private readonly TestDirectoryFixture _fixture;
 
@@ -37,7 +31,7 @@ public sealed class MoreLikeThisCacheKeyTests : IClassFixture<TestDirectoryFixtu
     {
         using var directory = Build("mlt_key", segments: 3);
         using var searcher = new IndexSearcher(directory);
-        int docId = DocId(searcher, 11);
+        int docId = MoreLikeThisTestCorpus.DocId(searcher, 11);
         var baseline = new MoreLikeThisParameters { MaxQueryTerms = 6 };
         MoreLikeThisParameters[] variants =
         [
@@ -94,7 +88,7 @@ public sealed class MoreLikeThisCacheKeyTests : IClassFixture<TestDirectoryFixtu
         Assert.Equal(expectedUnboosted.ScoreDocs.Select(static h => h.Score), unboosted.ScoreDocs.Select(static h => h.Score));
         var boosted = searcher.MoreLikeThis(docId, ["body"], 10, baseline);
         var boostedScores = boosted.ScoreDocs.ToDictionary(static hit => hit.DocId, static hit => hit.Score);
-        Assert.Contains(unboosted.ScoreDocs, hit => boostedScores.TryGetValue(hit.DocId, out float score) && score != hit.Score);
+        Assert.Contains(unboosted.ScoreDocs, hit => boostedScores.TryGetValue(hit.DocId, out float score) && Math.Abs(score - hit.Score) > 1e-6f * Math.Max(1f, Math.Abs(hit.Score)));
     }
 
     [Fact(DisplayName = "MoreLikeThis: Cache Entries Do Not Cross Searcher Generations")]
@@ -102,7 +96,7 @@ public sealed class MoreLikeThisCacheKeyTests : IClassFixture<TestDirectoryFixtu
     {
         string path = NewPath("mlt_generations");
         using var directory = new MMapDirectory(path);
-        Write(directory, 0, DocumentCount, segments: 2);
+        MoreLikeThisTestCorpus.Write(directory, 0, DocumentCount, segments: 2);
         using var first = new IndexSearcher(directory);
         int docId = 5;
         var parameters = new MoreLikeThisParameters { MaxQueryTerms = 8 };
@@ -126,52 +120,7 @@ public sealed class MoreLikeThisCacheKeyTests : IClassFixture<TestDirectoryFixtu
         Assert.Equal(expected, cached);
     }
 
-    private static int DocId(IndexSearcher searcher, int id)
-        => searcher.Search(new TermQuery("id", id.ToString(CultureInfo.InvariantCulture)), 1, TestContext.Current.CancellationToken).ScoreDocs[0].DocId;
+    private MMapDirectory Build(string name, int segments) => MoreLikeThisTestCorpus.Build(_fixture.Path, name, segments);
 
-    private MMapDirectory Build(string name, int segments)
-    {
-        var directory = new MMapDirectory(NewPath(name));
-        Write(directory, 0, DocumentCount, segments);
-        return directory;
-    }
-
-    private static void Write(MMapDirectory directory, int start, int count, int segments)
-    {
-        using var writer = new IndexWriter(directory, new IndexWriterConfig
-        {
-            MaxBufferedDocs = (int)Math.Ceiling(count / (double)segments),
-            MergePolicy = NoMergePolicy.Instance,
-            StoreTermVectors = true
-        });
-        for (int i = start; i < start + count; i++)
-        {
-            var document = new LeanDocument();
-            document.Add(new StringField("id", i.ToString(CultureInfo.InvariantCulture), stored: true));
-            document.Add(new TextField("title", Text(i, 3, 3)));
-            document.Add(new TextField("body", Text(i, 12, 7)));
-            writer.AddDocument(document);
-        }
-        writer.Commit();
-    }
-
-    // Deterministic text: a skewed choice of words with repeats, so frequencies and document
-    // frequencies vary widely.
-    private static string Text(int i, int length, int salt)
-    {
-        var words = new string[length];
-        for (int w = 0; w < length; w++)
-        {
-            int pick = (int)((((long)(i + 1) * 2654435761L) + (w * 40503L) + salt) % 997);
-            words[w] = Words[(pick * pick) % Words.Length];
-        }
-        return string.Join(' ', words);
-    }
-
-    private string NewPath(string name)
-    {
-        string path = Path.Combine(_fixture.Path, name + "_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(path);
-        return path;
-    }
+    private string NewPath(string name) => MoreLikeThisTestCorpus.NewPath(_fixture.Path, name);
 }

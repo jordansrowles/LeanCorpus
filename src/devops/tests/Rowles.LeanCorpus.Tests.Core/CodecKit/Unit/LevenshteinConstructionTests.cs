@@ -14,7 +14,7 @@ public sealed class LevenshteinConstructionTests
     [Technique(TestTechnique.PropertyBased)]
     public void MatchesReferenceByteDistance(int maxEdits)
     {
-        var random = new Random(90481);
+        var random = new Random(90481); // NOSONAR: S2245, a seeded generator makes each case reproducible; nothing here is security-sensitive.
         foreach (int length in new[] { 0, 3, 20, 21, 31, 40, 63, 64, 65 })
         {
             var term = new byte[length];

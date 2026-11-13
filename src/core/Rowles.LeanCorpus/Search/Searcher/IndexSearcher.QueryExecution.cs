@@ -1178,7 +1178,8 @@ public sealed partial class IndexSearcher
     {
         for (int i = 0; i < count; i++)
         {
-            if (boosts[i] != 1f)
+            // Exactly one is the only boost that leaves block-max bounds valid.
+            if (!boosts[i].Equals(1f))
                 return false;
         }
 
