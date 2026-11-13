@@ -34,12 +34,18 @@ public sealed class ZstandardCompressionCodec : IFieldCompressionCodec
     /// <inheritdoc />
     public byte[] Decompress(ReadOnlySpan<byte> compressed, int originalSize)
     {
+        if (originalSize < 0)
+            throw new InvalidDataException($"Zstandard original size {originalSize} is negative.");
+
         var decompressor = RentDecompressor();
         try
         {
-            var raw = decompressor.Unwrap(compressed, originalSize).ToArray();
-            if (raw.Length != originalSize)
-                throw new InvalidDataException($"Zstandard decompressed {raw.Length} bytes; expected {originalSize} bytes.");
+            // Decode straight into the returned buffer. A frame that decodes to more bytes
+            // than originalSize fails inside Unwrap; one that decodes to fewer fails below.
+            var raw = new byte[originalSize];
+            int written = decompressor.Unwrap(compressed, raw);
+            if (written != originalSize)
+                throw new InvalidDataException($"Zstandard decompressed {written} bytes; expected {originalSize} bytes.");
 
             return raw;
         }
