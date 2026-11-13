@@ -22,6 +22,8 @@ public class HybridSearchBenchmarks
 {
     private const int FinalTopN = 10;
     private const int CandidateK = 50;
+    private const double ScoreTolerance = 1e-5;
+    private static readonly HashSet<string> IdField = new(StringComparer.Ordinal) { "id" };
 
     public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(20_000);
 
@@ -140,8 +142,6 @@ public class HybridSearchBenchmarks
 
     private static void CheckFilterSelectivity(HybridRecord[] records)
     {
-        if (records.Length != 20_000)
-            return;
         CheckShare("BroadFilter", records.Count(static record => record.AccessGroup == "public"), records.Length, 0.45, 0.55);
         CheckShare("MediumFilter", records.Count(static record => record.Category == "hybrid-category-00"), records.Length, 0.02, 0.05);
         CheckShare("NarrowFilter", records.Count(static record => record.AccessGroup == "tenant-00"), records.Length, 0.0003, 0.003);
@@ -151,7 +151,9 @@ public class HybridSearchBenchmarks
     {
         var share = (double)count / total;
         if (share < minimum || share > maximum)
-            throw new InvalidOperationException($"{name} selectivity {share:P3} is outside {minimum:P3}–{maximum:P3}.");
+            throw new InvalidOperationException($"{name} selectivity {share:P3} is outside {minimum:P3} to {maximum:P3}.");
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"// Hybrid preflight: {name} cardinality {count} of {total} ({share:P3})."));
     }
 
     private void PreflightVectorFilters(
@@ -159,6 +161,14 @@ public class HybridSearchBenchmarks
         VectorRecord[] vectorRecords,
         VectorQueryCase queryCase)
     {
+        var oracle = ComputeOracleScores(vectorRecords, queryCase.Vector);
+        var unfiltered = VectorGroundTruth.Compute(vectorRecords, queryCase, FinalTopN);
+        var unfilteredResults = _searcher!.Search(CreateQuery(HybridScenario.VectorOnlyAligned,
+            LeanCorpusHybridProfile.Topics[0], LeanCorpusHybridProfile.Topics[1], queryCase.Vector), FinalTopN);
+        CompareWithGroundTruth(HybridScenario.VectorOnlyAligned, records, unfilteredResults.ScoreDocs, unfiltered, oracle, null);
+        Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"// Hybrid preflight: VectorOnlyAligned candidates {unfilteredResults.TotalHits}, exact Top-{FinalTopN} matches ground truth."));
+
         foreach (var scenario in new[]
                  {
                      HybridScenario.FilteredVectorBroad,
@@ -183,7 +193,102 @@ public class HybridSearchBenchmarks
             var results = _searcher!.Search(query, FinalTopN);
             if (results.ScoreDocs.Any(item => !allowed.Contains(item.DocId)))
                 throw new InvalidOperationException($"{scenario} vector query escaped its filter.");
+            if (results.TotalHits != allowed.Count)
+                throw new InvalidOperationException(
+                    $"{scenario} scanned {results.TotalHits} candidates, but its filter allows {allowed.Count}.");
+            CompareWithGroundTruth(scenario, records, results.ScoreDocs, truth, oracle, allowed);
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"// Hybrid preflight: {scenario} filter cardinality {allowed.Count}, candidates {results.TotalHits}, exact Top-{FinalTopN} matches ground truth."));
         }
+    }
+
+    /// <summary>
+    /// Compares engine neighbours with the scalar double-precision oracle. The engine scores
+    /// in single precision, so scores agree within <see cref="ScoreTolerance"/>. Neighbour IDs
+    /// must match exactly except where the oracle itself separates two documents by less than
+    /// that tolerance. Equal engine scores must be ordered by ascending document ID.
+    /// </summary>
+    private void CompareWithGroundTruth(
+        HybridScenario scenario,
+        HybridRecord[] records,
+        Search.Scoring.ScoreDoc[] engine,
+        VectorGroundTruthResult truth,
+        double[] oracle,
+        HashSet<long>? allowed)
+    {
+        var expected = truth.NeighbourOrdinals;
+        if (engine.Length != expected.Length)
+            throw new InvalidOperationException(
+                $"{scenario} returned {engine.Length} neighbours; ground truth has {expected.Length}.");
+
+        var seen = new HashSet<int>();
+        for (var rank = 0; rank < engine.Length; rank++)
+        {
+            var docId = engine[rank].DocId;
+            if (!seen.Add(docId))
+                throw new InvalidOperationException($"{scenario} returned document {docId} twice.");
+            var storedId = _searcher!.GetStoredFields(docId, IdField)["id"][0];
+            if (!string.Equals(storedId, records[docId].Id, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"{scenario} document {docId} stores ID {storedId}, expected {records[docId].Id}.");
+            if (allowed is not null && !allowed.Contains(docId))
+                throw new InvalidOperationException($"{scenario} document {docId} is outside its filter.");
+
+            var truthScore = truth.CosineValues[rank];
+            if (Math.Abs(engine[rank].Score - truthScore) > ScoreTolerance)
+                throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                    $"{scenario} rank {rank + 1} scores {engine[rank].Score:R}; ground truth scores {truthScore:R}."));
+            if (Math.Abs(oracle[docId] - truthScore) > ScoreTolerance)
+                throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                    $"{scenario} rank {rank + 1} is document {docId} with oracle score {oracle[docId]:R}; ground truth has {expected[rank]} at {truthScore:R}."));
+
+            var nearTie = (rank > 0 && truth.CosineValues[rank - 1] - truthScore <= ScoreTolerance)
+                || (rank + 1 < truth.CosineValues.Length && truthScore - truth.CosineValues[rank + 1] <= ScoreTolerance)
+                || (rank + 1 == truth.CosineValues.Length && HasOracleTieOutsideTruth(truth, oracle, allowed, truthScore));
+            if (!nearTie && docId != expected[rank])
+                throw new InvalidOperationException(
+                    $"{scenario} rank {rank + 1} is document {docId}; ground truth has {expected[rank]}.");
+
+            if (rank > 0 && engine[rank - 1].Score == engine[rank].Score && engine[rank - 1].DocId > docId)
+                throw new InvalidOperationException(
+                    $"{scenario} breaks a score tie at rank {rank + 1} by descending document ID.");
+        }
+    }
+
+    private static bool HasOracleTieOutsideTruth(
+        VectorGroundTruthResult truth,
+        double[] oracle,
+        HashSet<long>? allowed,
+        double lastScore)
+    {
+        var inTruth = truth.NeighbourOrdinals.ToHashSet();
+        for (var ordinal = 0; ordinal < oracle.Length; ordinal++)
+        {
+            if (inTruth.Contains(ordinal) || (allowed is not null && !allowed.Contains(ordinal)))
+                continue;
+            if (Math.Abs(oracle[ordinal] - lastScore) <= ScoreTolerance)
+                return true;
+        }
+        return false;
+    }
+
+    private static double[] ComputeOracleScores(VectorRecord[] records, float[] query)
+    {
+        var scores = new double[records.Length];
+        double queryNorm = 0;
+        foreach (var component in query)
+            queryNorm += (double)component * component;
+        foreach (var record in records)
+        {
+            double dot = 0, recordNorm = 0;
+            for (var dimension = 0; dimension < query.Length; dimension++)
+            {
+                dot += (double)record.Vector[dimension] * query[dimension];
+                recordNorm += (double)record.Vector[dimension] * record.Vector[dimension];
+            }
+            scores[record.Ordinal] = dot / Math.Sqrt(recordNorm * queryNorm);
+        }
+        return scores;
     }
 
     private void PreflightRrf(
@@ -194,24 +299,118 @@ public class HybridSearchBenchmarks
     {
         var topic = LeanCorpusHybridProfile.Topics[0];
         var conflictTopic = LeanCorpusHybridProfile.Topics[1];
-        var exactTop50 = VectorGroundTruth.Compute(vectorRecords, queryCase, CandidateK)
-            .NeighbourOrdinals.ToHashSet();
-        var aligned = _searcher!.Search(CreateQuery(HybridScenario.RrfAligned, topic, conflictTopic,
-            queryCase.Vector), CandidateK);
-        if (!aligned.ScoreDocs.Take(FinalTopN).Any(item =>
-                records[item.DocId].Body.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(topic) &&
-                exactTop50.Contains(item.DocId)))
-            throw new InvalidOperationException("Aligned RRF has no text and exact vector overlap in its final Top-10.");
+        var oracle = ComputeOracleScores(vectorRecords, queryCase.Vector);
+        var exactTop50Truth = VectorGroundTruth.Compute(vectorRecords, queryCase, CandidateK);
+        var exactTop50 = exactTop50Truth.NeighbourOrdinals.ToHashSet();
 
         if (!records.Any(record =>
                 profile.Classify(42, record.Ordinal) == HybridCorrelation.Conflict &&
                 LeanCorpusHybridProfile.Topics.Any(textTopic => textTopic != record.Topic &&
                     record.Body.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(textTopic))))
             throw new InvalidOperationException("The hybrid conflict fixture has no opposing text and vector topic.");
-        var conflict = _searcher.Search(CreateQuery(HybridScenario.RrfConflict, topic, conflictTopic,
-            queryCase.Vector), CandidateK);
-        if (conflict.ScoreDocs.Length == 0)
-            throw new InvalidOperationException("Conflict RRF returned no results.");
+
+        foreach (var (scenario, textTopic) in new[]
+                 {
+                     (HybridScenario.RrfAligned, topic),
+                     (HybridScenario.RrfConflict, conflictTopic)
+                 })
+        {
+            var rrf = (RrfQuery)CreateQuery(scenario, topic, conflictTopic, queryCase.Vector);
+            if (rrf.K != 60 || rrf.Queries.Count != 2)
+                throw new InvalidOperationException($"{scenario} fusion parameters changed: k={rrf.K}, branches={rrf.Queries.Count}.");
+
+            // Freeze each branch list once, prove the vector branch against the oracle and the
+            // text branch against the corpus, then fuse independently of RrfQuery.Combine.
+            var textBranch = _searcher!.Search(rrf.Queries[0], CandidateK).ScoreDocs;
+            var vectorBranch = _searcher.Search(rrf.Queries[1], CandidateK).ScoreDocs;
+            CompareWithGroundTruth(scenario, records, vectorBranch, exactTop50Truth, oracle, null);
+            if (textBranch.Length == 0)
+                throw new InvalidOperationException($"{scenario} text branch returned no results.");
+            if (textBranch.Any(item =>
+                    !records[item.DocId].Body.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(textTopic)))
+                throw new InvalidOperationException($"{scenario} text branch returned a document without '{textTopic}'.");
+
+            var expected = FuseReciprocalRanks([textBranch, vectorBranch], rrf.K, CandidateK);
+            var fused = _searcher.Search(rrf, CandidateK);
+            CompareFusedOrder(scenario, fused.ScoreDocs, expected);
+
+            var finalTop = fused.ScoreDocs.Take(FinalTopN).ToArray();
+            var overlap = finalTop.Count(item =>
+                records[item.DocId].Body.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(textTopic) &&
+                exactTop50.Contains(item.DocId));
+            if (scenario == HybridScenario.RrfAligned && overlap == 0)
+                throw new InvalidOperationException("Aligned RRF has no text and exact vector overlap in its final Top-10.");
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"// Hybrid preflight: {scenario} text branch {textBranch.Length}, vector branch {vectorBranch.Length}, fused {fused.ScoreDocs.Length} of {fused.TotalHits}, final Top-{FinalTopN} overlap {overlap}; fused order matches independent RRF."));
+        }
+    }
+
+    /// <summary>
+    /// Independent reciprocal rank fusion: score(d) = sum of 1 / (k + rank), rank one-based,
+    /// accumulated in branch order in single precision as the engine does.
+    /// </summary>
+    private static (int DocId, float Score)[] FuseReciprocalRanks(
+        Search.Scoring.ScoreDoc[][] branches, int k, int topN)
+    {
+        var scores = new SortedDictionary<int, float>();
+        foreach (var branch in branches)
+        {
+            for (var rank = 1; rank <= branch.Length; rank++)
+            {
+                var docId = branch[rank - 1].DocId;
+                scores[docId] = (scores.TryGetValue(docId, out var current) ? current : 0f) + 1.0f / (k + rank);
+            }
+        }
+        return scores.Select(static pair => (pair.Key, pair.Value))
+            .OrderByDescending(static item => item.Value)
+            .ThenBy(static item => item.Key)
+            .Take(topN)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// RRF does not define an order inside a group of equal fused scores. The score sequence
+    /// must match exactly, each complete tie group must hold the same documents, and a group
+    /// cut by the result limit must hold a subset of the expected tied documents.
+    /// </summary>
+    private static void CompareFusedOrder(
+        HybridScenario scenario,
+        Search.Scoring.ScoreDoc[] fused,
+        (int DocId, float Score)[] expected)
+    {
+        if (fused.Length != expected.Length)
+            throw new InvalidOperationException(
+                $"{scenario} fused {fused.Length} documents; independent RRF has {expected.Length}.");
+        for (var rank = 0; rank < fused.Length; rank++)
+        {
+            if (fused[rank].Score != expected[rank].Score)
+                throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                    $"{scenario} fused rank {rank + 1} scores {fused[rank].Score:R}; independent RRF scores {expected[rank].Score:R}."));
+        }
+
+        var start = 0;
+        while (start < fused.Length)
+        {
+            var end = start;
+            while (end + 1 < fused.Length && fused[end + 1].Score == fused[start].Score)
+                end++;
+            var actualGroup = fused[start..(end + 1)].Select(static item => item.DocId).ToHashSet();
+            var expectedGroup = expected[start..(end + 1)].Select(static item => item.DocId).ToHashSet();
+            if (end + 1 == fused.Length)
+            {
+                // The last group may be cut by the limit, so it must be drawn from every
+                // expected document with that score, not only the ones that survived the cut.
+                var score = fused[start].Score;
+                var candidates = expected.Where(item => item.Score == score).Select(static item => item.DocId).ToHashSet();
+                if (!actualGroup.IsSubsetOf(candidates) || actualGroup.Count != expectedGroup.Count)
+                    throw new InvalidOperationException($"{scenario} fused tie group at rank {start + 1} differs from independent RRF.");
+            }
+            else if (!actualGroup.SetEquals(expectedGroup))
+            {
+                throw new InvalidOperationException($"{scenario} fused tie group at rank {start + 1} differs from independent RRF.");
+            }
+            start = end + 1;
+        }
     }
 
     private static void RegisterIdentity(
