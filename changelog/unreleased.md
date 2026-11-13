@@ -169,6 +169,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Combined-fields queries no longer take a read lease per posting while preparing statistics.
 - Numeric aggregations and geo queries allocate far less per matching document.
 - Facets and spatial aggregations allocate less per document, and reader cache accounting runs less often.
+- `AddDocumentsAsync` queues lists larger than `MaxQueuedDocs` in bounded chunks instead of one document at a time, so large async batches index about as fast as synchronous `AddDocuments`.
 
 ## Fixed
 

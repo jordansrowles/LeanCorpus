@@ -21,7 +21,7 @@ IReadOnlyList<LeanDocument> batch = BuildBatch();
 await writer.AddDocumentsAsync(batch, cancellationToken);
 ```
 
-The batch is validated before it is queued. If backpressure is enabled and the batch exceeds `MaxQueuedDocs`, LeanCorpus submits its documents individually instead of attempting to reserve an impossible batch.
+The batch is validated before it is queued. If backpressure is enabled and the batch exceeds `MaxQueuedDocs`, LeanCorpus submits it in list order as chunks of at most `MaxQueuedDocs` documents. Each chunk completes before the next is queued, so a caller never holds more queued documents than a batch at the limit. Cancellation stops further chunks from being queued; chunks already accepted remain owned by the writer and are indexed.
 
 ## Stream documents
 

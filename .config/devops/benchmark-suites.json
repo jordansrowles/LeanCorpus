@@ -26,6 +26,7 @@
     "blockjoin-search": "BlockJoinSearchBenchmarks",
     "async-index": "AsyncIndexingBenchmarks",
     "async-index-stress": "AsyncIndexingCapacityOneStressBenchmarks -- explicit MaxQueuedDocs=1 eager-call stress",
+    "async-index-nomerge": "AsyncIndexingNoMergeBenchmarks -- explicit async ingestion with merges disabled",
     "span": "SpanQueryBenchmarks",
     "nearest": "SpatialNearestBenchmarks",
     "codec-migration": "CodecMigrationBenchmarks",
@@ -290,6 +291,19 @@
       ],
       "RegisteredClasses": [
         "AsyncIndexingBenchmarks"
+      ]
+    },
+    "async-index-nomerge": {
+      "DisplayName": "Async indexing without merges",
+      "Aliases": [
+        "asyncindexnomerge"
+      ],
+      "ExplicitOnly": true,
+      "BenchmarkClasses": [
+        "AsyncIndexingNoMergeBenchmarks"
+      ],
+      "RegisteredClasses": [
+        "AsyncIndexingNoMergeBenchmarks"
       ]
     },
     "async-index-stress": {

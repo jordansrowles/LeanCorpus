@@ -165,17 +165,54 @@ public sealed partial class IndexWriter
             return;
         ValidateDocuments(documents);
 
-        if (_backpressureSemaphore is not null && documents.Count > _config.MaxQueuedDocs)
+        if (_backpressureSemaphore is null || documents.Count <= _config.MaxQueuedDocs)
         {
-            for (int i = 0; i < documents.Count; i++)
-                await AddDocumentAsyncOperationOwned(documents[i], cancellationToken).ConfigureAwait(false);
+            await EnqueueBatchAndWait(documents, cancellationToken).ConfigureAwait(false);
             return;
         }
 
+        // An oversized list is admitted as ordered chunks of at most MaxQueuedDocs documents.
+        // Each chunk completes before the next is admitted, so this caller never has more
+        // writer-owned queued documents than a batch at the limit would. Cancellation stops
+        // admission between chunks; admitted chunks remain writer-owned and complete.
+        int chunkSize = _config.MaxQueuedDocs;
+        for (int start = 0; start < documents.Count; start += chunkSize)
+        {
+            int count = Math.Min(chunkSize, documents.Count - start);
+            await EnqueueBatchAndWait(new DocumentListChunk(documents, start, count), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask EnqueueBatchAndWait(IReadOnlyList<LeanDocument> documents, CancellationToken cancellationToken)
+    {
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cmd = new AsyncWriteCommand(documents, AsyncWriteKind.Batch, tcs);
         await EnqueueAsyncWrite(cmd, cancellationToken).ConfigureAwait(false);
         await tcs.Task.ConfigureAwait(false);
+    }
+
+    /// <summary>A read-only window over a caller-owned document list; no documents are copied.</summary>
+    private sealed class DocumentListChunk(IReadOnlyList<LeanDocument> source, int start, int count) : IReadOnlyList<LeanDocument>
+    {
+        public int Count => count;
+
+        public LeanDocument this[int index]
+        {
+            get
+            {
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, count);
+                return source[start + index];
+            }
+        }
+
+        public IEnumerator<LeanDocument> GetEnumerator()
+        {
+            for (int i = 0; i < count; i++)
+                yield return source[start + i];
+        }
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
 
     /// <summary>Adds an adjacent child-parent document block asynchronously.</summary>

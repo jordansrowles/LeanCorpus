@@ -223,6 +223,12 @@ available as `async-index-stress` with its own `async-stress` (1,000-document,
 Both are explicit selections and are recorded as outside the routine `all`
 scope.
 
+`async-index-nomerge` is also explicit-only. It runs the sync, sequential async
+and async batch ingestion paths with merges disabled and 15 measured
+iterations. `async-index` includes a background merge that writer disposal
+waits for, which makes its async samples bimodal; use `async-index-nomerge` to
+compare the ingestion paths themselves.
+
 ```mermaid
 flowchart LR
     C[benchmark command] --> S[Resolve suite alias]

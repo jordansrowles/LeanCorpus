@@ -90,6 +90,7 @@ internal static class BenchmarkSuiteRegistry
         Workload("similarity", typeof(SimilarityBenchmarks), true, false, "similarity"),
         Workload("async-index", typeof(AsyncIndexingBenchmarks), true, false, "async-index"),
         Workload("async-index-stress", typeof(AsyncIndexingCapacityOneStressBenchmarks), false, true, "async-index-stress"),
+        Workload("async-index-nomerge", typeof(AsyncIndexingNoMergeBenchmarks), false, true, "async-index-nomerge"),
         Workload("hybrid", typeof(HybridSearchBenchmarks), true, false, "hybrid"),
         Workload("packed-int-codec", typeof(PackedIntCodecBenchmarks), false, true, "packed-int-codec"),
         Workload("codec-frame", typeof(CodecFrameBenchmarks), false, true, "codec-frame"),

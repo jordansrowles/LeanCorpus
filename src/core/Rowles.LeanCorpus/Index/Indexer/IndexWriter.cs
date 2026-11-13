@@ -81,6 +81,7 @@ public sealed partial class IndexWriter : IDisposable
     private Task? _asyncWriteConsumer;
     private AutoResetEvent? _asyncWriteAvailable;
     private readonly Action? _beforeAsyncConsumerExit;
+    private Action<int>? _asyncCommandAdmittedForTests;
     private int _queuedAsyncWrites;
 
     private readonly Lock _writeLock = new();
@@ -1018,6 +1019,7 @@ public sealed partial class IndexWriter : IDisposable
                 }
                 AsyncIndexingDiagnostics.RecordAdmission(command.DocumentCount);
             }
+            _asyncCommandAdmittedForTests?.Invoke(command.DocumentCount);
             Interlocked.Increment(ref _queuedAsyncWrites);
             _asyncWriteAvailable!.Set();
         }
@@ -1166,6 +1168,13 @@ public sealed partial class IndexWriter : IDisposable
     internal DocumentsWriterPerThread[]? DwptPool { get => _dwptPool; set => _dwptPool = value; }
     internal SemaphoreSlim? BackpressureSemaphore => _backpressureSemaphore;
     internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureSemaphore;
+
+    /// <summary>Test hook invoked with each admitted async command's document count.</summary>
+    internal Action<int>? AsyncCommandAdmittedForTests
+    {
+        get => _asyncCommandAdmittedForTests;
+        set => _asyncCommandAdmittedForTests = value;
+    }
     internal CancellationToken ShutdownToken => _shutdownToken;
     internal bool IsClosing => Volatile.Read(ref _closing) != 0;
 
