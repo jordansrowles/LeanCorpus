@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Attributes;
+using Rowles.LeanCorpus.Diagnostics;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
@@ -30,8 +31,12 @@ public class AsyncIndexingBenchmarks
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
 
+    /// <summary>Set to <c>1</c> to print opt-in async indexing counters after each iteration.</summary>
+    public const string CountersEnvironmentVariable = "LEANCORPUS_ASYNC_INDEX_COUNTERS";
+
     private LeanDocument[] _documents = [];
     private readonly List<string> _iterationPaths = [];
+    private IDisposable? _counterScope;
 
     [GlobalSetup]
     public void Setup()
@@ -48,11 +53,37 @@ public class AsyncIndexingBenchmarks
     }
 
     [GlobalCleanup]
-    public void Cleanup() => CleanupIterationPaths();
+    public void Cleanup()
+    {
+        CleanupIterationPaths();
+        _counterScope?.Dispose();
+        _counterScope = null;
+    }
+
+    /// <summary>
+    /// Opens an async indexing counter scope when <see cref="CountersEnvironmentVariable"/> is
+    /// <c>1</c>. Counters stay off by default so ordinary reruns remain comparable with
+    /// baselines captured without them.
+    /// </summary>
+    [IterationSetup]
+    public void BeginIterationCounters()
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable(CountersEnvironmentVariable), "1", StringComparison.Ordinal))
+            return;
+
+        _counterScope ??= AsyncIndexingDiagnostics.BeginMeasurement();
+        AsyncIndexingDiagnostics.Reset();
+    }
 
     [IterationCleanup]
     public void CleanupIterationPaths()
     {
+        if (_counterScope is not null)
+        {
+            Console.WriteLine(
+                $"// Async indexing counters: documents={DocumentCount}, {AsyncIndexingDiagnostics.GetSnapshot()}");
+        }
+
         foreach (var path in _iterationPaths)
         {
             if (IODirectory.Exists(path))
@@ -229,6 +260,110 @@ public class AsyncIndexingCapacityOneStressBenchmarks
             writes[i] = writer.AddDocumentAsync(_documents[i]).AsTask();
 
         await Task.WhenAll(writes);
+        writer.Commit();
+        return _documents.Length;
+    }
+}
+
+/// <summary>
+/// Async ingestion with merges disabled. <see cref="AsyncIndexingBenchmarks"/> includes a
+/// background merge that writer disposal waits for, which makes its samples bimodal and hides
+/// the cost of the async queue itself. This explicit suite keeps the same corpus and writer
+/// settings, disables merging and takes more samples, so ingestion paths can be compared.
+/// </summary>
+[MemoryDiagnoser]
+[HtmlExporter]
+[JsonExporterAttribute.Full]
+[MarkdownExporterAttribute.GitHub]
+[RPlotExporter]
+[KeepBenchmarkFiles]
+[WarmupCount(2)]
+[IterationCount(15)]
+[InvocationCount(1)]
+public class AsyncIndexingNoMergeBenchmarks
+{
+    public static IEnumerable<int> DocCounts => BenchmarkData.GetDocCounts(BenchmarkData.DefaultDocCount);
+
+    [ParamsSource(nameof(DocCounts))]
+    public int DocumentCount { get; set; }
+
+    private LeanDocument[] _documents = [];
+    private readonly List<string> _iterationPaths = [];
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        var bodies = BenchmarkData.BuildDocuments(DocumentCount);
+        _documents = new LeanDocument[bodies.Length];
+        for (int i = 0; i < bodies.Length; i++)
+        {
+            var doc = new LeanDocument();
+            doc.Add(new LeanStringField("id", i.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            doc.Add(new LeanTextField("body", bodies[i]));
+            _documents[i] = doc;
+        }
+    }
+
+    [GlobalCleanup]
+    public void Cleanup() => CleanupIterationPaths();
+
+    [IterationCleanup]
+    public void CleanupIterationPaths()
+    {
+        foreach (var path in _iterationPaths)
+        {
+            if (IODirectory.Exists(path))
+                IODirectory.Delete(path, recursive: true);
+        }
+        _iterationPaths.Clear();
+    }
+
+    private static IndexWriterConfig Config() => new()
+    {
+        MaxBufferedDocs = 10_000,
+        RamBufferSizeMB = 256,
+        MergePolicy = NoMergePolicy.Instance,
+    };
+
+    private string NewPath(string name)
+    {
+        var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-async-nomerge-{name}-{Guid.NewGuid():N}");
+        IODirectory.CreateDirectory(path);
+        _iterationPaths.Add(path);
+        return path;
+    }
+
+    [Benchmark(Baseline = true)]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public int LeanCorpus_AddDocument_Sync()
+    {
+        using var dir = new LeanMMapDirectory(NewPath("sync"));
+        using var writer = new IndexWriter(dir, Config());
+        foreach (var doc in _documents)
+            writer.AddDocument(doc);
+        writer.Commit();
+        return _documents.Length;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public async Task<int> LeanCorpus_AddDocumentAsync_Sequential()
+    {
+        using var dir = new LeanMMapDirectory(NewPath("seq"));
+        using var writer = new IndexWriter(dir, Config());
+        foreach (var doc in _documents)
+            await writer.AddDocumentAsync(doc);
+        writer.Commit();
+        return _documents.Length;
+    }
+
+    [Benchmark]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public async Task<int> LeanCorpus_AddDocumentsAsync_Batch()
+    {
+        using var dir = new LeanMMapDirectory(NewPath("batch"));
+        using var writer = new IndexWriter(dir, Config());
+        await writer.AddDocumentsAsync(_documents);
         writer.Commit();
         return _documents.Length;
     }

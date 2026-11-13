@@ -2,6 +2,7 @@
 using System.Runtime.ExceptionServices;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Codecs.StoredFields;
+using Rowles.LeanCorpus.Diagnostics;
 using Rowles.LeanCorpus.Codecs.Vectors;
 using Rowles.LeanCorpus.Document;
 using Rowles.LeanCorpus.Document.Fields;
@@ -80,6 +81,7 @@ public sealed partial class IndexWriter : IDisposable
     private Task? _asyncWriteConsumer;
     private AutoResetEvent? _asyncWriteAvailable;
     private readonly Action? _beforeAsyncConsumerExit;
+    private Action<int>? _asyncCommandAdmittedForTests;
     private int _queuedAsyncWrites;
 
     private readonly Lock _writeLock = new();
@@ -943,7 +945,13 @@ public sealed partial class IndexWriter : IDisposable
     // --- Async write channel types and consumer ---
     private enum AsyncWriteKind { Single, Batch, ConcurrentBatch, Block }
     private readonly record struct AsyncWriteCommand(
-        object Payload, AsyncWriteKind Kind, TaskCompletionSource Tcs);
+        object Payload, AsyncWriteKind Kind, TaskCompletionSource Tcs)
+    {
+        /// <summary>Admission request timestamp, or zero when async indexing diagnostics are disabled.</summary>
+        public long RequestedTimestamp { get; init; }
+
+        public int DocumentCount => Kind == AsyncWriteKind.Single ? 1 : ((IReadOnlyList<LeanDocument>)Payload).Count;
+    }
 
     private Channel<AsyncWriteCommand> EnsureAsyncWriteChannel()
     {
@@ -984,7 +992,34 @@ public sealed partial class IndexWriter : IDisposable
     {
         try
         {
-            await EnsureAsyncWriteChannel().Writer.WriteAsync(command, cancellationToken).ConfigureAwait(false);
+            var writer = EnsureAsyncWriteChannel().Writer;
+            if (!AsyncIndexingDiagnostics.IsEnabled)
+            {
+                await writer.WriteAsync(command, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                command = command with { RequestedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp() };
+                var write = writer.WriteAsync(command, cancellationToken);
+                if (write.IsCompleted)
+                {
+                    write.GetAwaiter().GetResult();
+                }
+                else
+                {
+                    AsyncIndexingDiagnostics.RecordProducerWaitStarted();
+                    try
+                    {
+                        await write.ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        AsyncIndexingDiagnostics.RecordProducerWaitEnded();
+                    }
+                }
+                AsyncIndexingDiagnostics.RecordAdmission(command.DocumentCount);
+            }
+            _asyncCommandAdmittedForTests?.Invoke(command.DocumentCount);
             Interlocked.Increment(ref _queuedAsyncWrites);
             _asyncWriteAvailable!.Set();
         }
@@ -1014,13 +1049,16 @@ public sealed partial class IndexWriter : IDisposable
                     cmd.Tcs.TrySetException(new ObjectDisposedException(nameof(IndexWriter)));
                     continue;
                 }
+                AsyncIndexingDiagnostics.RecordDequeued(cmd.RequestedTimestamp);
                 try
                 {
                     ProcessAsyncWriteCommand(cmd);
+                    AsyncIndexingDiagnostics.RecordCompleted(cmd.RequestedTimestamp);
                     cmd.Tcs.TrySetResult();
                 }
                 catch (Exception ex)
                 {
+                    AsyncIndexingDiagnostics.RecordCompleted(cmd.RequestedTimestamp);
                     cmd.Tcs.TrySetException(ex);
                 }
             }
@@ -1130,6 +1168,13 @@ public sealed partial class IndexWriter : IDisposable
     internal DocumentsWriterPerThread[]? DwptPool { get => _dwptPool; set => _dwptPool = value; }
     internal SemaphoreSlim? BackpressureSemaphore => _backpressureSemaphore;
     internal SemaphoreSlim? BackpressureSemaphoreForTests => _backpressureSemaphore;
+
+    /// <summary>Test hook invoked with each admitted async command's document count.</summary>
+    internal Action<int>? AsyncCommandAdmittedForTests
+    {
+        get => _asyncCommandAdmittedForTests;
+        set => _asyncCommandAdmittedForTests = value;
+    }
     internal CancellationToken ShutdownToken => _shutdownToken;
     internal bool IsClosing => Volatile.Read(ref _closing) != 0;
 

@@ -72,6 +72,7 @@ internal sealed class FlushCoordinator
                         _writer.CommittedSegments.Add(segment);
                         _writer.ContentChangedSinceCommit = true;
                         state.Published = true;
+                        Diagnostics.AsyncIndexingDiagnostics.RecordPublishedSegments(1);
                     }
                     published++;
                 }
@@ -131,6 +132,7 @@ internal sealed class FlushCoordinator
                             _writer.CommittedSegments.Add(segment);
                             _writer.ContentChangedSinceCommit = true;
                             state.Published = true;
+                            Diagnostics.AsyncIndexingDiagnostics.RecordPublishedSegments(1);
                         }
                         published++;
                     }
