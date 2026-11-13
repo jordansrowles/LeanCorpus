@@ -246,32 +246,7 @@ public sealed class WildcardAutomaton : IAutomaton
     }
 
     private void ComputeCanMatch()
-    {
-        // Start with accept states
-        for (int s = 0; s < _stateCount; s++)
-            _canMatch[s] = _accept[s];
-
-        // Fixed-point: if any transition from s leads to a canMatch state, s canMatch
-        bool changed = true;
-        while (changed)
-        {
-            changed = false;
-            for (int s = 0; s < _stateCount; s++)
-            {
-                if (_canMatch[s]) continue;
-                for (int b = 0; b < 256; b++)
-                {
-                    int next = _transitions[s * 256 + b];
-                    if (next >= 0 && _canMatch[next])
-                    {
-                        _canMatch[s] = true;
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-        }
-    }
+        => FSTAutomaton.ComputeCanMatch(_stateCount, _accept, _transitions, _canMatch);
 
     /// <inheritdoc/>
     public int Start => 0;
@@ -330,6 +305,23 @@ public sealed class LevenshteinAutomaton : IAutomaton
     private readonly byte[]? _compactExceptionBytes;
     private readonly int[]? _compactExceptionTargets;
 
+    private sealed class StateSetComparer : IEqualityComparer<ulong[]>
+    {
+        internal static readonly StateSetComparer Instance = new();
+
+        public bool Equals(ulong[]? first, ulong[]? second)
+            => ReferenceEquals(first, second)
+                || (first is not null && second is not null && first.AsSpan().SequenceEqual(second));
+
+        public int GetHashCode(ulong[] states)
+        {
+            var hash = new HashCode();
+            foreach (ulong word in states)
+                hash.Add(word);
+            return hash.ToHashCode();
+        }
+    }
+
     private readonly record struct CompactAutomatonData(
         int[] DefaultTransitions,
         int[] ExceptionOffsets,
@@ -379,141 +371,151 @@ public sealed class LevenshteinAutomaton : IAutomaton
         int stateWidth = maxEdits + 1;
         int nfaStateCount = (termLen + 1) * stateWidth;
 
-        // NFA state: (position, editsUsed) encoded as position * stateWidth + edits
-        // Deletion = ε-transition: advance position, +1 edit, no input consumed
+        // NFA state: (position, editsUsed) encoded as position * stateWidth + edits.
+        // Only discovered DFA sets are retained. Every transition reuses scratch;
+        // dictionary keys are owned snapshots and are never mutated after insertion.
+        int wordCount = ((nfaStateCount - 1) >> 6) + 1;
 
-        // Epsilon closure: from a set of NFA states, follow all deletion ε-transitions
-        HashSet<int> EpsilonClosure(HashSet<int> states)
+        static void AddState(ulong[] states, int state)
+            => states[state >> 6] |= 1UL << (state & 63);
+
+        void EpsilonClosure(ulong[] states)
         {
-            var result = new HashSet<int>(states);
-            var stack = new Stack<int>(states);
-            while (stack.Count > 0)
+            // Deletions increase the encoded state. Visit only set bits, including
+            // newly added bits in this word; later words see their additions on entry.
+            for (int word = 0; word < states.Length; word++)
             {
-                int s = stack.Pop();
-                int pos = s / stateWidth;
-                int edits = s % stateWidth;
-
-                // Deletion: skip a reference byte without consuming input
-                if (pos < termLen && edits < maxEdits)
+                ulong remaining = states[word];
+                while (remaining != 0)
                 {
-                    int delState = (pos + 1) * stateWidth + (edits + 1);
-                    if (delState < nfaStateCount && result.Add(delState))
-                        stack.Push(delState);
+                    int state = (word << 6) + System.Numerics.BitOperations.TrailingZeroCount(remaining);
+                    remaining &= remaining - 1;
+                    if (state / stateWidth >= termLen || state % stateWidth >= maxEdits)
+                        continue;
+                    int deletion = state + stateWidth + 1;
+                    int targetWord = deletion >> 6;
+                    ulong mask = 1UL << (deletion & 63);
+                    if ((states[targetWord] & mask) != 0)
+                        continue;
+                    states[targetWord] |= mask;
+                    if (targetWord == word)
+                        remaining |= mask;
                 }
             }
-            return result;
         }
 
-        // NFA step: given a set of NFA states and an input byte, compute next NFA states
-        HashSet<int> NfaStep(HashSet<int> states, byte input)
+        bool NfaStep(ulong[] states, byte input, ulong[] next)
         {
-            var next = new HashSet<int>();
-            foreach (int s in states)
+            Array.Clear(next);
+            bool hasStates = false;
+            for (int word = 0; word < states.Length; word++)
             {
-                int pos = s / stateWidth;
-                int edits = s % stateWidth;
-
-                if (pos < termLen)
+                ulong remaining = states[word];
+                while (remaining != 0)
                 {
-                    // Match: input matches reference byte
-                    if (term[pos] == input)
-                        next.Add((pos + 1) * stateWidth + edits);
-
+                    int state = (word << 6) + System.Numerics.BitOperations.TrailingZeroCount(remaining);
+                    remaining &= remaining - 1;
+                    int position = state / stateWidth;
+                    int edits = state % stateWidth;
+                    if (position < termLen)
+                    {
+                        if (term[position] == input)
+                        {
+                            AddState(next, state + stateWidth);
+                            hasStates = true;
+                        }
+                        else if (edits < maxEdits)
+                        {
+                            AddState(next, state + stateWidth + 1);
+                            hasStates = true;
+                        }
+                    }
                     if (edits < maxEdits)
                     {
-                        // Substitution: consume input, advance position, +1 edit
-                        if (term[pos] != input)
-                            next.Add((pos + 1) * stateWidth + (edits + 1));
+                        AddState(next, state + 1);
+                        hasStates = true;
                     }
                 }
-
-                if (edits < maxEdits)
-                {
-                    // Insertion: consume input, stay at same position, +1 edit
-                    next.Add(pos * stateWidth + (edits + 1));
-                }
             }
-            return EpsilonClosure(next);
+            if (hasStates)
+                EpsilonClosure(next);
+            return hasStates;
         }
 
-        bool IsNfaAccept(HashSet<int> states)
-        {
-            foreach (int s in states)
-            {
-                int pos = s / stateWidth;
-                int edits = s % stateWidth;
-                int remaining = termLen - pos;
-                if (remaining + edits <= maxEdits)
-                    return true;
-            }
-            return false;
-        }
-
-        string SetKey(HashSet<int> set)
-        {
-            var sorted = set.Order().ToArray();
-            return string.Join(",", sorted);
-        }
-
-        int NfaSetMinDistance(HashSet<int> set)
+        int NfaSetMinDistance(ulong[] states)
         {
             int best = int.MaxValue;
-            foreach (int s in set)
+            for (int word = 0; word < states.Length; word++)
             {
-                int pos = s / stateWidth;
-                int edits = s % stateWidth;
-                int remaining = termLen - pos;
-                int cost = edits + remaining;
-                if (cost < best) best = cost;
+                ulong remaining = states[word];
+                while (remaining != 0)
+                {
+                    int state = (word << 6) + System.Numerics.BitOperations.TrailingZeroCount(remaining);
+                    remaining &= remaining - 1;
+                    int cost = state % stateWidth + termLen - state / stateWidth;
+                    if (cost < best) best = cost;
+                }
             }
             return best;
         }
 
-        // Subset construction
-        var initialSet = EpsilonClosure([0]);
-        var queue = new Queue<HashSet<int>>();
-        var setToId = new Dictionary<string, int>();
+        var initialSet = new ulong[wordCount];
+        initialSet[0] = 1;
+        EpsilonClosure(initialSet);
+        var queue = new Queue<ulong[]>();
+        var setToId = new Dictionary<ulong[], int>(StateSetComparer.Instance);
         var dfaTransitions = new List<int[]>();
         var dfaAccept = new List<bool>();
         var dfaMinDistance = new List<int>();
         int dfaStateId = 0;
 
-        string initKey = SetKey(initialSet);
-        setToId[initKey] = dfaStateId++;
+        setToId[initialSet] = dfaStateId++;
         dfaTransitions.Add(new int[256]);
         Array.Fill(dfaTransitions[0], -1);
-        dfaAccept.Add(IsNfaAccept(initialSet));
-        dfaMinDistance.Add(NfaSetMinDistance(initialSet));
+        int initialDistance = NfaSetMinDistance(initialSet);
+        dfaAccept.Add(initialDistance <= maxEdits);
+        dfaMinDistance.Add(initialDistance);
         queue.Enqueue(initialSet);
+        var scratch = new ulong[wordCount];
+        var referenceBytes = new bool[256];
+        foreach (byte value in term)
+            referenceBytes[value] = true;
 
         while (queue.Count > 0)
         {
             var currentSet = queue.Dequeue();
-            string currentKey = SetKey(currentSet);
-            int currentDfa = setToId[currentKey];
-
+            int currentDfa = setToId[currentSet];
+            int defaultTarget = int.MinValue;
             for (int b = 0; b < 256; b++)
             {
-                var nextSet = NfaStep(currentSet, (byte)b);
-                if (nextSet.Count == 0)
+                // Bytes absent from the reference all have the same substitution
+                // and insertion transitions. Compute that state set once per row.
+                bool isDefault = !referenceBytes[b];
+                if (isDefault && defaultTarget != int.MinValue)
                 {
-                    dfaTransitions[currentDfa][b] = -1;
+                    dfaTransitions[currentDfa][b] = defaultTarget;
                     continue;
                 }
-
-                string nextKey = SetKey(nextSet);
-                if (!setToId.TryGetValue(nextKey, out int nextDfa))
+                if (!NfaStep(currentSet, (byte)b, scratch))
                 {
+                    dfaTransitions[currentDfa][b] = -1;
+                    if (isDefault) defaultTarget = -1;
+                    continue;
+                }
+                if (!setToId.TryGetValue(scratch, out int nextDfa))
+                {
+                    var nextSet = scratch.ToArray();
                     nextDfa = dfaStateId++;
-                    setToId[nextKey] = nextDfa;
+                    setToId[nextSet] = nextDfa;
                     dfaTransitions.Add(new int[256]);
                     Array.Fill(dfaTransitions[^1], -1);
-                    dfaAccept.Add(IsNfaAccept(nextSet));
-                    dfaMinDistance.Add(NfaSetMinDistance(nextSet));
+                    int distance = NfaSetMinDistance(nextSet);
+                    dfaAccept.Add(distance <= maxEdits);
+                    dfaMinDistance.Add(distance);
                     queue.Enqueue(nextSet);
                 }
-
                 dfaTransitions[currentDfa][b] = nextDfa;
+                if (isDefault) defaultTarget = nextDfa;
             }
         }
 
@@ -527,28 +529,7 @@ public sealed class LevenshteinAutomaton : IAutomaton
             Array.Copy(dfaTransitions[s], 0, _transitions, s * 256, 256);
 
         // Compute canMatch via backward reachability
-        for (int s = 0; s < _stateCount; s++)
-            _canMatch[s] = _accept[s];
-
-        bool changed = true;
-        while (changed)
-        {
-            changed = false;
-            for (int s = 0; s < _stateCount; s++)
-            {
-                if (_canMatch[s]) continue;
-                for (int b = 0; b < 256; b++)
-                {
-                    int next = _transitions[s * 256 + b];
-                    if (next >= 0 && _canMatch[next])
-                    {
-                        _canMatch[s] = true;
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-        }
+        FSTAutomaton.ComputeCanMatch(_stateCount, _accept, _transitions, _canMatch);
     }
 
     /// <inheritdoc/>
@@ -792,6 +773,36 @@ public sealed class LevenshteinAutomaton : IAutomaton
 /// </summary>
 internal static class FSTAutomaton
 {
+    /// <summary>
+    /// Marks every state from which an accept state is reachable, by fixed-point iteration over a
+    /// dense 256-way transition table (-1 for no transition).
+    /// </summary>
+    internal static void ComputeCanMatch(int stateCount, bool[] accept, int[] transitions, bool[] canMatch)
+    {
+        for (int s = 0; s < stateCount; s++)
+            canMatch[s] = accept[s];
+
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            for (int s = 0; s < stateCount; s++)
+            {
+                if (canMatch[s]) continue;
+                for (int b = 0; b < 256; b++)
+                {
+                    int next = transitions[s * 256 + b];
+                    if (next >= 0 && canMatch[next])
+                    {
+                        canMatch[s] = true;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     /// <summary>
     /// Intersects the term dictionary with the automaton, returning all matching terms.
     /// The automaton operates on the bare term bytes (after the fieldPrefix).

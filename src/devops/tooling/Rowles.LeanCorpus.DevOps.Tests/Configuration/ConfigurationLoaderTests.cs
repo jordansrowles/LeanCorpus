@@ -113,7 +113,7 @@ public sealed class ConfigurationLoaderTests
         Assert.Contains("prefixLength=0", zeroEditFamily.QualityProof, StringComparison.Ordinal);
         Assert.Contains("transpositions=false", zeroEditFamily.QualityProof, StringComparison.Ordinal);
         Assert.Equal(["FuzzyQueryBenchmarks"], configuration.BenchmarkSuites["fuzzy-parity"].BenchmarkClasses);
-        Assert.Equal(["FuzzyExpansionCacheBenchmarks"], configuration.BenchmarkSuites["fuzzy-cache"].BenchmarkClasses);
+        Assert.Equal(["FuzzyExpansionCacheBenchmarks", "FuzzyCacheWorkingSetBenchmarks"], configuration.BenchmarkSuites["fuzzy-cache"].BenchmarkClasses);
         Assert.Equal(["fuzzy"], configuration.BenchmarkSuites["fuzzy-parity"].Aliases);
         Assert.Equal(15, configuration.BenchmarkCorrectnessAudit.Gates.Length);
         Assert.All(configuration.BenchmarkCorrectnessAudit.Gates,

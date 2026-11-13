@@ -257,10 +257,12 @@
     "fuzzy-cache": {
       "DisplayName": "Fuzzy expansion cache",
       "BenchmarkClasses": [
-        "FuzzyExpansionCacheBenchmarks"
+        "FuzzyExpansionCacheBenchmarks",
+        "FuzzyCacheWorkingSetBenchmarks"
       ],
       "RegisteredClasses": [
-        "FuzzyExpansionCacheBenchmarks"
+        "FuzzyExpansionCacheBenchmarks",
+        "FuzzyCacheWorkingSetBenchmarks"
       ]
     },
     "bounded-lru-cache": {

@@ -586,34 +586,38 @@ public sealed partial class IndexSearcher
     internal TopDocs ExecuteMoreLikeThis(MoreLikeThisQuery mlt, int topN, ISideCollector? sideCollector = null)
     {
         var p = mlt.Parameters;
+
+        // The cache holds term extraction only; the query is always built by one routine, so a
+        // warm search runs exactly the query a cold search would.
+        var cacheKey = CreateMltCacheKey(mlt);
+        if (_mltCache is null || !_mltCache.TryGetValue(cacheKey, out var terms))
+        {
+            terms = ExtractMoreLikeThisTerms(mlt);
+            if (terms.Length == 0)
+                return TopDocs.Empty;
+            StoreMoreLikeThisTerms(cacheKey, terms);
+        }
+
+        var query = BuildMoreLikeThisQuery(terms, p.BoostByScore);
+        return SearchMoreLikeThis(query, mlt.DocId, topN, sideCollector);
+    }
+
+    /// <summary>Gets the cached term extraction for <paramref name="mlt"/>, if any. For tests.</summary>
+    internal bool TryGetCachedMoreLikeThisTerms(
+        MoreLikeThisQuery mlt,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out (string Field, string Term, float Score)[]? terms)
+    {
+        terms = null;
+        return _mltCache is { } cache && cache.TryGetValue(CreateMltCacheKey(mlt), out terms);
+    }
+
+    /// <summary>Extracts candidates using exact global DF, in ascending score order.</summary>
+    internal (string Field, string Term, float Score)[] ExtractMoreLikeThisTerms(MoreLikeThisQuery mlt)
+    {
+        var p = mlt.Parameters;
         int readerIdx = ResolveReaderIndex(mlt.DocId);
         var reader = _readers[readerIdx];
         int localDocId = mlt.DocId - _docBases[readerIdx];
-        int segmentCount = _readers.Count;
-
-        // Check the MLT term cache for a previous extraction with the same parameters.
-        var cacheKey = new MltCacheKey(mlt.DocId, p.MaxQueryTerms,
-            p.MinTermFreq, p.MinDocFreq, p.MinWordLength);
-        if (_mltCache != null && _mltCache.TryGetValue(cacheKey, out var cachedTerms))
-        {
-            var cachedBuilder = new BooleanQuery.Builder();
-            for (int i = cachedTerms.Length - 1; i >= 0; i--)
-                cachedBuilder.Add(new TermQuery(cachedTerms[i].Field, cachedTerms[i].Term), Occur.Should);
-            var cachedBoolQ = cachedBuilder.Build();
-            var cachedResults = SearchCore(cachedBoolQ, topN,
-                sideCollector is null ? null : new ExcludingSideCollector(sideCollector, mlt.DocId));
-            var cachedScoreDocs = cachedResults.ScoreDocs;
-            int cachedSrcIdx = -1;
-            for (int i = 0; i < cachedScoreDocs.Length; i++)
-                if (cachedScoreDocs[i].DocId == mlt.DocId) { cachedSrcIdx = i; break; }
-            if (cachedSrcIdx < 0) return cachedResults;
-            var cachedFiltered = new ScoreDoc[cachedScoreDocs.Length - 1];
-            if (cachedSrcIdx > 0) Array.Copy(cachedScoreDocs, 0, cachedFiltered, 0, cachedSrcIdx);
-            if (cachedSrcIdx < cachedScoreDocs.Length - 1)
-                Array.Copy(cachedScoreDocs, cachedSrcIdx + 1, cachedFiltered, cachedSrcIdx,
-                    cachedScoreDocs.Length - cachedSrcIdx - 1);
-            return new TopDocs(cachedResults.TotalHits - 1, cachedFiltered, cachedResults.IsPartial);
-        }
 
         // Bounded min-heap (priority = score). We keep the smallest score at the
         // top so we can evict the weakest candidate when the heap exceeds MaxQueryTerms.
@@ -650,38 +654,13 @@ public sealed partial class IndexSearcher
                     field.AsSpan().CopyTo(buf);
                     buf[fieldLen] = '\0';
                     entry.Term.AsSpan().CopyTo(buf.AsSpan(fieldLen + 1));
-                    ReadOnlySpan<char> qt = buf.AsSpan(0, qtLen);
                     string qtStr = new string(buf, 0, qtLen);
-                    // Fast path: MinDocFreq <= 1 with multiple segments; use local
-                    // segment's docFreq scaled by segment count as an IDF approximation.
-                    if (p.MinDocFreq <= 1 && segmentCount > 1)
-                    {
-                        int currDocFreq = reader.GetDocFreqByQualified(qtStr);
-                        if (currDocFreq < 1) continue;
-                        float estimatedGlobal = (float)currDocFreq * segmentCount;
-                        float idf = MathF.Log((float)_totalDocCount / (estimatedGlobal + 1));
-                        float score = tf * idf;
-                        EnqueueCandidate(heap, capacity, score, field, entry.Term);
-                        continue;
-                    }
+                    int docFreq = GetMoreLikeThisDocFreq(qtStr);
+                    if (docFreq < p.MinDocFreq || docFreq > p.MaxDocFreq) continue;
 
-                    // Full cross-segment scan for MinDocFreq > 1 or single-segment index.
-                    {
-                        int docFreq = 0;
-                        foreach (var r in _readers)
-                        {
-                            docFreq += r.GetDocFreqByQualified(qtStr);
-                            if (docFreq > p.MaxDocFreq)
-                                goto nextTerm;
-                        }
-
-                        if (docFreq < p.MinDocFreq) continue;
-
-                        float idf = MathF.Log((float)_totalDocCount / (docFreq + 1));
-                        float score = tf * idf;
-                        EnqueueCandidate(heap, capacity, score, field, entry.Term);
-                    }
-                nextTerm: ;
+                    float idf = MathF.Log((float)_totalDocCount / (docFreq + 1));
+                    float score = tf * idf;
+                    EnqueueCandidate(heap, capacity, score, field, entry.Term);
                 }
             }
         }
@@ -691,7 +670,7 @@ public sealed partial class IndexSearcher
         }
 
         if (heap.Count == 0)
-            return TopDocs.Empty;
+            return [];
 
         // Dequeue into a list (ascending score order; we'll iterate in reverse).
         int termCount = heap.Count;
@@ -700,59 +679,97 @@ public sealed partial class IndexSearcher
         while (heap.TryDequeue(out var c, out _))
             candidates.Add(c);
 
-        // Cache the extracted candidate terms for reuse.
-        var cacheTerms = new (string Field, string Term, float Score)[termCount];
-        for (int i = 0; i < termCount; i++)
-            cacheTerms[i] = (candidates[i].Field, candidates[i].Term, candidates[i].Score);
+        var terms = new (string Field, string Term, float Score)[candidates.Count];
+        for (int i = 0; i < terms.Length; i++)
+            terms[i] = (candidates[i].Field, candidates[i].Term, candidates[i].Score);
+        return terms;
+    }
+
+    private int GetMoreLikeThisDocFreq(string qualifiedTerm)
+        => qualifiedTerm.Length > MltDocFreqCacheMaximumTermLength
+            ? ComputeMoreLikeThisDocFreq(qualifiedTerm)
+            : _mltDocFreqCache.GetOrAdd(qualifiedTerm, this, static (term, searcher) =>
+                searcher.ComputeMoreLikeThisDocFreq(term));
+
+    private int ComputeMoreLikeThisDocFreq(string qualifiedTerm)
+    {
+        int total = 0;
+        foreach (var reader in _readers)
+            total += reader.GetDocFreqByQualified(qualifiedTerm);
+        return total;
+    }
+
+    private static MltCacheKey CreateMltCacheKey(MoreLikeThisQuery mlt)
+    {
+        var p = mlt.Parameters;
+        // Field names cannot contain NUL (it separates qualified terms), so the join is unambiguous.
+        return new MltCacheKey(
+            mlt.DocId, string.Join('\0', mlt.Fields), p.MaxQueryTerms, p.MinTermFreq, p.MinDocFreq, p.MaxDocFreq, p.MinWordLength);
+    }
+
+    private void StoreMoreLikeThisTerms(MltCacheKey cacheKey, (string Field, string Term, float Score)[] terms)
+    {
         _mltCache ??= new ConcurrentDictionary<MltCacheKey, (string, string, float)[]>();
-        _mltCache[cacheKey] = cacheTerms;
+        _mltCache[cacheKey] = terms;
         if (Interlocked.Increment(ref _mltCacheCount) >= MltCacheSoftCap)
         {
             Interlocked.Exchange(ref _mltCache,
                 new ConcurrentDictionary<MltCacheKey, (string, string, float)[]>());
             Interlocked.Exchange(ref _mltCacheCount, 0);
         }
+    }
 
-        // Build a BooleanQuery with Should clauses (highest score first).
-        var boolQBuilder = new BooleanQuery.Builder();
-        float maxScore = candidates[termCount - 1].Score;
-
-        for (int i = termCount - 1; i >= 0; i--)
+    /// <summary>
+    /// Builds the MoreLikeThis query from extracted terms in ascending score order: one SHOULD
+    /// clause per term, highest score first, boosted relative to the best term when
+    /// <paramref name="boostByScore"/> is set.
+    /// </summary>
+    private static BooleanQuery BuildMoreLikeThisQuery((string Field, string Term, float Score)[] terms, bool boostByScore)
+    {
+        var builder = new BooleanQuery.Builder();
+        float maxScore = terms[^1].Score;
+        for (int i = terms.Length - 1; i >= 0; i--)
         {
-            var (score, field, term) = candidates[i];
-            var tq = new TermQuery(field, term);
-            if (p.BoostByScore && maxScore > 0)
-                tq.Boost = score / maxScore;
-            boolQBuilder.Add(tq, Occur.Should);
+            var (field, term, score) = terms[i];
+            var termQuery = new TermQuery(field, term);
+            if (boostByScore && maxScore > 0)
+                termQuery.Boost = score / maxScore;
+            builder.Add(termQuery, Occur.Should);
         }
 
-        var boolQ = boolQBuilder.Build();
-        var results = SearchCore(boolQ, topN,
-            sideCollector is null ? null : new ExcludingSideCollector(sideCollector, mlt.DocId));
+        return builder.Build();
+    }
+
+    /// <summary>Runs the MoreLikeThis query and removes the source document from the results.</summary>
+    private TopDocs SearchMoreLikeThis(BooleanQuery query, int sourceDocId, int topN, ISideCollector? sideCollector)
+    {
+        // Count the source match independently of the competitive heap. The exhaustive side
+        // collector also prevents WAND from skipping matches needed for an exact TotalHits.
+        var excluding = new ExcludingSideCollector(sideCollector, sourceDocId);
+        int candidates = topN < _totalDocCount ? topN + 1 : topN;
+        var results = SearchCore(query, candidates, excluding);
 
         // Exclude the source document from results.
         var scoreDocs = results.ScoreDocs;
         int sourceIdx = -1;
         for (int i = 0; i < scoreDocs.Length; i++)
         {
-            if (scoreDocs[i].DocId == mlt.DocId)
+            if (scoreDocs[i].DocId == sourceDocId)
             {
                 sourceIdx = i;
                 break;
             }
         }
 
-        if (sourceIdx < 0)
-            return results;
+        int resultCount = Math.Min(topN, scoreDocs.Length - (sourceIdx >= 0 ? 1 : 0));
+        var filtered = new ScoreDoc[resultCount];
+        for (int input = 0, output = 0; input < scoreDocs.Length && output < resultCount; input++)
+        {
+            if (input != sourceIdx)
+                filtered[output++] = scoreDocs[input];
+        }
 
-        // Build a new array without the source document.
-        var filtered = new ScoreDoc[scoreDocs.Length - 1];
-        if (sourceIdx > 0)
-            Array.Copy(scoreDocs, 0, filtered, 0, sourceIdx);
-        if (sourceIdx < scoreDocs.Length - 1)
-            Array.Copy(scoreDocs, sourceIdx + 1, filtered, sourceIdx, scoreDocs.Length - sourceIdx - 1);
-
-        return new TopDocs(results.TotalHits - 1, filtered, results.IsPartial);
+        return new TopDocs(results.TotalHits - (excluding.SourceMatched ? 1 : 0), filtered, results.IsPartial);
     }
 
     /// <summary>Enqueues a candidate into a bounded min-heap, evicting the
@@ -907,12 +924,16 @@ public sealed partial class IndexSearcher
         }
     }
 
-    private sealed class ExcludingSideCollector(ISideCollector inner, int excludedGlobalDocId) : ISideCollector
+    private sealed class ExcludingSideCollector(ISideCollector? inner, int excludedGlobalDocId) : ISideCollector
     {
+        public bool SourceMatched { get; private set; }
+
         public void Collect(int globalDocId, float score, Index.Segment.SegmentReader reader, int localDocId)
         {
-            if (globalDocId != excludedGlobalDocId)
-                inner.Collect(globalDocId, score, reader, localDocId);
+            if (globalDocId == excludedGlobalDocId)
+                SourceMatched = true;
+            else
+                inner?.Collect(globalDocId, score, reader, localDocId);
         }
     }
 

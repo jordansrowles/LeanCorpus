@@ -49,6 +49,23 @@ public sealed class ExecutionLeaseTests
         await acquired.DisposeAsync();
     }
 
+    [Fact]
+    public async Task CancelledMarkerCreationLeavesNoMarkerBehind()
+    {
+        // A cancelled write after the marker file exists must not leave an orphaned marker: an
+        // orphaned promotion gate blocks every later shared lease until it times out.
+        using var root = TemporaryRoot.Create();
+        string path = Path.Combine(root.Path, "promotion.lock");
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ExecutionLease.CreateMarkerAsync(path, cancellation.Token));
+        Assert.False(File.Exists(path));
+
+        await ExecutionLease.CreateMarkerAsync(path, TestContext.Current.CancellationToken);
+        Assert.True(File.Exists(path));
+    }
+
     private sealed class TemporaryRoot : IDisposable
     {
         internal TemporaryRoot(string path) => Path = path;

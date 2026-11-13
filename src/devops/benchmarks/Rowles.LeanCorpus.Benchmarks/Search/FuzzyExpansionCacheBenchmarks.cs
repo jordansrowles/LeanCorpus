@@ -153,7 +153,7 @@ public class FuzzyExpansionCacheBenchmarks
         return _cachedSearcher!.Search(_positiveQuery, TopN).TotalHits;
     }
 
-    private static byte[][] ReadBodyDictionaryTerms(LeanIndexSearcher searcher)
+    internal static byte[][] ReadBodyDictionaryTerms(LeanIndexSearcher searcher)
     {
         var terms = new HashSet<string>(StringComparer.Ordinal);
         foreach (var reader in searcher.GetSegmentReaders())
@@ -173,7 +173,7 @@ public class FuzzyExpansionCacheBenchmarks
         return terms.Select(static term => Encoding.UTF8.GetBytes(term)).ToArray();
     }
 
-    private static LeanFuzzyQuery[] CreateDictionaryVerifiedNoHitQueries(byte[][] dictionaryTerms, int count)
+    internal static LeanFuzzyQuery[] CreateDictionaryVerifiedNoHitQueries(byte[][] dictionaryTerms, int count)
     {
         var queries = new List<LeanFuzzyQuery>(count);
         for (var candidate = 0; candidate < MaxNoHitCandidateAttempts && queries.Count < count; candidate++)
@@ -355,7 +355,7 @@ public class FuzzyExpansionCacheBenchmarks
                 $"Fuzzy cache preflight '{query.Term}' returned {expansionCount} expansions and {totalHits} hits; expected zero.");
     }
 
-    private static int ReadFuzzyCacheCapacity()
+    internal static int ReadFuzzyCacheCapacity()
     {
         var field = typeof(TermDictionaryReader).GetField("MaxFuzzyCacheEntries", BindingFlags.NonPublic | BindingFlags.Static);
         if (field?.GetRawConstantValue() is not int capacity || capacity < 1)

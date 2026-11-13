@@ -248,6 +248,46 @@ public sealed class FuzzyExpansionCachePolicyTests : IClassFixture<TestDirectory
         Assert.Same(cached, reader.GetFuzzyMatches("body\0", query.AsSpan(), 1, maxExpansions: 50));
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(127)]
+    [InlineData(128)]
+    [InlineData(129)]
+    [InlineData(256)]
+    public void NoHitWorkingSetsFollowBoundedGenerationPolicy(int workingSet)
+    {
+        const int capacity = 128;
+        using var reader = OpenDictionary($"fuzzy-working-set-{workingSet}");
+        string[] queries = Enumerable.Range(0, workingSet)
+            .Select(index => $"zzzznomatch-{index:D3}").ToArray();
+        var expected = new HashSet<string>(StringComparer.Ordinal);
+        for (int pass = 0; pass < 5; pass++)
+        {
+            int hits = 0;
+            foreach (string query in queries)
+            {
+                bool hit = reader.TryGetCachedFuzzyMatches("body\0", query, 2, 50, out var cached);
+                Assert.Equal(expected.Contains(query), hit);
+                var result = reader.GetFuzzyMatches("body\0", query.AsSpan(), 2, 50);
+                Assert.Empty(result);
+                if (hit)
+                {
+                    hits++;
+                    Assert.Same(cached, result);
+                }
+                else
+                {
+                    expected.Add(query);
+                    if (expected.Count > capacity) expected.Clear();
+                }
+                int retained = queries.Count(term => reader.TryGetCachedFuzzyMatches("body\0", term, 2, 50, out _));
+                Assert.Equal(expected.Count, retained);
+                Assert.InRange(retained, 0, capacity);
+            }
+            Assert.Equal(pass > 0 && workingSet <= capacity ? workingSet : 0, hits);
+        }
+    }
+
     private TermDictionaryReader OpenDictionary(string name)
     {
         var path = Path.Combine(_fixture.Path, name + ".dic");
