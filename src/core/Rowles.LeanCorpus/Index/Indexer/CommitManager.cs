@@ -24,6 +24,7 @@ internal static class CommitManager
             if (writer.PreparedGeneration >= 0)
             {
                 PublishPreparedCommit(writer);
+                Diagnostics.AsyncIndexingDiagnostics.RecordCommit(writer.CommittedSegments.Count);
                 return;
             }
 
@@ -35,6 +36,7 @@ internal static class CommitManager
             CommitCore(writer);
             sw.Stop();
             writer.Config.Metrics.RecordCommit(sw.Elapsed);
+            Diagnostics.AsyncIndexingDiagnostics.RecordCommit(writer.CommittedSegments.Count);
 
             activity?.SetTag("index.segment_count", writer.CommittedSegments.Count);
         }

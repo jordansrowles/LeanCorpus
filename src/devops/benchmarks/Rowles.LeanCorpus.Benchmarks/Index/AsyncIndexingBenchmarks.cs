@@ -1,4 +1,5 @@
 using BenchmarkDotNet.Attributes;
+using Rowles.LeanCorpus.Diagnostics;
 using IODirectory = System.IO.Directory;
 using LeanDocument = Rowles.LeanCorpus.Document.LeanDocument;
 using LeanMMapDirectory = Rowles.LeanCorpus.Store.MMapDirectory;
@@ -30,8 +31,12 @@ public class AsyncIndexingBenchmarks
     [ParamsSource(nameof(DocCounts))]
     public int DocumentCount { get; set; }
 
+    /// <summary>Set to <c>1</c> to print opt-in async indexing counters after each iteration.</summary>
+    public const string CountersEnvironmentVariable = "LEANCORPUS_ASYNC_INDEX_COUNTERS";
+
     private LeanDocument[] _documents = [];
     private readonly List<string> _iterationPaths = [];
+    private IDisposable? _counterScope;
 
     [GlobalSetup]
     public void Setup()
@@ -48,11 +53,37 @@ public class AsyncIndexingBenchmarks
     }
 
     [GlobalCleanup]
-    public void Cleanup() => CleanupIterationPaths();
+    public void Cleanup()
+    {
+        CleanupIterationPaths();
+        _counterScope?.Dispose();
+        _counterScope = null;
+    }
+
+    /// <summary>
+    /// Opens an async indexing counter scope when <see cref="CountersEnvironmentVariable"/> is
+    /// <c>1</c>. Counters stay off by default so ordinary reruns remain comparable with
+    /// baselines captured without them.
+    /// </summary>
+    [IterationSetup]
+    public void BeginIterationCounters()
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable(CountersEnvironmentVariable), "1", StringComparison.Ordinal))
+            return;
+
+        _counterScope ??= AsyncIndexingDiagnostics.BeginMeasurement();
+        AsyncIndexingDiagnostics.Reset();
+    }
 
     [IterationCleanup]
     public void CleanupIterationPaths()
     {
+        if (_counterScope is not null)
+        {
+            Console.WriteLine(
+                $"// Async indexing counters: documents={DocumentCount}, {AsyncIndexingDiagnostics.GetSnapshot()}");
+        }
+
         foreach (var path in _iterationPaths)
         {
             if (IODirectory.Exists(path))

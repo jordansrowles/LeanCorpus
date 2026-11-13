@@ -49,6 +49,7 @@ internal sealed class DwptFlushSnapshot : IDisposable
     internal static DwptFlushSnapshot CaptureFrom(DocumentsWriterPerThread dwpt)
     {
         dwpt.Postings.Freeze();
+        Diagnostics.AsyncIndexingDiagnostics.RecordFlushSnapshot(dwpt.DocCount);
         var snapshot = new DwptFlushSnapshot
         {
             EstimatedBytes = dwpt.EstimatedRamBytes,
