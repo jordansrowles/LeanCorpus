@@ -30,36 +30,66 @@ public sealed class SynonymMap
             node = child;
         }
         node.Replacements = replacements;
+        if (words.Length > MaxSourceLength)
+            MaxSourceLength = words.Length;
     }
 
-    /// <summary>Attempts longest-match lookup starting at the given token position.</summary>
+    /// <summary>Gets the number of words in the longest source phrase added so far.</summary>
+    internal int MaxSourceLength { get; private set; }
+
+    /// <summary>Returns whether a token can begin a source phrase, without allocating.</summary>
+    internal bool IsSourceStart(ReadOnlySpan<char> text) => TryGetChild(_root, text, out _);
+
+    /// <summary>
+    /// Attempts longest-match lookup from the first held token, comparing lowercased text
+    /// without allocating.
+    /// </summary>
     /// <returns>
-    /// The number of source tokens consumed (0 if no match),
-    /// and the replacement tokens via <paramref name="replacements"/>.
+    /// The number of source tokens consumed (0 if no match), and the replacement tokens via
+    /// <paramref name="replacements"/>. <paramref name="canExtend"/> is true when every held
+    /// token matched and a longer source could still match once more tokens arrive.
     /// </returns>
-    internal int TryMatch(List<Token> tokens, int startIndex, out string[]? replacements)
+    internal int TryMatch(List<SynonymGraphFilter.PendingEdge> tokens, out string[]? replacements, out bool canExtend)
     {
-        replacements = null;
         var node = _root;
         int bestLength = 0;
         string[]? bestReplacements = null;
+        canExtend = false;
 
-        for (int i = startIndex; i < tokens.Count; i++)
+        for (int i = 0; i < tokens.Count; i++)
         {
-            var key = tokens[i].Text.ToLowerInvariant();
-            if (!node.Children.TryGetValue(key, out var child))
-                break;
+            if (!TryGetChild(node, tokens[i].Token.Text, out var child))
+            {
+                replacements = bestReplacements;
+                return bestLength;
+            }
 
-            node = child;
+            node = child!;
             if (node.Replacements is not null)
             {
-                bestLength = i - startIndex + 1;
+                bestLength = i + 1;
                 bestReplacements = node.Replacements;
             }
         }
 
+        // Look-ahead never exceeds the longest source: past it no node has children.
+        canExtend = node.Children.Count > 0 && tokens.Count < MaxSourceLength;
         replacements = bestReplacements;
         return bestLength;
+    }
+
+    private static bool TryGetChild(TrieNode node, ReadOnlySpan<char> text, out TrieNode? child)
+    {
+        if (node.Children.Count == 0)
+        {
+            child = null;
+            return false;
+        }
+
+        // Same invariant lowercasing as string.ToLowerInvariant, into a stack buffer.
+        Span<char> lowered = text.Length <= 256 ? stackalloc char[text.Length] : new char[text.Length];
+        int length = text.ToLowerInvariant(lowered);
+        return node.Children.GetAlternateLookup<ReadOnlySpan<char>>().TryGetValue(lowered[..length], out child);
     }
 
     private sealed class TrieNode

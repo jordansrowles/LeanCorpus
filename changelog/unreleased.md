@@ -174,6 +174,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Exact vector scans no longer allocate a copy of each vector.
 - Zstandard decompression no longer allocates its output twice.
 - Optional compression codecs pool their scratch buffers.
+- `SynonymGraphFilter` allocates less per document. This affects both LeanCorpus (source-included analysis) and Rowles.Text.
 
 ## Fixed
 
