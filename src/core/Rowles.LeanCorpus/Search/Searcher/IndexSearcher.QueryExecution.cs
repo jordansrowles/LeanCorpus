@@ -1174,12 +1174,15 @@ public sealed partial class IndexSearcher
         }
     }
 
+    private static readonly int OneBits = BitConverter.SingleToInt32Bits(1f);
+
     private static bool AllClauseBoostsAreOne(float[] boosts, int count)
     {
         for (int i = 0; i < count; i++)
         {
-            // Exactly one is the only boost that leaves block-max bounds valid.
-            if (!boosts[i].Equals(1f))
+            // Exactly one is the only boost that leaves block-max bounds valid, so compare the
+            // bit pattern rather than a tolerance.
+            if (BitConverter.SingleToInt32Bits(boosts[i]) != OneBits)
                 return false;
         }
 
