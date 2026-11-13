@@ -127,6 +127,31 @@ public sealed class CompressionCodecParityTests
         Assert.Equal(payload, codec.Decompress(compressed, payload.Length));
     }
 
+    [Theory]
+    [InlineData(FieldCompressionPolicy.Lz4)]
+    [InlineData(FieldCompressionPolicy.Zstandard)]
+    public void Compress_ConcurrentCallers_ProduceSameBytesAsSequentialCalls(FieldCompressionPolicy policy)
+    {
+        // Pooled scratch is rented and returned inside each call, so concurrent callers of
+        // different sizes must never see another caller's bytes.
+        var codec = CompressionCodecRegistry.Get(policy);
+        var payloads = Enumerable.Range(0, 48)
+            .Select(index => index % 2 == 0 ? CreatePayload(512 + index * 977) : CreateTextPayload(512 + index * 1_531))
+            .ToArray();
+        var expected = payloads.Select(payload => codec.Compress(payload)).ToArray();
+
+        var actual = new byte[payloads.Length * 8][];
+        Parallel.For(0, actual.Length, new ParallelOptions { MaxDegreeOfParallelism = 8 }, index =>
+            actual[index] = codec.Compress(payloads[index % payloads.Length]));
+
+        for (int index = 0; index < actual.Length; index++)
+        {
+            var payload = payloads[index % payloads.Length];
+            Assert.Equal(expected[index % payloads.Length], actual[index]);
+            Assert.Equal(payload, codec.Decompress(actual[index], payload.Length));
+        }
+    }
+
     private static byte[] CreateTextPayload(int size)
     {
         var builder = new StringBuilder(size);

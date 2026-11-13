@@ -173,6 +173,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Reduced per-writer allocation for small concurrent indexing batches.
 - Exact vector scans no longer allocate a copy of each vector.
 - Zstandard decompression no longer allocates its output twice.
+- Optional compression codecs pool their scratch buffers.
 
 ## Fixed
 
