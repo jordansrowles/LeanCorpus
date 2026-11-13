@@ -699,6 +699,18 @@ public sealed partial class SegmentReader : IDisposable
     public bool HasVectors { get { using var lease = AcquireReadLease(); return lease.State.HasVectors; } }
     public float[]? GetVector(int docId) { using var lease = AcquireReadLease(); return lease.State.GetVector(docId); }
     public float[]? GetVector(string fieldName, int docId) { using var lease = AcquireReadLease(); return lease.State.GetVector(fieldName, docId); }
+
+    /// <summary>
+    /// Borrows a stored vector without copying it. Requires an active query pin for this reader
+    /// on the current thread, and the span must not be used after that pin is released
+    /// (ADR011, ADR027). <paramref name="scratch"/> receives vectors that cannot be borrowed.
+    /// </summary>
+    internal ReadOnlySpan<float> BorrowPinnedVector(string fieldName, int docId, Span<float> scratch)
+    {
+        if (!TryGetFastState(out var state))
+            throw new InvalidOperationException("Borrowing a vector requires a query pin for this segment reader.");
+        return state.BorrowVector(fieldName, docId, scratch);
+    }
     internal bool HasVector(string fieldName, int docId) { using var lease = AcquireReadLease(); return lease.State.HasVector(fieldName, docId); }
     internal bool TryCopyVectorTo(string fieldName, int docId, Span<float> destination)
     { using var lease = AcquireReadLease(); return lease.State.TryCopyVectorTo(fieldName, docId, destination); }

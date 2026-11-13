@@ -134,6 +134,26 @@ internal sealed class VectorReader : IDisposable
         return MemoryMarshal.Cast<byte, float>(_input.BorrowSpan(byteCount, ref position));
     }
 
+    /// <summary>
+    /// Returns a borrowed zero-copy span for an unquantised vector on little-endian hosts, or
+    /// decodes into <paramref name="scratch"/> otherwise. The span must not outlive the
+    /// operation that keeps this reader's input mapped (ADR027).
+    /// </summary>
+    internal ReadOnlySpan<float> ReadVectorSpan(int docId, Span<float> scratch)
+    {
+        if ((uint)docId >= (uint)_vectorCount)
+            throw new ArgumentOutOfRangeException(nameof(docId));
+        if (_int8 || !BitConverter.IsLittleEndian)
+        {
+            ReadVector(docId, scratch);
+            return scratch;
+        }
+
+        long position = _dataStart + (long)docId * _dimension * sizeof(float);
+        int byteCount = checked(_dimension * sizeof(float));
+        return MemoryMarshal.Cast<byte, float>(_input.BorrowSpan(byteCount, ref position));
+    }
+
     public int Dimension => _dimension;
     public int VectorCount => _vectorCount;
 

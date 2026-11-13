@@ -1371,11 +1371,15 @@ public sealed partial class IndexSearcher
         }
 
         int exactScannedVectors = 0;
+        // The pin (nested under the caller's segment query lease when there is one) keeps each
+        // borrowed vector span mapped until it has been scored. No span outlives this method.
+        using var vectorPin = reader.AcquireQueryLease();
+        Span<float> scratch = new float[fieldInfo.Dimension];
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
             if (!reader.IsLive(docId)) continue;
-            var docVector = reader.GetVector(query.Field, docId);
-            if (docVector is null || docVector.Length == 0) continue;
+            var docVector = reader.BorrowPinnedVector(query.Field, docId, scratch);
+            if (docVector.IsEmpty) continue;
             float similarity = VectorQuery.CosineSimilarity(queryVec, docVector);
             similarity = ApplyVectorQueryBoost(query, similarity);
             similarity = ApplyFieldBoost(reader, docId, query.Field, similarity);
@@ -1394,12 +1398,15 @@ public sealed partial class IndexSearcher
         ref TopNCollector collector)
     {
         int scannedVectors = 0;
+        // See the unfiltered flat scan: borrowed spans never outlive this pin.
+        using var vectorPin = reader.AcquireQueryLease();
+        Span<float> scratch = new float[query.QueryVector.Length];
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
             if (!filterBitmap.Contains(docId)) continue;
             if (!reader.IsLive(docId)) continue;
-            var docVector = reader.GetVector(query.Field, docId);
-            if (docVector is null || docVector.Length == 0) continue;
+            var docVector = reader.BorrowPinnedVector(query.Field, docId, scratch);
+            if (docVector.IsEmpty) continue;
             float similarity = VectorQuery.CosineSimilarity(queryVec, docVector);
             similarity = ApplyVectorQueryBoost(query, similarity);
             similarity = ApplyFieldBoost(reader, docId, query.Field, similarity);
