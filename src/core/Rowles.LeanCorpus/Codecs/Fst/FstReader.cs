@@ -450,6 +450,13 @@ public sealed class FstReader
     }
 
     private void CollectOutputsRecursive(long nodeAddr, long accumulatedOutput, List<long> sink)
+        => CollectOutputsRecursive(nodeAddr, accumulatedOutput, sink, skipLineFeed: false);
+
+    /// <summary>
+    /// Collects every output below <paramref name="nodeAddr"/>. With <paramref name="skipLineFeed"/>,
+    /// arcs labelled 0x0A are not followed, so keys containing a line feed below this node are left out.
+    /// </summary>
+    private void CollectOutputsRecursive(long nodeAddr, long accumulatedOutput, List<long> sink, bool skipLineFeed)
     {
         int firstArc = FirstRealArcOffset(nodeAddr);
         if (firstArc < 0) return;
@@ -457,13 +464,18 @@ public sealed class FstReader
         while (true)
         {
             var arc = DecodeArc(ref pos);
+            if (skipLineFeed && arc.Label == LineFeed)
+            {
+                if (arc.IsLastArc) break;
+                continue;
+            }
             long childOutput = accumulatedOutput + arc.Output;
             if (arc.HasTarget)
             {
                 long childAddr = arc.Target;
                 if (TryGetFinalOutput(childAddr, out long childFinal))
                     sink.Add(childOutput + childFinal);
-                CollectOutputsRecursive(childAddr, childOutput, sink);
+                CollectOutputsRecursive(childAddr, childOutput, sink, skipLineFeed);
             }
             else
             {
@@ -473,13 +485,27 @@ public sealed class FstReader
         }
     }
 
+    private const byte LineFeed = 0x0A;
+
     /// <summary>
     /// Collects outputs for keys starting with <paramref name="qualifier"/> whose suffix contains
     /// <paramref name="needle"/> (UTF-8 byte-wise). Allocation-light: reuses a single key buffer
     /// and emits offsets directly into <paramref name="sink"/>.
     /// </summary>
     public void CollectContainsOutputs(ReadOnlySpan<byte> qualifier, ReadOnlySpan<byte> needle, List<long> sink)
+        => CollectContainsOutputs(qualifier, needle, sink, skipLineFeedKeys: false);
+
+    /// <summary>
+    /// As <see cref="CollectContainsOutputs(ReadOnlySpan{byte}, ReadOnlySpan{byte}, List{long})"/>. With
+    /// <paramref name="skipLineFeedKeys"/>, keys whose remainder contains a line feed (0x0A) are left
+    /// out, which matches an anchored <c>.*literal.*</c> regex under default options when the literal
+    /// itself has no line feed. UTF-8 encodes U+000A only as that byte.
+    /// </summary>
+    public void CollectContainsOutputs(ReadOnlySpan<byte> qualifier, ReadOnlySpan<byte> needle, List<long> sink, bool skipLineFeedKeys)
     {
+        if (skipLineFeedKeys && needle.IndexOf(LineFeed) >= 0)
+            throw new ArgumentException("A needle containing a line feed cannot skip line-feed keys.", nameof(needle));
+
         if (_count == 0 || _rootAddress == NoAddress) return;
 
         long nodeAddr = _rootAddress;
@@ -498,7 +524,7 @@ public sealed class FstReader
             // Empty needle matches every key with this qualifier.
             if (TryGetFinalOutput(nodeAddr, out long entryFinal))
                 sink.Add(accumulated + entryFinal);
-            CollectOutputsRecursive(nodeAddr, accumulated, sink);
+            CollectOutputsRecursive(nodeAddr, accumulated, sink, skipLineFeedKeys);
             return;
         }
 
@@ -506,7 +532,7 @@ public sealed class FstReader
         byte[]? rented = null;
         try
         {
-            CollectContainsRecursive(nodeAddr, accumulated, ref keyBuf, ref rented, 0, needle, sink);
+            CollectContainsRecursive(nodeAddr, accumulated, ref keyBuf, ref rented, 0, needle, sink, skipLineFeedKeys);
         }
         finally
         {
@@ -520,7 +546,7 @@ public sealed class FstReader
     /// on the way down; once a prefix contains the needle, every key below it matches, so the rest
     /// of that subtree is collected without further comparison.
     /// </summary>
-    private void CollectContainsRecursive(long nodeAddr, long accumulatedOutput, ref Span<byte> keyBuf, ref byte[]? rented, int keyLen, ReadOnlySpan<byte> needle, List<long> sink)
+    private void CollectContainsRecursive(long nodeAddr, long accumulatedOutput, ref Span<byte> keyBuf, ref byte[]? rented, int keyLen, ReadOnlySpan<byte> needle, List<long> sink, bool skipLineFeed)
     {
         int firstArc = FirstRealArcOffset(nodeAddr);
         if (firstArc < 0) return;
@@ -528,6 +554,11 @@ public sealed class FstReader
         while (true)
         {
             var arc = DecodeArc(ref pos);
+            if (skipLineFeed && arc.Label == LineFeed)
+            {
+                if (arc.IsLastArc) break;
+                continue;
+            }
             EnsureKeyCapacity(ref keyBuf, ref rented, keyLen + 1);
             keyBuf[keyLen] = arc.Label;
             int childKeyLen = keyLen + 1;
@@ -541,11 +572,11 @@ public sealed class FstReader
                 {
                     if (TryGetFinalOutput(childAddr, out long matchedFinal))
                         sink.Add(childOutput + matchedFinal);
-                    CollectOutputsRecursive(childAddr, childOutput, sink);
+                    CollectOutputsRecursive(childAddr, childOutput, sink, skipLineFeed);
                 }
                 else
                 {
-                    CollectContainsRecursive(childAddr, childOutput, ref keyBuf, ref rented, childKeyLen, needle, sink);
+                    CollectContainsRecursive(childAddr, childOutput, ref keyBuf, ref rented, childKeyLen, needle, sink, skipLineFeed);
                 }
             }
             else if (contains)

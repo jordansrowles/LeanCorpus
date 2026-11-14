@@ -87,6 +87,37 @@ public sealed class RegexpWholeTermMatchingTests : IClassFixture<TestDirectoryFi
         }
     }
 
+    /// <summary>
+    /// Property: the contains shortcut and the verified routes agree on terms with line terminators.
+    /// With default options '.' does not match '\n', so '.*nation.*' must reject 'x\nnation' as the
+    /// fallback '.*(nation).*' does, on one segment (unverified shortcut) and on many (verified).
+    /// </summary>
+    [Fact(DisplayName = "Regexp: Routes Agree On Terms With Line Terminators")]
+    public void Regexp_Routes_AgreeOnLineTerminators()
+    {
+        string[] terms =
+        [
+            "nation", "x\nnation", "nation\n", "\nnation", "nat\nion", "na\ntion", "a\r\nnation", "nation\rx",
+            "international", "inter\nnational", "\n", "plain", "gov\nment", "government"
+        ];
+        string[] patterns =
+        [
+            ".*nation.*", ".*(nation).*", ".*nat\nion.*", ".*\n.*", ".*", "nation.*", ".*nation", "gov.*ment",
+            ".*ion.*", ".*\rx.*", ".*ation.*"
+        ];
+
+        using var single = BuildIndex("regexp_newline_one_" + Guid.NewGuid().ToString("N"), terms, segments: 1);
+        using var many = BuildIndex("regexp_newline_many_" + Guid.NewGuid().ToString("N"), terms, segments: terms.Length);
+        foreach (string pattern in patterns)
+        {
+            var reference = new Regex(string.Concat(@"\A(?:", pattern, @")\z"), RegexOptions.None, TimeSpan.FromSeconds(1));
+            string[] expected = terms.Where(term => reference.IsMatch(term)).Order(StringComparer.Ordinal).ToArray();
+
+            Assert.True(expected.SequenceEqual(MatchedTerms(single, pattern)), $"single segment, pattern '{Regex.Escape(pattern)}'");
+            Assert.True(expected.SequenceEqual(MatchedTerms(many, pattern)), $"many segments, pattern '{Regex.Escape(pattern)}'");
+        }
+    }
+
     [Fact(DisplayName = "Regexp: Unbalanced Pattern Cannot Escape The Whole-Term Anchors")]
     public void Regexp_UnbalancedPattern_IsRejected()
         => Assert.ThrowsAny<ArgumentException>(() => new RegexpQuery("word", "a)|(b"));

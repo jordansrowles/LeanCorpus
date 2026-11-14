@@ -190,13 +190,11 @@ public sealed class BooleanUncheckedCursorTests : IClassFixture<TestDirectoryFix
             baseline = Search(searcher, ("alpha", Occur.Must), ("beta", Occur.Must)).TotalHits;
 
         using var manager = new SearcherManager(directory);
-        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig { MaxBufferedDocs = 16, MergePolicy = NoMergePolicy.Instance });
         int added = 0;
 
-        var writerTask = Task.Run(() =>
-        {
-            using var writer = new IndexWriter(directory, new IndexWriterConfig { MaxBufferedDocs = 16, MergePolicy = NoMergePolicy.Instance });
-            for (int round = 0; round < 20; round++)
+        var overlap = await ConcurrentRefreshHarness.RunAsync(manager, rounds: 20, readers: 4,
+            writeRound: round =>
             {
                 for (int i = 0; i < 16; i++)
                 {
@@ -207,24 +205,18 @@ public sealed class BooleanUncheckedCursorTests : IClassFixture<TestDirectoryFix
                 }
                 writer.Commit();
                 Volatile.Write(ref added, (round + 1) * 16);
-                manager.MaybeRefresh();
-            }
-        }, TestContext.Current.CancellationToken);
-
-        var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
-        {
-            while (!writerTask.IsCompleted)
+            },
+            search: searcher => Search(searcher, ("alpha", Occur.Must), ("beta", Occur.Must)).TotalHits,
+            validate: hits =>
             {
-                using var lease = manager.AcquireLease();
-                int hits = Search(lease.Searcher, ("alpha", Occur.Must), ("beta", Occur.Must)).TotalHits;
                 // A snapshot sees the original documents plus whole committed batches of 16.
                 Assert.InRange(hits, baseline, baseline + Volatile.Read(ref added) + 16);
                 Assert.Equal(0, (hits - baseline) % 16);
-            }
-        }, TestContext.Current.CancellationToken)).ToArray();
+            },
+            TestContext.Current.CancellationToken);
 
-        await writerTask;
-        await Task.WhenAll(readers);
+        Assert.Equal(20, overlap.HeldAcrossRefresh);
+        Assert.All(overlap.QueriesPerReader, static count => Assert.True(count > 0));
         await manager.MaybeRefreshAsync(TestContext.Current.CancellationToken);
         using var final = manager.AcquireLease();
         Assert.Equal(baseline + (20 * 16), Search(final.Searcher, ("alpha", Occur.Must), ("beta", Occur.Must)).TotalHits);

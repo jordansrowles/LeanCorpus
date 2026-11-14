@@ -583,8 +583,8 @@ internal static class BenchmarkComparisonAssessor
     }
 
     /// <summary>
-    /// A pair must run on the same observed runtime: both children must have recorded one, with the
-    /// same instruction sets and vector width, GC mode and tiered PGO.
+    /// A pair must run on the same observed runtime: both children must have recorded a complete one,
+    /// with the same runtime framework, instruction sets and vector width, GC modes and tiered PGO.
     /// </summary>
     private static void ValidateEffectiveRuntime(BenchmarkEffectiveRuntime? left, BenchmarkEffectiveRuntime? right, ISet<string> reasons)
     {
@@ -594,6 +594,12 @@ internal static class BenchmarkComparisonAssessor
             left.VectorWidthBits is not > 0 || right.VectorWidthBits is not > 0)
         {
             reasons.Add("EffectiveRuntimeMissing");
+            return;
+        }
+        // Equal missing observations must not compare as equal: every observed field is required.
+        if (!IsCompleteEffectiveRuntime(left) || !IsCompleteEffectiveRuntime(right))
+        {
+            reasons.Add("EffectiveRuntimeIncomplete");
             return;
         }
         if (!string.Equals(left.IntrinsicsFingerprintSha256, right.IntrinsicsFingerprintSha256, StringComparison.OrdinalIgnoreCase) ||
@@ -607,6 +613,13 @@ internal static class BenchmarkComparisonAssessor
         if (!string.Equals(left.RuntimeFramework, right.RuntimeFramework, StringComparison.Ordinal))
             reasons.Add("RuntimeMismatch");
     }
+
+    private static bool IsCompleteEffectiveRuntime(BenchmarkEffectiveRuntime runtime)
+        => !string.IsNullOrWhiteSpace(runtime.RuntimeFramework) &&
+           runtime.GcServer is not null &&
+           runtime.GcConcurrent is not null &&
+           !string.IsNullOrWhiteSpace(runtime.TieredPgo) &&
+           runtime.InstructionSets.Count > 0;
 
     private static void ValidateReport(
         BenchmarkComparisonEvidence evidence,
@@ -670,8 +683,8 @@ internal static class BenchmarkComparisonAssessor
     }
 
     /// <summary>
-    /// A terminal measurement is never a semantic pass: the row needs its own passed proof, bound to
-    /// its case, the report's dataset and the report's commit.
+    /// A terminal measurement is never a semantic pass: the row needs its own passed proof, naming its
+    /// proof and fixture, bound to its case, the report's dataset and the report's commit.
     /// </summary>
     private static void ValidateProof(BenchmarkComparisonCase row, BenchmarkComparisonSourceReport report, ISet<string> reasons)
     {
@@ -685,7 +698,8 @@ internal static class BenchmarkComparisonAssessor
             reasons.Add("SemanticProofVersionUnsupported");
         if (!string.Equals(proof.State, "Passed", StringComparison.Ordinal) || proof.Reasons.Count != 0 || proof.VerificationCount <= 0)
             reasons.Add("SemanticProofFailed");
-        if (string.IsNullOrWhiteSpace(proof.ProofId) || !BenchmarkRunIdentityValidator.IsSha256(proof.DigestSha256))
+        if (string.IsNullOrWhiteSpace(proof.ProofId) || string.IsNullOrWhiteSpace(proof.FixtureId) ||
+            !BenchmarkRunIdentityValidator.IsSha256(proof.DigestSha256))
             reasons.Add("SemanticProofIncomplete");
         if (!string.Equals(proof.TypeName, row.TypeName.Split('.').Last(), StringComparison.Ordinal) ||
             !proof.Methods.Contains(row.MethodName, StringComparer.Ordinal) ||
