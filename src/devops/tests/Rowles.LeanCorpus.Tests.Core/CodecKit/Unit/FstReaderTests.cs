@@ -270,6 +270,35 @@ public sealed class FstReaderTests
     }
 
     [Fact]
+    public void CollectContainsOutputs_SkipLineFeedKeys_LeavesOutLineFeedKeysOnly()
+    {
+        var entries = new (string, long)[]
+        {
+            ("\nnation", 5),
+            ("nation", 10),
+            ("nation\n", 20),
+            ("nation\rx", 30),
+            ("nations", 40),
+            ("x\nnation", 50),
+        };
+        var reader = FstReader.Open(Build(entries.OrderBy(static e => e.Item1, StringComparer.Ordinal).ToArray()));
+
+        var all = new List<long>();
+        reader.CollectContainsOutputs(ReadOnlySpan<byte>.Empty, "nation"u8, all, skipLineFeedKeys: false);
+        Assert.Equal(new long[] { 5, 10, 20, 30, 40, 50 }, all.Order());
+
+        var skipped = new List<long>();
+        reader.CollectContainsOutputs(ReadOnlySpan<byte>.Empty, "nation"u8, skipped, skipLineFeedKeys: true);
+        Assert.Equal(new long[] { 10, 30, 40 }, skipped.Order());
+
+        var empty = new List<long>();
+        reader.CollectContainsOutputs(ReadOnlySpan<byte>.Empty, ReadOnlySpan<byte>.Empty, empty, skipLineFeedKeys: true);
+        Assert.Equal(new long[] { 10, 30, 40 }, empty.Order());
+
+        Assert.Throws<ArgumentException>(() => reader.CollectContainsOutputs(ReadOnlySpan<byte>.Empty, "a\nb"u8, [], skipLineFeedKeys: true));
+    }
+
+    [Fact]
     public void CollectContainsOutputs_Returns_Correct_Outputs()
     {
         var entries = new (string, long)[]

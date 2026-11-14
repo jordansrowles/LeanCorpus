@@ -825,7 +825,9 @@ public sealed partial class IndexSearcher
         for (int i = 0; i < candidate.Length; i++)
         {
             char c = candidate[i];
-            if (c > 0x7F || c is '.' or '*' or '+' or '?' or '[' or '(' or '{' or '|' or '\\' or '^' or '$')
+            // A line feed in the literal would need the regex's line-terminator rule around it, so
+            // such patterns take a verified route.
+            if (c > 0x7F || c is '.' or '*' or '+' or '?' or '[' or '(' or '{' or '|' or '\\' or '^' or '$' or '\n')
                 return false;
         }
 
@@ -1043,7 +1045,10 @@ public sealed partial class IndexSearcher
     private void ExecuteRegexpContainsQuery(RegexpQuery query, SegmentReader reader, string fieldPrefix,
         string literal, ref TopNCollector collector)
     {
-        var matchingOffsets = reader.GetTermOffsetsContaining(fieldPrefix, literal.AsSpan());
+        // Under default options '.' does not match '\n', so an anchored '.*literal.*' rejects any term
+        // with a line feed outside the literal, and the literal has none. Skipping those terms keeps
+        // this unverified route equal to the verified ones.
+        var matchingOffsets = reader.GetTermOffsetsContaining(fieldPrefix, literal.AsSpan(), skipLineFeedTerms: true);
         if (matchingOffsets.Count == 0) return;
 
         float boost = query.Boost;
