@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Buffers;
+using System.Runtime.CompilerServices;
 using K4os.Compression.LZ4;
 using System.Diagnostics.CodeAnalysis;
 using Rowles.LeanCorpus.Codecs.StoredFields;
@@ -19,13 +20,21 @@ public sealed class Lz4CompressionCodec : IFieldCompressionCodec
         if (raw.Length == 0)
             return [];
 
-        var output = new byte[LZ4Codec.MaximumOutputSize(raw.Length)];
-        int written = LZ4Codec.Encode(raw, output, LZ4Level.L00_FAST);
-        if (written <= 0)
-            throw new InvalidDataException("LZ4 compression failed.");
+        // Encode into pooled scratch sized for the worst case, then copy out the exact bytes.
+        int bound = LZ4Codec.MaximumOutputSize(raw.Length);
+        byte[] scratch = ArrayPool<byte>.Shared.Rent(bound);
+        try
+        {
+            int written = LZ4Codec.Encode(raw, scratch.AsSpan(0, bound), LZ4Level.L00_FAST);
+            if (written <= 0)
+                throw new InvalidDataException("LZ4 compression failed.");
 
-        Array.Resize(ref output, written);
-        return output;
+            return scratch.AsSpan(0, written).ToArray();
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(scratch);
+        }
     }
 
     /// <inheritdoc />

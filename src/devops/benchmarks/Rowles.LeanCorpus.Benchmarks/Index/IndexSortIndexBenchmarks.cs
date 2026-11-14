@@ -47,6 +47,8 @@ public class IndexSortIndexBenchmarks
 
     private (string Body, double Price)[] _documentsWithPrices = [];
     private readonly List<string> _iterationPaths = [];
+    private IngestIterationProbe? _probe;
+    private int _probeIteration;
 
     [GlobalSetup]
     public void Setup()
@@ -61,6 +63,12 @@ public class IndexSortIndexBenchmarks
     [IterationCleanup]
     public void CleanupIterationPaths()
     {
+        if (_probe is not null)
+        {
+            Console.WriteLine(_probe.Describe(++_probeIteration));
+            _probe = null;
+        }
+
         foreach (var path in _iterationPaths)
             BenchmarkHelpers.DeleteDirectory(path);
         _iterationPaths.Clear();
@@ -73,15 +81,27 @@ public class IndexSortIndexBenchmarks
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-sort-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         _iterationPaths.Add(path);
+        var probe = _probe = new IngestIterationProbe("LeanCorpus_Index_Unsorted");
         using var directory = new LeanMMapDirectory(path);
-        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        var writer = new IndexWriter(directory, new IndexWriterConfig
         {
             MaxBufferedDocs = 10_000,
-            RamBufferSizeMB = 256
+            RamBufferSizeMB = 256,
+            Metrics = probe
         });
+        try
+        {
+            IndexDocuments(writer);
+            probe.MarkIndexed();
+            writer.Commit();
+            probe.MarkCommitted();
+        }
+        finally
+        {
+            writer.Dispose();
+            probe.MarkDisposed();
+        }
 
-        IndexDocuments(writer);
-        writer.Commit();
         return _documentsWithPrices.Length;
     }
 
@@ -92,16 +112,28 @@ public class IndexSortIndexBenchmarks
         var path = Path.Combine(BenchmarkHelpers.TempRoot, $"leancorpus-bench-sort-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         _iterationPaths.Add(path);
+        var probe = _probe = new IngestIterationProbe("LeanCorpus_Index_Sorted");
         using var directory = new LeanMMapDirectory(path);
-        using var writer = new IndexWriter(directory, new IndexWriterConfig
+        var writer = new IndexWriter(directory, new IndexWriterConfig
         {
             MaxBufferedDocs = 10_000,
             RamBufferSizeMB = 256,
-            IndexSort = new IndexSort(SortField.Numeric("price"))
+            IndexSort = new IndexSort(SortField.Numeric("price")),
+            Metrics = probe
         });
+        try
+        {
+            IndexDocuments(writer);
+            probe.MarkIndexed();
+            writer.Commit();
+            probe.MarkCommitted();
+        }
+        finally
+        {
+            writer.Dispose();
+            probe.MarkDisposed();
+        }
 
-        IndexDocuments(writer);
-        writer.Commit();
         return _documentsWithPrices.Length;
     }
 

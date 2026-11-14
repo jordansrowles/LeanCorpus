@@ -912,6 +912,30 @@ internal sealed partial class SegmentReaderState
         throw new InvalidDataException($"UnsupportedMigrationPath: v1 vector field '{fieldName}' has no authoritative persisted presence; rebuild it from source documents.");
     }
 
+    /// <summary>
+    /// Returns the stored vector for an exact scan without allocating. Float32 vectors are
+    /// borrowed from the mapped file; other stored forms decode into <paramref name="scratch"/>,
+    /// which must have the field's dimension. Returns an empty span when the document has no
+    /// vector. The span is valid only while the caller's query pin holds this state.
+    /// </summary>
+    internal ReadOnlySpan<float> BorrowVector(string fieldName, int docId, Span<float> scratch)
+    {
+        if (string.IsNullOrEmpty(fieldName) && _vectorPaths.Count == 1)
+            fieldName = _vectorPaths.Keys.First();
+        if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState)
+            || !EnsureVectorReadersLoaded(fieldName, fieldState) || !HasVector(fieldName, docId))
+            return default;
+
+        if (fieldState.Vector is { } vectorReader)
+            return vectorReader.ReadVectorSpan(docId, scratch);
+        if (fieldState.QuantisedVector is { } quantisedVectorReader)
+        {
+            quantisedVectorReader.ReadVector(docId, scratch);
+            return scratch;
+        }
+        return default;
+    }
+
     internal bool TryCopyVectorTo(string fieldName, int docId, Span<float> destination)
     {
         if (string.IsNullOrEmpty(fieldName) && _vectorPaths.Count == 1)

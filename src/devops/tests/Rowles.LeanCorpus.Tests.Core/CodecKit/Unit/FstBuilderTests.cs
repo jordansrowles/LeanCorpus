@@ -530,4 +530,45 @@ public sealed class FstBuilderTests
             Assert.Equal(i * 10L, got);
         }
     }
+
+    [Theory(DisplayName = "FstBuilder: Initial Capacity Does Not Change The Encoded FST")]
+    [InlineData(1)]
+    [InlineData(64)]
+    [InlineData(4 * 1024)]
+    [InlineData(1024 * 1024)]
+    public void InitialCapacity_DoesNotChangeEncodedFst(int initialCapacity)
+    {
+        var keys = Enumerable.Range(0, 3_000)
+            .Select(i => $"term-{i * 7919 % 100_003:D6}-{new string((char)('a' + i % 26), 1 + i % 9)}")
+            .Distinct(StringComparer.Ordinal)
+            .Select(Utf8)
+            .OrderBy(key => key, ByteArrayComparer.Instance)
+            .ToArray();
+
+        var reference = new FstBuilder();
+        var sized = new FstBuilder(initialCapacity);
+        for (int i = 0; i < keys.Length; i++)
+        {
+            reference.Add(keys[i], i * 31L);
+            sized.Add(keys[i], i * 31L);
+        }
+
+        Assert.Equal(reference.Finish(), sized.Finish());
+    }
+
+    [Theory(DisplayName = "FstBuilder: Flush Capacity Estimate Is Bounded")]
+    [InlineData(0, 4 * 1024)]
+    [InlineData(10, 4 * 1024)]
+    [InlineData(1_000, 64_000)]
+    [InlineData(16_384, 1024 * 1024)]
+    [InlineData(int.MaxValue, 1024 * 1024)]
+    public void FlushCapacityEstimate_IsBounded(int termCount, int expected)
+        => Assert.Equal(expected, Rowles.LeanCorpus.Index.Indexer.SegmentFlusher.EstimateFstCapacity(termCount));
+
+    private sealed class ByteArrayComparer : IComparer<byte[]>
+    {
+        public static readonly ByteArrayComparer Instance = new();
+
+        public int Compare(byte[]? x, byte[]? y) => x.AsSpan().SequenceCompareTo(y.AsSpan());
+    }
 }

@@ -145,7 +145,7 @@ internal static class SegmentFlusher
 
             // The FST reads the owned UTF-8 term pool directly. No per-term byte
             // arrays are needed while the detached batch remains alive.
-            var fstBuilder = new FstBuilder();
+            var fstBuilder = new FstBuilder(EstimateFstCapacity(postingsCount));
             fstBuilder.EnsureNodeCapacity(postingsCount);
             for (int i = 0; i < postingsCount; i++)
                 fstBuilder.Add(source.Postings.TermHash.GetTerm(termIds[i]), postingsOffsets[i]);
@@ -1296,5 +1296,12 @@ internal static class SegmentFlusher
         return Codecs.Vectors.QuantisedVectorWriter.ComputeInt8Parameters(maximumMagnitude);
     }
 
-
+    /// <summary>
+    /// Initial FST scratch capacity for a flush with <paramref name="termCount"/> unique terms.
+    /// The builder's 1 MiB default is mostly unused by small segments, and each concurrent
+    /// producer flushes its own segment, so it was paid once per producer. The buffer still
+    /// doubles on demand, so the encoded FST is unchanged; large segments keep 1 MiB.
+    /// </summary>
+    internal static int EstimateFstCapacity(int termCount)
+        => (int)Math.Clamp((long)termCount * 64, 4 * 1024, 1024 * 1024);
 }

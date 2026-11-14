@@ -2,7 +2,12 @@ using System.Text;
 using FsCheck;
 using FsCheck.Xunit;
 using Rowles.LeanCorpus.Document.Fields;
+using Rowles.LeanCorpus.Index.Indexer;
 using Rowles.LeanCorpus.Index.Indexer.Postings;
+using Rowles.LeanCorpus.Search.Queries;
+using Rowles.LeanCorpus.Search.Searcher;
+using Rowles.LeanCorpus.Store;
+using Rowles.LeanCorpus.Tests.Core.Infrastructure;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index;
 
@@ -204,5 +209,65 @@ public sealed class PostingsStorePropertyTests
         internal List<bool> HasOffsets { get; } = [];
         internal List<int> StartOffsets { get; } = [];
         internal List<int> EndOffsets { get; } = [];
+    }
+
+    private static readonly string[] ProducerVocabulary = ["alpha", "bravo", "charlie", "delta", "echo", "λ", "значение"];
+
+    [Property(DisplayName = "Persisted postings are independent of producer count", MaxTest = 25, StartSize = 1, EndSize = 96)]
+    public void GeneratedDocuments_PersistIdenticalPostingsForOneTwoAndFourProducers(NonEmptyArray<byte> input)
+    {
+        byte[] bytes = input.Get;
+        var documents = new List<LeanDocument>();
+        for (int start = 0; start < bytes.Length; start += 4)
+        {
+            int length = 1 + ByteAt(bytes, start) % 6;
+            var words = new string[length];
+            for (int i = 0; i < length; i++)
+                words[i] = ProducerVocabulary[ByteAt(bytes, start + 1 + i) % ProducerVocabulary.Length];
+            var document = new LeanDocument();
+            document.Add(new StringField("id", documents.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), stored: true));
+            document.Add(new TextField("body", string.Join(' ', words)));
+            documents.Add(document);
+        }
+
+        using var directory = new StateMachineTestDirectory();
+        string reference = DescribeConcurrentIndex(directory.CreateChildPath("p1"), documents, 1);
+        Assert.Equal(reference, DescribeConcurrentIndex(directory.CreateChildPath("p2"), documents, 2));
+        Assert.Equal(reference, DescribeConcurrentIndex(directory.CreateChildPath("p4"), documents, 4));
+    }
+
+    private static string DescribeConcurrentIndex(string path, IReadOnlyList<LeanDocument> documents, int producers)
+    {
+        Directory.CreateDirectory(path);
+        using (var mmap = new MMapDirectory(path))
+        using (var writer = new IndexWriter(mmap, new IndexWriterConfig
+        {
+            IndexingConcurrency = producers,
+            MaxBufferedDocs = 8,
+            DurableCommits = false,
+        }))
+        {
+            writer.AddDocumentsConcurrent(documents);
+            writer.Commit();
+        }
+
+        using var readDirectory = new MMapDirectory(path);
+        using var searcher = new IndexSearcher(readDirectory);
+        var lines = new List<string>
+        {
+            $"live={searcher.Stats.LiveDocCount}",
+            $"bodyLength={searcher.Stats.GetFieldLengthSum("body")}",
+        };
+        foreach (string term in ProducerVocabulary.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+        {
+            // Document IDs may differ across producer counts, so compare external IDs with scores.
+            var hits = searcher.Search(new TermQuery("body", term), documents.Count + 1);
+            var entries = hits.ScoreDocs
+                .Select(hit => $"{searcher.GetStoredFields(hit.DocId)["id"][0]}@{hit.Score.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}")
+                .Order(StringComparer.Ordinal);
+            lines.Add($"{term}:{hits.TotalHits}:{string.Join(',', entries)}");
+        }
+
+        return string.Join('\n', lines);
     }
 }
