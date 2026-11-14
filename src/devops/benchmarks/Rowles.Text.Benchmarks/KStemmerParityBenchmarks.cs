@@ -50,6 +50,8 @@ public class KStemmerParityBenchmarks
         });
 
         // KStem is declared not a pair until its 14.55% token difference is explained (Sprint 4 PR 2).
+        // The named difference covers stemmed term text only; Japanese tokenisation differs as in every
+        // other CJK case.
         TextOutputPreflight.Compare("kstem", _documents,
             document => TextOutputPreflight.CaptureLean(sink => _analyser.Analyse(document.AsSpan(), sink)),
             document =>
@@ -57,7 +59,7 @@ public class KStemmerParityBenchmarks
                 using var stream = _luceneAnalyser.GetTokenStream("body", new System.IO.StringReader(document));
                 return TextOutputPreflight.CaptureLucene(stream);
             },
-            PreflightAllowList.Named("KStem"));
+            PreflightAllowList.NamedWithCjk("KStem"));
         Console.WriteLine($"Benchmark lexicon kstem: path=lexicons/kstem-dict.txt, sha256={TextLexicons.Sha256(lexiconPath)}");
     }
 
