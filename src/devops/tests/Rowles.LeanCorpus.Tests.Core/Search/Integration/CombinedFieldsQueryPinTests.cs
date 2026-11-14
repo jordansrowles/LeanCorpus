@@ -96,11 +96,10 @@ public sealed class CombinedFieldsQueryPinTests : IClassFixture<TestDirectoryFix
         using var directory = Build("pin_refresh", segments: 3, deleteEvery: 0);
         int baseline = DocumentCount / 2;
         using var manager = new SearcherManager(directory);
+        using var writer = new IndexWriter(directory, new IndexWriterConfig { MaxBufferedDocs = 16, MergePolicy = NoMergePolicy.Instance });
 
-        var writerTask = Task.Run(() =>
-        {
-            using var writer = new IndexWriter(directory, new IndexWriterConfig { MaxBufferedDocs = 16, MergePolicy = NoMergePolicy.Instance });
-            for (int round = 0; round < 20; round++)
+        var overlap = await ConcurrentRefreshHarness.RunAsync(manager, rounds: 20, readers: 4,
+            writeRound: round =>
             {
                 for (int i = 0; i < 16; i++)
                 {
@@ -111,24 +110,18 @@ public sealed class CombinedFieldsQueryPinTests : IClassFixture<TestDirectoryFix
                     writer.AddDocument(document);
                 }
                 writer.Commit();
-                manager.MaybeRefresh();
-            }
-        }, TestContext.Current.CancellationToken);
-
-        var readers = Enumerable.Range(0, 4).Select(_ => Task.Run(() =>
-        {
-            while (!writerTask.IsCompleted)
+            },
+            search: searcher => Search(searcher).TotalHits,
+            validate: hits =>
             {
-                using var lease = manager.AcquireLease();
-                int hits = Search(lease.Searcher).TotalHits;
                 // A snapshot sees the original matches plus whole committed batches of 16.
                 Assert.InRange(hits, baseline, baseline + (20 * 16));
                 Assert.Equal(0, (hits - baseline) % 16);
-            }
-        }, TestContext.Current.CancellationToken)).ToArray();
+            },
+            TestContext.Current.CancellationToken);
 
-        await writerTask;
-        await Task.WhenAll(readers);
+        Assert.Equal(20, overlap.HeldAcrossRefresh);
+        Assert.All(overlap.QueriesPerReader, static count => Assert.True(count > 0));
         await manager.MaybeRefreshAsync(TestContext.Current.CancellationToken);
         using var final = manager.AcquireLease();
         Assert.Equal(baseline + (20 * 16), Search(final.Searcher).TotalHits);
