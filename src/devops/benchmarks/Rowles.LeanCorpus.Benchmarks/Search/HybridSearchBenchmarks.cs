@@ -330,9 +330,9 @@ public class HybridSearchBenchmarks
                     !records[item.DocId].Body.Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(textTopic)))
                 throw new InvalidOperationException($"{scenario} text branch returned a document without '{textTopic}'.");
 
-            var expected = FuseReciprocalRanks([textBranch, vectorBranch], rrf.K, CandidateK);
+            var expected = FuseReciprocalRanks([textBranch, vectorBranch], rrf.K);
             var fused = _searcher.Search(rrf, CandidateK);
-            CompareFusedOrder(scenario, fused.ScoreDocs, expected);
+            CompareFusedOrder(scenario.ToString(), fused.ScoreDocs, expected, CandidateK);
 
             var finalTop = fused.ScoreDocs.Take(FinalTopN).ToArray();
             var overlap = finalTop.Count(item =>
@@ -347,10 +347,10 @@ public class HybridSearchBenchmarks
 
     /// <summary>
     /// Independent reciprocal rank fusion: score(d) = sum of 1 / (k + rank), rank one-based,
-    /// accumulated in branch order in single precision as the engine does.
+    /// accumulated in branch order in single precision as the engine does. Returns every fused
+    /// document, best first, so a tie cut by the result limit can be checked against all its members.
     /// </summary>
-    private static (int DocId, float Score)[] FuseReciprocalRanks(
-        Search.Scoring.ScoreDoc[][] branches, int k, int topN)
+    internal static (int DocId, float Score)[] FuseReciprocalRanks(Search.Scoring.ScoreDoc[][] branches, int k)
     {
         var scores = new SortedDictionary<int, float>();
         foreach (var branch in branches)
@@ -364,23 +364,27 @@ public class HybridSearchBenchmarks
         return scores.Select(static pair => (pair.Key, pair.Value))
             .OrderByDescending(static item => item.Value)
             .ThenBy(static item => item.Key)
-            .Take(topN)
             .ToArray();
     }
 
     /// <summary>
-    /// RRF does not define an order inside a group of equal fused scores. The score sequence
-    /// must match exactly, each complete tie group must hold the same documents, and a group
-    /// cut by the result limit must hold a subset of the expected tied documents.
+    /// RRF does not define an order inside a group of equal fused scores. The engine's top
+    /// <paramref name="topN"/> must have the reference's score sequence exactly and no duplicate
+    /// documents; each complete tie group must hold the same documents, and a group cut by the limit
+    /// may hold any of the reference's documents with that score, drawn from the complete fused set.
     /// </summary>
-    private static void CompareFusedOrder(
-        HybridScenario scenario,
+    internal static void CompareFusedOrder(
+        string scenario,
         Search.Scoring.ScoreDoc[] fused,
-        (int DocId, float Score)[] expected)
+        (int DocId, float Score)[] complete,
+        int topN)
     {
+        var expected = complete.Take(topN).ToArray();
         if (fused.Length != expected.Length)
             throw new InvalidOperationException(
                 $"{scenario} fused {fused.Length} documents; independent RRF has {expected.Length}.");
+        if (fused.Select(static item => item.DocId).Distinct().Count() != fused.Length)
+            throw new InvalidOperationException($"{scenario} fused results contain a duplicate document.");
         for (var rank = 0; rank < fused.Length; rank++)
         {
             if (!SameScore(fused[rank].Score, expected[rank].Score))
@@ -395,17 +399,16 @@ public class HybridSearchBenchmarks
             while (end + 1 < fused.Length && SameScore(fused[end + 1].Score, fused[start].Score))
                 end++;
             var actualGroup = fused[start..(end + 1)].Select(static item => item.DocId).ToHashSet();
-            var expectedGroup = expected[start..(end + 1)].Select(static item => item.DocId).ToHashSet();
-            if (end + 1 == fused.Length)
+            if (end + 1 == fused.Length && complete.Length > fused.Length)
             {
-                // The last group may be cut by the limit, so it must be drawn from every
-                // expected document with that score, not only the ones that survived the cut.
+                // The limit may cut this group, so its members come from every reference document
+                // with the same score, including those beyond the limit.
                 var score = fused[start].Score;
-                var candidates = expected.Where(item => SameScore(item.Score, score)).Select(static item => item.DocId).ToHashSet();
-                if (!actualGroup.IsSubsetOf(candidates) || actualGroup.Count != expectedGroup.Count)
-                    throw new InvalidOperationException($"{scenario} fused tie group at rank {start + 1} differs from independent RRF.");
+                var candidates = complete.Where(item => SameScore(item.Score, score)).Select(static item => item.DocId).ToHashSet();
+                if (!actualGroup.IsSubsetOf(candidates))
+                    throw new InvalidOperationException($"{scenario} fused tie group at rank {start + 1} holds a document outside the independent RRF tie.");
             }
-            else if (!actualGroup.SetEquals(expectedGroup))
+            else if (!actualGroup.SetEquals(expected[start..(end + 1)].Select(static item => item.DocId)))
             {
                 throw new InvalidOperationException($"{scenario} fused tie group at rank {start + 1} differs from independent RRF.");
             }
@@ -442,7 +445,7 @@ public class HybridSearchBenchmarks
     /// Exact score identity. Fused scores are sums of the same single-precision terms in the
     /// same order, and engine ties are exact, so a tolerance would hide a real difference.
     /// </summary>
-    private static bool SameScore(float left, float right)
+    internal static bool SameScore(float left, float right)
         => BitConverter.SingleToInt32Bits(left) == BitConverter.SingleToInt32Bits(right);
 
     private static int Checksum(IEnumerable<int> documentIds)
