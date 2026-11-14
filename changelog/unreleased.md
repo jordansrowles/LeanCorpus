@@ -171,6 +171,7 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Facets and spatial aggregations allocate less per document, and reader cache accounting is cheaper because it reuses a cached estimate of materialised DocValues on every refresh.
 - `AddDocumentsAsync` queues lists larger than `MaxQueuedDocs` in bounded chunks instead of one document at a time, so large async batches index about as fast as synchronous `AddDocuments`.
 - Reduced per-writer allocation for small concurrent indexing batches.
+- `NumericAggregator.Aggregate` resolves each distinct field once and keeps per-segment scratch only for segments that hold a matching document, so post-hoc aggregation with sparse hits over many segments allocates far less.
 - Exact vector scans no longer allocate a copy of each vector.
 - Zstandard decompression no longer allocates its output twice.
 - Optional compression codecs pool their scratch buffers.
