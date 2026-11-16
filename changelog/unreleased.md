@@ -168,9 +168,10 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 - Boolean queries avoid guarded postings access under a query lease, reducing query cost.
 - Combined-fields queries no longer take a read lease per posting while preparing statistics.
 - Numeric aggregations and geo queries allocate far less per matching document.
-- Facets and spatial aggregations allocate less per document, and reader cache accounting runs less often.
+- Facets and spatial aggregations allocate less per document, and reader cache accounting is cheaper because it reuses a cached estimate of materialised DocValues on every refresh.
 - `AddDocumentsAsync` queues lists larger than `MaxQueuedDocs` in bounded chunks instead of one document at a time, so large async batches index about as fast as synchronous `AddDocuments`.
 - Reduced per-writer allocation for small concurrent indexing batches.
+- `NumericAggregator.Aggregate` resolves each distinct field once and keeps per-segment scratch only for segments that hold a matching document, so post-hoc aggregation with sparse hits over many segments allocates far less.
 - Exact vector scans no longer allocate a copy of each vector.
 - Zstandard decompression no longer allocates its output twice.
 - Optional compression codecs pool their scratch buffers.
@@ -179,6 +180,8 @@ These are versioned in the repository but are not part of the LeanCorpus 4.0 rel
 
 ## Fixed
 
+- `RegexpQuery` contains patterns such as `.*nation.*` no longer match terms with a line feed on a single segment, agreeing with the anchored regex and with multi-segment searches.
+- `SpanNearQuery` and term `SpanNotQuery` scores no longer change when segments merge: each clause now scores with its own term frequency in the document instead of the rarest clause's. Scores and order of these queries may change without reindexing.
 - MoreLikeThis results no longer depend on cache warmth or segment count, and MaxDocFreq is always honoured. Results and scores may change without reindexing.
 - MoreLikeThis excludes its source from TotalHits and fills the requested top-N page when enough other documents match, including when the source ranks outside that page.
 - A cancelled or failed DevOps execution-lease acquisition no longer leaves a lease marker behind that blocks later DevOps commands until they time out.

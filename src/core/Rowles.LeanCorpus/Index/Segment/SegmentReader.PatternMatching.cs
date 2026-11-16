@@ -121,8 +121,8 @@ internal sealed partial class SegmentReaderState
     internal List<(string Term, long Offset)> GetTermsContaining(string fieldPrefix, ReadOnlySpan<char> literal)
         => DictionaryReader.GetTermsContaining(fieldPrefix, literal);
 
-    internal List<long> GetTermOffsetsContaining(string fieldPrefix, ReadOnlySpan<char> literal)
+    internal List<long> GetTermOffsetsContaining(string fieldPrefix, ReadOnlySpan<char> literal, bool skipLineFeedTerms = false)
     {
-        return DictionaryReader.GetTermOffsetsContaining(fieldPrefix, literal);
+        return DictionaryReader.GetTermOffsetsContaining(fieldPrefix, literal, skipLineFeedTerms);
     }
 }

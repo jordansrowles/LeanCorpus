@@ -95,30 +95,56 @@ public static class NumericAggregator
             segments[s] = (maxGlobal, s, docBases[s]);
         }
 
-        // Resolve storage representation and create each aggregation state once.
-        var fieldAccessors = new NumericFieldAccessor[requests.Length];
+        // Resolve storage representation and create each aggregation state once. Requests on the
+        // same field share one accessor plan, as the streaming collector does.
+        var fieldIndexByName = new Dictionary<string, int>(StringComparer.Ordinal);
+        var fieldNames = new List<string>();
+        var fieldAccessors = new List<NumericFieldAccessor>();
+        var requestField = new int[requests.Length];
         for (int r = 0; r < requests.Length; r++)
         {
             ArgumentNullException.ThrowIfNull(requests[r]);
             requests[r].Validate();
-            fieldAccessors[r] = NumericFieldValues.ResolveFieldAccessor(requests[r].Field, readers);
+            if (!fieldIndexByName.TryGetValue(requests[r].Field, out int fieldIndex))
+            {
+                fieldIndex = fieldNames.Count;
+                fieldAccessors.Add(NumericFieldValues.ResolveFieldAccessor(requests[r].Field, readers));
+                fieldNames.Add(requests[r].Field);
+                fieldIndexByName.Add(requests[r].Field, fieldIndex);
+            }
+            requestField[r] = fieldIndex;
             states[r] = NumericAggregationStateFactory.Create(requests[r]);
         }
 
         // Traverse matching documents once, in their given order. Every state receives the same
         // representation-aware values without owning document traversal. Matching documents may
-        // interleave segments, so each (segment, request) pair keeps its own resolution and the
-        // representation check runs once per pair.
-        var segmentAccessors = new NumericSegmentAccessor[readers.Count * requests.Length];
-        foreach (int globalDocId in matchingDocs)
+        // interleave segments, so each visited (segment, field) pair keeps its own resolution and
+        // the representation check runs once per pair. Scratch exists only for segments that hold
+        // a matching document, so empty and sparse hit lists over many segments allocate little.
+        if (matchingDocs.Length > 0)
         {
-            var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
-            var reader = readers[readerIdx];
-            int row = readerIdx * requests.Length;
-            for (int r = 0; r < requests.Length; r++)
+            int fieldCount = fieldNames.Count;
+            var segmentAccessors = new Dictionary<int, NumericSegmentAccessor[]>();
+            var values = new NumericDocumentValues[fieldCount];
+            var hasValue = new bool[fieldCount];
+            foreach (int globalDocId in matchingDocs)
             {
-                if (segmentAccessors[row + r].TryRead(reader, requests[r].Field, localDocId, fieldAccessors[r], out var values))
-                    states[r].Collect(values);
+                var (readerIdx, localDocId) = ResolveDoc(globalDocId, segments);
+                var reader = readers[readerIdx];
+                if (!segmentAccessors.TryGetValue(readerIdx, out var row))
+                {
+                    row = new NumericSegmentAccessor[fieldCount];
+                    segmentAccessors.Add(readerIdx, row);
+                }
+
+                for (int f = 0; f < fieldCount; f++)
+                    hasValue[f] = row[f].TryRead(reader, fieldNames[f], localDocId, fieldAccessors[f], out values[f]);
+                for (int r = 0; r < requests.Length; r++)
+                {
+                    int f = requestField[r];
+                    if (hasValue[f])
+                        states[r].Collect(values[f]);
+                }
             }
         }
 

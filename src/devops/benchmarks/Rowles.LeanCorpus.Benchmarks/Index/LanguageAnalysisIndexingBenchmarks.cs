@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using BenchmarkDotNet.Attributes;
+using Rowles.DataForge;
 using Rowles.LeanCorpus.Analysis;
 using Rowles.LeanCorpus.Analysis.Analysers;
 using Rowles.LeanCorpus.Diagnostics;
@@ -73,7 +74,54 @@ public class LanguageAnalysisIndexingBenchmarks
             _documents[documentIndex] = document;
         }
 
+        BenchmarkDatasetSidecars.Write(CreateIdentity(Workload, DocumentCount, fields));
         RunPreflight();
+    }
+
+    /// <summary>Profile identifier for the fixed in-process language indexing documents.</summary>
+    internal const string DatasetProfileId = "leancorpus-language-indexing";
+
+    /// <summary>Bump when the field contents or per-workload document counts change.</summary>
+    internal const int DatasetProfileVersion = 1;
+
+    /// <summary>
+    /// Describes the measured documents as a dataset: every document holds the workload's fields in
+    /// order, so the identity hashes one canonical record per document with its field values.
+    /// </summary>
+    internal static DataForgeDatasetIdentity CreateIdentity(LanguageAnalysisWorkload workload, int documentCount, string[] fields)
+    {
+        using var writer = new CanonicalJsonWriter(Stream.Null);
+        for (int documentIndex = 0; documentIndex < documentCount; documentIndex++)
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("ordinal");
+            writer.WriteInt32Value(documentIndex);
+            writer.WritePropertyName("body");
+            writer.WriteStartArray();
+            foreach (string field in fields)
+                writer.WriteStringValue(field);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+            writer.WriteLine();
+        }
+
+        var identity = new DataForgeDatasetIdentity(
+            DataForgeSourceKind.Generated,
+            DataForgeVersions.DataForgeVersion,
+            DatasetProfileId,
+            DatasetProfileVersion,
+            DatasetId: null,
+            DatasetVersion: null,
+            Seed: null,
+            RecordCount: documentCount,
+            Parameters: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["workload"] = workload.ToString(),
+                ["fieldsPerDocument"] = fields.Length.ToString(CultureInfo.InvariantCulture),
+            },
+            Dependencies: [],
+            ContentSha256: Convert.ToHexString(writer.GetSha256()).ToLowerInvariant());
+        return identity;
     }
 
     internal static int DocumentCountFor(LanguageAnalysisWorkload workload) => workload switch
@@ -248,7 +296,7 @@ public class LanguageAnalysisIndexingBenchmarks
         return AnalysedTokenCount;
     }
 
-    private static string[] CreateFieldValues(LanguageAnalysisWorkload workload)
+    internal static string[] CreateFieldValues(LanguageAnalysisWorkload workload)
     {
         const string shortText = "The quick fox jumps over the lazy dog.";
 

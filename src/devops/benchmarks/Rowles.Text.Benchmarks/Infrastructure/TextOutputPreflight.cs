@@ -19,6 +19,9 @@ internal sealed record PreflightAllowList(bool CjkOnNonAsciiDocuments = false, s
     public static PreflightAllowList Cjk { get; } = new(CjkOnNonAsciiDocuments: true);
 
     public static PreflightAllowList Named(string name) => new(NamedDifference: name);
+
+    /// <summary>A named stemming difference, plus CJK differences on documents with non-ASCII text.</summary>
+    public static PreflightAllowList NamedWithCjk(string name) => new(CjkOnNonAsciiDocuments: true, NamedDifference: name);
 }
 
 /// <summary>Counts from one preflight comparison.</summary>
@@ -28,7 +31,8 @@ internal sealed record PreflightResult(string Case, int Documents, int Identical
 /// Compares <c>(term, position increment, position length, offsets)</c> across engines on the first
 /// 500 corpus documents, outside timing, and fails setup on any difference that the case's
 /// allow-list does not name (ADR045). The allow-list permits only CJK differences on documents that
-/// contain non-ASCII text, or a named, declared difference such as KStem.
+/// contain non-ASCII text, or a named, declared stemming difference such as KStem that changes term
+/// text alone.
 /// </summary>
 internal static class TextOutputPreflight
 {
@@ -42,6 +46,7 @@ internal static class TextOutputPreflight
         PreflightAllowList allow)
     {
         ArgumentNullException.ThrowIfNull(documents);
+        VerifyAllowListRejectsStructuralChanges(allow);
         int count = Math.Min(DocumentCount, documents.Count);
         int identical = 0, allowed = 0, tokens = 0;
         var failures = new List<string>();
@@ -77,20 +82,62 @@ internal static class TextOutputPreflight
     }
 
     /// <summary>
-    /// A difference is allowed when the case names one, or when the document has non-ASCII text and
-    /// every differing token on either side contains a CJK character.
+    /// A difference is allowed when the document has non-ASCII text and every differing token on
+    /// either side contains a CJK character, or when the case names a stemming difference and only
+    /// term text differs: both sides emit the same non-empty token sequence with identical position
+    /// increments, position lengths and offsets. A named difference never excuses lost, extra or
+    /// moved tokens.
     /// </summary>
     internal static bool IsAllowed(string document, IReadOnlyList<AnalysedToken> lean, IReadOnlyList<AnalysedToken> lucene, PreflightAllowList allow)
     {
-        if (allow.NamedDifference is not null)
+        bool named = allow.NamedDifference is not null;
+        if (named && IsTermOnlyDifference(lean, lucene))
             return true;
         if (!allow.CjkOnNonAsciiDocuments || document.All(char.IsAscii))
             return false;
 
-        var leftOnly = lean.Except(lucene).ToArray();
-        var rightOnly = lucene.Except(lean).ToArray();
-        return leftOnly.Concat(rightOnly).All(static token => token.Term.Any(IsCjk))
-            && lean.Where(static token => !token.Term.Any(IsCjk)).SequenceEqual(lucene.Where(static token => !token.Term.Any(IsCjk)));
+        // CJK tokens may differ freely; every other token must agree, or differ in term text alone
+        // when the case also names a stemming difference.
+        var leanOther = lean.Where(static token => !token.Term.Any(IsCjk)).ToArray();
+        var luceneOther = lucene.Where(static token => !token.Term.Any(IsCjk)).ToArray();
+        return leanOther.SequenceEqual(luceneOther) || (named && IsTermOnlyDifference(leanOther, luceneOther));
+    }
+
+    /// <summary>
+    /// Negative controls run before every comparison: whatever a case allows, losing every token,
+    /// dropping one, or moving an offset must still be rejected on an ASCII document.
+    /// </summary>
+    internal static void VerifyAllowListRejectsStructuralChanges(PreflightAllowList allow)
+    {
+        AnalysedToken[] reference = [new("alpha", 1, 1, 0, 5), new("beta", 1, 1, 6, 10)];
+        (string Name, AnalysedToken[] Other)[] mutations =
+        [
+            ("empty", []),
+            ("missing token", [reference[0]]),
+            ("moved offset", [reference[0], reference[1] with { StartOffset = 7 }]),
+            ("changed increment", [reference[0], reference[1] with { PositionIncrement = 2 }]),
+        ];
+        foreach (var (name, other) in mutations)
+        {
+            if (IsAllowed("alpha beta", reference, other, allow) || IsAllowed("alpha beta", other, reference, allow))
+                throw new InvalidOperationException($"Text preflight allow-list {Describe(allow)} accepts a {name} difference.");
+        }
+    }
+
+    internal static bool IsTermOnlyDifference(IReadOnlyList<AnalysedToken> lean, IReadOnlyList<AnalysedToken> lucene)
+    {
+        if (lean.Count == 0 || lean.Count != lucene.Count)
+            return false;
+        for (int i = 0; i < lean.Count; i++)
+        {
+            var left = lean[i];
+            var right = lucene[i];
+            if (left.Term.Length == 0 || right.Term.Length == 0 ||
+                left.PositionIncrement != right.PositionIncrement || left.PositionLength != right.PositionLength ||
+                left.StartOffset != right.StartOffset || left.EndOffset != right.EndOffset)
+                return false;
+        }
+        return true;
     }
 
     internal static bool IsCjk(char character)
@@ -127,7 +174,9 @@ internal static class TextOutputPreflight
     }
 
     private static string Describe(PreflightAllowList allow)
-        => allow.NamedDifference is { } name ? $"named:{name}" : allow.CjkOnNonAsciiDocuments ? "cjk-on-non-ascii" : "none";
+        => allow.NamedDifference is { } name
+            ? allow.CjkOnNonAsciiDocuments ? $"named:{name}+cjk-on-non-ascii" : $"named:{name}"
+            : allow.CjkOnNonAsciiDocuments ? "cjk-on-non-ascii" : "none";
 
     private static string Describe(int index, IReadOnlyList<AnalysedToken> lean, IReadOnlyList<AnalysedToken> lucene)
     {

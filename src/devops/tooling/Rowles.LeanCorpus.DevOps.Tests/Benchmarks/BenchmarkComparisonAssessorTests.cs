@@ -361,6 +361,8 @@ public sealed class BenchmarkComparisonAssessorTests
     [InlineData("dataset", "SemanticProofDatasetMismatch")]
     [InlineData("case", "SemanticProofCaseMismatch")]
     [InlineData("version", "SemanticProofVersionUnsupported")]
+    [InlineData("fixture", "SemanticProofIncomplete")]
+    [InlineData("proof-id", "SemanticProofIncomplete")]
     public void RowWithoutAValidBoundProofStaysUnqualified(string defect, string reason)
     {
         BenchmarkSemanticProof proof = Proof("LeanCorpus_Search");
@@ -374,6 +376,9 @@ public sealed class BenchmarkComparisonAssessorTests
                 "stale" => proof with { SourceCommit = new string('b', 40) },
                 "dataset" => proof with { DatasetContentSha256 = new string('e', 64) },
                 "case" => proof with { Parameters = new Dictionary<string, string>(StringComparer.Ordinal) { ["Count"] = "200" } },
+                // A proof bound to its case, dataset and commit but naming no fixture is incomplete.
+                "fixture" => proof with { FixtureId = string.Empty },
+                "proof-id" => proof with { ProofId = " " },
                 _ => proof with { ProofVersion = 2 }
             }
         };
@@ -506,6 +511,40 @@ public sealed class BenchmarkComparisonAssessorTests
 
         Assert.False(result.EligibleForRatio);
         Assert.Contains(reason, Assert.Single(result.Comparisons).ReasonCodes);
+    }
+
+    /// <summary>
+    /// Both children report only the vector width and intrinsics fingerprint: equal missing GC,
+    /// PGO, framework or instruction-set observations must not pass as a match.
+    /// </summary>
+    [Theory]
+    [InlineData("runtime-framework")]
+    [InlineData("gc-server")]
+    [InlineData("gc-concurrent")]
+    [InlineData("tiered-pgo")]
+    [InlineData("instruction-sets")]
+    [InlineData("all-but-width-and-fingerprint")]
+    public void PairWithIncompleteEffectiveRuntimeFailsClosed(string missing)
+    {
+        BenchmarkEffectiveRuntime complete = Runtime();
+        BenchmarkEffectiveRuntime incomplete = missing switch
+        {
+            "runtime-framework" => complete with { RuntimeFramework = null },
+            "gc-server" => complete with { GcServer = null },
+            "gc-concurrent" => complete with { GcConcurrent = null },
+            "tiered-pgo" => complete with { TieredPgo = null },
+            "instruction-sets" => complete with { InstructionSets = [] },
+            _ => new BenchmarkEffectiveRuntime(null, null, null, null, complete.VectorWidthBits, [], complete.IntrinsicsFingerprintSha256),
+        };
+        BenchmarkComparisonCase left = CreateRow("LeanCorpus_Search", 100) with { EffectiveRuntime = incomplete };
+        BenchmarkComparisonCase right = CreateRow("LuceneNet_Search", 125) with { EffectiveRuntime = incomplete };
+
+        var result = Assess(CreateEvidence() with { Reports = [CreateReport(rows: [left, right])] });
+
+        Assert.False(result.EligibleForRatio);
+        var pair = Assert.Single(result.Comparisons);
+        Assert.Equal("Unqualified", pair.QualificationState);
+        Assert.Contains("EffectiveRuntimeIncomplete", pair.ReasonCodes);
     }
 
     private static BenchmarkComparisonAssessment Assess(BenchmarkComparisonEvidence evidence)

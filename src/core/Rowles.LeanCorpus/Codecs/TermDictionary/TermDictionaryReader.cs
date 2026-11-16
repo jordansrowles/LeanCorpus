@@ -542,6 +542,13 @@ internal sealed class TermDictionaryReader : IDisposable
     }
 
     public List<long> GetTermOffsetsContaining(string fieldPrefix, ReadOnlySpan<char> literal)
+        => GetTermOffsetsContaining(fieldPrefix, literal, skipLineFeedTerms: false);
+
+    /// <summary>
+    /// Returns the postings offsets of a field's terms containing <paramref name="literal"/>, leaving
+    /// out terms with a line feed when <paramref name="skipLineFeedTerms"/> is set.
+    /// </summary>
+    internal List<long> GetTermOffsetsContaining(string fieldPrefix, ReadOnlySpan<char> literal, bool skipLineFeedTerms)
     {
         Span<byte> qualStack = stackalloc byte[256];
         Span<byte> needleStack = stackalloc byte[256];
@@ -550,7 +557,7 @@ internal sealed class TermDictionaryReader : IDisposable
         var results = new List<long>();
         try
         {
-            _fst.CollectContainsOutputs(qualifier, needleUtf8, results);
+            _fst.CollectContainsOutputs(qualifier, needleUtf8, results, skipLineFeedTerms);
         }
         finally
         {

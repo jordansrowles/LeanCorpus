@@ -273,21 +273,27 @@ public sealed partial class IndexSearcher
                 termFactors[i] = ComputeTermFactors(docFreq, avgDocLength, collectionFreq, query.Field);
             }
 
+            // Each clause scores with its own in-document frequency. Using the traversal leader's
+            // frequency for every clause made the score depend on which term was rarest in the
+            // segment, so merging could reorder results (ADR048 segment invariance).
+            var clauseTfs = new int[termCount];
             while (postings[leaderIdx].MoveNextUnchecked(out int docId, out int leaderTf))
             {
                 if (hasDeletions && !reader.IsLive(docId))
                     continue;
 
                 bool allMatch = true;
+                clauseTfs[leaderIdx] = leaderTf;
                 for (int i = 0; i < termCount; i++)
                 {
                     if (i == leaderIdx) continue;
-                    if (!postings[i].AdvanceUnchecked(docId, out int followerDocId, out _) ||
+                    if (!postings[i].AdvanceUnchecked(docId, out int followerDocId, out int followerTf) ||
                         followerDocId != docId)
                     {
                         allMatch = false;
                         break;
                     }
+                    clauseTfs[i] = followerTf;
                 }
 
                 if (allMatch && (excludePostings is null
@@ -297,14 +303,13 @@ public sealed partial class IndexSearcher
                 {
                     int docLength = fieldLengths is not null && (uint)docId < (uint)fieldLengths.Value.Length
                         ? fieldLengths.Value.Span[docId] : 1;
-                    // Sum scores across all clauses using the leader's term frequency
-                    // as an estimate of the span frequency.
+                    // Sum the clauses' term scores, each from its own frequency.
                     float score = 0;
                     for (int i = 0; i < termCount; i++)
                     {
                         var (f1, f2, f3) = termFactors[i];
                         score += ScoreTerm(
-                            f1, f2, f3, leaderTf, docLength, query.Field);
+                            f1, f2, f3, clauseTfs[i], docLength, query.Field);
                     }
                     if (Math.Abs(boost - 1.0f) > 1e-6f) score *= boost;
                     collector.Collect(docBase + docId, ApplyFieldBoost(fieldBoosts, docId, score));
