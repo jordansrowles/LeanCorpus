@@ -46,6 +46,11 @@ public sealed class WildcardQuery : Query
     public override int GetHashCode() => CombineBoost(HashCode.Combine(nameof(WildcardQuery), Field, Pattern, MaximumExpansions));
 
     /// <summary>Tests whether a term matches the wildcard pattern.</summary>
+    /// <remarks>
+    /// <c>*</c> matches any sequence of characters and <c>?</c> matches exactly one Unicode scalar value,
+    /// so a surrogate pair counts as one character. A backslash makes the next character literal, and a
+    /// trailing backslash matches a literal backslash. Search uses the same interpretation on every route.
+    /// </remarks>
     public static bool Matches(ReadOnlySpan<char> term, ReadOnlySpan<char> pattern)
     {
         int t = 0, p = 0;
@@ -60,35 +65,19 @@ public sealed class WildcardQuery : Query
                 continue;
             }
 
-            if (p < pattern.Length && pattern[p] == '\\')
+            if (p < pattern.Length && TryMatchElement(term, t, pattern, p, out int termWidth, out int patternWidth))
             {
-                if (p + 1 < pattern.Length)
-                {
-                    if (pattern[p + 1] == term[t])
-                    {
-                        t++;
-                        p += 2;
-                        continue;
-                    }
-                }
-                else if (term[t] == '\\')
-                {
-                    t++;
-                    p++;
-                    continue;
-                }
-            }
-            else if (p < pattern.Length && (pattern[p] == '?' || pattern[p] == term[t]))
-            {
-                t++;
-                p++;
+                t += termWidth;
+                p += patternWidth;
                 continue;
             }
 
             if (starP >= 0)
             {
+                // Retry after the star consumes one more whole scalar value.
                 p = starP;
-                t = ++starT;
+                starT += Codecs.Fst.WildcardPattern.ScalarWidth(term, starT);
+                t = starT;
             }
             else
             {
@@ -100,5 +89,24 @@ public sealed class WildcardQuery : Query
             p++;
 
         return p == pattern.Length;
+    }
+
+    private static bool TryMatchElement(
+        ReadOnlySpan<char> term, int t, ReadOnlySpan<char> pattern, int p, out int termWidth, out int patternWidth)
+    {
+        termWidth = Codecs.Fst.WildcardPattern.ScalarWidth(term, t);
+        if (pattern[p] == '?')
+        {
+            patternWidth = 1;
+            return true;
+        }
+
+        int literalStart = p;
+        if (pattern[p] == '\\' && p + 1 < pattern.Length)
+            literalStart = p + 1;
+
+        int literalWidth = Codecs.Fst.WildcardPattern.ScalarWidth(pattern, literalStart);
+        patternWidth = literalStart - p + literalWidth;
+        return literalWidth == termWidth && pattern.Slice(literalStart, literalWidth).SequenceEqual(term.Slice(t, termWidth));
     }
 }

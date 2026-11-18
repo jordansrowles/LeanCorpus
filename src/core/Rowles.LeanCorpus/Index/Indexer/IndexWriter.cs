@@ -1049,7 +1049,7 @@ public sealed partial class IndexWriter : IDisposable
                     cmd.Tcs.TrySetException(new ObjectDisposedException(nameof(IndexWriter)));
                     continue;
                 }
-                AsyncIndexingDiagnostics.RecordDequeued(cmd.RequestedTimestamp);
+                AsyncIndexingDiagnostics.RecordDequeued(cmd.RequestedTimestamp, cmd.DocumentCount);
                 try
                 {
                     ProcessAsyncWriteCommand(cmd);

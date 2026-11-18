@@ -13,6 +13,10 @@ internal static class AsyncIndexingDiagnostics
     private static long s_queueAdmissions;
     private static long s_admittedDocuments;
     private static long s_maximumCommandDocuments;
+    private static long s_queuedCommands;
+    private static long s_maximumQueuedCommands;
+    private static long s_queuedDocuments;
+    private static long s_maximumQueuedDocuments;
     private static long s_producerWaits;
     private static long s_waitingProducers;
     private static long s_maximumWaitingProducers;
@@ -42,6 +46,10 @@ internal static class AsyncIndexingDiagnostics
         Interlocked.Exchange(ref s_queueAdmissions, 0);
         Interlocked.Exchange(ref s_admittedDocuments, 0);
         Interlocked.Exchange(ref s_maximumCommandDocuments, 0);
+        Interlocked.Exchange(ref s_queuedCommands, 0);
+        Interlocked.Exchange(ref s_maximumQueuedCommands, 0);
+        Interlocked.Exchange(ref s_queuedDocuments, 0);
+        Interlocked.Exchange(ref s_maximumQueuedDocuments, 0);
         Interlocked.Exchange(ref s_producerWaits, 0);
         Interlocked.Exchange(ref s_waitingProducers, 0);
         Interlocked.Exchange(ref s_maximumWaitingProducers, 0);
@@ -61,6 +69,8 @@ internal static class AsyncIndexingDiagnostics
         QueueAdmissions: Interlocked.Read(ref s_queueAdmissions),
         AdmittedDocuments: Interlocked.Read(ref s_admittedDocuments),
         MaximumCommandDocuments: Interlocked.Read(ref s_maximumCommandDocuments),
+        MaximumQueuedCommands: Interlocked.Read(ref s_maximumQueuedCommands),
+        MaximumQueuedDocuments: Interlocked.Read(ref s_maximumQueuedDocuments),
         ProducerWaits: Interlocked.Read(ref s_producerWaits),
         MaximumWaitingProducers: Interlocked.Read(ref s_maximumWaitingProducers),
         CompletedCommands: Interlocked.Read(ref s_completedCommands),
@@ -76,11 +86,17 @@ internal static class AsyncIndexingDiagnostics
     /// <summary>Returns a timestamp when enabled, otherwise zero.</summary>
     internal static long TimestampIfEnabled() => IsEnabled ? Stopwatch.GetTimestamp() : 0;
 
+    /// <summary>
+    /// Records a command accepted into the channel. Queued counts cover commands accepted but not yet
+    /// dequeued; the consumer can dequeue before this runs, so the maxima are approximate lower bounds.
+    /// </summary>
     internal static void RecordAdmission(int documents)
     {
         Interlocked.Increment(ref s_queueAdmissions);
         Interlocked.Add(ref s_admittedDocuments, documents);
         UpdateMaximum(ref s_maximumCommandDocuments, documents);
+        UpdateMaximum(ref s_maximumQueuedCommands, Interlocked.Increment(ref s_queuedCommands));
+        UpdateMaximum(ref s_maximumQueuedDocuments, Interlocked.Add(ref s_queuedDocuments, documents));
     }
 
     internal static void RecordProducerWaitStarted()
@@ -91,11 +107,13 @@ internal static class AsyncIndexingDiagnostics
 
     internal static void RecordProducerWaitEnded() => Interlocked.Decrement(ref s_waitingProducers);
 
-    internal static void RecordDequeued(long requestedTimestamp)
+    internal static void RecordDequeued(long requestedTimestamp, int documents)
     {
         if (requestedTimestamp == 0)
             return;
         Interlocked.Add(ref s_dequeueLagTicks, Stopwatch.GetTimestamp() - requestedTimestamp);
+        Interlocked.Decrement(ref s_queuedCommands);
+        Interlocked.Add(ref s_queuedDocuments, -documents);
     }
 
     internal static void RecordCompleted(long requestedTimestamp)
@@ -162,6 +180,8 @@ internal readonly record struct AsyncIndexingDiagnosticsSnapshot(
     long QueueAdmissions,
     long AdmittedDocuments,
     long MaximumCommandDocuments,
+    long MaximumQueuedCommands,
+    long MaximumQueuedDocuments,
     long ProducerWaits,
     long MaximumWaitingProducers,
     long CompletedCommands,
@@ -178,6 +198,7 @@ internal readonly record struct AsyncIndexingDiagnosticsSnapshot(
     public override string ToString() => string.Create(
         System.Globalization.CultureInfo.InvariantCulture,
         $"admissions={QueueAdmissions}, admittedDocs={AdmittedDocuments}, maxCommandDocs={MaximumCommandDocuments}, " +
+        $"maxQueuedCommands={MaximumQueuedCommands}, maxQueuedDocs={MaximumQueuedDocuments}, " +
         $"producerWaits={ProducerWaits}, maxWaitingProducers={MaximumWaitingProducers}, completed={CompletedCommands}, " +
         $"dequeueLagMs={TotalDequeueLagMilliseconds:F3}, completionLagMs={TotalCompletionLagMilliseconds:F3}, " +
         $"maxCompletionLagMs={MaximumCompletionLagMilliseconds:F3}, flushSnapshots={FlushSnapshots}, " +

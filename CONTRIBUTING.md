@@ -129,7 +129,18 @@ Use `-Controlled` when comparing a repeatable, bounded workload. Do not make per
 
 ### 7. Decide whether users need a changelog entry
 
-Update the current release entry under `changelog/` for:
+Update the current release entry in the stream that owns the change:
+
+| Change | Changelog |
+| --- | --- |
+| `Rowles.LeanCorpus` and the `LeanCorpus.Compression.*` packages | `changelog/engine/unreleased.md` |
+| `Rowles.Text` (standalone analysis package) | `changelog/text/unreleased.md` |
+| Community Server, Orchard Search and Studio packages | `changelog/server/` |
+| Managed DevOps tooling | `changelog/devops/unreleased.md` |
+
+Analysis source is compiled into both `Rowles.Text` and LeanCorpus (ADR021), so a shared analysis change gets a complete, separately worded entry in both the engine and Text changelogs.
+
+Add an entry for:
 
 - new features or public APIs;
 - changed public behaviour;
@@ -137,7 +148,7 @@ Update the current release entry under `changelog/` for:
 - compatibility changes;
 - significant bug fixes.
 
-Internal clean-ups and test-only refactors normally do not need a release note.
+End every item with its commit link. Documentation, benchmark and test-only changes, internal clean-ups, and fixes to behaviour that never shipped in a released version do not need a release note.
 
 ## Test vocabulary
 

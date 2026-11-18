@@ -17,7 +17,7 @@ public sealed class RepositoryDocumentationImporterTests
         var stagedContent = Path.Combine(repositoryRoot, "artifacts", "docs", "content");
         Directory.CreateDirectory(Path.Combine(docsRoot, "guides"));
         Directory.CreateDirectory(Path.Combine(repositoryRoot, "src", "devops"));
-        Directory.CreateDirectory(Path.Combine(repositoryRoot, "changelog"));
+        Directory.CreateDirectory(Path.Combine(repositoryRoot, "changelog", "engine"));
         Directory.CreateDirectory(Path.Combine(stagedContent, "guides"));
 
         File.WriteAllText(Path.Combine(repositoryRoot, "README.md"), """
@@ -27,11 +27,11 @@ public sealed class RepositoryDocumentationImporterTests
             [Guide with query](docs/content/guides/quick%20start.md?view=full#heading)
             [DevOps](src/devops/README.md)
             [Contributing](CONTRIBUTING.md)
-            [History](changelog/unreleased.md)
+            [History](changelog/engine/unreleased.md)
             """ + Environment.NewLine);
         File.WriteAllText(Path.Combine(repositoryRoot, "CONTRIBUTING.md"), "# Contributing");
         File.WriteAllText(Path.Combine(repositoryRoot, "src", "devops", "README.md"), "# DevOps");
-        File.WriteAllText(Path.Combine(repositoryRoot, "changelog", "unreleased.md"), "# Unreleased");
+        File.WriteAllText(Path.Combine(repositoryRoot, "changelog", "engine", "unreleased.md"), "# Unreleased");
         File.WriteAllText(Path.Combine(docsRoot, "guides", "start.md"), """
             # Start
 
@@ -66,7 +66,7 @@ public sealed class RepositoryDocumentationImporterTests
         Assert.Contains("[Guide with query](../guides/quick%20start.md?view=full#heading)", importedOverview, StringComparison.Ordinal);
         Assert.Contains("[DevOps](contributors/devops-projects.md)", importedOverview, StringComparison.Ordinal);
         Assert.Contains("[Contributing](contributors/contributing.md)", importedOverview, StringComparison.Ordinal);
-        Assert.Contains("[History](https://github.com/jordansrowles/LeanCorpus/blob/" + commit + "/changelog/unreleased.md)", importedOverview, StringComparison.Ordinal);
+        Assert.Contains("[History](https://github.com/jordansrowles/LeanCorpus/blob/" + commit + "/changelog/engine/unreleased.md)", importedOverview, StringComparison.Ordinal);
         Assert.EndsWith(Environment.NewLine + Environment.NewLine, importedOverview, StringComparison.Ordinal);
 
         var stagedGuide = File.ReadAllText(Path.Combine(stagedContent, "guides", "start.md"));
@@ -172,20 +172,22 @@ public sealed class RepositoryDocumentationImporterTests
     {
         using var directory = new TemporaryDirectory();
         var root = Path.Combine(directory.Path, "changelog");
-        Directory.CreateDirectory(Path.Combine(root, "server"));
-        Directory.CreateDirectory(Path.Combine(root, "devops"));
-        File.WriteAllText(Path.Combine(root, "1.9.0.md"), "# Core 1.9.0");
-        File.WriteAllText(Path.Combine(root, "2.0.0.md"), "# Core 2.0.0");
-        File.WriteAllText(Path.Combine(root, "unreleased.md"), "# Next release");
+        foreach (var stream in new[] { "engine", "text", "server", "devops" })
+            Directory.CreateDirectory(Path.Combine(root, stream));
+        File.WriteAllText(Path.Combine(root, "engine", "1.9.0.md"), "# Core 1.9.0");
+        File.WriteAllText(Path.Combine(root, "engine", "2.0.0.md"), "# Core 2.0.0");
+        File.WriteAllText(Path.Combine(root, "engine", "unreleased.md"), "# Next release");
+        File.WriteAllText(Path.Combine(root, "text", "unreleased.md"), "# Text next");
         File.WriteAllText(Path.Combine(root, "server", "unreleased.md"), "# Server next");
         File.WriteAllText(Path.Combine(root, "devops", "unreleased.md"), "# DevOps next");
 
         new DocumentationSectionCatalogWriter().Generate(root, "Changelog", "Versioned project release notes.", separateServerChangelog: true);
 
         var index = File.ReadAllText(Path.Combine(root, "index.md"));
-        Assert.True(index.IndexOf("## LeanCorpus and Rowles.Text", StringComparison.Ordinal) < index.IndexOf("## Community Server", StringComparison.Ordinal));
+        Assert.True(index.IndexOf("## LeanCorpus\n", StringComparison.Ordinal) < index.IndexOf("## Rowles.Text", StringComparison.Ordinal));
+        Assert.True(index.IndexOf("## Rowles.Text", StringComparison.Ordinal) < index.IndexOf("## Community Server", StringComparison.Ordinal));
         Assert.True(index.IndexOf("## Community Server", StringComparison.Ordinal) < index.IndexOf("## LeanCorpus DevOps", StringComparison.Ordinal));
-        Assert.True(index.IndexOf("[Next release](unreleased.md)", StringComparison.Ordinal) < index.IndexOf("[Core 2.0.0](2.0.0.md)", StringComparison.Ordinal));
+        Assert.True(index.IndexOf("[Next release](engine/unreleased.md)", StringComparison.Ordinal) < index.IndexOf("[Core 2.0.0](engine/2.0.0.md)", StringComparison.Ordinal));
 
         var toc = File.ReadAllText(Path.Combine(root, "toc.yml"));
         Assert.Contains("name: 'LeanCorpus DevOps'", toc, StringComparison.Ordinal);
@@ -284,10 +286,10 @@ public sealed class RepositoryDocumentationImporterTests
         var source = Path.Combine(repositoryRoot, "changelog");
         var content = Path.Combine(repositoryRoot, "artifacts", "docs", "content");
         var staged = Path.Combine(content, "changelog");
-        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(Path.Combine(source, "engine"));
         Directory.CreateDirectory(staged);
-        File.WriteAllText(Path.Combine(source, "unreleased.md"), "# Unreleased");
-        File.WriteAllText(Path.Combine(source, "_template.md"), "# Template");
+        File.WriteAllText(Path.Combine(source, "engine", "unreleased.md"), "# Unreleased");
+        File.WriteAllText(Path.Combine(source, "engine", "_template.md"), "# Template");
         File.WriteAllText(Path.Combine(source, "_vnext.md"), "# Next");
         File.WriteAllText(Path.Combine(staged, "index.md"), "# Authored collision");
         File.WriteAllText(Path.Combine(staged, "stale.md"), "# Stale");
@@ -295,8 +297,8 @@ public sealed class RepositoryDocumentationImporterTests
         new DocumentationContentStager().CopyChangelog(repositoryRoot, content);
 
         Assert.True(File.Exists(Path.Combine(staged, "index.md")));
-        Assert.True(File.Exists(Path.Combine(staged, "unreleased.md")));
-        Assert.False(File.Exists(Path.Combine(staged, "_template.md")));
+        Assert.True(File.Exists(Path.Combine(staged, "engine", "unreleased.md")));
+        Assert.False(File.Exists(Path.Combine(staged, "engine", "_template.md")));
         Assert.False(File.Exists(Path.Combine(staged, "_vnext.md")));
         Assert.False(File.Exists(Path.Combine(staged, "stale.md")));
     }

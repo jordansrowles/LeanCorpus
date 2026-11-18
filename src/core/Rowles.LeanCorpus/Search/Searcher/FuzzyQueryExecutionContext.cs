@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text;
 using Rowles.LeanCorpus.Codecs.Fst;
 using Rowles.LeanCorpus.Index.Segment;
 using Rowles.LeanCorpus.Search.Queries;
@@ -14,11 +13,27 @@ internal sealed class FuzzyQueryExecutionContext(
     private static readonly IReadOnlyList<(string Term, long Offset, int Distance)> EmptyMatches =
         Array.Empty<(string Term, long Offset, int Distance)>();
 
-    private readonly ConcurrentDictionary<FuzzyPlanKey, Lazy<FuzzyExpansionPlan>> _plans = new();
-    private readonly ConcurrentDictionary<AutomatonKey, Lazy<LevenshteinAutomaton>> _automata = new();
+    // Every search pushes a context, so these are created on first use: searches without fuzzy
+    // clauses, and warm searches that never compile an automaton, do not pay for them.
+    // Usually one entry per search, so a locked dictionary (which is also its own lock) is far
+    // cheaper than a concurrent one, and it is created only by the first fuzzy clause.
+    private Dictionary<FuzzyPlanKey, Lazy<FuzzyExpansionPlan>>? _plans;
+    private ConcurrentDictionary<AutomatonKey, Lazy<LevenshteinAutomaton>>? _automata;
     private int _automatonCompilationCount;
 
     internal int AutomatonCompilationCount => Volatile.Read(ref _automatonCompilationCount);
+
+    private MultiTermExpansionContext? _expansions;
+
+    /// <summary>
+    /// This search's shared prefix, wildcard and regexp expansions, carried in the same per-search scope.
+    /// Created on first use, so searches without those clauses allocate nothing for it.
+    /// </summary>
+    internal MultiTermExpansionContext Expansions
+        => EnsureCreated(ref _expansions);
+
+    private static T EnsureCreated<T>(ref T? field) where T : class, new()
+        => Volatile.Read(ref field) ?? Interlocked.CompareExchange(ref field, new T(), null) ?? field!;
 
     internal IReadOnlyList<(string Term, long Offset, int Distance)> GetMatches(
         FuzzyQuery query,
@@ -31,20 +46,46 @@ internal sealed class FuzzyQueryExecutionContext(
                 : EmptyMatches;
     }
 
-    internal IReadOnlyList<string> GetSelectedTerms(FuzzyQuery query)
-        => GetPlan(query).SelectedTerms;
+    /// <summary>
+    /// Returns the globally selected terms, building the shared plan if this is its first use.
+    /// <paramref name="checkResources"/> runs between readers while the plan is built; if it throws, the
+    /// failed plan is discarded so the context never retains a partial or faulted entry.
+    /// </summary>
+    internal IReadOnlyList<string> GetSelectedTerms(FuzzyQuery query, Action? checkResources = null)
+        => GetPlan(query, checkResources).SelectedTerms;
 
-    private FuzzyExpansionPlan GetPlan(FuzzyQuery query)
+    private FuzzyExpansionPlan GetPlan(FuzzyQuery query, Action? checkResources = null)
     {
         var key = new FuzzyPlanKey(query.Field, query.Term, query.MaxEdits, query.MaxExpansions);
-        return _plans.GetOrAdd(
-            key,
-            _ => new Lazy<FuzzyExpansionPlan>(
-                () => BuildPlan(query),
-                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+        var plans = EnsureCreated(ref _plans);
+        Lazy<FuzzyExpansionPlan>? lazy;
+        lock (plans)
+        {
+            if (!plans.TryGetValue(key, out lazy))
+            {
+                lazy = new Lazy<FuzzyExpansionPlan>(
+                    () => BuildPlan(query, checkResources),
+                    LazyThreadSafetyMode.ExecutionAndPublication);
+                plans.Add(key, lazy);
+            }
+        }
+
+        try
+        {
+            return lazy.Value;
+        }
+        catch
+        {
+            lock (plans)
+            {
+                if (plans.TryGetValue(key, out var current) && ReferenceEquals(current, lazy))
+                    plans.Remove(key);
+            }
+            throw;
+        }
     }
 
-    private FuzzyExpansionPlan BuildPlan(FuzzyQuery query)
+    private FuzzyExpansionPlan BuildPlan(FuzzyQuery query, Action? checkResources)
     {
         string fieldPrefix = string.Concat(query.Field, "\0");
         Dictionary<SegmentReader, List<(string Term, long Offset, int Distance)>>? matchesByReader = null;
@@ -52,6 +93,7 @@ internal sealed class FuzzyQueryExecutionContext(
 
         foreach (var reader in readers)
         {
+            checkResources?.Invoke();
             var matches = reader.GetFuzzyMatches(
                 fieldPrefix,
                 query.Term.AsSpan(),
@@ -71,9 +113,7 @@ internal sealed class FuzzyQueryExecutionContext(
             {
                 if (!candidatesByTerm.ContainsKey(match.Term))
                 {
-                    candidatesByTerm.Add(
-                        match.Term,
-                        new FuzzyCandidate(match.Term, match.Distance, Encoding.UTF8.GetBytes(match.Term)));
+                    candidatesByTerm.Add(match.Term, new FuzzyCandidate(match.Term, match.Distance));
                 }
             }
         }
@@ -81,12 +121,18 @@ internal sealed class FuzzyQueryExecutionContext(
         if (candidatesByTerm is null || matchesByReader is null)
             return FuzzyExpansionPlan.Empty;
 
-        var candidates = candidatesByTerm.Values.ToList();
-        candidates.Sort(FuzzyCandidateComparer.Instance);
-        if (candidates.Count > query.MaxExpansions)
-            candidates.RemoveRange(query.MaxExpansions, candidates.Count - query.MaxExpansions);
+        var candidates = new FuzzyCandidate[candidatesByTerm.Count];
+        candidatesByTerm.Values.CopyTo(candidates, 0);
+        Array.Sort(candidates, FuzzyCandidateComparer.Instance);
+        int selectedCount = Math.Min(candidates.Length, query.MaxExpansions);
+        var selectedTerms = new string[selectedCount];
+        for (int i = 0; i < selectedCount; i++)
+            selectedTerms[i] = candidates[i].Term;
 
-        var selectedTerms = candidates.Select(static candidate => candidate.Term).ToArray();
+        // Nothing was trimmed, so every reader's matches are already the selected ones.
+        if (selectedCount == candidates.Length)
+            return new FuzzyExpansionPlan(matchesByReader, selectedTerms);
+
         var selected = new HashSet<string>(selectedTerms, StringComparer.Ordinal);
         foreach (var reader in readers)
         {
@@ -108,7 +154,7 @@ internal sealed class FuzzyQueryExecutionContext(
     private LevenshteinAutomaton GetAutomaton(string term, int maxEdits)
     {
         var key = new AutomatonKey(term, maxEdits);
-        return _automata.GetOrAdd(
+        return EnsureCreated(ref _automata).GetOrAdd(
             key,
             _ => new Lazy<LevenshteinAutomaton>(
                 () =>
@@ -121,7 +167,7 @@ internal sealed class FuzzyQueryExecutionContext(
 
     private readonly record struct FuzzyPlanKey(string Field, string Term, int MaxEdits, int MaxExpansions);
     private readonly record struct AutomatonKey(string Term, int MaxEdits);
-    private readonly record struct FuzzyCandidate(string Term, int Distance, byte[] Utf8Term);
+    private readonly record struct FuzzyCandidate(string Term, int Distance);
 
     private sealed class FuzzyExpansionPlan(
         Dictionary<SegmentReader, List<(string Term, long Offset, int Distance)>>? matchesByReader,
@@ -144,7 +190,28 @@ internal sealed class FuzzyQueryExecutionContext(
             int distanceComparison = left.Distance.CompareTo(right.Distance);
             return distanceComparison != 0
                 ? distanceComparison
-                : left.Utf8Term.AsSpan().SequenceCompareTo(right.Utf8Term);
+                : CompareUtf8Order(left.Term, right.Term);
         }
     }
+
+    /// <summary>
+    /// Orders two strings exactly as their UTF-8 encodings compare bytewise (Unicode scalar order),
+    /// without encoding them. UTF-16 order differs only where a surrogate meets U+E000 to U+FFFF,
+    /// so those code units are remapped before comparison.
+    /// </summary>
+    internal static int CompareUtf8Order(string left, string right)
+    {
+        int length = Math.Min(left.Length, right.Length);
+        for (int i = 0; i < length; i++)
+        {
+            char a = left[i], b = right[i];
+            if (a != b)
+                return ScalarOrderKey(a) - ScalarOrderKey(b);
+        }
+
+        return left.Length - right.Length;
+    }
+
+    private static int ScalarOrderKey(char c)
+        => c < 0xD800 ? c : c >= 0xE000 ? c - 0x800 : c + 0x2000;
 }

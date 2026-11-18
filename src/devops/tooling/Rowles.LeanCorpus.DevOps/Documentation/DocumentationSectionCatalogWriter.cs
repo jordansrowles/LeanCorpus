@@ -223,19 +223,37 @@ internal sealed class DocumentationSectionCatalogWriter
         return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(words.ToLowerInvariant());
     }
 
+    private static readonly (string Folder, string Name)[] ChangelogStreams =
+    [
+        ("engine/", "LeanCorpus"),
+        ("text/", "Rowles.Text"),
+        ("server/", "Community Server"),
+        ("devops/", "LeanCorpus DevOps"),
+    ];
+
+    /// <summary>
+    /// Groups changelog pages into the four release streams by folder. A page outside every stream
+    /// folder would be published without navigation, so it is rejected rather than grouped by default.
+    /// </summary>
     private static CatalogGroup[] CreateChangelogGroups(IReadOnlyList<CatalogPage> pages)
     {
-        var leanCorpusPages = pages.Where(static page =>
-            !page.RelativePath.StartsWith("server/", StringComparison.OrdinalIgnoreCase) &&
-            !page.RelativePath.StartsWith("devops/", StringComparison.OrdinalIgnoreCase)).ToArray();
-        var serverPages = pages.Where(static page => page.RelativePath.StartsWith("server/", StringComparison.OrdinalIgnoreCase)).ToArray();
-        var devOpsPages = pages.Where(static page => page.RelativePath.StartsWith("devops/", StringComparison.OrdinalIgnoreCase)).ToArray();
-        return
-        [
-            new CatalogGroup("LeanCorpus and Rowles.Text", leanCorpusPages),
-            new CatalogGroup("Community Server", serverPages),
-            new CatalogGroup("LeanCorpus DevOps", devOpsPages)
-        ];
+        var orphaned = pages
+            .Where(static page => !ChangelogStreams.Any(stream =>
+                page.RelativePath.StartsWith(stream.Folder, StringComparison.OrdinalIgnoreCase)))
+            .Select(static page => page.RelativePath)
+            .ToArray();
+        if (orphaned.Length > 0)
+        {
+            throw new InvalidDataException(
+                "Changelog pages must belong to a release stream folder (engine, text, server or devops): " +
+                string.Join(", ", orphaned));
+        }
+
+        return ChangelogStreams
+            .Select(stream => new CatalogGroup(stream.Name, pages
+                .Where(page => page.RelativePath.StartsWith(stream.Folder, StringComparison.OrdinalIgnoreCase))
+                .ToArray()))
+            .ToArray();
     }
 
     private static ReleaseGroup[] CreateReleaseGroups(IReadOnlyList<CatalogPage> pages)

@@ -84,26 +84,33 @@ internal sealed class TermDictionaryReader : IDisposable
         string field, string? literalPrefix, string? wildcardPattern, Regex? regex,
         Action<string> admit,
         Action? checkResources = null)
+        => VisitMatchingTerms(field, literalPrefix, wildcardPattern, regex, (term, _) => admit(term), checkResources);
+
+    /// <summary>Visits each matching qualified term with its postings offset, in dictionary order.</summary>
+    internal void VisitMatchingTerms(
+        string field, string? literalPrefix, string? wildcardPattern, Regex? regex,
+        Action<string, long> admit,
+        Action? checkResources = null)
     {
         string fieldPrefix = string.Concat(field, "\0");
         if (wildcardPattern is not null)
         {
             var automaton = GetOrAddWildcardAutomaton(wildcardPattern);
-            foreach (var (key, _, _) in _fst.IntersectAutomaton(automaton, Encoding.UTF8.GetBytes(fieldPrefix)))
+            foreach (var (key, output, _) in _fst.IntersectAutomaton(automaton, Encoding.UTF8.GetBytes(fieldPrefix)))
             {
                 checkResources?.Invoke();
-                admit(Encoding.UTF8.GetString(key));
+                admit(Encoding.UTF8.GetString(key), output);
             }
             return;
         }
 
         string prefix = string.Concat(fieldPrefix, literalPrefix);
-        foreach (var (key, _) in _fst.EnumerateWithPrefix(Encoding.UTF8.GetBytes(prefix)))
+        foreach (var (key, output) in _fst.EnumerateWithPrefix(Encoding.UTF8.GetBytes(prefix)))
         {
             checkResources?.Invoke();
             string term = Encoding.UTF8.GetString(key);
             if (regex is null || regex.IsMatch(term.AsSpan(fieldPrefix.Length)))
-                admit(term);
+                admit(term, output);
         }
     }
 
@@ -185,9 +192,8 @@ internal sealed class TermDictionaryReader : IDisposable
     /// <see cref="GetTermOffsetsMatchingWithPrefix"/> instead.
     /// </summary>
     internal List<(string Term, long Offset)> GetTermsMatchingWithPrefix(
-        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> suffixPattern)
     {
-        var suffixPattern = fullPattern.Slice(leadingPrefix.Length);
         var wildcard = GetOrAddWildcardAutomaton(suffixPattern);
 
         int totalCharLen = field.Length + 1 + leadingPrefix.Length;
@@ -220,11 +226,10 @@ internal sealed class TermDictionaryReader : IDisposable
     /// is matched via automaton intersection. Allocation-light: no per-term strings.
     /// </summary>
     internal List<long> GetTermOffsetsMatchingWithPrefix(
-        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> suffixPattern)
     {
-        // Strip the leading prefix from the pattern so the wildcard automaton
-        // only needs to match the suffix following the pre-walked FST prefix.
-        var suffixPattern = fullPattern.Slice(leadingPrefix.Length);
+        // The caller strips the unescaped leading prefix, so the wildcard automaton only
+        // matches the raw suffix pattern following the pre-walked FST prefix.
         var wildcard = GetOrAddWildcardAutomaton(suffixPattern);
 
         // Build the full qualifier: "field\0leadingPrefix" (zero heap when ≤256 chars).

@@ -31,13 +31,17 @@ snapshot, then reuses the DWPT with fresh buffers. The physical flush can run
 while producers continue, but the snapshot remains responsible for returning
 all pooled postings resources on both success and failure.
 
-## Pre-warm DWPT pool
+## Configure producer concurrency
 
-DWPTs are created lazily. Pre-warm for consistent latency:
+Set the number of concurrent DWPT producers when the writer is constructed:
 
 ```csharp
-writer.InitialiseDwptPool();
+var config = new IndexWriterConfig { IndexingConcurrency = 4 };
 ```
+
+`InitialiseDwptPool` is deprecated in favour of `IndexingConcurrency`, and
+`AddDocumentLockFree` is deprecated because it has no distinct lock-free
+execution path.
 
 ## See also
 

@@ -11,6 +11,9 @@ internal sealed partial class SegmentReaderState
     internal void VisitMatchingTerms(string field, string? prefix, string? wildcardPattern, Regex? regex, Action<string> admit, Action? checkResources)
         => DictionaryReader.VisitMatchingTerms(field, prefix, wildcardPattern, regex, admit, checkResources);
 
+    internal void VisitMatchingTerms(string field, string? prefix, string? wildcardPattern, Regex? regex, Action<string, long> admit, Action? checkResources)
+        => DictionaryReader.VisitMatchingTerms(field, prefix, wildcardPattern, regex, admit, checkResources);
+
     /// <summary>Intersects the term dictionary with an automaton, returning matching terms.</summary>
     public List<(string Term, long Offset)> IntersectAutomaton(string fieldPrefix, IAutomaton automaton)
     {
@@ -47,9 +50,9 @@ internal sealed partial class SegmentReaderState
     /// Allocation-light: no per-term string materialisation.
     /// </summary>
     internal List<long> GetTermOffsetsMatchingWithPrefix(
-        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> suffixPattern)
     {
-        return DictionaryReader.GetTermOffsetsMatchingWithPrefix(field, leadingPrefix, fullPattern);
+        return DictionaryReader.GetTermOffsetsMatchingWithPrefix(field, leadingPrefix, suffixPattern);
     }
 
     /// <summary>
@@ -59,9 +62,9 @@ internal sealed partial class SegmentReaderState
     /// <see cref="GetTermOffsetsMatchingWithPrefix"/>.
     /// </summary>
     internal List<(string Term, long Offset)> GetTermsMatchingWithPrefix(
-        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> fullPattern)
+        string field, ReadOnlySpan<char> leadingPrefix, ReadOnlySpan<char> suffixPattern)
     {
-        return DictionaryReader.GetTermsMatchingWithPrefix(field, leadingPrefix, fullPattern);
+        return DictionaryReader.GetTermsMatchingWithPrefix(field, leadingPrefix, suffixPattern);
     }
 
     /// <summary>Returns all terms for a given field.</summary>

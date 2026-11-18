@@ -4,8 +4,8 @@
 `◐` means a broadly comparable capability
 `❌` means no equivalent
 
-Lucene.NET refers to the currently packaged 4.8.0-beta00016 line
-Lucene (Java) refers to Lucene 10.3.1,
+Lucene.NET refers to the currently packaged 4.8.0-beta00018 line
+Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 
 ---
 
@@ -192,13 +192,13 @@ Lucene (Java) refers to Lucene 10.3.1,
 | BooleanQuery | ✔   `BooleanQuery` | ✔ | ✔ | Must / Should / MustNot |
 | PhraseQuery (with slop) | ✔   `PhraseQuery` | ✔ | ✔ | |
 | PrefixQuery | ✔   `PrefixQuery` | ✔ | ✔ | |
-| WildcardQuery | ✔   `WildcardQuery` | ✔ | ✔ | `?` and `*` |
+| WildcardQuery | ✔   `WildcardQuery` | ✔ | ✔ | `?` (one Unicode character), `*` and backslash escapes; optional distinct-term limit. |
 | FuzzyQuery | ✔   `FuzzyQuery` | ✔ | ✔ | Levenshtein |
 | RangeQuery / TermRangeQuery | ✔   `RangeQuery` / `TermRangeQuery` | ✔ | ✔ | |
 | NumericRangeQuery (BKD-backed) | ✔   `RangeQuery` on `NumericField` | ✔ | ✔ | |
 | Int64RangeQuery | ✔   `Int64RangeQuery` | ◐ | ✔ | Dedicated signed 64-bit inclusive range query. |
 | Int64PointInSetQuery | ✔   `Int64PointInSetQuery` | ◐ | ✔ | Dedicated signed 64-bit point-set query. |
-| RegexpQuery | ◐   `RegexpQuery` | ✔ | ✔ | Enumerates terms through the FST but matches with `System.Text.RegularExpressions`, rather than Lucene's automaton implementation. |
+| RegexpQuery | ◐   `RegexpQuery` | ✔ | ✔ | Matches whole terms like Lucene, but with `System.Text.RegularExpressions` syntax rather than Lucene's automaton implementation; optional distinct-term limit. |
 | ConstantScoreQuery | ✔   `ConstantScoreQuery` | ✔ | ✔ | |
 | DisjunctionMaxQuery | ✔   `DisjunctionMaxQuery` | ✔ | ✔ | |
 | FunctionScoreQuery | ✔   `FunctionScoreQuery` | ◐ | ✔ | Lucene.NET provides comparable `FunctionQuery`, `ValueSource`, and custom-scoring APIs. |
@@ -424,11 +424,11 @@ Lucene (Java) refers to Lucene 10.3.1,
 | Geo distance query | ✔   `GeoDistanceQuery` | ✔ | ✔ | |
 | Geo encoding utilities | ✔   `GeoEncodingUtils` | ✔ | ✔ | |
 | LatLonPoint (BKD-backed lat/lon) | ◐   `GeoPointField` + `BKDTree` | ❌ | ✔ | LeanCorpus provides equivalent point indexing under a different field API; Lucene.NET 4.8 predates `LatLonPoint`. |
-| Lat/lon shape field and queries | ❌ | ❌ | ✔ | Lucene (Java): `LatLonShape`. |
-| Cartesian shapes | ❌ | ❌ | ✔ | Lucene (Java): `XYShape`. |
-| Polygon / line string spatial | ❌ | ◐ | ✔ | Lucene.NET offers comparable Spatial4n strategies rather than Java Lucene's BKD shape API. |
+| Lat/lon shape field and queries | ◐   Geo shape fields | ❌ | ✔ | Constant-score shape relations over Packed BKD; Lucene (Java): `LatLonShape`. |
+| Cartesian shapes | ◐   XY shape fields | ❌ | ✔ | Lucene (Java): `XYShape`. |
+| Polygon / line string spatial | ✔ | ◐ | ✔ | Lucene.NET offers comparable Spatial4n strategies rather than Java Lucene's BKD shape API. |
 | Recursive prefix tree strategies | ❌ | ✔ | ✔ | Backlog |
-| BKD-backed geo shapes | ❌ | ❌ | ✔ | Java Lucene: `LatLonShape`; Lucene.NET 4.8 predates the BKD shape API. |
+| BKD-backed geo shapes | ✔   Packed BKD | ❌ | ✔ | Java Lucene: `LatLonShape`; Lucene.NET 4.8 predates the BKD shape API. |
 | XYPoint (cartesian) | ❌ | ❌ | ✔ | Backlog |
 
 ---

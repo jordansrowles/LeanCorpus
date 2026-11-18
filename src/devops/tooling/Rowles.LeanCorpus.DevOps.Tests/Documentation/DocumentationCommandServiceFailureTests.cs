@@ -194,6 +194,8 @@ public sealed class DocumentationCommandServiceFailureTests
                 "articles/ADRs/ADR041-physical-index-runtime-lifecycle.md",
                 "articles/ADRs/Server/ADR-S005-aot-and-framework-compatibility-boundary.md",
                 "changelog/index.md",
+                "changelog/engine/unreleased.md",
+                "changelog/text/unreleased.md",
                 "changelog/devops/unreleased.md",
                 "benchmarks/overview.md",
                 "benchmarks/qualification-audit.md"
@@ -203,13 +205,13 @@ public sealed class DocumentationCommandServiceFailureTests
             {
                 var path = Path.Combine(contentRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                var body = relativePath == "changelog/index.md" ? "## LeanCorpus DevOps\n" : "# Test document\n";
+                var body = relativePath == "changelog/index.md" ? "## Rowles.Text\n\n## LeanCorpus DevOps\n" : "# Test document\n";
                 File.WriteAllText(path, $"---\ndocurl: '{contributionUrl}'\n---\n{body}");
             }
 
             WriteContentFile(contentRoot, "toc.yml", "items: []\n");
             WriteContentFile(contentRoot, "articles/ADRs/toc.yml", "items: []\n");
-            WriteContentFile(contentRoot, "changelog/toc.yml", "name: 'LeanCorpus DevOps'\nitems: []\n");
+            WriteContentFile(contentRoot, "changelog/toc.yml", "name: 'Rowles.Text'\nname: 'LeanCorpus DevOps'\nitems: []\n");
             WriteContentFile(contentRoot, "benchmarks/toc.yml", "items: []\n");
 
             var apiRoot = Path.Combine(artifactRoot, "api");

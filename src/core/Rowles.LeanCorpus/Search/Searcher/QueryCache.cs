@@ -307,6 +307,13 @@ public sealed class QueryCache
                     AppendPart(builder, wq.Pattern);
                     builder.Append("|exp=").Append(wq.MaximumExpansions);
                     break;
+                case RegexpQuery rq:
+                    AppendPart(builder, rq.Field);
+                    AppendPart(builder, rq.Pattern);
+                    builder.Append("|opt=").Append((int)rq.EffectiveOptions);
+                    AppendPart(builder, rq.CultureName ?? string.Empty);
+                    builder.Append("|exp=").Append(rq.MaximumExpansions);
+                    break;
                 case FuzzyQuery fq:
                     AppendPart(builder, fq.Field);
                     AppendPart(builder, fq.Term);

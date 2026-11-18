@@ -1,4 +1,5 @@
 ﻿
+using Rowles.LeanCorpus.Codecs.Fst;
 using System.Numerics;
 using Rowles.LeanCorpus.Codecs.DocValues;
 using Rowles.LeanCorpus.Codecs.PackedBkd;
@@ -522,8 +523,10 @@ public sealed partial class IndexSearcher
         (includeMax ? value <= max : value < max);
 
     private void ExecutePrefixQuery(PrefixQuery query, SegmentReader reader,
-        Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
+        Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector,
+        Query? expansionKey = null)
     {
+        bool hasShared = TryGetSharedExpansion(expansionKey ?? query, reader, out var shared);
         var qualifiedPrefix = $"{query.Field}\x00{query.Prefix}";
         float boost = query.Boost;
         float avgDocLength = Stats.GetAvgFieldLength(query.Field);
@@ -539,7 +542,9 @@ public sealed partial class IndexSearcher
         {
             if (globalDFs.Count == 0 && !RequiresCollectionStatistics(query.Field))
             {
-                var matchingOffsets = reader.GetTermOffsetsWithPrefix(qualifiedPrefix);
+                IReadOnlyList<long> matchingOffsets = hasShared
+                    ? SharedOffsets(shared)
+                    : reader.GetTermOffsetsWithPrefix(qualifiedPrefix);
                 if (matchingOffsets.Count == 0) return;
 
                 foreach (var postingsOffset in matchingOffsets)
@@ -556,7 +561,9 @@ public sealed partial class IndexSearcher
                 return;
             }
 
-            var matchingTerms = reader.GetTermsWithPrefix(qualifiedPrefix);
+            IReadOnlyList<(string Term, long Offset)> matchingTerms = hasShared
+                ? shared
+                : reader.GetTermsWithPrefix(qualifiedPrefix);
             if (matchingTerms.Count == 0) return;
 
             foreach (var (qualifiedTerm, postingsOffset) in matchingTerms)
@@ -590,17 +597,18 @@ public sealed partial class IndexSearcher
     private void ExecuteWildcardQuery(WildcardQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs, ref TopNCollector collector)
     {
-        if (TryGetSimpleTrailingWildcardPrefix(query.Pattern, out var prefix))
+        if (WildcardPattern.TryGetTrailingStarPrefix(query.Pattern, out var prefix))
         {
             var prefixQuery = new PrefixQuery(query.Field, prefix, query.MaximumExpansions) { Boost = query.Boost };
-            ExecutePrefixQuery(prefixQuery, reader, globalDFs, ref collector);
+            ExecutePrefixQuery(prefixQuery, reader, globalDFs, ref collector, expansionKey: query);
             return;
         }
 
         // Extract leading literal prefix before the first wildcard to narrow FST subtree.
         // Only use prefix narrowing when the prefix is at least 2 characters. For 1-char
         // prefixes the FST subtree is too broad and the filtering overhead dominates.
-        var leadingPrefix = GetLeadingLiteralPrefix(query.Pattern);
+        bool hasShared = TryGetSharedExpansion(query, reader, out var shared);
+        var (leadingPrefix, suffixPattern) = WildcardPattern.SplitLeadingLiteral(query.Pattern);
         bool usePrefixNarrowing = leadingPrefix.Length >= 2;
         var fieldPrefix = usePrefixNarrowing
             ? $"{query.Field}\x00{leadingPrefix}"
@@ -619,15 +627,19 @@ public sealed partial class IndexSearcher
         {
             if (globalDFs.Count == 0 && !RequiresCollectionStatistics(query.Field))
             {
-                List<long> matchingOffsets;
-                if (!usePrefixNarrowing)
+                IReadOnlyList<long> matchingOffsets;
+                if (hasShared)
+                {
+                    matchingOffsets = SharedOffsets(shared);
+                }
+                else if (!usePrefixNarrowing)
                 {
                     matchingOffsets = reader.GetTermOffsetsMatching(fieldPrefix, query.Pattern.AsSpan());
                 }
                 else
                 {
                     matchingOffsets = reader.GetTermOffsetsMatchingWithPrefix(
-                        query.Field, leadingPrefix, query.Pattern.AsSpan());
+                        query.Field, leadingPrefix, suffixPattern.AsSpan());
                 }
                 if (matchingOffsets.Count == 0) return;
 
@@ -644,15 +656,19 @@ public sealed partial class IndexSearcher
                 return;
             }
 
-            List<(string Term, long Offset)> matchingTerms;
-            if (!usePrefixNarrowing)
+            IReadOnlyList<(string Term, long Offset)> matchingTerms;
+            if (hasShared)
+            {
+                matchingTerms = shared;
+            }
+            else if (!usePrefixNarrowing)
             {
                 matchingTerms = reader.GetTermsMatching(fieldPrefix, query.Pattern.AsSpan());
             }
             else
             {
                 matchingTerms = reader.GetTermsMatchingWithPrefix(
-                    query.Field, leadingPrefix, query.Pattern.AsSpan());
+                    query.Field, leadingPrefix, suffixPattern.AsSpan());
             }
             if (matchingTerms.Count == 0) return;
 
@@ -679,6 +695,14 @@ public sealed partial class IndexSearcher
         {
             ClearAccumulatedScores(scores, seen, docIds, docCount);
         }
+    }
+
+    private static long[] SharedOffsets(IReadOnlyList<(string Term, long Offset)> terms)
+    {
+        var offsets = new long[terms.Count];
+        for (int i = 0; i < offsets.Length; i++)
+            offsets[i] = terms[i].Offset;
+        return offsets;
     }
 
     private void AccumulatePostingsScores(SegmentReader reader, PostingsEnum postings,
@@ -724,35 +748,6 @@ public sealed partial class IndexSearcher
             docIds[i] = 0;
         }
     }
-    private static bool TryGetSimpleTrailingWildcardPrefix(string pattern, out string prefix)
-    {
-        prefix = string.Empty;
-        if (pattern.Length == 0 || pattern[^1] != '*')
-            return false;
-
-        for (int i = 0; i < pattern.Length - 1; i++)
-        {
-            if (pattern[i] is '*' or '?')
-                return false;
-        }
-
-        prefix = pattern[..^1];
-        return true;
-    }
-
-    /// <summary>
-    /// Extracts the leading literal prefix of a wildcard pattern up to (but not including)
-    /// the first <c>*</c> or <c>?</c> wildcard. Returns an empty string if the pattern
-    /// starts with a wildcard. Used to narrow FST subtree walks.
-    /// </summary>
-    private static string GetLeadingLiteralPrefix(string pattern)
-    {
-        int end = 0;
-        while (end < pattern.Length && pattern[end] is not '*' and not '?')
-            end++;
-        return end == 0 ? string.Empty : pattern[..end];
-    }
-
     /// <summary>
     /// Extracts the literal characters every whole-term match must start with (ADR048). Walks the
     /// pattern from the start, skipping a leading <c>^</c>, and collects literal characters and
@@ -950,6 +945,14 @@ public sealed partial class IndexSearcher
         var fieldPrefix = $"{query.Field}\x00";
         var regex = query.CompiledRegex;
 
+        // Admission or global statistics already walked this reader: verify and score those terms.
+        if (TryGetSharedExpansion(query, reader, out var shared))
+        {
+            if (shared.Count > 0)
+                ExecuteRegexpFromCandidates(query, reader, globalDFs, ref collector, shared, fieldPrefix, regex);
+            return;
+        }
+
         // Fast path: literal-contains pattern (e.g. .*nation.*)
         if (UsesDefaultRegexMatching(regex) && TryGetSimpleContainsRegexLiteral(query.Pattern, out var literal))
         {
@@ -985,7 +988,7 @@ public sealed partial class IndexSearcher
     private void ExecuteRegexpFromCandidates(RegexpQuery query, SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs,
         ref TopNCollector collector,
-        List<(string Term, long Offset)> candidates,
+        IReadOnlyList<(string Term, long Offset)> candidates,
         string fieldPrefix,
         System.Text.RegularExpressions.Regex regex)
     {

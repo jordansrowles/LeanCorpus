@@ -133,13 +133,22 @@ public sealed class IndexWriterConfig
     /// Maximum number of documents admitted into DWPT buffers before producers apply backpressure.
     /// A full limit triggers a DWPT flush snapshot to release admission slots; it does not cap
     /// physical flushes already in progress. A positive value also sets the async command-channel
-    /// capacity; when the document limit is disabled, that channel uses its default capacity of 4096.
+    /// capacity, counted in commands rather than documents; when the document limit is disabled, that
+    /// channel uses its default capacity of 4096. A queued command references its caller's documents
+    /// without copying them, and every asynchronous add waits for its own command to complete, so the
+    /// documents waiting in the channel are bounded by the caller's in-flight adds, not by this limit.
+    /// Ordered lists larger than this limit are admitted as sequential chunks of at most this size.
     /// Set to 0 to disable the document admission limit (not recommended).
     /// Default: 2 × MaxBufferedDocs.
     /// </summary>
     public int MaxQueuedDocs { get; set; } = 20_000;
 
-    /// <summary>Maximum estimated bytes retained by queued asynchronous documents.</summary>
+    /// <summary>
+    /// Maximum estimated bytes of indexed data held in DWPT buffers and pending flush snapshots before a
+    /// flush is triggered and producers wait for flush progress. The smaller of this and
+    /// <see cref="RamBufferSizeMB"/> applies. Documents still waiting in the asynchronous command channel
+    /// are not counted; see <see cref="MaxQueuedDocs"/>. Set to 0 to disable.
+    /// </summary>
     public long MaxQueuedBytes { get; set; } = 512L * 1024 * 1024;
 
     /// <summary>Default analyser used for fields without a specific mapping.</summary>

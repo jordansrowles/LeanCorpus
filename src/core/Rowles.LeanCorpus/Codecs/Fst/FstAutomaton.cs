@@ -79,9 +79,9 @@ public sealed class PrefixAutomaton : IAutomaton
 }
 
 /// <summary>
-/// DFA for wildcard patterns with '*' (any sequence) and '?' (any single byte).
-/// Built via NFA-to-DFA subset construction at construction time.
-/// Operates on individual UTF-8 bytes (not characters).
+/// DFA for wildcard patterns with '*' (any sequence), '?' (exactly one Unicode scalar value) and
+/// backslash escapes. Built via NFA-to-DFA subset construction at construction time.
+/// Steps over UTF-8 bytes; literals and '?' are expanded to complete UTF-8 sequences.
 /// </summary>
 public sealed class WildcardAutomaton : IAutomaton
 {
@@ -95,135 +95,55 @@ public sealed class WildcardAutomaton : IAutomaton
     /// Initialises a new <see cref="WildcardAutomaton"/> for the given wildcard pattern.
     /// Constructs the DFA via NFA-to-DFA subset construction at construction time.
     /// </summary>
-    /// <param name="pattern">The wildcard pattern. Use '*' for any sequence of bytes and '?' for any single byte.</param>
+    /// <param name="pattern">
+    /// The wildcard pattern. <c>*</c> matches any sequence of characters, <c>?</c> matches exactly one
+    /// Unicode scalar value (one to four UTF-8 bytes), and a backslash makes the next character literal.
+    /// </param>
     public WildcardAutomaton(string pattern)
     {
-        // Convert pattern to UTF-8 bytes, treating '*' and '?' specially
-        var patternBytes = new List<byte>();
-        var isMeta = new List<bool>();
-        Span<byte> buf = stackalloc byte[4];
-        Span<char> charBuf = stackalloc char[1];
-        foreach (char c in pattern)
-        {
-            if (c == '*' || c == '?')
-            {
-                patternBytes.Add((byte)c);
-                isMeta.Add(true);
-            }
-            else
-            {
-                charBuf[0] = c;
-                int len = Encoding.UTF8.GetBytes(charBuf, buf);
-                for (int i = 0; i < len; i++)
-                {
-                    patternBytes.Add(buf[i]);
-                    isMeta.Add(false);
-                }
-            }
-        }
+        ArgumentNullException.ThrowIfNull(pattern);
+        var nfa = BuildNfa(pattern, out int acceptState);
 
-        int patLen = patternBytes.Count;
-        byte[] pat = patternBytes.ToArray();
-        bool[] meta = isMeta.ToArray();
-
-        // Build NFA states: one per pattern position + one accept state
-        // NFA state i means "need to match pat[i..]"
-        // Use subset construction for DFA
-
-        // For efficiency, we use a simplified approach:
-        // Track sets of NFA states and build DFA on the fly
-        var nfaStates = new Dictionary<long, int>(); // hash of NFA state set → DFA state
-        var dfaTransitions = new List<int[]>(); // DFA state → 256 transitions
+        var dfaTransitions = new List<int[]>();
         var dfaAccept = new List<bool>();
+        var setToId = new Dictionary<string, int>(StringComparer.Ordinal);
+        var queue = new Queue<int[]>();
 
-        int dfaStateId = 0;
-
-        // Epsilon closure: expand '*' states (a '*' at position i can match 0 chars → skip to i+1)
-        HashSet<int> EpsilonClosure(HashSet<int> states)
-        {
-            var result = new HashSet<int>(states);
-            bool changed = true;
-            while (changed)
-            {
-                changed = false;
-                foreach (int s in result.ToArray())
-                {
-                    if (s < patLen && meta[s] && pat[s] == (byte)'*')
-                    {
-                        // '*' can match zero → epsilon to s+1
-                        if (result.Add(s + 1))
-                            changed = true;
-                    }
-                }
-            }
-            return result;
-        }
-
-        var initialSet = EpsilonClosure([0]);
-        var queue = new Queue<HashSet<int>>();
-        var setToId = new Dictionary<string, int>();
-
-        string SetKey(HashSet<int> set)
-        {
-            var sorted = set.Order().ToArray();
-            return string.Join(",", sorted);
-        }
-
-        string initKey = SetKey(initialSet);
-        setToId[initKey] = dfaStateId++;
-        dfaTransitions.Add(new int[256]);
-        Array.Fill(dfaTransitions[0], -1);
-        dfaAccept.Add(initialSet.Contains(patLen));
+        int[] initialSet = EpsilonClosure(nfa, [0], acceptState);
+        setToId[SetKey(initialSet)] = 0;
+        dfaTransitions.Add(NewTransitionRow());
+        dfaAccept.Add(Array.IndexOf(initialSet, acceptState) >= 0);
         queue.Enqueue(initialSet);
 
+        var next = new SortedSet<int>();
         while (queue.Count > 0)
         {
-            var currentSet = queue.Dequeue();
-            string currentKey = SetKey(currentSet);
-            int currentDfa = setToId[currentKey];
+            int[] currentSet = queue.Dequeue();
+            int currentDfa = setToId[SetKey(currentSet)];
 
             for (int b = 0; b < 256; b++)
             {
-                var nextSet = new HashSet<int>();
-                foreach (int s in currentSet)
+                next.Clear();
+                foreach (int state in currentSet)
                 {
-                    if (s >= patLen) continue;
-
-                    if (meta[s] && pat[s] == (byte)'*')
+                    foreach (var (low, high, target) in nfa[state].Transitions)
                     {
-                        // '*' matches this byte → stay at s (greedy)
-                        nextSet.Add(s);
-                        // '*' also allows skipping → s+1 already in closure
-                        nextSet.Add(s + 1);
-                    }
-                    else if (meta[s] && pat[s] == (byte)'?')
-                    {
-                        // '?' matches any single byte
-                        nextSet.Add(s + 1);
-                    }
-                    else if (pat[s] == (byte)b)
-                    {
-                        // Literal match
-                        nextSet.Add(s + 1);
+                        if (b >= low && b <= high)
+                            next.Add(target);
                     }
                 }
 
-                if (nextSet.Count == 0)
-                {
-                    dfaTransitions[currentDfa][b] = -1;
+                if (next.Count == 0)
                     continue;
-                }
 
-                nextSet = EpsilonClosure(nextSet);
+                int[] nextSet = EpsilonClosure(nfa, next, acceptState);
                 string nextKey = SetKey(nextSet);
-
                 if (!setToId.TryGetValue(nextKey, out int nextDfa))
                 {
-                    nextDfa = dfaStateId++;
+                    nextDfa = dfaTransitions.Count;
                     setToId[nextKey] = nextDfa;
-                    dfaTransitions.Add(new int[256]);
-                    Array.Fill(dfaTransitions[^1], -1);
-                    dfaAccept.Add(nextSet.Contains(patLen));
+                    dfaTransitions.Add(NewTransitionRow());
+                    dfaAccept.Add(Array.IndexOf(nextSet, acceptState) >= 0);
                     queue.Enqueue(nextSet);
                 }
 
@@ -231,7 +151,7 @@ public sealed class WildcardAutomaton : IAutomaton
             }
         }
 
-        _stateCount = dfaStateId;
+        _stateCount = dfaTransitions.Count;
         _transitions = new int[_stateCount * 256];
         _accept = dfaAccept.ToArray();
         _canMatch = new bool[_stateCount];
@@ -243,6 +163,111 @@ public sealed class WildcardAutomaton : IAutomaton
 
         // Compute canMatch via backward reachability from accept states
         ComputeCanMatch();
+    }
+
+    private sealed class NfaState
+    {
+        public List<(int Low, int High, int Target)> Transitions { get; } = [];
+        public List<int> Epsilon { get; } = [];
+    }
+
+    /// <summary>
+    /// Builds a byte-level NFA from the shared pattern interpretation. Literal runs are encoded as whole
+    /// UTF-8 sequences, so supplementary characters keep their real four-byte encoding. <c>?</c> consumes
+    /// one complete UTF-8 sequence; <c>*</c> may consume any bytes, because every following element
+    /// must start on a lead byte and stored terms are valid UTF-8.
+    /// </summary>
+    private static List<NfaState> BuildNfa(string pattern, out int acceptState)
+    {
+        var nfa = new List<NfaState> { new() };
+        int current = 0;
+
+        int Add()
+        {
+            nfa.Add(new NfaState());
+            return nfa.Count - 1;
+        }
+
+        foreach (var token in WildcardPattern.Tokenise(pattern))
+        {
+            switch (token.Kind)
+            {
+                case WildcardPattern.TokenKind.Literal:
+                    foreach (byte value in WildcardPattern.EncodeLiteral(token.Literal))
+                    {
+                        int target = Add();
+                        nfa[current].Transitions.Add((value, value, target));
+                        current = target;
+                    }
+                    break;
+                case WildcardPattern.TokenKind.AnySequence:
+                {
+                    int loop = Add();
+                    int after = Add();
+                    nfa[current].Epsilon.Add(loop);
+                    nfa[loop].Transitions.Add((0x00, 0xFF, loop));
+                    nfa[loop].Epsilon.Add(after);
+                    current = after;
+                    break;
+                }
+                case WildcardPattern.TokenKind.AnyScalar:
+                {
+                    int after = Add();
+                    int oneMore = Add();
+                    int twoMore = Add();
+                    int threeMore = Add();
+                    nfa[current].Transitions.Add((0x00, 0x7F, after));
+                    nfa[current].Transitions.Add((0xC0, 0xDF, oneMore));
+                    nfa[current].Transitions.Add((0xE0, 0xEF, twoMore));
+                    nfa[current].Transitions.Add((0xF0, 0xF7, threeMore));
+                    nfa[threeMore].Transitions.Add((0x80, 0xBF, twoMore));
+                    nfa[twoMore].Transitions.Add((0x80, 0xBF, oneMore));
+                    nfa[oneMore].Transitions.Add((0x80, 0xBF, after));
+                    current = after;
+                    break;
+                }
+            }
+        }
+
+        acceptState = current;
+        return nfa;
+    }
+
+    /// <summary>
+    /// Expands epsilon moves, then keeps only states that consume bytes or accept. States with only
+    /// epsilon moves add nothing once expanded; leaving them out lets equivalent sets share one DFA
+    /// state, so a trailing <c>*</c> reaches its self-looping sink as soon as the literal prefix ends.
+    /// </summary>
+    private static int[] EpsilonClosure(List<NfaState> nfa, IEnumerable<int> states, int acceptState)
+    {
+        var closure = new HashSet<int>(states);
+        var pending = new Stack<int>(closure);
+        while (pending.Count > 0)
+        {
+            foreach (int target in nfa[pending.Pop()].Epsilon)
+            {
+                if (closure.Add(target))
+                    pending.Push(target);
+            }
+        }
+
+        var result = new SortedSet<int>();
+        foreach (int state in closure)
+        {
+            if (state == acceptState || nfa[state].Transitions.Count > 0)
+                result.Add(state);
+        }
+
+        return [.. result];
+    }
+
+    private static string SetKey(int[] set) => string.Join(',', set);
+
+    private static int[] NewTransitionRow()
+    {
+        var row = new int[256];
+        Array.Fill(row, -1);
+        return row;
     }
 
     private void ComputeCanMatch()
@@ -270,14 +295,15 @@ public sealed class WildcardAutomaton : IAutomaton
         if (state < 0 || state >= _stateCount)
             return false;
 
-        // A sink state transitions to itself on every byte and is accepting.
+        // A sink accepts every possible suffix, so callers may collect a whole subtree without stepping.
+        // That holds only for an accepting state whose every byte returns to itself: a rejected byte or
+        // a move to another state, even an accepting one, means some longer suffix can be rejected.
         if (!_accept[state]) return false;
 
         int baseOffset = state * 256;
         for (int b = 0; b < 256; b++)
         {
-            int next = _transitions[baseOffset + b];
-            if (next != state && next >= 0 && !_accept[next])
+            if (_transitions[baseOffset + b] != state)
                 return false;
         }
 

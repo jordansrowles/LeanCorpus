@@ -34,6 +34,8 @@ await writer.AddDocumentsAsync(
 
 The effective batch size is the smaller of the requested size and `MaxQueuedDocs` when that limit is enabled. The writer consumes the `IAsyncEnumerable` with cancellation and sends each full batch through the same asynchronous channel. A positive `MaxQueuedDocs` sets the channel's command capacity and limits documents admitted into DWPT buffers; a full admission limit triggers a flush snapshot so producers can proceed. When the document limit is disabled, the async command channel uses its default capacity of 4,096.
 
+The channel capacity counts commands, not documents. A queued command refers to the caller's documents without copying them, and each async add waits for its own command to complete, so the documents waiting in the channel are bounded by the adds a caller has in flight, not by `MaxQueuedDocs`. `MaxQueuedBytes` bounds indexed data in DWPT buffers and pending flushes, not documents still waiting in the channel.
+
 This method does not commit each batch. Call `CommitAsync` according to the application's durability and visibility policy.
 
 ## Document blocks
@@ -96,5 +98,9 @@ Use an application `Channel<LeanDocument>` when source acquisition itself needs 
 | ASP.NET request or asynchronous message consumer | Async methods |
 | `IAsyncEnumerable` source | `AddDocumentsAsync` |
 | Atomic child and parent adjacency | `AddDocumentBlock` or `AddDocumentBlockAsync` |
+
+## Measuring ingestion
+
+A commit can schedule a background merge. Disposal cancels merges that have not started and waits for any that have, so timing creation, indexing, commit and disposal together measures whether a merge happened to start, not the async API. Compare ingestion with merges disabled, or complete every scheduled merge before disposal so each variant does the same merge work, and report ingestion, commit, merge completion and disposal separately.
 
 Async improves caller scheduling, not codec or storage throughput by itself. `SearchAsync` likewise yields between synchronous per-segment query executions; it is a streaming and fairness API, not asynchronous scoring. Measure end-to-end indexing rate and allocation before increasing concurrency.

@@ -135,10 +135,16 @@
     - name: Releases
       href: changelog/index.md
       items:
-        - name: Unreleased
-          href: changelog/unreleased.md
+        - name: LeanCorpus 4.0.0 (unreleased)
+          href: changelog/engine/unreleased.md
         - name: LeanCorpus 3.1.1
-          href: changelog/3.1.1 - 2026-09-13.md
+          href: changelog/engine/3.1.1 - 2026-09-13.md
+        - name: Rowles.Text 2.0.0 (unreleased)
+          href: changelog/text/unreleased.md
+        - name: Community Server
+          href: changelog/server/0.1.0-alpha.1 - unreleased.md
+        - name: LeanCorpus DevOps
+          href: changelog/devops/unreleased.md
     - name: Contributing
       href: contributors/index.md
       items:

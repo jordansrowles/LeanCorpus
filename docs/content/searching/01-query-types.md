@@ -68,6 +68,13 @@ See [Phrase and proximity](03-phrase-and-proximity.md) and [Intervals](10-interv
 | `FuzzyQuery` | Terms within edit distance 0 to 2 | `MaxExpansions` limits candidate terms. |
 | `TermRangeQuery` | Lexicographic term range | Bounds may be inclusive, exclusive, or `null` for unbounded. |
 
+`WildcardQuery` also matches whole terms. `*` matches any sequence of
+characters and `?` matches exactly one Unicode character (a scalar value, so a
+character outside the Basic Multilingual Plane counts once). A backslash makes
+the next character literal, so `a\*b` matches only the term `a*b`; a trailing
+backslash matches a literal backslash. Every execution route, including
+expansion limits, uses the same rules.
+
 `RegexpQuery` matches the whole term, like Lucene: `gov.*ment` and
 `^gov.*ment$` are the same query and match `government`, while `ment` matches
 no part of `government`. Match within a term with explicit wildcards, such as
