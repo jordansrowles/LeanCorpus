@@ -1,168 +1,97 @@
 # LeanCorpus DevOps: unreleased
 
+The managed DevOps CLI is versioned and released independently of LeanCorpus. This entry covers the managed host, its test, benchmark, coverage, diagnostics, documentation, DataForge, package and report commands, and its distributions.
+
 ## Added
 
-- Rowles.Text benchmarks write a canonical report and can validate as a Text-only run.
-- Add managed `test` and `aot` apphost commands backed by the shared test planner and executor; route the PowerShell compatibility dispatcher and CI through the managed executor.
-- Run the Build workflow on `issue-97` pushes so the migration branch receives exact-source CI qualification.
-- Establish DevOps `1.0.0` independently of the LeanCorpus Core package version.
-- Add managed backup/restore matrix qualification with Git source fingerprints, five legacy variants and linked child-run evidence.
-- Add managed documentation preparation, metadata, build, static/browser validation and serve commands through the DevOps apphost.
-- Add a framework-dependent .NET 10 tool distribution profile for the managed DevOps command, with package readme and licence metadata.
-- Add managed RID-specific single-file DevOps release archives with source manifests, third-party notices, payload checksums and archive SHA-256 sidecars.
-- Add an interactive Spectre.Console workbench for managed tests, benchmark suites and area/group selectors, DataForge qualification and recent run inspection.
-- Exercise managed DevOps bootstrap and `report all` on Linux ARM64 and macOS ARM64 in Build CI.
-- Add a managed, bounded sustained-workload command with versioned input and terminal evidence for ingestion, read-only search and mixed ingest/search refresh scenarios.
-- Add deterministic vector workload distributions, independent held-out query seeds and a four-query HNSW recall gate against exact cosine ground truth before timing; preserve existing version 1 uniform dataset outputs.
-- Add a separate explicit-only capacity-one async indexing benchmark and independently budgeted 1,000-document and 100,000-document stress strategies.
-- Verify exact committed document ID sets for concurrent and sequential indexing benchmark cases.
-- Add a directional FST build benchmark for sorted UTF-8 terms with setup-time serialized-index and exact-output verification.
-- Add exact survivor checks to queued and committed deletion benchmarks, and a directional ten-per-cent replacement/commit/refresh case with published-generation verification.
-- Verify plain, HNSW and deletion-heavy merge outputs against exact stored-ID sets and live counts.
-- Verify the exact committed document count and stored-ID set after each high-cardinality flush benchmark iteration.
-- Verify wide stored-fields writes and bounded/concurrent reads against exact decoded values.
-- Verify every numeric, sorted, multi-valued and binary DocValues benchmark output before timing.
-- Verify Packed BKD selective XY range results against the deterministic input point set.
-- Add an unqualified shape-index case family and verify origin containment before timing across the existing shape and vertex-count parameters.
-- Add bounded semantic benchmark selectors for profile, case family, engine and workload; intersect them with suite, area, group and method-filter selection, enforce registered parameter combinations across Core, Text and Compression hosts, count those combinations against the budget, expose metadata through `--list` and `--dry`, and fail on empty or over-budget plans.
-- Add a separate fail-closed comparison assessment for paired v5 rows. It rejects duplicate jobs, historical v4 reports, incomplete or failed rows, unverified preflight, mismatched source/dataset/host/runtime/GC/PGO, and low or noisy samples; ratios appear only for fully qualified pairs.
-- Record terminal benchmark setup-preflight evidence in each Core v5 row so the separate comparator can distinguish a passing preflight from missing or failed evidence.
-- Replace the monolithic benchmark workflow with managed plan, build, smoke, four sequential bounded shards, evidence collection and a qualification summary. Missing, cancelled or failed shards and incomplete report counts now fail closed; no exhaustive or stress strategy is dispatched by this workflow.
-- Consolidate the 3.1.1 sparse-HNSW and migration fixture generators behind `data fixtures`, with shared source, exact package and assembly pins, isolated SDK/NuGet restore and immutable archive baselines; retain `data migration-fixtures-311` as a deprecated alias.
+- Establish DevOps `1.0.0` independently of the LeanCorpus Core package version. ([f27dcf9b6](https://github.com/jordansrowles/LeanCorpus/commit/f27dcf9b68d690954c7b9b0b24199fe7f437322b))
+- Add an isolated managed DevOps host for `build`, `clean` and foreground `server start`; bootstrap it with `pwsh ./devops.ps1 bootstrap`. ([197f3c091](https://github.com/jordansrowles/LeanCorpus/commit/197f3c091354ed246d6e75b4287d62fa2ed9c7a6))
+- Add a framework-dependent .NET 10 tool distribution profile for the managed DevOps command, with package readme and licence metadata. ([f27dcf9b6](https://github.com/jordansrowles/LeanCorpus/commit/f27dcf9b68d690954c7b9b0b24199fe7f437322b))
+- Add managed RID-specific single-file DevOps release archives with source manifests, third-party notices, payload checksums and archive SHA-256 sidecars. ([f27dcf9b6](https://github.com/jordansrowles/LeanCorpus/commit/f27dcf9b68d690954c7b9b0b24199fe7f437322b))
+- Add package archive and isolated-consumer validation, plus Gutenberg downloads that record SHA-256 identities and atomically promote completed files. ([705a0aca7](https://github.com/jordansrowles/LeanCorpus/commit/705a0aca7a7ccead9c385ca4674bde87a6e2c159))
+- Add managed DataForge dataset generation and reproducible migration-fixture archive generation. ([705a0aca7](https://github.com/jordansrowles/LeanCorpus/commit/705a0aca7a7ccead9c385ca4674bde87a6e2c159))
+- Add managed DataForge qualification with recorded build, test and benchmark runs, synthetic dataset identities, and frozen Wikipedia reference validation. Required profile IDs and versions are validated before qualification begins. ([5770528eb](https://github.com/jordansrowles/LeanCorpus/commit/5770528ebe240deaa50c9bf6e76aca8043605404), [3a8c784d3](https://github.com/jordansrowles/LeanCorpus/commit/3a8c784d306e48982c5cbeb8adc8d8d378f8a98c))
+- Add deterministic vector workload distributions, independent held-out query seeds and a recall gate against exact cosine ground truth before timing; preserve existing version 1 uniform dataset outputs. ([0fc49d6ed](https://github.com/jordansrowles/LeanCorpus/commit/0fc49d6edd0ab3a6af12d8dc47b05c68273f8d59))
+- Consolidate the 3.1.1 sparse-HNSW and migration fixture generators behind `data fixtures`, with shared source, exact package and assembly pins, isolated SDK/NuGet restore and immutable archive baselines; retain `data migration-fixtures-311` as a deprecated alias. ([0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23))
+- Add managed `test` and `aot` apphost commands backed by the shared test planner and executor, with Microsoft.Testing.Platform and Native AOT runner adapters, strict TRX evidence parsing, repeated-run aggregation, target discovery and checkpoint events, and durable attempt and unscheduled-target reporting. Record the requested and selected SDK and `global.json` roll-forward policy before preparation. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95), [5d3ddfdb0](https://github.com/jordansrowles/LeanCorpus/commit/5d3ddfdb077525dff571d583b99b01330c482a2b), [158f8068a](https://github.com/jordansrowles/LeanCorpus/commit/158f8068a1d56e78c34e886ca2bf19a4dadea0bb))
+- Generate a Markdown summary and quoted timing CSV alongside managed test JSON reports, including preparation durations and fail-fast unscheduled targets, with bounded telemetry counters, stream truncation state, retained test summaries and telemetry read errors. ([209fe731b](https://github.com/jordansrowles/LeanCorpus/commit/209fe731b36a016a534dd739a852f8b57306fbbc), [1cb55f180](https://github.com/jordansrowles/LeanCorpus/commit/1cb55f180a944c7837ee6f6b5224c288aed33327))
+- Route standalone .NET diagnostics through the managed apphost with pinned local tools, run manifests, capture timeouts and retained child logs. ([a087d609b](https://github.com/jordansrowles/LeanCorpus/commit/a087d609bea10c5d4fc333d06b96f1703d9af104))
+- Route coverage through the managed test pipeline, preserve suite eligibility and performance exclusions, and retain Cobertura and optional HTML reports under coverage run artefacts using pinned ReportGenerator 5.5.11. ([53a7a3683](https://github.com/jordansrowles/LeanCorpus/commit/53a7a36832f5d81a52bbbb637c2f55cb776ed514))
+- Add managed repository, tracked-file and code-health reports with JSON run evidence, child-process logs, strict checks and explicit shallow-history and rename-analysis warnings. ([197f3c091](https://github.com/jordansrowles/LeanCorpus/commit/197f3c091354ed246d6e75b4287d62fa2ed9c7a6))
+- Add managed local BenchmarkDotNet runs with suite, strategy, dataset and group selection, run provenance, bounded cancellation, result validation and scoped child-process environment overrides. ([4aada1fd8](https://github.com/jordansrowles/LeanCorpus/commit/4aada1fd85ee70396fd557f1e26d973a8f6718c7))
+- Route local, affected-source and remote SSH/tmux benchmark commands through the managed host; record affected paths and remote session state, and leave cancellation unconfirmed until remote status is terminal. ([9b0a4b679](https://github.com/jordansrowles/LeanCorpus/commit/9b0a4b6793953b0f1e29c9ff8021d1e583099026))
+- Add managed backup/restore matrix qualification with Git source fingerprints, five legacy variants and linked child-run evidence. ([32a086b4a](https://github.com/jordansrowles/LeanCorpus/commit/32a086b4a8076e6caa4b7af8f170f7ed08d3253b), [646deea5e](https://github.com/jordansrowles/LeanCorpus/commit/646deea5e3245b475d85795382855568c560014e))
+- Add managed documentation preparation, metadata, build, static/browser validation and serve commands. ([68815b95c](https://github.com/jordansrowles/LeanCorpus/commit/68815b95cbeedd5a2ad0bed294eeb11bf7da03ec))
+- Add an interactive Spectre.Console workbench for managed build, pack, distribute, test, coverage, AOT, report, benchmark, qualification and DataForge flows, with recent-run inspection. Selections use the managed parser and handlers, pass cancellation to active child processes, and fall back to documented commands on terminals without ANSI support. ([90fe3b64c](https://github.com/jordansrowles/LeanCorpus/commit/90fe3b64cd690e8cc9038892d7abb96b5245cf8e), [d308af979](https://github.com/jordansrowles/LeanCorpus/commit/d308af9798e42bda7c6bdb0cdfed9139b2d1e042), [5b0ad2afa](https://github.com/jordansrowles/LeanCorpus/commit/5b0ad2afa9e4877da56b928ace49d3b7b0f84a13), [eb6d38d4d](https://github.com/jordansrowles/LeanCorpus/commit/eb6d38d4dc98b0b08fa16e08692a0884346e1a3e))
+- Add a managed, bounded sustained-workload command with versioned input and terminal evidence for ingestion, read-only search and mixed ingest/search refresh scenarios. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95))
+- Add bounded semantic benchmark selectors for profile, case family, engine and workload; intersect them with suite, area, group and method-filter selection, enforce registered parameter combinations across Core, Text and Compression hosts, count those combinations against the budget, expose metadata through `--list` and `--dry`, and fail on empty or over-budget plans. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95))
+- Add a separate fail-closed comparison assessment for paired benchmark rows. It rejects duplicate jobs, historical reports, incomplete or failed rows, unverified preflight, mismatched source/dataset/host/runtime/GC/PGO, and low or noisy samples; ratios appear only for fully qualified pairs. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95))
+- Record terminal benchmark setup-preflight evidence in each Core report row so the comparator can distinguish a passing preflight from missing or failed evidence. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95))
+- Add managed `benchmark qualification-summary` output with source identity, planned report counts, shard exit codes, deterministic schema-v1 JSON and fail-closed qualification results. ([0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23))
+- Rowles.Text benchmarks write a canonical report and can validate as a Text-only run. ([ae6d926bf](https://github.com/jordansrowles/LeanCorpus/commit/ae6d926bf5a2936073d8c3f34d58004f1fbfe31d))
 
 ## Changed
 
-- Benchmark reports now record effective settings, intrinsics and per-case warnings, and list every workload that did not run.
-- Four benchmark methods moved from the LeanLucene prefix to LeanCorpus, which changes their case identity.
-- The benchmark report schema is now version 6. Older reports remain readable and unqualified.
-- Run benchmark children with tiered PGO explicitly enabled and record the setting in the run manifest and report rows.
-- Continue benchmark campaigns after case-level failures and still report an overall failure, so Rowles.Text is no longer skipped when Core fails; build failures, timeouts and cancellation still stop at once.
-- Include Rowles.Text in the explicit benchmark selector.
-- Expand the managed workbench with typed clean/build/pack/distribute and test/coverage/AOT/report flows; benchmark suite, workload, remote, qualification-summary and catalogue routes; and DataForge profile, generation, reference, inspection, verification and reproduction routes. All selections use the managed parser and handlers, with recent-run elapsed time and lazy repository metadata.
-- Replace the universal benchmark timeout with validated strategy budgets, separate build/project deadlines and an aggregate CLI override; retain budget provenance and recoverable case coverage for interrupted runs.
-- Add local wrapper help for DataForge commands, including wrapper-only qualification guidance, and add canonical `fixtures` and `corpus` routes while retaining deprecated `data` aliases.
-- Move the complete solution inventory and 11 focused build filters under `src/`, group DevOps projects by purpose, validate tracked solution/filter membership in managed DevOps, and resolve solution entries relative to the relocated master.
-
-- Exclude browser-required test suites from generic `test all` selection while retaining their explicit and affected-source routes.
-- Run the centrally pinned Playwright package, resolved dependency identity and headless Chromium preflight automatically for browser-required managed test suites; retire the standalone PowerShell check.
-
-- Share Build concurrency groups across same-branch pushes and pull requests to avoid duplicate runs.
-
-- Route every `devops.ps1` invocation through the fingerprint-validated managed host, retire the legacy `benchmarks docs` and `setup` command aliases, and align contributor examples with managed docs, DataForge, test, AOT and package commands.
-- Validate solution inventory against tracked project files present in the working tree so intentional project removals can be checked before staging.
-- Validate Compression benchmark round trips before timing, retain exact input/output bytes and DataForge identity, and register directional codec cases with explicit size metrics.
-
-- Run Build, platform, stress and diagnostics tests and AOT through the managed host; bootstrap platform smoke before invocation.
-- Retain raw BenchmarkDotNet result files and record terminal, failed, intermediate, missing and partial case counts with no-output, timeout, cancellation and failed-pair execution classifications.
-
-- Emit Core benchmark report schema v5 with stable BenchmarkDotNet case and result-row identity, preserve duplicate and intermediate rows, validate terminal statistics, and treat schema v4 as historical-only comparison evidence.
-- Pin BenchmarkDotNet and its annotations to the NuGet.org preview, update Lucene.NET benchmark comparators, and lock their package graphs without the BDN MyGet feed.
-- Reconcile every Core, Rowles.Text and Compression BDN case on .NET 10 and .NET 11 with a semantic family or expiring exclusion, and document the unqualified source-pinned inventory.
-- Add separate `fuzzy-parity` and `fuzzy-cache` selectors while preserving `fuzzy` as a parity alias; record matched semantic parameters, compare exact expansion terms and logical document IDs, and preflight positive, near-miss, empty-expansion, mixed-cache and eviction cases.
-- Report pinned suggester correction ground truth, actual ranked suggestions, accuracy@1, recall@5, MRR and coverage, and keep quality-mismatched timings directional.
-- Replace unqualified historical benchmark comparisons with a clear no-results state and reproducibility guidance.
-- Canonicalise imported guides into logical sections and preserve their former `/generated/` URLs with permanent redirects.
-- Validate required DataForge profile IDs and versions before qualification begins, and restrict managed documentation manifests to owned regular-file output roots.
-- Calculate Packed BKD output bytes per point after setup, and label new-reader traversal with its warmed page-cache state.
-- Consolidate benchmark project paths, suite labels, aliases, dataset policy and text class selection in managed DevOps configuration; add light and manifest-backed validation.
-- Check fuzzy benchmark expansion counts and no-hit results from both Core and Lucene.NET before measurement.
-- Add a dictionary-verified uncached fuzzy-negative benchmark and a seeded mixed-cache hit-rate preflight.
-- Register all 15 benchmark correctness defects with deterministic, fingerprinted fixtures and reject incomplete or altered audit manifests.
-- Separate Gutenberg indexing comparisons into directional as-shipped and matched persistence profiles with explicit commit, close/reopen, and stored-ID verification.
-- Give the benchmark English analyser independent per-thread instances so concurrent writer defaults can run the Gutenberg English workload.
-- Run the Geo 50 km boundary fixture against both engines during benchmark setup and verify the included and excluded logical IDs before timing.
-- Add numeric DocValues to the Lucene aggregation comparator and verify exact statistics across a deterministic two-segment fixture.
-- Split MoreLikeThis benchmarking into cold extraction, prebuilt-query and explicit warm-cache paths; verify selected terms and logical IDs from a pinned fixture, and keep the differing DataForge term sets unqualified.
-- Add raw IEEE-754 price DocValues to the Lucene function-score comparator and verify all four score modes and returned logical rankings across multiple segments, missing prices and negative values.
-- Build the shared Lucene.NET standard benchmark index with explicit BM25 norms and query scoring; retain default Classic TF-IDF in its own as-shipped comparison group.
-- Preserve external IDs and prices in the file-backed Lucene.NET pre-sorted index case, and classify it as directional rather than native index sorting.
-- Collect all Lucene.NET collapse candidates and return the requested facet offset slice, with fixture checks for late groups, representatives and complete pages.
-- Select reviewed Ubuntu 24.04 Docs browser baselines on a pinned Ubuntu 24.04 runner while retaining the strict 0.50% visual difference limit.
-- Include all tracked C# projects in the managed code dependency graph, report solution and tracked project counts separately, and retain SDK-evaluated package metadata.
-- Run CI product builds and the manual benchmark command through the checked-out managed DevOps apphost after setup.
-- Bootstrap the checked-out managed DevOps host before package validation and consumer checks in Build CI.
-- Upload linked MTP test-run artefacts separately from coverage-run manifests in Build CI.
-- Use British spelling for Core serialisation source paths, namespaces, test selectors, affected-source selectors and benchmark area/group selectors.
-- Keep repository-host, .NET tool and release-archive dependency graphs isolated with profile-specific NuGet lock files.
-- Record managed test environment override names in run manifests without persisting their values.
-- Fail setup early with the exact missing DevOps project or configuration path, before restore, build or publish, and verify that the previous apphost is preserved. Keep the optional root `Directory.Build.targets` out of the required-input list and correct the bootstrap smoke's command capture and solution-path assertions.
-- Import managed DevOps release notes as an independent changelog stream and derive its displayed project version separately from Core and Server versions.
-- Bootstrap the managed host before collecting hosted coverage and call its coverage command directly.
-- Run `report all --json` through promoted Linux and Windows hosts in Build CI and retain the full report run evidence.
-- Consolidate bootstrap, host fingerprint validation and argument forwarding in root `devops.ps1`; cover isolated failure, rollback, lease, manifest and dispatch cases in MTP integration tests, and update CI to use the explicit `bootstrap` verb.
-- Add managed `benchmark qualification-summary` output with source identity, planned report counts, shard exit codes, deterministic schema-v1 JSON and fail-closed qualification results for the manual benchmark workflow.
-- Resolve bootstrap checkout paths through filesystem links, fingerprint embedded consumer templates and source assets while excluding generated output, and preserve nested execution data in schema-v1 benchmark qualification summaries.
-- Build, test and benchmark with the .NET 11 GA SDK (`11.0.100`, `latestPatch`) instead of preview 7; CI no longer requests preview quality.
+- Write managed run envelopes to `run.json`, retain historical manifest readers, display managed evidence in the existing runs UI, and protect active runs in every supported artefact category. ([4a9ef5b73](https://github.com/jordansrowles/LeanCorpus/commit/4a9ef5b73421ba944851ee6b5e8751cc6b66c081))
+- Route every `devops.ps1` invocation through the fingerprint-validated managed host, retire the legacy `benchmarks docs` and `setup` command aliases, and consolidate bootstrap, host fingerprint validation and argument forwarding behind the explicit `bootstrap` verb. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95), [0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23))
+- Pin DocFX 2.78.5 in the repository-local .NET tool manifest and add bootstrap checks for PowerShell 7, Git and the `global.json` SDK family. Setup fails early with the exact missing DevOps project or configuration path. ([0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23), [a37cb13e0](https://github.com/jordansrowles/LeanCorpus/commit/a37cb13e0a79f33a2550fdb22a8950d1a77b79db))
+- Build, test and benchmark with the .NET 11 GA SDK (`11.0.100`, `latestPatch`) instead of preview 7. ([a41da19ce](https://github.com/jordansrowles/LeanCorpus/commit/a41da19ced10abbb7b0dc8d08f56f1b31bd3c517))
+- Bundle native dependencies in the managed single-file host so packages such as LibGit2Sharp do not leave root-level sidecars. ([197f3c091](https://github.com/jordansrowles/LeanCorpus/commit/197f3c091354ed246d6e75b4287d62fa2ed9c7a6))
+- Disable MSBuild build servers during locked restores, and run locked bootstrap restores on one MSBuild node, to avoid stale servers, named-pipe delays and project-graph restore hangs. ([197f3c091](https://github.com/jordansrowles/LeanCorpus/commit/197f3c091354ed246d6e75b4287d62fa2ed9c7a6), [191eaf574](https://github.com/jordansrowles/LeanCorpus/commit/191eaf574cf124b2686a361ba788ef44d4e130ce))
+- Keep repository-host, .NET tool and release-archive dependency graphs isolated with profile-specific NuGet lock files. ([f27dcf9b6](https://github.com/jordansrowles/LeanCorpus/commit/f27dcf9b68d690954c7b9b0b24199fe7f437322b))
+- Move the complete solution inventory and focused build filters under `src/`, group DevOps projects by purpose, and validate tracked solution and filter membership against tracked project files in the working tree. ([7abceaf6b](https://github.com/jordansrowles/LeanCorpus/commit/7abceaf6b86e2c64eb1fb514b0962a752c1783fc), [0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23))
+- Consolidate benchmark project paths, suite labels, aliases, dataset policy and text class selection in managed DevOps configuration, and reconcile every Core, Rowles.Text and Compression benchmark case on .NET 10 and .NET 11 with a semantic family or expiring exclusion. ([80202293e](https://github.com/jordansrowles/LeanCorpus/commit/80202293ede848090a30952a06ccc109b49d41a1))
+- Include all tracked C# projects in the managed code dependency graph, report solution and tracked project counts separately, and retain SDK-evaluated package metadata. ([62de80daa](https://github.com/jordansrowles/LeanCorpus/commit/62de80daaf986144020e2cc3597e1de0cfef36b7))
+- Use British spelling for Core serialisation source paths, namespaces, test selectors, affected-source selectors and benchmark area/group selectors. ([2bea9a505](https://github.com/jordansrowles/LeanCorpus/commit/2bea9a505ddf1fb7deac5b2af7768b05dcaab77b))
+- Record managed test environment override names in run manifests without persisting their values. ([32a086b4a](https://github.com/jordansrowles/LeanCorpus/commit/32a086b4a8076e6caa4b7af8f170f7ed08d3253b))
+- Exclude browser-required test suites from generic `test all` selection while retaining their explicit and affected-source routes, and run the pinned Playwright package, dependency identity and headless Chromium preflight automatically for those suites. ([4495fa372](https://github.com/jordansrowles/LeanCorpus/commit/4495fa3724a8639ba5b14a92eadf3557cf946454), [2048e7b8e](https://github.com/jordansrowles/LeanCorpus/commit/2048e7b8e89a340f06bf7a78eb8584e3dd753a13))
+- Benchmark reports use schema version 6 with stable BenchmarkDotNet case and result-row identity, preserve duplicate and intermediate rows, record effective settings, intrinsics and per-case warnings, list every workload that did not run, and retain raw result files with terminal, failed, intermediate, missing and partial case counts. Older reports remain readable and unqualified. ([71ffb9b01](https://github.com/jordansrowles/LeanCorpus/commit/71ffb9b0120575a98bc731a0d02756f4bbbb130b), [2ebd24c77](https://github.com/jordansrowles/LeanCorpus/commit/2ebd24c7784618e7987da7eb06a2e62b90a4ee94), [1c8aced4f](https://github.com/jordansrowles/LeanCorpus/commit/1c8aced4ffc89379161bc6a591d7661d549fe2ee), [03e27e52c](https://github.com/jordansrowles/LeanCorpus/commit/03e27e52c9fd4a725c399cfffe9ff00254175a74), [b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95))
+- Record source, host and dataset identity in benchmark runs. ([197f3c091](https://github.com/jordansrowles/LeanCorpus/commit/197f3c091354ed246d6e75b4287d62fa2ed9c7a6))
+- Run benchmark children with tiered PGO explicitly enabled and record the setting in the run manifest and report rows. ([ada5872e9](https://github.com/jordansrowles/LeanCorpus/commit/ada5872e964315d5a895d01ef4139c65d67b5812))
+- Continue benchmark campaigns after case-level failures and still report an overall failure, so Rowles.Text is no longer skipped when Core fails; build failures, timeouts and cancellation still stop at once. ([69386b134](https://github.com/jordansrowles/LeanCorpus/commit/69386b13491c87dbb5dc3696d56cce746c9df300))
+- Include Rowles.Text in the explicit benchmark selector. ([8014d5b30](https://github.com/jordansrowles/LeanCorpus/commit/8014d5b30aedc37313055e000e1d6c65a79f4cc1))
+- Replace the universal benchmark timeout with validated strategy budgets, separate build/project deadlines and an aggregate CLI override; retain budget provenance and recoverable case coverage for interrupted runs. ([3f2842dbb](https://github.com/jordansrowles/LeanCorpus/commit/3f2842dbb3a4588c95efd8c84d72384ede8109a0))
+- Build benchmark targets with one MSBuild node before launching the compiled app. ([3a8c784d3](https://github.com/jordansrowles/LeanCorpus/commit/3a8c784d306e48982c5cbeb8adc8d8d378f8a98c))
+- Add local wrapper help for DataForge commands, including wrapper-only qualification guidance, and add canonical `fixtures` and `corpus` routes while retaining deprecated `data` aliases. ([d308af979](https://github.com/jordansrowles/LeanCorpus/commit/d308af9798e42bda7c6bdb0cdfed9139b2d1e042))
+- Import managed DevOps release notes as an independent changelog stream and derive its displayed version from the DevOps project. ([a37cb13e0](https://github.com/jordansrowles/LeanCorpus/commit/a37cb13e0a79f33a2550fdb22a8950d1a77b79db))
+- Group documentation changelog navigation into four independent release streams: LeanCorpus, Rowles.Text, Community Server and LeanCorpus DevOps. A changelog page outside those stream folders now fails the documentation build.
+- Canonicalise imported guides into logical sections and preserve their former `/generated/` URLs with permanent redirects, and exclude maintainer-only documentation and historical Server evidence from the public site. ([4ccdf1ba7](https://github.com/jordansrowles/LeanCorpus/commit/4ccdf1ba7ae447ed982a34dc64478df47879baf3))
+- Retire tracked benchmark and changelog copies after verifying their staged replacements, and load the pinned Chart.js bundle locally. ([4ccdf1ba7](https://github.com/jordansrowles/LeanCorpus/commit/4ccdf1ba7ae447ed982a34dc64478df47879baf3))
 
 ## Fixed
 
-- Benchmark qualification now finalises from run identity and per-pair evidence, compares benchmark children rather than the orchestrator, and needs a versioned semantic proof.
-- Rowles.Text benchmarks now apply the synonym filter, measure real Hunspell parsing, verify output across engines and no longer report single-invocation timings.
-- Validate exact Float32 benchmark results against the documented score and boundary-tie contract; retain literal recall measurements and unchanged ANN and Int8 quality floors.
-
-- Invalidate HNSW benchmark fixtures when the Core implementation build changes, preventing reuse of indexes encoded by an older quantiser.
-- Write vector diagnostic sidecars to the managed test run directory and use platform temporary paths for direct execution.
-
-- Sum BenchmarkDotNet discovery counts across all emitted class groups so multi-project coverage inventories include every discovered case.
-- Let Int8 HNSW benchmark setup record quantised exact quality against Float32 truth without requiring identical top-document IDs.
-- Remove misleading BenchmarkDotNet ratio baselines between BM25F and Boolean queries, and between TermInSet and Boolean OR algorithms.
-- Pass operation cancellation through managed clean and configuration validation, including benchmark-host and solution-inventory checks.
-- Bound DevOps validation and workflow regular-expression matching to one second so pathological input fails promptly; resolve macOS hardware identity through `/usr/sbin/sysctl`.
-- Render repository-relative paths in the managed configuration summary with forward slashes on every operating system.
-- Build profile-specific DataForge workbench arguments from supported modes, languages, optional parameters and profile defaults; pass workbench cancellation through managed handlers to active child processes while retaining exit 130 and terminal run evidence.
-- Check the logical workspace path during managed bootstrap with a command-scoped safe-directory value, then compare canonical roots across filesystem links.
-
-- Preserve UTC kind when validating managed bootstrap lease markers on Windows, and clear read-only checkout files during temporary-worktree test cleanup.
-- Resolve release-archive documentation and licence inputs from the managed DevOps project catalog so distribution works from the current repository layout.
-- Disable MSBuild node reuse for documentation version probes so Windows can remove temporary checkout directories after each child process exits.
-- Use registered managed test and AOT option spellings in CI and report unrecognised managed arguments with test-runner separator guidance.
-- Remove the retired PowerShell DevOps command application and shadow `.psd1` configuration; keep managed run, package, CI and bootstrap workflows on their current owners.
-- Run locked bootstrap restores on one MSBuild node to prevent project-graph restore hangs.
-
-- Read v5 benchmark rows when provenance is absent while leaving comparison qualification fail-closed.
-
-- Reconcile bounded/default similarity and existing MoreLikeThis fixture cases with actual benchmark discovery while retaining unqualified comparison status.
-
-- Give Unix release archives deterministic executable and data-file permissions when built on any host.
-
-- Enable TRX evidence for real managed DevOps one-off test probes and distinguish historical benchmark inventory from current coverage.
-
-- Respect MTP session exit codes and preserve failed, cancelled and timed-out test outcomes and raw coverage without launching HTML report generation.
-
-- Preserve pinned benchmark correctness fixture bytes on Windows checkouts and make malformed UTF-16 and process heartbeat regression inputs deterministic.
-
-- Record source, host, and dataset identity in benchmark runs; keep Core schema-v4 and August 2026 results historical and prevent unqualified reports from appearing as 4.0 comparisons.
-- Make the approximation benchmark class and methods pass BenchmarkDotNet preview validation.
-- Exclude maintainer-only documentation and historical Server evidence from the public site, and fail the docs build if those routes reappear.
-- Emit TRX case evidence for one-off managed MTP test runs and distinguish empty discovery, failed assertions, failures before test execution and incomplete results.
-- Exclude ignored build output from repository report dirty-state and status entries while retaining untracked source changes.
-- Correct the Lucene.NET Geo distance benchmark radius units, disable its default spatial query tolerance for fixture parity, and use unique fuzzy no-hit terms to avoid cached-empty-result bias.
-- Remove Packed BKD file-size metadata lookup from timed work and replace the unsupported cold-open claim with an explicit warm-page-cache reader profile.
-- Build benchmark targets with one MSBuild node before launching the compiled app, disable compiler servers, and report the benchmark target, lease stage, elapsed time, and latest child output in progress updates.
-- Keep five documentation categories visible at desktop widths, use compact navigation below 1200px, and stabilise Linux font metrics.
-- Make the generated ADR relationship idempotence assertion recognise Windows line endings.
-- Allow CI jobs to report bootstrap failures when no product-build diagnostics exist.
-- Preserve managed coverage and documentation test run evidence when their CI jobs fail.
-- Capture Chromium platform-font and viewport details with failed docs-site browser evidence.
-- Give interactive workbench users a documented-command fallback when their terminal does not support ANSI selections.
-- Handle Ctrl+C during interactive prompts as a graceful cancellation and restore terminal state.
-- Point generated multi-machine benchmark charts at their machine-prefixed JSON results.
-- Handle nullable generated-dataset version fields when validating benchmark identity so managed runs finish with terminal evidence.
-- Remove fuzzy benchmark exclusions superseded by semantic case families so deep inventory validation remains one-to-one.
-- Build similarity-specific Lucene.NET indexes for BM25, Classic TF-IDF, Dirichlet and Jelinek-Mercer, and validate writer/searcher profiles, norms, scores and rankings before timing.
-- Compare HNSW and quantised vector results with exact cosine ground truth at K=1, 10 and 100; enforce the fixture-pinned 0.9 recall floor and record score, rank and quantisation errors before timing.
-- Record accepted documents and indexed tokens for each token-budget mode, and limit baseline ratios to the same-work variants.
-- Validate equivalent query ASTs at the parser guard limit and reject limit-plus-one input before timing, with valid parsing and rejection kept as separate benchmark operations.
-- Head-to-head benchmarks now use equal storage, record topology and fail when a case does no work.
-- Query-cache, function-score, block-join and deletion benchmarks now verify their workload on the data they time.
+- A cancelled or failed DevOps execution-lease acquisition no longer leaves a lease marker behind that blocks later DevOps commands until they time out. ([97766163a](https://github.com/jordansrowles/LeanCorpus/commit/97766163adbe2b595cdfb53e9eba21b1291dc84e))
+- Allow DevOps lease-marker readers to share delete on Windows so marker owners can release files during concurrent scans. ([6e8e854d1](https://github.com/jordansrowles/LeanCorpus/commit/6e8e854d1bec81db202c3ea5a910bcb904adb291))
+- Resolve coverage source paths from the repository root and limit generated HTML to first-party assemblies, keeping coverage links valid in the documentation site. ([6fdd239d3](https://github.com/jordansrowles/LeanCorpus/commit/6fdd239d39e5ee7293dfd20f7738126ba77c2bfe))
+- Keep benchmark-run discovery as an array when documentation generation skips the scan or finds no runs. ([197f3c091](https://github.com/jordansrowles/LeanCorpus/commit/197f3c091354ed246d6e75b4287d62fa2ed9c7a6))
+- Include linked DevOps migration-ledger JSON files in the generated documentation site. ([197f3c091](https://github.com/jordansrowles/LeanCorpus/commit/197f3c091354ed246d6e75b4287d62fa2ed9c7a6))
+- Close managed run-manifest read handles before recording interrupted runs, so Windows can atomically replace the manifest; normalise the server project path before forwarding it to `dotnet`. ([d11bb052c](https://github.com/jordansrowles/LeanCorpus/commit/d11bb052c40b8abae56cf899555450df4cc98693))
+- Compose Orchard functional-test exclusions with explicit and affected test filters without mixing incompatible xUnit filter modes. ([0b84efc64](https://github.com/jordansrowles/LeanCorpus/commit/0b84efc646cdd86380915765f11c7511c19e6437))
+- Benchmark qualification now finalises from run identity and per-pair evidence, compares benchmark children rather than the orchestrator, and needs a versioned semantic proof. ([03e27e52c](https://github.com/jordansrowles/LeanCorpus/commit/03e27e52c9fd4a725c399cfffe9ff00254175a74))
+- Sum BenchmarkDotNet discovery counts across all emitted class groups so multi-project coverage inventories include every discovered case. ([3f2842dbb](https://github.com/jordansrowles/LeanCorpus/commit/3f2842dbb3a4588c95efd8c84d72384ede8109a0))
+- Pass operation cancellation through managed clean and configuration validation, including benchmark-host and solution-inventory checks. ([598133404](https://github.com/jordansrowles/LeanCorpus/commit/598133404306195f85d43b4d4ad06715ded0693f))
+- Bound DevOps validation and workflow regular-expression matching to one second so pathological input fails promptly; resolve macOS hardware identity through `/usr/sbin/sysctl`. ([e9d4b696e](https://github.com/jordansrowles/LeanCorpus/commit/e9d4b696e9a2f2ad6d6841e6580cf45dcc53ed55))
+- Check the logical workspace path during managed bootstrap with a command-scoped safe-directory value, then compare canonical roots across filesystem links. Bootstrap checkout paths resolve through filesystem links, and the host fingerprint covers embedded consumer templates and source assets while excluding generated output. ([10de65519](https://github.com/jordansrowles/LeanCorpus/commit/10de6551904f056a0b3fb33cf9f4f1a1a136b8f9), [6e561a54e](https://github.com/jordansrowles/LeanCorpus/commit/6e561a54e7aef5aa573b100d3f7a3d0620315d09))
+- Preserve UTC kind when validating managed bootstrap lease markers on Windows. ([0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23))
+- Resolve release-archive documentation and licence inputs from the managed DevOps project catalogue so distribution works from the current repository layout. ([0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23))
+- Use registered managed test and AOT option spellings and report unrecognised managed arguments with test-runner separator guidance. ([191eaf574](https://github.com/jordansrowles/LeanCorpus/commit/191eaf574cf124b2686a361ba788ef44d4e130ce))
+- Disable MSBuild node reuse for documentation version probes so Windows can remove temporary checkouts. ([77531d840](https://github.com/jordansrowles/LeanCorpus/commit/77531d840d2e04e3a21c10064048983d8fae31ea))
+- Read benchmark rows when provenance is absent while leaving comparison qualification fail-closed. ([80f911bc3](https://github.com/jordansrowles/LeanCorpus/commit/80f911bc3088d8f8d3cea7705840a50f40dccde4))
+- Give Unix release archives deterministic executable and data-file permissions when built on any host. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95))
+- Emit TRX case evidence for one-off managed MTP test runs, distinguish empty discovery, failed assertions, failures before test execution and incomplete results, and distinguish historical benchmark inventory from current coverage. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95))
+- Respect MTP session exit codes and preserve failed, cancelled and timed-out test outcomes and raw coverage without launching HTML report generation. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95))
+- Exclude ignored build output from repository report dirty-state and status entries while retaining untracked source changes. ([1aaed96aa](https://github.com/jordansrowles/LeanCorpus/commit/1aaed96aa1829b43b2574735f10e92de73781fe8))
+- Handle Ctrl+C during interactive prompts as a graceful cancellation and restore terminal state. ([a57096ca9](https://github.com/jordansrowles/LeanCorpus/commit/a57096ca99ec3d725ef536e5fdea6ba991210817))
+- Handle nullable generated-dataset version fields when validating benchmark identity so managed runs finish with terminal evidence. ([5770528eb](https://github.com/jordansrowles/LeanCorpus/commit/5770528ebe240deaa50c9bf6e76aca8043605404))
+- Render repository-relative paths in the managed configuration summary with forward slashes on every platform. ([b978803df](https://github.com/jordansrowles/LeanCorpus/commit/b978803dfc4000a9c0db456e7e71f8e1e8cb2215))
 
 ## Removed
 
-- Remove the retired `vector-bbq` CLI preset and return a stable error for new creation or reproduction attempts; new vector presets use Float32 or Int8 output.
-
-- Retire the JSON API, Newsgroups, telemetry and Rowles.Text tokenisation demo applications, the legacy news downloader and machine-specific nightly benchmark runner; keep the Linux kernel code-search workload and its manual reproduction guide.
+- Remove the retired PowerShell DevOps command application and shadow `.psd1` configuration; managed run, package and bootstrap workflows keep their current owners. ([191eaf574](https://github.com/jordansrowles/LeanCorpus/commit/191eaf574cf124b2686a361ba788ef44d4e130ce))
+- Remove the retired `vector-bbq` preset and return a stable error for new creation or reproduction attempts. ([0fc49d6ed](https://github.com/jordansrowles/LeanCorpus/commit/0fc49d6edd0ab3a6af12d8dc47b05c68273f8d59))
 
 ## Deprecated
 
+- `data migration-fixtures-311` and the `data` command aliases remain as deprecated aliases for `data fixtures`, `fixtures` and `corpus`. ([0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23), [d308af979](https://github.com/jordansrowles/LeanCorpus/commit/d308af9798e42bda7c6bdb0cdfed9139b2d1e042))
+
 ## Security
-- Restrict production docs deployments to successful `main` Build artefacts for automatic and manual admission, while retaining pull-request rejection and exact run/artifact/digest checks.

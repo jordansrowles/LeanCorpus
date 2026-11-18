@@ -8,7 +8,7 @@ Read the release changelog before upgrading a deployed index.
 4. Test opening, searching and writing a copy of production data.
 5. Deploy application and package changes together, then monitor recovery and merge diagnostics.
 
-Use [CodecKit migrations](../contributors/codeckit/03-migrations.md) for binary-format work and [Changelog](../changelog/index.md) for release notes.
+Use [CodecKit migrations](../contributors/codeckit/03-migrations.md) for binary-format work and [Changelog](../changelog/index.md) for release notes: [LeanCorpus 4.0.0](../changelog/engine/unreleased.md) and, for standalone analysis, [Rowles.Text 2.0.0](../changelog/text/unreleased.md).
 
 ## Upgrading 3.1.1 indexes to 4.0
 
@@ -90,3 +90,13 @@ Inspection records observed legacy segments in
 `index.legacy_segment_count`; repeated inspections count repeated observations.
 Term score explanations also include the warning for an unmarked segment,
 without changing the score. See [ADR043](../articles/ADRs/ADR043-position-increments-survive-token-removal.md).
+
+## Score and result changes without reindexing
+
+Some 4.0 query changes alter scores, rankings or matches on existing indexes
+without any reindexing: phrase queries score by phrase frequency, prefix,
+wildcard, regexp and fuzzy expansions score with global document frequency,
+Boolean clause boosts apply on every path, span clauses score with their own
+term frequencies, regexp queries match whole terms, and wildcard `?` matches
+one Unicode character on every route. Compare relevance-sensitive results
+after upgrading. See the [LeanCorpus 4.0.0 release notes](../changelog/engine/unreleased.md).

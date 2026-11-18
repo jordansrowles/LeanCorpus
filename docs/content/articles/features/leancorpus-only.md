@@ -1,20 +1,20 @@
 ---
 title: LeanCorpus-only capabilities
-_description: Capabilities with no direct equivalent in Lucene.NET 4.8 or Java Lucene 10.5.1.
+_description: Capabilities with no direct equivalent in Lucene.NET 4.8 or Java Lucene 10.6.0.
 ---
 
 # LeanCorpus-only capabilities
 
-These capabilities have no direct equivalent in Lucene.NET 4.8.0-beta00018 or Java Lucene 10.5.1. Lucene may expose lower-level building blocks from which an application could construct comparable behaviour.
+These capabilities have no direct equivalent in Lucene.NET 4.8.0-beta00018 or Java Lucene 10.6.0. Lucene may expose lower-level building blocks from which an application could construct comparable behaviour.
 
-This page was audited against the checked-out LeanCorpus source on 25 August 2026. Return to the [feature comparison overview](index.md) for the complete comparison.
+This page was audited against the checked-out LeanCorpus source on 18 November 2026. Return to the [feature comparison overview](index.md) for the complete comparison.
 
 ## .NET application model
 
 | Capability | LeanCorpus API | Why it differs |
 | --- | --- | --- |
 | Native AOT support | AOT-safe core and smoke application | Trim-safe paths avoid runtime code generation and reflection-dependent serialisation. |
-| Asynchronous document writes | `AddDocumentAsync` and `AddDocumentsAsync` | Native `ValueTask` APIs rather than wrappers around synchronous indexing. |
+| Asynchronous document writes | `AddDocumentAsync` and `AddDocumentsAsync` | `ValueTask` admission and completion with backpressure over the synchronous indexing pipeline, without one `Task.Run` per document. |
 | Streaming bulk ingestion | `AddDocumentsAsync(IAsyncEnumerable<LeanDocument>)` | Bounded batches consume asynchronous producers directly. |
 | Asynchronous result streaming | `SearchAsync` | Results are exposed as `IAsyncEnumerable<ScoreDoc>`. |
 | Source-generated document mapping | `LeanDocumentMap<T>` and `[LeanDocument]` | Compile-time field descriptors and mapping code. |
@@ -41,6 +41,7 @@ This page was audited against the checked-out LeanCorpus source on 25 August 202
 | Manifest-backed backup and restore | `IndexBackup` | CRC manifests, incremental parent chains, and validated restore are one public workflow. |
 | Pre-open compatibility verdict | `IndexCompatibility` | Reports read and write compatibility before opening an index. |
 | Structured format inspection | `IndexFormatInspector` | Inventories codec roles, versions, checksums, sidecars, and orphaned files. |
+| Read-only index inspection | `IndexInspector` and the CLI Workbench | Typed overviews of segments, fields, terms, postings, documents, vectors and spatial metadata, with an interactive terminal browser. |
 | Staged codec migration | `IndexCodecMigrator` | Plans, rewrites, validates, and publishes format migrations without a full reindex. |
 | OpenTelemetry-oriented tracing | `ActivitySource` name `Rowles.LeanCorpus` | Index, search, backup, and migration operations emit .NET activities. |
 | .NET metrics integration | `MeterMetricsCollector` | Exposes counters and histograms through `System.Diagnostics.Metrics`. |

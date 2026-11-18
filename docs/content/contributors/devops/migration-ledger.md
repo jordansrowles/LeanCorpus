@@ -150,7 +150,7 @@ The PowerShell transition dispatcher currently forwards `build`, `clean`, `repor
 | `CALL-004` | `.github/workflows/test-stress.yml` | workflow | 4 |
 | `CALL-005` | `CONTRIBUTING.md` | documentation | 18 |
 | `CALL-006` | `README.md` | documentation | 1 |
-| `CALL-007` | `changelog/3.0.0 - 2026-08-25.md` | source-message-or-example | 1 |
+| `CALL-007` | `changelog/engine/3.0.0 - 2026-08-25.md` | source-message-or-example | 1 |
 | `CALL-008` | `devops` | source-message-or-example | 2 |
 | `CALL-009` | `devops.ps1` | source-message-or-example | 1 |
 | `CALL-010` | `docs/content/articles/ADRs/ADR030-unified-devops-artefact-and-test-evidence.md` | documentation | 2 |

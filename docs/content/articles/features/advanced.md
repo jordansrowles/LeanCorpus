@@ -49,8 +49,8 @@ Return to the [feature comparison overview](index.md) for status definitions and
 | Bounding-box queries | ✔ | ✔ | ✔ | Latitude and longitude box matching. |
 | Distance queries | ✔ | ✔ | ✔ | Radius matching around a point. |
 | Geo encoding utilities | ✔ | ✔ | ✔ | Coordinate encoding helpers. |
-| Polygon, line, and geo-shape queries | ❌ | ◐ | ✔ | Lucene.NET offers older Spatial4n strategies. |
-| Cartesian point and shape search | ❌ | ❌ | ✔ | No XY point or shape API. |
+| Polygon, line, and geo-shape queries | ✔ | ◐ | ✔ | Geo shape fields with `Intersects`, `Within`, `Contains` and `Disjoint` over Packed BKD; Lucene.NET offers older Spatial4n strategies. |
+| Cartesian point and shape search | ✔ | ❌ | ✔ | `XYPointField` and XY shape fields with box, distance and shape relation queries. |
 
 ## Search controls and extensions
 

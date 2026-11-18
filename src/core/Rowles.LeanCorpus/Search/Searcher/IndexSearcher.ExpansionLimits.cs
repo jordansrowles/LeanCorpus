@@ -29,6 +29,25 @@ public sealed partial class IndexSearcher
         }
     }
 
+    private bool TryValidateExpansionLimitsWithResourceChecks(
+        Query query, SearchOptions options, System.Diagnostics.Stopwatch stopwatch, long? deadlineTicks)
+    {
+        try
+        {
+            ValidateExpansionLimits(query, () =>
+            {
+                if (options.CancellationToken.IsCancellationRequested ||
+                    (deadlineTicks.HasValue && stopwatch.ElapsedTicks > deadlineTicks.Value))
+                    throw new ExpansionAdmissionInterruptedException();
+            });
+            return true;
+        }
+        catch (ExpansionAdmissionInterruptedException)
+        {
+            return false;
+        }
+    }
+
     private sealed class ExpansionAdmissionInterruptedException : Exception;
 
     private sealed class ExpansionLimitVisitor(IndexSearcher searcher, Action? checkResources) : QueryVisitor
@@ -46,13 +65,24 @@ public sealed partial class IndexSearcher
             };
             if (maximum is not int limit || !_validated.Add(query)) return;
             var budget = new MultiTermExpansionBudget(limit);
+            var context = searcher.CurrentMultiTermExpansionContext;
             foreach (var reader in searcher._readers)
             {
                 checkResources?.Invoke();
+                var terms = new List<(string Term, long Offset)>();
+                // The budget still rejects the first distinct term past the limit, before any results.
                 reader.VisitMatchingTerms(query.Field,
                     (query as PrefixQuery)?.Prefix,
                     (query as WildcardQuery)?.Pattern,
-                    (query as RegexpQuery)?.CompiledRegex, budget.Admit, checkResources);
+                    (query as RegexpQuery)?.CompiledRegex,
+                    (term, offset) =>
+                    {
+                        budget.Admit(term);
+                        terms.Add((term, offset));
+                    },
+                    checkResources);
+                // Verified, complete matches for this reader: statistics and execution reuse them.
+                context?.Store(query, reader, terms);
             }
         }
     }

@@ -174,4 +174,4 @@ A benchmark is required when making a performance claim, not for every correctne
 - [ ] Architecture tests were run for package or conditional-compilation changes.
 - [ ] Both target frameworks were built when framework behaviour differs.
 - [ ] Unicode and token metadata were considered.
-- [ ] User-visible changes are documented and included in the changelog.
+- [ ] User-visible changes are documented and included in `changelog/text/unreleased.md` (and, for shared analysis source, separately in `changelog/engine/unreleased.md`).

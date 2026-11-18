@@ -439,6 +439,7 @@ public sealed partial class SegmentReader : IDisposable
 
     public List<(string Term, long Offset)> IntersectAutomaton(string fieldPrefix, IAutomaton automaton) { using var lease = AcquireReadLease(); return lease.State.IntersectAutomaton(fieldPrefix, automaton); }
     internal void VisitMatchingTerms(string field, string? prefix, string? wildcardPattern, Regex? regex, Action<string> admit, Action? checkResources) { using var lease = AcquireReadLease(); lease.State.VisitMatchingTerms(field, prefix, wildcardPattern, regex, admit, checkResources); }
+    internal void VisitMatchingTerms(string field, string? prefix, string? wildcardPattern, Regex? regex, Action<string, long> admit, Action? checkResources) { using var lease = AcquireReadLease(); lease.State.VisitMatchingTerms(field, prefix, wildcardPattern, regex, admit, checkResources); }
     public List<(string Term, long Offset)> GetTermsWithPrefix(string qualifiedPrefix) { using var lease = AcquireReadLease(); return lease.State.GetTermsWithPrefix(qualifiedPrefix); }
     internal List<long> GetTermOffsetsWithPrefix(string qualifiedPrefix) { using var lease = AcquireReadLease(); return lease.State.GetTermOffsetsWithPrefix(qualifiedPrefix); }
     public List<(string Term, long Offset)> GetTermsMatching(string fieldPrefix, ReadOnlySpan<char> pattern) { using var lease = AcquireReadLease(); return lease.State.GetTermsMatching(fieldPrefix, pattern); }

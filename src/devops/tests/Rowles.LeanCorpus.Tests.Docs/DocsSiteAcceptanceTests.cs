@@ -564,7 +564,10 @@ public sealed class DocsSiteAcceptanceTests
             "articles/ADRs/ADR041-physical-index-runtime-lifecycle.html",
             "changelog/index.html",
             "changelog/devops/unreleased.html",
-            "changelog/3.1.0 - 2026-09-03.html",
+            "changelog/engine/unreleased.html",
+            "changelog/engine/3.1.0 - 2026-09-03.html",
+            "changelog/text/unreleased.html",
+            "changelog/text/1.0.0 - 2026-08-08.html",
             "benchmarks/overview.html"
             };
 

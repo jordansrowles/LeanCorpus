@@ -52,6 +52,10 @@ public sealed partial class IndexSearcher : IDisposable
     private FuzzyQueryExecutionContext? CurrentFuzzyQueryExecutionContext
         => _fuzzyQueryExecutionContext.Value;
 
+    private MultiTermExpansionContext? CurrentMultiTermExpansionContext
+        => _fuzzyQueryExecutionContext.Value?.Expansions;
+
+    /// <summary>Starts one search's shared fuzzy plans and multi-term expansions; disposal restores the outer search's.</summary>
     private IDisposable PushFuzzyQueryExecutionContext()
     {
         var previous = _fuzzyQueryExecutionContext.Value;
@@ -70,8 +74,19 @@ public sealed partial class IndexSearcher : IDisposable
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
                 searcher._fuzzyQueryExecutionContext.Value = previous;
+            }
         }
+    }
+
+    /// <summary>Returns this search's recorded expansion for <paramref name="query"/> in <paramref name="reader"/>, if any.</summary>
+    private bool TryGetSharedExpansion(Query query, SegmentReader reader, out IReadOnlyList<(string Term, long Offset)> terms)
+    {
+        if (CurrentMultiTermExpansionContext is { } context)
+            return context.TryGet(query, reader, out terms);
+        terms = [];
+        return false;
     }
 
     private int ResolvedSearchConcurrency => _config.MaxConcurrency > 0
@@ -927,9 +942,9 @@ public sealed partial class IndexSearcher : IDisposable
         if (query is MoreLikeThisQuery mlt)
             return ExecuteMoreLikeThis(mlt, topN);
         if (query is RrfQuery rrf)
-            return ExecuteRrfQuery(rrf, topN);
+            return ExecuteRrfQuery(rrf, topN, checkResources: cancellationToken.ThrowIfCancellationRequested);
         if (query is BlockJoinQuery bjq)
-            return ExecuteBlockJoinQuery(bjq, topN);
+            return ExecuteBlockJoinQuery(bjq, topN, checkResources: cancellationToken.ThrowIfCancellationRequested);
         if (query is TermQuery tq)
             return SearchTermQuery(tq, topN);
         if (query is FunctionScoreQuery { IsSimpleNumericField: true } fsqCt
@@ -1016,10 +1031,15 @@ public sealed partial class IndexSearcher : IDisposable
         // Cross-segment / composite queries: dispatch before the generic ExecuteQuery path
         if (query is MoreLikeThisQuery mlt)
             return ExecuteMoreLikeThis(mlt, topN);
-        if (query is RrfQuery rrf)
-            return ExecuteRrfQuery(rrf, topN);
-        if (query is BlockJoinQuery bjq)
-            return ExecuteBlockJoinQuery(bjq, topN);
+        if (query is RrfQuery or BlockJoinQuery)
+        {
+            // Coordinators run whole child searches, so admit every bounded expansion first.
+            if (!TryValidateExpansionLimitsWithResourceChecks(query, options, sw, deadlineTicks))
+                return TopDocs.Empty.AsPartial();
+            return query is RrfQuery budgetedRrf
+                ? ExecuteRrfQuery(budgetedRrf, topN, expansionLimitsValidated: true)
+                : ExecuteBlockJoinQuery((BlockJoinQuery)query, topN, expansionLimitsValidated: true);
+        }
 
         var globalDFs = PrecomputeWithResourceChecks(query, options, sw, deadlineTicks);
         if (globalDFs is null) return TopDocs.Empty.AsPartial();
@@ -1255,25 +1275,35 @@ public sealed partial class IndexSearcher : IDisposable
             switch (query)
             {
                 case PrefixQuery prefix:
-                    AddMatching(prefix.Field, reader => Visit(reader, prefix.Field, prefix.Prefix, null, null));
+                    AddMatching(prefix.Field, reader => Shared(prefix, reader,
+                        () => Visit(reader, prefix.Field, prefix.Prefix, null, null)));
                     break;
                 case WildcardQuery wildcard:
-                    AddMatching(wildcard.Field, reader => Visit(reader, wildcard.Field, null, wildcard.Pattern, null));
+                    AddMatching(wildcard.Field, reader => Shared(wildcard, reader,
+                        () => Visit(reader, wildcard.Field, null, wildcard.Pattern, null)));
                     break;
                 case RegexpQuery regexp when UsesDefaultRegexMatching(regexp.CompiledRegex) &&
                                              TryGetSimpleContainsRegexLiteral(regexp.Pattern, out var containsLiteral):
-                    AddMatching(regexp.Field, reader => reader.GetTermsContaining(string.Concat(regexp.Field, "\0"), containsLiteral)
-                        .Select(static match => match.Term).ToList());
+                    // Candidate superset: execution still verifies line-feed terms against the regex.
+                    AddMatching(regexp.Field, reader => Shared(regexp, reader,
+                        () => reader.GetTermsContaining(string.Concat(regexp.Field, "\0"), containsLiteral)));
                     break;
                 case RegexpQuery regexp:
                     string? literal = UsesDefaultRegexMatching(regexp.CompiledRegex) &&
                                       TryGetRegexLiteralPrefix(regexp.Pattern, out var regexPrefix) ? regexPrefix : null;
-                    AddMatching(regexp.Field, reader => Visit(reader, regexp.Field, literal, null, regexp.CompiledRegex));
+                    AddMatching(regexp.Field, reader => Shared(regexp, reader,
+                        () => Visit(reader, regexp.Field, literal, null, regexp.CompiledRegex)));
+                    break;
+                case FuzzyQuery fuzzy when searcher.CurrentFuzzyQueryExecutionContext is { } fuzzyContext:
+                    // Build the search's execution plan now: one shared automaton and one walk per reader,
+                    // selected globally. Execution reuses the same plan, and only selected terms need DFs.
+                    foreach (string qualified in fuzzyContext.GetSelectedTerms(fuzzy, checkResources))
+                        AddTerm(fuzzy.Field, qualified[(fuzzy.Field.Length + 1)..]);
                     break;
                 case FuzzyQuery fuzzy:
                     AddMatching(fuzzy.Field, reader => reader.GetFuzzyMatches(string.Concat(fuzzy.Field, "\0"), fuzzy.Term.AsSpan(),
                             fuzzy.MaxEdits, fuzzy.MaxExpansions, searcher._config.UseFuzzyExpansionCache)
-                        .Select(static match => match.Term).ToList());
+                        .Select(static match => (match.Term, match.Offset)).ToList());
                     break;
             }
         }
@@ -1290,6 +1320,7 @@ public sealed partial class IndexSearcher : IDisposable
         {
             if (docFreqs.ContainsKey((field, term)))
                 return;
+            checkResources?.Invoke();
             string qualified = string.Concat(field, "\0", term);
             int total = 0;
             foreach (var reader in searcher._readers)
@@ -1297,10 +1328,22 @@ public sealed partial class IndexSearcher : IDisposable
             docFreqs[(field, term)] = total;
         }
 
-        private List<string> Visit(SegmentReader reader, string field, string? prefix, string? wildcard, System.Text.RegularExpressions.Regex? regex)
+        private List<(string Term, long Offset)> Visit(SegmentReader reader, string field, string? prefix, string? wildcard, System.Text.RegularExpressions.Regex? regex)
         {
-            var terms = new List<string>();
-            reader.VisitMatchingTerms(field, prefix, wildcard, regex, terms.Add, checkResources);
+            var terms = new List<(string Term, long Offset)>();
+            reader.VisitMatchingTerms(field, prefix, wildcard, regex, (term, offset) => terms.Add((term, offset)), checkResources);
+            return terms;
+        }
+
+        /// <summary>Reuses the admission walk's terms for this reader, or walks once and records them for execution.</summary>
+        private IReadOnlyList<(string Term, long Offset)> Shared(
+            Query query, SegmentReader reader, Func<List<(string Term, long Offset)>> walk)
+        {
+            var context = searcher.CurrentMultiTermExpansionContext;
+            if (context is not null && context.TryGet(query, reader, out var recorded))
+                return recorded;
+            var terms = walk();
+            context?.Store(query, reader, terms);
             return terms;
         }
 
@@ -1308,13 +1351,14 @@ public sealed partial class IndexSearcher : IDisposable
         /// Sums each expanded term's frequency over every segment, including segments whose own
         /// expansion did not select it, so the value equals the merged index's frequency.
         /// </summary>
-        private void AddMatching(string field, Func<SegmentReader, List<string>> matchingQualifiedTerms)
+        private void AddMatching(string field, Func<SegmentReader, IReadOnlyList<(string Term, long Offset)>> matchingQualifiedTerms)
         {
             var expanded = new HashSet<string>(StringComparer.Ordinal);
             foreach (var reader in searcher._readers)
             {
                 checkResources?.Invoke();
-                expanded.UnionWith(matchingQualifiedTerms(reader));
+                foreach (var (term, _) in matchingQualifiedTerms(reader))
+                    expanded.Add(term);
             }
             foreach (string qualified in expanded)
             {
@@ -1382,9 +1426,14 @@ public sealed partial class IndexSearcher : IDisposable
             throw new AggregateException("Index searcher cleanup failed.", failures);
     }
 
-    private TopDocs ExecuteRrfQuery(RrfQuery rrf, int topN, ISideCollector? sideCollector = null)
+    private TopDocs ExecuteRrfQuery(RrfQuery rrf, int topN, ISideCollector? sideCollector = null,
+        Action? checkResources = null, bool expansionLimitsValidated = false)
     {
         if (rrf.Queries.Count == 0) return TopDocs.Empty;
+
+        // Reject an over-limit expansion in any child before the first child search runs.
+        if (!expansionLimitsValidated)
+            ValidateExpansionLimits(rrf, checkResources);
 
         // Execute each child query independently to get ranked result lists
         var childResults = new TopDocs[rrf.Queries.Count];
@@ -1413,8 +1462,14 @@ public sealed partial class IndexSearcher : IDisposable
         return new TopDocs(combined.TotalHits, page, combined.IsPartial);
     }
 
-    private TopDocs ExecuteBlockJoinQuery(BlockJoinQuery bjq, int topN, ISideCollector? sideCollector = null)
+    private TopDocs ExecuteBlockJoinQuery(BlockJoinQuery bjq, int topN, ISideCollector? sideCollector = null,
+        Action? checkResources = null, bool expansionLimitsValidated = false)
     {
+        // Child matching below bypasses the generic precompute path, so admit bounded prefix,
+        // wildcard and regexp children here, before any child postings are visited.
+        if (!expansionLimitsValidated)
+            ValidateExpansionLimits(bjq, checkResources);
+
         var collector = new TopNCollector(topN, sideCollector);
         float boost = bjq.Boost;
 

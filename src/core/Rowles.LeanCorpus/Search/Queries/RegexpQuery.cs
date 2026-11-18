@@ -39,6 +39,12 @@ public sealed class RegexpQuery : Query
         Field = field;
         Pattern = pattern;
         var regexOptions = options & ~RegexOptions.Compiled;
+        EffectiveOptions = regexOptions;
+        // IgnoreCase without CultureInvariant uses the culture current at construction, so two otherwise
+        // identical queries built under different cultures can match different terms.
+        CultureName = (regexOptions & RegexOptions.IgnoreCase) != 0 && (regexOptions & RegexOptions.CultureInvariant) == 0
+            ? System.Globalization.CultureInfo.CurrentCulture.Name
+            : null;
         // Compile the caller's pattern on its own first, so an unbalanced group such as "a)|(b"
         // is rejected rather than escaping the whole-term anchors below.
         _ = new Regex(pattern, regexOptions, TimeSpan.FromSeconds(1));
@@ -48,14 +54,22 @@ public sealed class RegexpQuery : Query
     /// <summary>Gets the distinct matched-term limit, or null for trusted unbounded execution.</summary>
     public int? MaximumExpansions { get; }
 
+    /// <summary>Options the compiled expression uses: the caller's flags without <see cref="RegexOptions.Compiled"/>.</summary>
+    internal RegexOptions EffectiveOptions { get; }
+
+    /// <summary>Constructor-time culture name when it affects case-insensitive matching; otherwise null.</summary>
+    internal string? CultureName { get; }
+
     /// <inheritdoc/>
     public override bool Equals(object? obj) =>
         obj is RegexpQuery other &&
         string.Equals(Field, other.Field, StringComparison.Ordinal) &&
         string.Equals(Pattern, other.Pattern, StringComparison.Ordinal) &&
+        EffectiveOptions == other.EffectiveOptions &&
+        string.Equals(CultureName, other.CultureName, StringComparison.Ordinal) &&
         MaximumExpansions == other.MaximumExpansions &&
         Boost == other.Boost;
 
     /// <inheritdoc/>
-    public override int GetHashCode() => CombineBoost(HashCode.Combine(nameof(RegexpQuery), Field, Pattern, MaximumExpansions));
+    public override int GetHashCode() => CombineBoost(HashCode.Combine(nameof(RegexpQuery), Field, Pattern, EffectiveOptions, CultureName, MaximumExpansions));
 }

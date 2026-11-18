@@ -22,16 +22,16 @@ The comparison is split into ordinary Markdown tables so it remains useful in Gi
 | ◐ | A comparable capability is available, but the API or behaviour is not equivalent. |
 | ❌ | No equivalent is currently available. |
 
-Lucene.NET refers to 4.8.0-beta00018. Java Lucene refers to 10.5.1. These baselines and the checked-out LeanCorpus source were last audited on 25 August 2026. The tables describe user-visible capability rather than class-for-class API parity.
+Lucene.NET refers to 4.8.0-beta00018. Java Lucene refers to 10.6.0. These baselines and the checked-out LeanCorpus source were last audited on 18 November 2026. The tables describe user-visible capability rather than class-for-class API parity.
 
-Baseline documentation: [Lucene.NET 4.8.0](https://lucenenet.apache.org/docs/4.8.0-beta00018/) and [Java Lucene 10.5.1](https://lucene.apache.org/core/10_5_1/).
+Baseline documentation: [Lucene.NET 4.8.0](https://lucenenet.apache.org/docs/4.8.0-beta00018/) and [Java Lucene 10.6.0](https://lucene.apache.org/core/10_6_0/).
 
 ## Headline comparison
 
 | Capability | LeanCorpus | Lucene.NET 4.8 | Java Lucene | Notes |
 | --- | :---: | :---: | :---: | --- |
 | Text indexing and search | ✔ | ✔ | ✔ | Documents, fields, postings, term dictionaries, and common query types. |
-| Asynchronous indexing | ✔ | ❌ | ❌ | `ValueTask` APIs and bounded `IAsyncEnumerable<T>` ingestion. |
+| Asynchronous indexing | ✔ | ❌ | ❌ | `ValueTask` admission and completion over synchronous indexing, plus bounded `IAsyncEnumerable<T>` ingestion. |
 | Streaming search | ✔ | ❌ | ❌ | Asynchronous and segment-by-segment result streams with resource controls. |
 | Native AOT | ✔ | ❌ | ❌ | Trim-safe core and reflection-free serialisation paths. |
 | Source-generated document mapping | ✔ | ❌ | ❌ | Compile-time field descriptors and schema validation. |

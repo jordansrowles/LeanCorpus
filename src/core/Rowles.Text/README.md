@@ -94,4 +94,5 @@ Performance-sensitive changes should be checked with the registered analysis ben
 
 - Browse the [analysis guides](../../../docs/content/analysis/index.md).
 - Learn how lexicon files are used in the [lexicons README](../../../lexicons/README.md).
+- Read the Rowles.Text release notes in [changelog/text](../../../changelog/text/unreleased.md).
 - Contribute an analyser, filter, stemmer or tokeniser using [CONTRIBUTING.md](CONTRIBUTING.md).

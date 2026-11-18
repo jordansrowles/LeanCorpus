@@ -1791,7 +1791,7 @@
     },
     {
       "id": "CALL-007",
-      "path": "changelog/3.0.0 - 2026-08-25.md",
+      "path": "changelog/engine/3.0.0 - 2026-08-25.md",
       "category": "source-message-or-example",
       "matchCount": 1,
       "status": "historical",

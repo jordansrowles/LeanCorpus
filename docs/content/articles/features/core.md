@@ -26,8 +26,8 @@ Return to the [feature comparison overview](index.md) for status definitions and
 | --- | :---: | :---: | :---: | --- |
 | Atomic add, update, and delete | ✔ | ✔ | ✔ | Includes delete-by-query and atomic delete-then-add updates. |
 | Commit, rollback, and two-phase commit | ✔ | ✔ | ✔ | Prepared commits remain invisible until publication. |
-| Concurrent indexing | ✔ | ✔ | ✔ | Multi-threaded document processing and background merges. |
-| Asynchronous indexing | ✔ | ❌ | ❌ | `ValueTask` single and bulk APIs. |
+| Concurrent indexing | ✔ | ✔ | ✔ | `IndexingConcurrency` bounds DWPT producers; detached flushes and background merges run off the producer path. |
+| Asynchronous indexing | ✔ | ❌ | ❌ | `ValueTask` admission and completion over the synchronous indexing pipeline. |
 | Streaming bulk ingestion | ✔ | ❌ | ❌ | Bounded batches from `IAsyncEnumerable<T>`. |
 | Queue and segment backpressure | ✔ | ❌ | ❌ | Configurable limits block producers instead of growing without bound. |
 | Schema validation | ✔ | ❌ | ❌ | Enforces field types and required fields during indexing. |
@@ -60,7 +60,7 @@ Return to the [feature comparison overview](index.md) for status definitions and
 
 | Feature | LeanCorpus | Lucene.NET 4.8 | Java Lucene | Notes |
 | --- | :---: | :---: | :---: | --- |
-| Term, Boolean, phrase, prefix, wildcard, fuzzy, range, and drill-down queries | ✔ | ✔ | ✔ | Includes multi-phrase, term-set, and facet-selection forms. |
+| Term, Boolean, phrase, prefix, wildcard, fuzzy, range, and drill-down queries | ✔ | ✔ | ✔ | Includes multi-phrase, term-set, and facet-selection forms. Phrases score by phrase frequency, and expansions score with global document frequency. |
 | Span query family | ✔ | ✔ | ✔ | Near, first, not, or, containment, masking, and multi-term wrappers. |
 | Disjunction max and constant score | ✔ | ✔ | ✔ | Native query implementations. |
 | More Like This | ✔ | ✔ | ✔ | Query construction from representative text. |

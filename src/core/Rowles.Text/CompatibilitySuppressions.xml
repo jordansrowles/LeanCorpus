@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- https://learn.microsoft.com/dotnet/fundamentals/package-validation/diagnostic-ids -->
-<!-- Exact baseline deltas for the intentional 2.0.0 analysis API transition from Rowles.Text 1.0.0 are documented in changelog/unreleased.md. -->
+<!-- Exact baseline deltas for the intentional 2.0.0 analysis API transition from Rowles.Text 1.0.0 are documented in changelog/text/unreleased.md. -->
 <Suppressions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <Suppression>
     <DiagnosticId>CP0002</DiagnosticId>

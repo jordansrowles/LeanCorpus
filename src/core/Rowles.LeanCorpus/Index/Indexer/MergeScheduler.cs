@@ -95,35 +95,8 @@ internal static class MergeScheduler
             if (merged is null)
                 return;
 
-            lock (writer.WriteLock)
-            {
-                if (writer.MergeCts.IsCancellationRequested)
-                    return;
-
-                var currentSegments = writer.CommittedSegments.ToDictionary(
-                    static segment => segment.SegmentId, StringComparer.Ordinal);
-
-                // A delete may have committed while this merge was reading the source
-                // segments. Publishing that stale merge would resurrect deleted docs.
-                for (int i = 0; i < sources.Length; i++)
-                {
-                    if (!currentSegments.TryGetValue(sources[i].SegmentId, out var current) ||
-                        current.DelGeneration != sources[i].DelGeneration ||
-                        current.LiveDocCount != sources[i].LiveDocCount ||
-                        current.EarliestSoftDeleteTimestamp != sources[i].EarliestSoftDeleteTimestamp)
-                    {
-                        return;
-                    }
-                }
-
-                var sourceIds = new HashSet<string>(
-                    sources.Select(static source => source.SegmentId), StringComparer.Ordinal);
-                writer.CommittedSegments.RemoveAll(segment => sourceIds.Contains(segment.SegmentId));
-                writer.CommittedSegments.Add(merged);
-                foreach (string sourceId in sourceIds)
-                    writer.ObsoleteMergeSegments.Add(sourceId);
-                writer.ContentChangedSinceCommit = true;
-            }
+            if (!TryAdopt(writer, sources, merged))
+                DiscardRejectedOutput(merger, merged);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -138,6 +111,58 @@ internal static class MergeScheduler
                 foreach (var source in sources)
                     writer.ReservedMergeSegments.Remove(source.SegmentId);
             }
+        }
+    }
+
+    /// <summary>Publishes completed output into the writer's segment set unless it must be rejected.</summary>
+    private static bool TryAdopt(IndexWriter writer, SegmentInfo[] sources, SegmentInfo merged)
+    {
+        lock (writer.WriteLock)
+        {
+            if (writer.MergeCts.IsCancellationRequested)
+                return false;
+
+            var currentSegments = writer.CommittedSegments.ToDictionary(
+                static segment => segment.SegmentId, StringComparer.Ordinal);
+
+            // A delete may have committed while this merge was reading the source
+            // segments. Publishing that stale merge would resurrect deleted docs.
+            for (int i = 0; i < sources.Length; i++)
+            {
+                if (!currentSegments.TryGetValue(sources[i].SegmentId, out var current) ||
+                    current.DelGeneration != sources[i].DelGeneration ||
+                    current.LiveDocCount != sources[i].LiveDocCount ||
+                    current.EarliestSoftDeleteTimestamp != sources[i].EarliestSoftDeleteTimestamp)
+                {
+                    return false;
+                }
+            }
+
+            var sourceIds = new HashSet<string>(
+                sources.Select(static source => source.SegmentId), StringComparer.Ordinal);
+            writer.CommittedSegments.RemoveAll(segment => sourceIds.Contains(segment.SegmentId));
+            writer.CommittedSegments.Add(merged);
+            foreach (string sourceId in sourceIds)
+                writer.ObsoleteMergeSegments.Add(sourceId);
+            writer.ContentChangedSinceCommit = true;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Deletes a completed destination that was never adopted. No commit or reader references it, so
+    /// waiting for writer reopen recovery would only retain the files for the writer's lifetime. Cleanup
+    /// is best effort: a failure leaves an orphan that recovery inventories, not a corrupt index.
+    /// </summary>
+    private static void DiscardRejectedOutput(SegmentMerger merger, SegmentInfo merged)
+    {
+        try
+        {
+            merger.CleanupSegmentFiles(merged);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Diagnostics.LeanCorpusActivitySource.TraceSwallowed(ex, "background-merge-rejected-output-cleanup");
         }
     }
 }

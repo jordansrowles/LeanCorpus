@@ -72,6 +72,13 @@ internal sealed class DocumentationStaticValidator
         {
             throw new InvalidDataException("The changelog navigation does not keep the DevOps release stream independent.");
         }
+
+        if (!changelogIndex.Contains("## Rowles.Text", StringComparison.Ordinal) ||
+            !changelogToc.Contains("name: 'Rowles.Text'", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("The changelog navigation does not keep the Rowles.Text release stream independent.");
+        }
+
         RequireFile(Path.Combine(siteRoot, "index.html"), "The generated site homepage is missing.");
         RequireFile(Path.Combine(siteRoot, "api", "index.html"), "The API landing page is missing.");
 
@@ -158,6 +165,7 @@ internal sealed class DocumentationStaticValidator
         "index.md", "toc.yml", "articles/ADRs/index.md", "articles/ADRs/toc.yml",
         "articles/ADRs/ADR040-bounded-field-length-bodies.md", "articles/ADRs/ADR041-physical-index-runtime-lifecycle.md",
         "articles/ADRs/Server/ADR-S005-aot-and-framework-compatibility-boundary.md", "changelog/index.md", "changelog/toc.yml",
+        "changelog/engine/unreleased.md", "changelog/text/unreleased.md",
         "changelog/devops/unreleased.md", "benchmarks/overview.md", "benchmarks/qualification-audit.md", "benchmarks/toc.yml"
     ];
 
