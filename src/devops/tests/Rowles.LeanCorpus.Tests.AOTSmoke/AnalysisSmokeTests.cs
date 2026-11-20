@@ -692,6 +692,46 @@ public class AnalysisSmokeTests
         Assert.True(sink.Count >= 1, $"StemTokenFilter(EnglishStemmer) expected >=1 token, got {sink.Count}");
     }
 
+    // Issue #122: the generated Snowball 3.2.0 ports under Native AOT. Expected stems are from
+    // Snowball's C stemwords, not from the code under test.
+    [Fact]
+    public void SnowballPorts_MatchTheReferenceUnderAot()
+    {
+        (ISpanStemmer Stemmer, string Word, string Stem)[] cases =
+        [
+            (new EnglishStemmer(), "generously", "generous"),
+            (new FrenchStemmer(), "continuellement", "continuel"),
+            (new GermanStemmer(), "kürbisse", "kurbiss"),
+            (new GermanStemmer(), "ßßßß", "ssssssss"),
+            (new SpanishStemmer(), "chicharrones", "chicharron"),
+            (new ItalianStemmer(), "abbandonata", "abbandon"),
+            (new PortugueseStemmer(), "quilométricas", "quilométr"),
+            (new DutchStemmer(), "lichamelijke", "lichamelijk"),
+            (new RussianStemmer(), "вселенная", "вселен"),
+            (new ArabicStemmer(), "الكتاب", "كتاب"),
+        ];
+        var buffer = new char[64];
+        foreach (var (stemmer, word, stem) in cases)
+        {
+            int length = stemmer.Stem(word, buffer);
+            Assert.True(length >= 0 && new string(buffer, 0, length) == stem,
+                $"{stemmer.GetType().Name}: '{word}' expected '{stem}', got '{(length < 0 ? "-1" : new string(buffer, 0, length))}'");
+        }
+
+        Assert.Equal("rowles-analysis/de/3.2.0", AnalyserFactory.GetDefaultAnalysisId("de-AT"));
+        var exact = new CollectingTokenSink();
+        AnalyserFactory.Create("de", stemmer: null).Analyse("Tomaten vom Markt", exact);
+        Assert.True(exact.Terms.SequenceEqual(["tomaten", "markt"]), string.Join(",", exact.Terms));
+    }
+
+    private sealed class CollectingTokenSink : ISpanTokenSink
+    {
+        public List<string> Terms { get; } = [];
+
+        public void Add(ReadOnlySpan<char> text, int startOffset, int endOffset, string type, int positionIncrement, byte[]? payload)
+            => Terms.Add(text.ToString());
+    }
+
     [Fact]
     public void MetaphoneFilter()
     {

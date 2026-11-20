@@ -120,6 +120,12 @@ jobs:
       - name: Bootstrap managed DevOps host
         shell: pwsh
         run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Fetch pinned Snowball word lists
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 snowball fetch-data
+      - name: Verify generated Snowball ports and analysis identities
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 snowball verify
       - name: Build solution
         shell: pwsh
         run: |
@@ -215,6 +221,9 @@ jobs:
       - name: Bootstrap managed DevOps host
         shell: pwsh
         run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Fetch pinned Snowball word lists
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 snowball fetch-data
       - name: Collect MTP coverage
         shell: pwsh
         run: ./devops coverage --framework net10.0 --clean
@@ -246,6 +255,9 @@ jobs:
       - name: Bootstrap managed DevOps host
         shell: pwsh
         run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Fetch pinned Snowball word lists
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 snowball fetch-data
       - name: Build solution
         shell: pwsh
         run: |

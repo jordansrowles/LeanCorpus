@@ -1398,5 +1398,11 @@ public sealed class CommandLineContractTests
             Calls.Add(options);
             return 0;
         }
+
+        public int Snowball(SnowballCommandOptions options)
+        {
+            Calls.Add(options);
+            return 0;
+        }
     }
 }

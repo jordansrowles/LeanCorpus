@@ -56,6 +56,41 @@ public sealed class ManagedCliWorkflowContractTests
             ExtractOptions(invocation.Arguments).Contains("--filter", StringComparer.Ordinal));
     }
 
+    /// <summary>
+    /// The Snowball conformance tests fail, rather than skip, when the downloaded French and Italian
+    /// word lists are missing, so every CI job that can run the Text suite must fetch them first.
+    /// </summary>
+    [Fact]
+    public void JobsThatRunTextTestsFetchTheSnowballWordListsFirst()
+    {
+        var checkout = RepositoryPaths.Resolve(null, Directory.GetCurrentDirectory(), AppContext.BaseDirectory);
+        string[] relativeFiles = [".github/workflows/build.yml", ".github/workflows/test-stress.yml", ".github/workflows/test-diagnostics.yml"];
+        var checkedJobs = new List<string>();
+        foreach (var relativePath in relativeFiles)
+        {
+            string content = File.ReadAllText(Path.Combine(checkout.RepositoryRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
+            foreach (Match job in Regex.Matches(content, @"(?ms)^  (?<name>[a-z][a-z0-9-]*):\s*$(?<body>.*?)(?=^  [a-z][a-z0-9-]*:\s*$|\z)"))
+            {
+                string body = job.Groups["body"].Value;
+                var runsText = Regex.Match(body, @"devops(?:\.exe)?['""]?\s+(?:test\s+(?:all|text|affected|\$)|coverage\b)|TEST_SUITE");
+                if (!runsText.Success)
+                    continue;
+
+                string name = $"{relativePath}:{job.Groups["name"].Value}";
+                int fetch = body.IndexOf("snowball fetch-data", StringComparison.Ordinal);
+                Assert.True(fetch >= 0 && fetch < runsText.Index, $"{name} runs Text-capable tests without fetching the Snowball word lists first.");
+                checkedJobs.Add(name);
+            }
+        }
+
+        Assert.Contains(".github/workflows/build.yml:linux-tests", checkedJobs);
+        Assert.Contains(".github/workflows/build.yml:windows-tests", checkedJobs);
+        Assert.Contains(".github/workflows/build.yml:coverage", checkedJobs);
+        Assert.Contains(checkedJobs, static job => job.StartsWith(".github/workflows/test-stress.yml:", StringComparison.Ordinal));
+        Assert.Contains(checkedJobs, static job => job.StartsWith(".github/workflows/test-diagnostics.yml:", StringComparison.Ordinal));
+        Assert.Contains("snowball verify", File.ReadAllText(Path.Combine(checkout.RepositoryRoot, ".github", "workflows", "build.yml")), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void RootDispatcherReservesBootstrapAndForwardsOtherArgumentsExactly()
     {

@@ -34,6 +34,10 @@
   <!-- Shared infrastructure: xunit-agnostic fixtures sourced into this project. -->
   <ItemGroup>
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\RepositoryTemporaryStorage.cs" Link="Foundation\Infrastructure\RepositoryTemporaryStorage.cs" />
+    <!-- Pinned Snowball 3.2.0 oracle (test-only): reference code and fixture reader, as in Rowles.Text.Tests. -->
+    <Compile Include="..\fixtures\snowball\reference\**\*.cs" LinkBase="TextIntegration\Snowball\Reference" />
+    <Compile Include="..\fixtures\snowball\SnowballFixtures.cs" Link="TextIntegration\Snowball\SnowballFixtures.cs" />
+    <Compile Include="..\fixtures\snowball\SnowballReference.cs" Link="TextIntegration\Snowball\SnowballReference.cs" />
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\TestDirectoryFixture.cs"
              Link="Foundation\Infrastructure\TestDirectoryFixture.cs" />
     <Compile Include="..\Rowles.LeanCorpus.Tests.Shared\Fixtures\HistoricalCodecFixtures.cs"

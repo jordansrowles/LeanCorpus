@@ -32,12 +32,14 @@ public static class StopWords
     ];
 
     /// <summary>Gets the built-in German stop word list.</summary>
+    /// <remarks>Includes the contracted prepositions <c>am</c>, <c>ans</c>, <c>aufs</c>, <c>beim</c>,
+    /// <c>im</c>, <c>ins</c>, <c>vom</c>, <c>zum</c> and <c>zur</c>.</remarks>
     public static readonly IReadOnlyList<string> German =
     [
         "aber", "alle", "allem", "allen", "aller", "allerdings", "als",
-        "also", "am", "an", "andere", "anderem", "anderen", "anderer",
+        "also", "am", "an", "ans", "andere", "anderem", "anderen", "anderer",
         "anderes", "anderm", "andern", "anderr", "anders", "auch", "auf",
-        "aus", "bei", "beim", "bin", "bis", "bist", "da", "damit",
+        "aufs", "aus", "bei", "beim", "bin", "bis", "bist", "da", "damit",
         "dann", "das", "dass", "dem", "den", "denn", "der", "des",
         "die", "dies", "diese", "diesem", "diesen", "dieser", "dieses",
         "doch", "dort", "du", "durch", "ein", "eine", "einem", "einen",
@@ -45,7 +47,7 @@ public static class StopWords
         "er", "es", "etwas", "euch", "euer", "eure", "eurem",
         "euren", "eurer", "für", "hat", "hatte", "hier", "hin",
         "hinter", "ich", "ihm", "ihn", "ihnen", "ihr", "ihre",
-        "ihrem", "ihren", "ihrer", "im", "in", "ist", "jede",
+        "ihrem", "ihren", "ihrer", "im", "in", "ins", "ist", "jede",
         "jedem", "jeden", "jeder", "jedes", "jene", "jenem", "jenen",
         "jener", "jenes", "kann", "kein", "keine", "keinem", "keinen",
         "keiner", "man", "mein", "meine", "meinem", "meinen",
@@ -53,7 +55,7 @@ public static class StopWords
         "nur", "ob", "oder", "ohne", "sehr", "sein", "seine",
         "seinem", "seinen", "seiner", "sich", "sie", "sind", "so",
         "soll", "und", "uns", "unser", "unsere", "unserem", "unseren",
-        "unserer", "über", "um", "von", "vor", "war", "was",
+        "unserer", "über", "um", "vom", "von", "vor", "war", "was",
         "weil", "welch", "welche", "welchem", "welchen", "welcher",
         "welches", "wenn", "wer", "wie", "wieder", "will", "wir",
         "wird", "wo", "zu", "zum", "zur"

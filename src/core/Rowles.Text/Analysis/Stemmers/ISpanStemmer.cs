@@ -8,9 +8,14 @@ public interface ISpanStemmer
 {
     /// <summary>
     /// Stems <paramref name="word"/> into <paramref name="output"/>.
-    /// Returns the length of the stemmed result, or -1 if <paramref name="output"/> is too small.
-    /// The caller must ensure <c>output.Length >= word.Length</c> for guaranteed success.
+    /// Returns the length of the stemmed result, or -1 if <paramref name="output"/> is too small,
+    /// in which case nothing is written to <paramref name="output"/>.
     /// </summary>
+    /// <remarks>
+    /// A stem can be longer than its word: German expands <c>ß</c> to <c>ss</c>, so
+    /// <c>output.Length >= word.Length</c> does not guarantee success. On -1, call again with a
+    /// larger buffer.
+    /// </remarks>
     int Stem(ReadOnlySpan<char> word, Span<char> output);
 }
 

@@ -246,4 +246,25 @@ public sealed class SlovakStemmerTests
 
         Assert.Equal(-1, length);
     }
+
+    /// <summary>
+    /// Pins <c>rowles-analysis/sk/0.1.0</c> on the 43 Wikimedia comparison cases
+    /// (<c>fixtures/slovak/NOTICE.md</c>). The two implementations differ on 19 of them; that
+    /// difference is recorded, not asserted as conformance in either direction.
+    /// </summary>
+    [Fact(DisplayName = "SlovakStemmer: Wikimedia comparison cases keep the 0.1.0 output")]
+    public void WikimediaCases_KeepTheCurrentOutput()
+    {
+        string path = Path.Combine(Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.RepositoryRoot,
+            "src", "devops", "tests", "fixtures", "slovak", "wikimedia-cases.tsv");
+        var rows = File.ReadAllLines(path, System.Text.Encoding.UTF8)
+            .Where(static line => line.Length > 0 && line[0] != '#')
+            .Select(static line => line.Split('\t'))
+            .ToArray();
+        Assert.Equal(43, rows.Length);
+
+        var changed = rows.Where(row => _stemmer.Stem(row[0]) != row[2]).Select(static row => row[0]).ToArray();
+        Assert.Empty(changed);
+        Assert.Equal(19, rows.Count(static row => row[1] != row[2]));
+    }
 }

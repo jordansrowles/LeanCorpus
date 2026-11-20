@@ -40,6 +40,7 @@ internal static class Program
         var config = BuildConfigCommand(handler, repository);
         var test = BuildTestCommand(handler, repository);
         var aot = BuildAotCommand(handler, repository);
+        var snowball = BuildSnowballCommand(handler, repository);
         root.Add(build);
         root.Add(clean);
         root.Add(docs);
@@ -58,6 +59,7 @@ internal static class Program
         root.Add(config);
         root.Add(test);
         root.Add(aot);
+        root.Add(snowball);
 
         return root;
     }
@@ -747,6 +749,59 @@ internal static class Program
             LegacyRoute: true)));
         command.Add(fixtures);
         return command;
+    }
+
+    private static Command BuildSnowballCommand(ICommandHandler handler, Option<string?> repository)
+    {
+        var snowball = new Command("snowball", "Generate, verify or fetch the data for the Snowball stemmer ports.");
+
+        var equivalent = new Option<string[]>("--equivalent")
+        {
+            Description = "Keep a language's identity although its generated code changed (needs --reason)."
+        };
+        var reason = new Option<string?>("--reason")
+        {
+            Description = "Why the --equivalent languages' output is unchanged; recorded in analysis-versions.json."
+        };
+        var rebaseline = new Option<string[]>("--rebaseline")
+        {
+            Description = "Assign the next +rN revision to a Snowball language whose output changed."
+        };
+        var bump = new Option<string[]>("--bump")
+        {
+            Description = "Bump a Rowles-owned language whose output changed, as <code>=minor or <code>=patch."
+        };
+        var acceptFingerprints = new Option<bool>("--accept-fingerprints")
+        {
+            Description = "Record the pipeline fingerprints written by the analysis identity tests."
+        };
+        var generate = new Command("generate", "Regenerate the production Snowball algorithms and analysis identities.");
+        generate.Add(equivalent);
+        generate.Add(reason);
+        generate.Add(rebaseline);
+        generate.Add(bump);
+        generate.Add(acceptFingerprints);
+        generate.SetAction(result => handler.Snowball(new SnowballCommandOptions(
+            "generate",
+            result.GetValue(equivalent) ?? [],
+            result.GetValue(reason),
+            result.GetValue(rebaseline) ?? [],
+            result.GetValue(bump) ?? [],
+            result.GetValue(acceptFingerprints),
+            result.GetValue(repository))));
+
+        var verify = new Command("verify", "Fail if the committed Snowball algorithms or identities differ from a fresh generation.");
+        verify.SetAction(result => handler.Snowball(new SnowballCommandOptions(
+            "verify", [], null, [], [], false, result.GetValue(repository))));
+
+        var fetchData = new Command("fetch-data", "Download the pinned word lists that are not committed, verifying each SHA-256.");
+        fetchData.SetAction(result => handler.Snowball(new SnowballCommandOptions(
+            "fetch-data", [], null, [], [], false, result.GetValue(repository))));
+
+        snowball.Add(generate);
+        snowball.Add(verify);
+        snowball.Add(fetchData);
+        return snowball;
     }
 
     private static Command BuildFixturesCommand(ICommandHandler handler, Option<string?> repository)
@@ -1594,6 +1649,8 @@ internal sealed class UnimplementedCommandHandler(TextWriter error) : ICommandHa
     public int Test(TestCommandOptions options) => Missing("test");
 
     public int BackupRestoreMatrix(BackupRestoreMatrixCommandOptions options) => Missing("test backup-restore-matrix");
+
+    public int Snowball(SnowballCommandOptions options) => Missing("snowball");
 
     private int Missing(string command)
     {

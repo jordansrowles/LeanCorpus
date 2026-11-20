@@ -103,17 +103,17 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 
 | Feature | In LeanCorpus | In Lucene.NET | In Lucene (Java) | Notes |
 |---|---|---|---|---|
-| English (Porter / Snowball) | ✔   `EnglishStemmer` | ✔ | ✔ | |
+| English (Porter / Snowball) | ✔   `EnglishStemmer`, `PorterStemmer` | ✔ | ✔ | `EnglishStemmer` is Snowball 3.2.0 Porter2; `PorterStemmer` is the original Porter |
 | Light English (minimal) | ✔   `LightEnglishStemmer` | ✔ | ✔ | Krovetz-inspired light |
 | KStem (English) | ✔   `KStemmer` + `KStemLexicon` | ✔ | ✔ | Krovetz stemmer |
-| French | ✔   `FrenchStemmer` | ✔ | ✔ | |
-| German | ✔   `GermanStemmer` | ✔ | ✔ | |
-| Spanish | ✔   `SpanishStemmer` | ✔ | ✔ | |
-| Italian | ✔   `ItalianStemmer` | ✔ | ✔ | |
-| Portuguese | ✔   `PortugueseStemmer` | ✔ | ✔ | |
-| Dutch | ✔   `DutchStemmer` | ✔ | ✔ | |
-| Russian | ✔   `RussianStemmer` | ✔ | ✔ | |
-| Arabic | ✔   `ArabicStemmer` | ✔ | ✔ | |
+| French | ✔   `FrenchStemmer` | ✔ | ✔ | Official Snowball 3.2.0 algorithm |
+| German | ✔   `GermanStemmer` | ✔ | ✔ | Official Snowball 3.2.0 algorithm |
+| Spanish | ✔   `SpanishStemmer` | ✔ | ✔ | Official Snowball 3.2.0 algorithm |
+| Italian | ✔   `ItalianStemmer` | ✔ | ✔ | Official Snowball 3.2.0 algorithm |
+| Portuguese | ✔   `PortugueseStemmer` | ✔ | ✔ | Official Snowball 3.2.0 algorithm |
+| Dutch | ✔   `DutchStemmer` | ✔ | ✔ | Official Snowball 3.2.0 algorithm |
+| Russian | ✔   `RussianStemmer` | ✔ | ✔ | Official Snowball 3.2.0 algorithm |
+| Arabic | ✔   `ArabicStemmer` | ✔ | ✔ | Official Snowball 3.2.0 algorithm |
 | Chinese | ◐   `ChineseStemmer` | ✔ | ✔ | Identity no-op adapter; Chinese word segmentation is handled by `ChineseLexiconTokeniser` |
 | Japanese | ◐   `JapaneseStemmer` | ✔ | ✔ | Identity no-op adapter; Japanese segmentation is handled by `JapaneseTokeniser` |
 | Korean | ◐   `KoreanStemmer` | ✔ | ✔ | Identity no-op adapter; Korean uses `CJKBigramTokeniser` with word tokenisation |

@@ -1,0 +1,4 @@
+# Unchanged output of the Snowball 3.2.0 compiler and its C# runtime (BSD-3-Clause).
+# Treated as generated code so analysers and nullable warnings do not apply.
+[*.cs]
+generated_code = true

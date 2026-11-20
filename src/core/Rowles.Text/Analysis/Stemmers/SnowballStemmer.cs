@@ -1,12 +1,20 @@
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
-/// Abstract base for Snowball-inspired stemmers that apply ordered suffix-removal
-/// steps. Each language stemmer supplies its own suffix lists and may override
-/// pre-processing, post-processing, and minimum-length thresholds.
+/// Abstract base for custom stemmers that apply ordered suffix-removal steps. A derived stemmer
+/// supplies its own suffix lists and may override pre-processing, post-processing and
+/// minimum-length thresholds.
 /// </summary>
+/// <remarks>
+/// This suffix-table engine is not Snowball itself. The built-in language stemmers derive from this
+/// class for compatibility, but override <see cref="Stem(ReadOnlySpan{char}, Span{char})"/> to run
+/// the official Snowball 3.2.0 algorithms instead of suffix tables.
+/// </remarks>
 public abstract class SnowballStemmer : IShareableSpanStemmer
 {
+    /// <summary>An empty rule set, for derived stemmers that do not use suffix tables.</summary>
+    private protected static readonly (string Suffix, string Replacement)[][] NoSteps = [];
+
     /// <summary>Minimum word length required to attempt stemming.</summary>
     protected virtual int MinWordLength => 3;
 

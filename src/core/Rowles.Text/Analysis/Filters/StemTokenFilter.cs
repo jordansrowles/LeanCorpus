@@ -63,16 +63,25 @@ public sealed class StemTokenFilter : ISpanTokenFilter, IReusableAnalysisFilter
                 ? ks.StemPreLowered(text, buf)
                 : _stemmer.Stem(text, buf);
 
-            if (len < 0)
+            // A stem can be longer than its word (German expands each ß to ss). ISpanStemmer returns
+            // -1 without writing when the buffer is too small, so retry with larger buffers up to a
+            // bound, then keep the token unstemmed rather than failing the whole analysis.
+            int maxSize = text.Length * 8 + 64;
+            while (len < 0 && bufSize < maxSize)
             {
-                // Buffer too small (e.g. multiple ß→ss expansions). Rent larger.
                 if (rented is not null) { ArrayPool<char>.Shared.Return(rented); rented = null; }
-                bufSize = text.Length * 2;
+                bufSize = Math.Min(maxSize, Math.Max(16, bufSize * 2));
                 rented = ArrayPool<char>.Shared.Rent(bufSize);
                 buf = rented.AsSpan(0, bufSize);
                 len = ks is not null
                     ? ks.StemPreLowered(text, buf)
                     : _stemmer.Stem(text, buf);
+            }
+
+            if (len < 0)
+            {
+                sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
+                return;
             }
 
             // When len == text.Length with KStemmer, the word was explicitly

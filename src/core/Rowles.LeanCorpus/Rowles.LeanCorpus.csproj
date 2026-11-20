@@ -43,6 +43,7 @@
   <ItemGroup>
     <None Include="..\..\..\README.md" Pack="true" PackagePath="\" />
     <None Include="..\..\..\LICENCE" Pack="true" PackagePath="\" />
+    <None Include="..\..\..\THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

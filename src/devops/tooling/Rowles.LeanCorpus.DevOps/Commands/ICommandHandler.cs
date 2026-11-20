@@ -41,4 +41,6 @@ internal interface ICommandHandler
     int Test(TestCommandOptions options);
 
     int BackupRestoreMatrix(BackupRestoreMatrixCommandOptions options);
+
+    int Snowball(SnowballCommandOptions options);
 }

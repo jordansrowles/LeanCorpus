@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "languages": [
+    {
+      "code": "en",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball english (Porter2)",
+      "algorithm": "english",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "53daf4da63f8dea9ab98354cce8ae3015e0c60ec37403357662faf0855f8d24f",
+      "fingerprint": "d375109ed10eb029534f694fdaf8e01fa5297443c47af48887bc1fcd4ee0cee1",
+      "fingerprintVersion": "3.2.0",
+      "Identity": "rowles-analysis/en/3.2.0"
+    },
+    {
+      "code": "fr",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball french",
+      "algorithm": "french",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "30d6ac552d717eeabb4be27d3fa53fff8e08d21162999fa7fee3285cd8540dec",
+      "fingerprint": "f39ab85e7bfeae71de9ef0be5da6c0aad468a8d64280a749b79325b625a5a835",
+      "fingerprintVersion": "3.2.0",
+      "Identity": "rowles-analysis/fr/3.2.0"
+    },
+    {
+      "code": "de",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball german",
+      "algorithm": "german",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "f531b24915274892e19734528c96717729d70103b57fbe77d7fbb86ab32fbcd2",
+      "fingerprint": "ea231b8c5c89744cc50a73473718bab4e8f1d317064087ba177248762a51035c",
+      "fingerprintVersion": "3.2.0",
+      "Identity": "rowles-analysis/de/3.2.0"
+    },
+    {
+      "code": "es",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball spanish",
+      "algorithm": "spanish",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "2a644d6d5cf9ac8792b5bc48f43989f0ce4eb7b9c5ebeb2976ad67ce4d4c9bdf",
+      "fingerprint": "46d48bf53bf8a9097694d8d6b2b328d7e1dc11a2b6da404efb7f159d026bd7f9",
+      "fingerprintVersion": "3.2.0",
+      "Identity": "rowles-analysis/es/3.2.0"
+    },
+    {
+      "code": "it",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball italian",
+      "algorithm": "italian",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "b15793d141d835382e61f4eb0b2d0519855d12316b960853b9f39bcb2a1c9214",
+      "fingerprint": "4abd8bca5c8c4dc355e276275196da522a63c96aff1788ee416bba266c62db9d",
+      "fingerprintVersion": "3.2.0",
+      "Identity": "rowles-analysis/it/3.2.0"
+    },
+    {
+      "code": "pt",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball portuguese",
+      "algorithm": "portuguese",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "93d22e782f639be27bd8585ca24a45b740f497262213ffec6336eafab6ae03ed",
+      "fingerprint": "76f31ad42c62e98ceb71071cb2f3ab803a20559a2a2c2eabb2a9e79f4aa62bd8",
+      "fingerprintVersion": "3.2.0",
+      "Identity": "rowles-analysis/pt/3.2.0"
+    },
+    {
+      "code": "nl",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball dutch (Kraaij-Pohlmann)",
+      "algorithm": "dutch",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "97ac82b9de8f41f03352672a8a268cf4110357e34ff3f5773ecf99b47446a5b6",
+      "fingerprint": "ac7e6efa42fac87402409e1481efab41043d549d3a044241213712e4444786db",
+      "fingerprintVersion": "3.2.0",
+      "Identity": "rowles-analysis/nl/3.2.0"
+    },
+    {
+      "code": "ru",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball russian",
+      "algorithm": "russian",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "5837aece8a410fa5b158f25354fbf7712f8c5aedf8058b2a10899d6c6e4276bd",
+      "fingerprint": "505f6d848c3d056ad316699ccbbc2c34a22f53e0df68d112453b4bdbc36677e9",
+      "fingerprintVersion": "3.2.0",
+      "Identity": "rowles-analysis/ru/3.2.0"
+    },
+    {
+      "code": "ar",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball arabic",
+      "algorithm": "arabic",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "8fc049c1349c074acb67a9b49fa2f0cf9a388b4b715fc42381c8f4e7884f33aa",
+      "fingerprint": "41e0121f893d2a2bae88de8255d05ef07589a5c0b9f0e66f8c57e39e7335d75f",
+      "fingerprintVersion": "3.2.0",
+      "Identity": "rowles-analysis/ar/3.2.0"
+    },
+    {
+      "code": "sk",
+      "line": "rowles",
+      "version": "0.1.0",
+      "stemmer": "SlovakStemmer (Rowles; Jozef Gajdoš, PR #49)",
+      "fingerprint": "6c0e3a5c96ba45344008689cc715ca5ce84b0ff74d08239ac95393da31532c59",
+      "fingerprintVersion": "0.1.0",
+      "Identity": "rowles-analysis/sk/0.1.0"
+    },
+    {
+      "code": "zh",
+      "line": "rowles",
+      "version": "0.1.0",
+      "stemmer": "none (lexicon segmentation)",
+      "fingerprint": "4b4ecf4a32971a2f91ef09f68fc1427c9bf81c1bb63c6d983ebdd84d37f455cd",
+      "fingerprintVersion": "0.1.0",
+      "Identity": "rowles-analysis/zh/0.1.0"
+    },
+    {
+      "code": "ja",
+      "line": "rowles",
+      "version": "0.1.0",
+      "stemmer": "none (dictionary-backed Viterbi segmentation)",
+      "fingerprint": "f84b7bb790914fc73f2362a81aa25af95b94b179b444bf6aff447c452e1cf8b3",
+      "fingerprintVersion": "0.1.0",
+      "Identity": "rowles-analysis/ja/0.1.0"
+    },
+    {
+      "code": "ko",
+      "line": "rowles",
+      "version": "0.1.0",
+      "stemmer": "none (CJK bigram tokeniser)",
+      "fingerprint": "cfbdd0e58812c9de27e9c3e074f78f344131c9aefe511fdff98f86f5eb038c27",
+      "fingerprintVersion": "0.1.0",
+      "Identity": "rowles-analysis/ko/0.1.0"
+    }
+  ]
+}
