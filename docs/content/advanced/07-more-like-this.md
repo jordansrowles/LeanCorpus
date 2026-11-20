@@ -18,6 +18,10 @@ var mlt = new MoreLikeThisQuery(
 var hits = searcher.Search(mlt, topN: 10);
 ```
 
+`MoreLikeThisQuery` extracts terms across the whole index, so it must be the
+root of a search, or a direct child of a root `RrfQuery`. Using it as a Boolean
+clause, filter or block-join child throws `NotSupportedException`.
+
 ## Parameters
 
 | Parameter | Default | Effect |

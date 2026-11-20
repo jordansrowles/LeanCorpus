@@ -1,3 +1,4 @@
+using Rowles.LeanCorpus.Search.Queries;
 using Rowles.LeanCorpus.Search.Scoring;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
@@ -5,6 +6,10 @@ namespace Rowles.LeanCorpus.Search.Searcher;
 /// <summary>
 /// Searches an immutable composition of multiple directory snapshots without merging their files.
 /// </summary>
+/// <remarks>
+/// A <see cref="VectorQuery"/> selects its <see cref="VectorQuery.TopK"/> candidates across every
+/// component, so the composition observes one global selection, as a single snapshot does (ADR049).
+/// </remarks>
 public sealed class MultiReader : IDisposable
 {
     private readonly IndexSearcher[] _searchers;
@@ -132,6 +137,7 @@ public sealed class MultiReader : IDisposable
         var ordinalMaps = new Dictionary<string, OrdinalMap>(StringComparer.Ordinal);
         var ordinalCounts = new Dictionary<string, Dictionary<int, int>>(StringComparer.Ordinal);
         var fallbackCounts = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal);
+        using var vectorSelections = SeedGlobalVectorSelections(query);
         for (int i = 0; i < _searchers.Length; i++)
         {
             var component = _searchers[i].SearchWithFacets(query, _searchers[i].Stats.TotalDocCount, facetFields);
@@ -198,6 +204,7 @@ public sealed class MultiReader : IDisposable
 
     private List<CompositeHit> CollectCandidates(Query query, int topN, IReadOnlyList<SortField> sorts, out int totalHits)
     {
+        using var vectorSelections = SeedGlobalVectorSelections(query);
         var candidates = new List<CompositeHit>();
         totalHits = 0;
         for (int i = 0; i < _searchers.Length; i++)
@@ -212,6 +219,75 @@ public sealed class MultiReader : IDisposable
             }
         }
         return candidates;
+    }
+
+    /// <summary>
+    /// Selects each vector query's top candidates across all components and seeds every component
+    /// with its share, so component searches and their enclosing clauses see the global set.
+    /// Nested vector queries (in another vector query's filter) are selected first.
+    /// </summary>
+    private SeedScopes? SeedGlobalVectorSelections(Query query)
+    {
+        var vectors = IndexSearcher.CollectVectorQueries(query);
+        if (vectors.Count == 0 || _searchers.Length == 0)
+            return null;
+
+        // Reject unsupported composition before any component pays for a vector selection (ADR049).
+        _searchers[0].ValidateQueryComposition(query);
+
+        // Value-keyed, like the per-search plans, so equal rewritten copies find the global seed.
+        var plans = new Dictionary<VectorQuery, PreparedVectorQuery>[_searchers.Length];
+        for (int i = 0; i < plans.Length; i++)
+            plans[i] = new Dictionary<VectorQuery, PreparedVectorQuery>();
+
+        foreach (var vector in vectors)
+        {
+            if (plans[0].ContainsKey(vector))
+                continue;
+
+            var merged = new List<(ScoreDoc Local, int Component, int CompositeId)>();
+            for (int i = 0; i < _searchers.Length; i++)
+            {
+                PreparedVectorQuery local;
+                using (_searchers[i].UsePreparedVectorPlans(plans[i]))
+                    local = _searchers[i].SelectVectorCandidates(vector);
+                foreach (var member in local.Members)
+                    merged.Add((member, i, checked(member.DocId + _docBases[i])));
+            }
+
+            merged.Sort(static (left, right) =>
+            {
+                int byScore = right.Local.Score.CompareTo(left.Local.Score);
+                return byScore != 0 ? byScore : left.CompositeId.CompareTo(right.CompositeId);
+            });
+
+            var selected = new List<ScoreDoc>[_searchers.Length];
+            for (int i = 0; i < selected.Length; i++)
+                selected[i] = [];
+            int count = Math.Min(vector.TopK, merged.Count);
+            for (int i = 0; i < count; i++)
+                selected[merged[i].Component].Add(merged[i].Local);
+            for (int i = 0; i < _searchers.Length; i++)
+                plans[i].Add(vector, new PreparedVectorQuery(selected[i].ToArray()));
+        }
+
+        var scopes = new SeedScopes();
+        for (int i = 0; i < _searchers.Length; i++)
+            scopes.Add(_searchers[i].UsePreparedVectorPlans(plans[i]));
+        return scopes;
+    }
+
+    private sealed class SeedScopes : IDisposable
+    {
+        private readonly List<IDisposable> _scopes = [];
+
+        public void Add(IDisposable scope) => _scopes.Add(scope);
+
+        public void Dispose()
+        {
+            for (int i = _scopes.Count - 1; i >= 0; i--)
+                _scopes[i].Dispose();
+        }
     }
 
     private CursorSortValue[] CaptureAfterValues(ScoreDoc after, IReadOnlyList<SortField> sorts)

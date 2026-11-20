@@ -193,12 +193,15 @@ public class HybridSearchBenchmarks
             var results = _searcher!.Search(query, FinalTopN);
             if (results.ScoreDocs.Any(item => !allowed.Contains(item.DocId)))
                 throw new InvalidOperationException($"{scenario} vector query escaped its filter.");
-            if (results.TotalHits != allowed.Count)
+            // TopK is a global cap (issue #121, ADR049): TotalHits is the selected set's size, so it
+            // reaches min(TopK, filter cardinality). Exactness is checked against ground truth below.
+            int expectedHits = Math.Min(FinalTopN, allowed.Count);
+            if (results.TotalHits != expectedHits)
                 throw new InvalidOperationException(
-                    $"{scenario} scanned {results.TotalHits} candidates, but its filter allows {allowed.Count}.");
+                    $"{scenario} selected {results.TotalHits} candidates, expected {expectedHits} from a filter allowing {allowed.Count}.");
             CompareWithGroundTruth(scenario, records, results.ScoreDocs, truth, oracle, allowed);
             Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-                $"// Hybrid preflight: {scenario} filter cardinality {allowed.Count}, candidates {results.TotalHits}, exact Top-{FinalTopN} matches ground truth."));
+                $"// Hybrid preflight: {scenario} filter cardinality {allowed.Count}, selected {results.TotalHits}, exact Top-{FinalTopN} matches ground truth."));
         }
     }
 

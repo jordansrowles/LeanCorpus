@@ -259,11 +259,12 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(dir);
 
         var resA = searcher.Search(new VectorQuery("vecA", [1f, 0f, 0f, 0f], topK: 1), 1, TestContext.Current.CancellationToken);
-        Assert.Equal(2, resA.TotalHits);
+        // TopK bounds the selected set, so TotalHits is its size (issue #121, ADR049).
+        Assert.Equal(1, resA.TotalHits);
         Assert.Equal(0, resA.ScoreDocs[0].DocId);
 
         var resB = searcher.Search(new VectorQuery("vecB", [1f, 0f, 0f, 0f], topK: 1), 1, TestContext.Current.CancellationToken);
-        Assert.Equal(2, resB.TotalHits);
+        Assert.Equal(1, resB.TotalHits);
         Assert.Equal(1, resB.ScoreDocs[0].DocId);
     }
 
@@ -342,7 +343,8 @@ public sealed class HnswEndToEndTests : IClassFixture<TestDirectoryFixture>
             1,
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(3, results.TotalHits);
+        // TopK bounds the selected set, so TotalHits is its size (issue #121, ADR049).
+        Assert.Equal(1, results.TotalHits);
         Assert.Single(results.ScoreDocs);
         Assert.Equal(0, results.ScoreDocs[0].DocId);
         Assert.Equal(1f, results.ScoreDocs[0].Score, 5);

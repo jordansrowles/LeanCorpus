@@ -1232,10 +1232,12 @@ public sealed partial class IndexSearcher
         }
     }
 
-    private void ExecuteVectorQuery(VectorQuery query, SegmentReader reader, ref TopNCollector collector)
-        => ExecuteVectorQuery(query, reader, new Dictionary<(string Field, string Term), int>(), ref collector);
-
-    private void ExecuteVectorQuery(
+    /// <summary>
+    /// Discovers one segment's candidates for <paramref name="query"/> into <paramref name="collector"/>,
+    /// using the segment's graph, filter and oversampling strategy. Preparation runs this for every
+    /// segment into one collector of capacity <see cref="VectorQuery.TopK"/>, which selects the global set.
+    /// </summary>
+    private void CollectVectorCandidates(
         VectorQuery query,
         SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs,
@@ -1295,7 +1297,7 @@ public sealed partial class IndexSearcher
             if (matched < 64 || selectivity < 0.005)
             {
                 int scannedVectors = BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
-                _config.Metrics.RecordHnswSelectiveFilterScan(scannedVectors);
+                VectorMetrics?.RecordHnswSelectiveFilterScan(scannedVectors);
                 return;
             }
 
@@ -1320,7 +1322,7 @@ public sealed partial class IndexSearcher
             var hnswSw = System.Diagnostics.Stopwatch.StartNew();
             var shortlist = graph!.Search(searchVec, options.ToTraversalOptions(), out var stats);
             hnswSw.Stop();
-            _config.Metrics.RecordHnswSearch(
+            VectorMetrics?.RecordHnswSearch(
                 hnswSw.Elapsed,
                 stats.NodesVisited,
                 stats.ScannedVectors,
@@ -1351,7 +1353,7 @@ public sealed partial class IndexSearcher
             var hnswSw = System.Diagnostics.Stopwatch.StartNew();
             var shortlist = graph!.Search(searchVec, options.ToTraversalOptions(), out var stats);
             hnswSw.Stop();
-            _config.Metrics.RecordHnswSearch(
+            VectorMetrics?.RecordHnswSearch(
                 hnswSw.Elapsed,
                 stats.NodesVisited,
                 stats.ScannedVectors,
@@ -1374,7 +1376,7 @@ public sealed partial class IndexSearcher
         if (filterBitmap is not null)
         {
             int scannedVectors = BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
-            _config.Metrics.RecordVectorExactScan(scannedVectors, retiredGraphIgnored);
+            VectorMetrics?.RecordVectorExactScan(scannedVectors, retiredGraphIgnored);
             return;
         }
 
@@ -1394,8 +1396,11 @@ public sealed partial class IndexSearcher
             collector.Collect(docBase + docId, similarity);
             exactScannedVectors++;
         }
-        _config.Metrics.RecordVectorExactScan(exactScannedVectors, retiredGraphIgnored);
+        VectorMetrics?.RecordVectorExactScan(exactScannedVectors, retiredGraphIgnored);
     }
+
+    /// <summary>Search metrics, or null while <see cref="Explain(VectorQuery, int)"/> prepares a selected set.</summary>
+    private Diagnostics.IMetricsCollector? VectorMetrics => t_suppressVectorSearchMetrics ? null : _config.Metrics;
 
     private int BruteForceFilter(
         VectorQuery query,

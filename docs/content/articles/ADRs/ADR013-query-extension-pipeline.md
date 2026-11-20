@@ -4,9 +4,10 @@ title: "Custom queries extend the tuned execution pipeline"
 date: 2026-07-27
 status: Accepted
 version-added: vNext
+last-updated: 2026-11-20
 summary: "Route custom queries through the tuned execution pipeline."
 areas: [search, queries, extensibility]
-relates-to: [ADR015, ADR038]
+relates-to: [ADR015, ADR038, ADR049]
 ---
 
 # ADR013: Custom queries extend the tuned execution pipeline
@@ -36,6 +37,10 @@ pipeline in either of two ways:
 provides optional segment and scorer callbacks without changing the existing
 collector contract.
 
+A query that neither rewrites nor supplies a weight is not executable. Search
+rejects it with `NotSupportedException`, at the root or as a nested clause,
+rather than treating it as matching nothing (ADR049).
+
 ## Rationale
 
 Most new query shapes can be expressed as a rewrite and pay no extra cost once
@@ -52,6 +57,8 @@ different approximation query also prevents recursive weight execution.
 - Built-in hot paths retain their existing dispatch and scoring code.
 - Custom scorers operate on candidates from their approximation rather than
   replacing segment traversal.
+- A custom query with neither extension point fails loudly instead of
+  silently matching nothing.
 - A future general iterator pipeline remains possible, but would require
   benchmarks showing that its flexibility repays its hot-path cost.
 
@@ -60,3 +67,4 @@ different approximation query also prevents recursive weight execution.
 | Date | Type | Change | Reference |
 | --- | --- | --- | --- |
 | 2026-07-27 | Accepted | Original decision accepted. | `9f7e16ce4` |
+| 2026-11-20 | Amended | A query with neither a rewrite nor a weight throws `NotSupportedException` instead of matching nothing. | `#121` |

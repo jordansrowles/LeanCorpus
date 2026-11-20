@@ -4,8 +4,10 @@ title: "Block joins preserve parent boundaries across deletion and merge"
 date: 2026-09-26
 status: Accepted
 version-added: vNext
+last-updated: 2026-11-20
 summary: "Treat each parent and its preceding children as one merge unit when the parent will not be retained."
 areas: [indexing, search, merging]
+relates-to: [ADR049]
 ---
 
 # ADR037: Block joins preserve parent boundaries across deletion and merge
@@ -28,6 +30,14 @@ does not check that a mapped parent is live.
 Block-join search considers only live children and returns only live parents.
 This rule applies to the term fast path, Boolean child-query path and general
 child-query path.
+
+A Boolean child query applies the general Boolean rules to each child
+document (ADR049): Must clauses intersect, MustNot clauses exclude, and
+`MinimumNumberShouldMatch` counts the Should clauses one child matches. With
+Must present, Should clauses are optional unless a positive minimum is set;
+without Must, at least `max(1, minimum)` must match. Matches from different
+children of one parent are never combined to satisfy a minimum. Top-level and
+nested block-join queries use the same segment matcher.
 
 During merge, each parent and the documents since the previous parent marker
 form one block. If the parent is live or is a soft-deleted document retained by
@@ -54,6 +64,8 @@ while leaving the postings and parent bitset formats intact.
 
 - A deleted child cannot produce a parent result through stale postings.
 - A deleted parent cannot be returned as a block-join result.
+- An optional child clause cannot widen a Must child result, and a child
+  minimum is satisfied only within one child.
 - Merges cannot attach children from an omitted block to a later parent.
 - Soft-deleted retained parents preserve boundaries but remain invisible to
   search results.
@@ -65,3 +77,4 @@ while leaving the postings and parent bitset formats intact.
 | Date | Type | Change | Reference |
 | --- | --- | --- | --- |
 | 2026-09-26 | Accepted | Original decision accepted. | `f03538876` |
+| 2026-11-20 | Amended | Boolean child queries follow general Must, Should, MustNot and minimum-Should rules; nested block join shares the segment matcher. | `#121` |

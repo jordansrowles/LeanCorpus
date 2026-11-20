@@ -33,7 +33,9 @@ public sealed class BbqRetirementTests : IClassFixture<TestDirectoryFixture>
         using var searcher = new IndexSearcher(directory);
         var actual = searcher.Search(new VectorQuery("embedding", query, topK: 5), 5, TestContext.Current.CancellationToken);
 
-        Assert.Equal(expected.GetProperty("TotalHits").GetInt64(), actual.TotalHits);
+        // Captures predate the global TopK cap (issue #121, ADR049): TotalHits is now the selected
+        // set's size, at most topK. The captured scores and documents remain exact.
+        Assert.Equal(Math.Min(expected.GetProperty("TotalHits").GetInt64(), 5), actual.TotalHits);
         var expectedScores = expected.GetProperty("scores").EnumerateArray()
             .Select(value => (DocId: value.GetProperty("DocId").GetInt32(), Score: value.GetProperty("Score").GetSingle()))
             .ToArray();

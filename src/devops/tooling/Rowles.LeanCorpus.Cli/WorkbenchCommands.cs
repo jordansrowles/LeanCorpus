@@ -588,7 +588,10 @@ internal static partial class WorkbenchCommands
         IndexInspectionDocument document = inspector.GetDocument(documentId);
         if (!document.Vectors.TryGetValue(field, out IReadOnlyList<float>? vector))
             return WriteNotFound(output, $"Document {documentId} has no vector in field '{field}'.");
-        Explanation? explanation = searcher.Explain(new VectorQuery(field, vector.ToArray()), documentId);
+        // TopK covers the whole index so the inspected document is always inside the selected set
+        // (ADR049); with the default of 10, near-duplicate vectors could push it out.
+        int topK = Math.Max(1, searcher.Stats.TotalDocCount);
+        Explanation? explanation = searcher.Explain(new VectorQuery(field, vector.ToArray(), topK), documentId);
         if (explanation is null)
             return WriteNotFound(output, $"Vector explanation is unavailable for document {documentId} in field '{field}'.");
         if (json)

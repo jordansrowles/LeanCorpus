@@ -9,6 +9,13 @@ namespace Rowles.LeanCorpus.Search.Queries;
 /// The query vector must have the same dimension as the selected vector field. Search and
 /// explanation throw <see cref="ArgumentException"/> when the dimensions differ.
 /// <see cref="Rowles.LeanCorpus.Search.Query.Boost"/> is applied to final vector scores and their explanations.
+/// <para>
+/// <see cref="TopK"/> selects one candidate set across the whole reader snapshot (and across every
+/// component of a <c>MultiReader</c>), independently of the search's <c>topN</c>. That selected set is
+/// what top-level results, <c>TotalHits</c>, counts, side collectors and enclosing queries observe. A
+/// sibling Boolean filter removes documents from the selected set and does not refill it; use
+/// <see cref="Filter"/> to restrict candidates before the top <see cref="TopK"/> are chosen.
+/// </para>
 /// </remarks>
 public sealed class VectorQuery : Query
 {
@@ -18,7 +25,10 @@ public sealed class VectorQuery : Query
     /// <summary>Gets the query vector used to find approximate nearest neighbours.</summary>
     public float[] QueryVector { get; }
 
-    /// <summary>Gets the maximum number of nearest-neighbour results to return.</summary>
+    /// <summary>
+    /// Gets the number of nearest neighbours selected across the whole reader snapshot. Oversampling and
+    /// HNSW <c>ef</c> govern candidate discovery; this value caps the selected result set.
+    /// </summary>
     public int TopK { get; }
 
     /// <summary>
@@ -44,10 +54,11 @@ public sealed class VectorQuery : Query
     /// <summary>Initialises a new <see cref="VectorQuery"/> for the given field and query vector.</summary>
     /// <param name="field">The vector field to search.</param>
     /// <param name="queryVector">The query vector for similarity comparison.</param>
-    /// <param name="topK">Maximum number of nearest neighbours to return. Default: 10.</param>
+    /// <param name="topK">Number of nearest neighbours selected across the reader snapshot. Must be positive. Default: 10.</param>
     /// <param name="efSearch">HNSW <c>ef</c> parameter. <c>0</c> selects an automatic default.</param>
     /// <param name="oversamplingFactor">Multiplier for the HNSW candidate shortlist before scoring. Omit this argument for the automatic policy: BBQ v3 uses three, while other representations use one. Passing the former default literal <c>1</c> explicitly keeps one-times oversampling.</param>
-    /// <param name="filter">Optional pre-filter query that constrains the candidate set.</param>
+    /// <param name="filter">Optional pre-filter query that constrains the candidate set before top-K selection.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="topK"/> is zero or negative.</exception>
     public VectorQuery(
         string field,
         float[] queryVector,
@@ -56,6 +67,7 @@ public sealed class VectorQuery : Query
         int oversamplingFactor = -1,
         Query? filter = null)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(topK);
         Field = field;
         QueryVector = queryVector;
         TopK = topK;
@@ -104,10 +116,18 @@ public sealed class VectorQuery : Query
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// Equality includes every setting that can change the selected set: filter, <c>ef</c> and the
+    /// oversampling policy, so a result cache never shares results between different executions.
+    /// </remarks>
     public override bool Equals(object? obj) =>
         obj is VectorQuery other &&
         string.Equals(Field, other.Field, StringComparison.Ordinal) &&
         TopK == other.TopK && Boost == other.Boost &&
+        EfSearch == other.EfSearch &&
+        OversamplingFactor == other.OversamplingFactor &&
+        IsOversamplingAutomatic == other.IsOversamplingAutomatic &&
+        Equals(Filter, other.Filter) &&
         QueryVector.AsSpan().SequenceEqual(other.QueryVector);
 
     /// <inheritdoc/>
@@ -117,6 +137,10 @@ public sealed class VectorQuery : Query
         h.Add(nameof(VectorQuery));
         h.Add(Field);
         h.Add(TopK);
+        h.Add(EfSearch);
+        h.Add(OversamplingFactor);
+        h.Add(IsOversamplingAutomatic);
+        h.Add(Filter);
         // Hash first few elements for performance
         int len = Math.Min(QueryVector.Length, 8);
         for (int i = 0; i < len; i++) h.Add(QueryVector[i]);
