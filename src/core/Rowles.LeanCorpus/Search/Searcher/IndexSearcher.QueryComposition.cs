@@ -19,8 +19,12 @@ public sealed partial class IndexSearcher
         // The most common shapes contain only built-in leaves; skip the walk on the hot paths.
         if (query is TermQuery || (query is BooleanQuery bq && IsAllTermQueryBoolean(bq)))
             return;
-        RewriteQuery(query).Visit(new CompositionVisitor(this, new CompositionState(), nested: false));
+        RewriteQuery(query).Visit(new CompositionVisitor(this, new CompositionState(), nested: false, path: null));
     }
+
+    private static InvalidOperationException CyclicQuery(Query query) => new(
+        $"The query tree contains a cycle: {query.GetType().Name} is reachable from its own clauses, " +
+        "filter or child query. Build query trees without self-references.");
 
     private static NotSupportedException UnsupportedComposition(Query query) => query switch
     {
@@ -38,20 +42,42 @@ public sealed partial class IndexSearcher
         public HashSet<Query> VisitedNested { get; } = new(ReferenceEqualityComparer.Instance);
     }
 
-    private sealed class CompositionVisitor(IndexSearcher searcher, CompositionState state, bool nested) : QueryVisitor
+    /// <summary>The composite queries enclosing the current visit, innermost first.</summary>
+    private sealed record ActivePath(Query Query, ActivePath? Parent)
+    {
+        public bool Contains(Query query)
+        {
+            for (var node = this; node is not null; node = node.Parent)
+            {
+                if (ReferenceEquals(node.Query, query))
+                    return true;
+            }
+            return false;
+        }
+    }
+
+    private sealed class CompositionVisitor(IndexSearcher searcher, CompositionState state, bool nested, ActivePath? path)
+        : QueryVisitor
     {
         public override QueryVisitor GetSubVisitor(Occur occur, Query parent)
         {
+            // Every composite descends through this call, so a composite already on the active path
+            // means a mutable query (or a custom one) contains itself. Every other walker, and query
+            // hashing, would recurse without bound, so reject it here, at admission.
+            if (path?.Contains(parent) == true)
+                throw CyclicQuery(parent);
+            var childPath = new ActivePath(parent, path);
+
             if (parent is RrfQuery)
             {
                 // RRF children are independent top-level searches, so they may themselves be
                 // whole-index queries. RRF itself must be the root.
                 if (nested)
                     throw UnsupportedComposition(parent);
-                return new CompositionVisitor(searcher, state, nested: false);
+                return new CompositionVisitor(searcher, state, nested: false, childPath);
             }
 
-            return nested ? this : new CompositionVisitor(searcher, state, nested: true);
+            return new CompositionVisitor(searcher, state, nested: true, childPath);
         }
 
         public override void VisitLeaf(Query query)
@@ -79,7 +105,7 @@ public sealed partial class IndexSearcher
 
             if (query.CreateWeight(searcher) is not { } weight)
                 throw UnsupportedComposition(query);
-            weight.Approximation.Visit(nested ? this : new CompositionVisitor(searcher, state, nested: true));
+            weight.Approximation.Visit(nested ? this : new CompositionVisitor(searcher, state, nested: true, path));
         }
     }
 }

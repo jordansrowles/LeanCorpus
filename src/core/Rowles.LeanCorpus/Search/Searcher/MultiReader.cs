@@ -228,12 +228,15 @@ public sealed class MultiReader : IDisposable
     /// </summary>
     private SeedScopes? SeedGlobalVectorSelections(Query query)
     {
-        var vectors = IndexSearcher.CollectVectorQueries(query);
-        if (vectors.Count == 0 || _searchers.Length == 0)
+        if (_searchers.Length == 0)
             return null;
 
-        // Reject unsupported composition before any component pays for a vector selection (ADR049).
+        // Reject unsupported or cyclic composition before walking the tree for vector queries and
+        // before any component pays for a vector selection (ADR049).
         _searchers[0].ValidateQueryComposition(query);
+        var vectors = _searchers[0].CollectVectorQueries(query);
+        if (vectors.Count == 0)
+            return null;
 
         // Value-keyed, like the per-search plans, so equal rewritten copies find the global seed.
         var plans = new Dictionary<VectorQuery, PreparedVectorQuery>[_searchers.Length];

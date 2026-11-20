@@ -1644,10 +1644,11 @@ public sealed partial class IndexSearcher : IDisposable
             minimum = Math.Max(1, minimum);
         }
 
+        // Without Must, minimum is at least 1 here, so this branch always has a Must result.
         System.Collections.BitArray result;
-        if (minimum <= 0)
+        if (minimum <= 0 && mustResult is not null)
         {
-            result = mustResult!;
+            result = mustResult;
         }
         else if (minimum > shouldCount)
         {

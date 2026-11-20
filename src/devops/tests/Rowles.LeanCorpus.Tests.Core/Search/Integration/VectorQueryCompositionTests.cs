@@ -250,6 +250,64 @@ public sealed class VectorQueryCompositionTests(TestDirectoryFixture fixture) : 
     }
 
     [Fact]
+    public void MultiReader_CustomWeightApproximation_UsesTheGlobalCap()
+    {
+        // Each component's nearest neighbour is a hit on its own; the global top-1 is only b10.
+        using var multi = OpenMultiReader("multi-weight");
+        var results = multi.Reader.Search(new WeightedVectorQuery(), 10);
+        Assert.Equal(1, results.TotalHits);
+        Assert.Equal([2], results.ScoreDocs.Select(static doc => doc.DocId));
+
+        var nested = Bool((new TermQuery("type", "vector"), Occur.Must), (new WeightedVectorQuery(), Occur.Must));
+        Assert.Equal([2], multi.Reader.Search(nested, 10).ScoreDocs.Select(static doc => doc.DocId));
+    }
+
+    [Fact]
+    public void CyclicVectorFilter_IsRejectedBeforeAnyWalkOrHash()
+    {
+        using var index = OpenVectors("cyclic", multiSegment: true);
+        var searcher = index.Searcher;
+        var (vector, filter) = CyclicVectorFilter();
+
+        Assert.Throws<InvalidOperationException>(() => searcher.Search(vector, 10));
+        Assert.Throws<InvalidOperationException>(() => searcher.Search(filter, 10));
+        Assert.Throws<InvalidOperationException>(() => searcher.Count(vector));
+        Assert.Throws<InvalidOperationException>(() => searcher.Search(vector, 10, SortField.DocId));
+
+        using var multi = OpenMultiReader("multi-cyclic");
+        Assert.Throws<InvalidOperationException>(() => multi.Reader.Search(vector, 10));
+        Assert.Throws<InvalidOperationException>(() => multi.Reader.Search(filter, 10));
+    }
+
+    [Fact]
+    public void SelfContainingBoolean_IsRejected()
+    {
+        using var index = OpenVectors("self-boolean", multiSegment: false);
+#pragma warning disable CS0618 // The obsolete mutable API is the only way to build a cycle.
+        var outer = new BooleanQuery();
+        outer.Add(new TermQuery("type", "vector"), Occur.Must);
+        var inner = new BooleanQuery();
+        inner.Add(new VectorQuery("vec", Target, topK: 1), Occur.Should);
+        inner.Add(outer, Occur.Should);
+        outer.Add(inner, Occur.Must);
+#pragma warning restore CS0618
+
+        Assert.Throws<InvalidOperationException>(() => index.Searcher.Search(outer, 10));
+    }
+
+    /// <summary>A vector whose filter contains the vector, built through the mutable Boolean API.</summary>
+    private static (VectorQuery Vector, BooleanQuery Filter) CyclicVectorFilter()
+    {
+#pragma warning disable CS0618 // The obsolete mutable API is the only way to build a cycle.
+        var filter = new BooleanQuery();
+        filter.Add(new TermQuery("type", "vector"), Occur.Must);
+        var vector = new VectorQuery("vec", Target, topK: 1, filter: filter);
+        filter.Add(vector, Occur.Must);
+#pragma warning restore CS0618
+        return (vector, filter);
+    }
+
+    [Fact]
     public void RewrittenVectorCopies_ShareOneSelection()
     {
         using var multi = OpenMultiReader("multi-rewrite");
@@ -487,6 +545,28 @@ public sealed class VectorQueryCompositionTests(TestDirectoryFixture fixture) : 
         public override Rowles.LeanCorpus.Search.Query Rewrite() => new VectorQuery("vec", Target, topK: 1);
         public override bool Equals(object? obj) => obj is FreshVectorQuery;
         public override int GetHashCode() => typeof(FreshVectorQuery).GetHashCode();
+    }
+
+    /// <summary>Extends execution through a weight whose approximation is a top-1 vector query.</summary>
+    private sealed class WeightedVectorQuery : Rowles.LeanCorpus.Search.Query
+    {
+        public override string Field => "vec";
+
+        public override Weight CreateWeight(IndexSearcher searcher)
+            => new PassThroughWeight(new VectorQuery("vec", Target, topK: 1));
+
+        public override bool Equals(object? obj) => obj is WeightedVectorQuery;
+        public override int GetHashCode() => typeof(WeightedVectorQuery).GetHashCode();
+
+        private sealed class PassThroughWeight(Rowles.LeanCorpus.Search.Query approximation) : Weight(approximation)
+        {
+            public override Scorer CreateScorer(IndexSearcher searcher) => new PassThroughScorer();
+        }
+
+        private sealed class PassThroughScorer : Scorer
+        {
+            public override float Score(int docId, float approximationScore) => approximationScore;
+        }
     }
 
     /// <summary>Rewrites to a vector query whose filter is this query, forming a cycle.</summary>

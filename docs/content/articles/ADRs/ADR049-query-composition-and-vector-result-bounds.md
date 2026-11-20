@@ -4,6 +4,7 @@ title: "Query composition and vector result bounds"
 date: 2026-11-20
 status: Accepted
 version-added: v4.0.0
+last-updated: 2026-11-20
 summary: "Every executable query keeps its matches when nested, unsupported composition fails loudly, and VectorQuery.TopK selects one global candidate set that every route and enclosing query observes."
 areas: [search, queries, vectors]
 relates-to: [ADR013, ADR016, ADR037, ADR048]
@@ -83,8 +84,15 @@ Each operation prepares a vector query's set once, keyed by query reference,
 in the existing per-search execution context, and shares it with every
 segment and clause, including parallel segment workers. The set is never
 reused by a later operation or across a refresh. A failed or interrupted
-preparation is discarded. A vector filter that refers back to its own query
-fails with `InvalidOperationException`.
+preparation is discarded. Vector queries are discovered through rewrites and
+through a custom weight's approximation alike, so a custom query that extends
+execution through a weight observes the same global selection.
+
+**Cycles.** A query tree that contains itself, built through the obsolete
+mutable `BooleanQuery` API or a custom query, fails with
+`InvalidOperationException` at admission, before any other tree walk or query
+hashing could recurse without bound. A vector filter that refers back to its
+own query through a rewrite fails the same way during preparation.
 
 **Equality.** `VectorQuery` equality and hashing include the filter, `ef`,
 oversampling factor and automatic-oversampling flag, so the result cache never
@@ -125,3 +133,4 @@ parallel segment workers and discards failed plans.
 | Date | Type | Change | Reference |
 | --- | --- | --- | --- |
 | 2026-11-20 | Accepted | Original decision accepted. | `#121` |
+| 2026-11-20 | Amended | Cyclic query trees are rejected at admission; vector discovery follows custom weight approximations. | `#125` |

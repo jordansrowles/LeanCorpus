@@ -134,7 +134,7 @@ public sealed partial class IndexSearcher
         context.VectorResourceCheck = checkResources;
         try
         {
-            query.Visit(new VectorQueryVisitor(vector => GetPreparedVectorQuery(vector, checkResources)));
+            query.Visit(new VectorQueryVisitor(this, vector => GetPreparedVectorQuery(vector, checkResources)));
         }
         finally
         {
@@ -146,10 +146,11 @@ public sealed partial class IndexSearcher
     /// Returns the vector queries reachable from <paramref name="query"/>, each after every vector
     /// query reachable from its own filter, so nested selections are prepared first.
     /// </summary>
-    internal static List<VectorQuery> CollectVectorQueries(Query query)
+    /// <remarks>Validate the query first (ADR049): validation rejects cyclic trees, which this walk cannot.</remarks>
+    internal List<VectorQuery> CollectVectorQueries(Query query)
     {
         var found = new List<VectorQuery>();
-        RewriteQuery(query).Visit(new VectorQueryVisitor(found.Add));
+        RewriteQuery(query).Visit(new VectorQueryVisitor(this, found.Add));
         return found;
     }
 
@@ -205,7 +206,7 @@ public sealed partial class IndexSearcher
     /// Visits vector queries in post-order: every vector query in a filter before the vector query
     /// that owns it, and each query once even when it also appears elsewhere in the tree.
     /// </summary>
-    private sealed class VectorQueryVisitor(Action<VectorQuery> onVector) : QueryVisitor
+    private sealed class VectorQueryVisitor(IndexSearcher searcher, Action<VectorQuery> onVector) : QueryVisitor
     {
         private readonly HashSet<Query> _visited = new(ReferenceEqualityComparer.Instance);
 
@@ -223,7 +224,19 @@ public sealed partial class IndexSearcher
 
             var rewritten = RewriteQuery(query);
             if (!ReferenceEquals(rewritten, query))
+            {
                 rewritten.Visit(this);
+                return;
+            }
+
+            // A custom query can also extend execution through a weight (ADR013). Its approximation
+            // executes like a rewrite, so its vector queries need the same global selection.
+            if (query.GetType().Assembly != typeof(Query).Assembly
+                && query.CreateWeight(searcher) is { } weight
+                && !ReferenceEquals(weight.Approximation, query))
+            {
+                weight.Approximation.Visit(this);
+            }
         }
     }
 }
