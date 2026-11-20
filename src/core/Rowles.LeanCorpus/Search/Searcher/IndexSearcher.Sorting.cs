@@ -87,6 +87,7 @@ public sealed partial class IndexSearcher
             return budget.EmptyPartialResult();
 
         Query rewrittenQuery = RewriteQuery(query);
+        ValidateQueryComposition(rewrittenQuery);
         if (budget.Checkpoint(SearchExecutionCheckpoint.AfterQueryRewrite))
             return budget.EmptyPartialResult();
 
@@ -220,6 +221,7 @@ public sealed partial class IndexSearcher
             return budget.EmptyPartialResult();
 
         Query rewrittenQuery = RewriteQuery(query);
+        ValidateQueryComposition(rewrittenQuery);
         if (budget.Checkpoint(SearchExecutionCheckpoint.AfterQueryRewrite))
             return budget.EmptyPartialResult();
 

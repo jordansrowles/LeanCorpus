@@ -5,10 +5,14 @@ using Rowles.LeanCorpus.Search.Queries;
 
 namespace Rowles.LeanCorpus.Search.Searcher;
 
-/// <summary>Coordinates fuzzy term expansion across all segments for one query execution.</summary>
+/// <summary>
+/// Coordinates whole-index plans for one query execution: fuzzy term expansion, shared multi-term
+/// expansions and globally selected vector candidates (ADR049).
+/// </summary>
 internal sealed class FuzzyQueryExecutionContext(
     IReadOnlyList<SegmentReader> readers,
-    bool useExpansionCache)
+    bool useExpansionCache,
+    IReadOnlyDictionary<VectorQuery, PreparedVectorQuery>? seededVectorPlans = null)
 {
     private static readonly IReadOnlyList<(string Term, long Offset, int Distance)> EmptyMatches =
         Array.Empty<(string Term, long Offset, int Distance)>();
@@ -24,6 +28,56 @@ internal sealed class FuzzyQueryExecutionContext(
     internal int AutomatonCompilationCount => Volatile.Read(ref _automatonCompilationCount);
 
     private MultiTermExpansionContext? _expansions;
+
+    // Keyed by value: VectorQuery equality covers every setting that changes the selected set, so a
+    // rewrite that produces an equal copy shares this search's selection, and a MultiReader seed.
+    private Dictionary<VectorQuery, Lazy<PreparedVectorQuery>>? _vectorPlans;
+
+    /// <summary>
+    /// The resource check of the route currently preparing this search's vector queries, applied to
+    /// nested preparation as well, such as a vector query inside another vector query's filter.
+    /// </summary>
+    internal Action? VectorResourceCheck { get; set; }
+
+    /// <summary>
+    /// Returns this search's selected set for <paramref name="query"/>, building it once. A failed or
+    /// interrupted build is discarded, so a later search never observes a partial selection.
+    /// </summary>
+    internal PreparedVectorQuery GetVectorPlan(VectorQuery query, Func<PreparedVectorQuery> build)
+    {
+        if (seededVectorPlans is not null && seededVectorPlans.TryGetValue(query, out var seeded))
+            return seeded;
+
+        var plans = Volatile.Read(ref _vectorPlans)
+            ?? Interlocked.CompareExchange(
+                ref _vectorPlans,
+                new Dictionary<VectorQuery, Lazy<PreparedVectorQuery>>(),
+                null)
+            ?? _vectorPlans!;
+        Lazy<PreparedVectorQuery>? lazy;
+        lock (plans)
+        {
+            if (!plans.TryGetValue(query, out lazy))
+            {
+                lazy = new Lazy<PreparedVectorQuery>(build, LazyThreadSafetyMode.ExecutionAndPublication);
+                plans.Add(query, lazy);
+            }
+        }
+
+        try
+        {
+            return lazy.Value;
+        }
+        catch
+        {
+            lock (plans)
+            {
+                if (plans.TryGetValue(query, out var current) && ReferenceEquals(current, lazy))
+                    plans.Remove(query);
+            }
+            throw;
+        }
+    }
 
     /// <summary>
     /// This search's shared prefix, wildcard and regexp expansions, carried in the same per-search scope.

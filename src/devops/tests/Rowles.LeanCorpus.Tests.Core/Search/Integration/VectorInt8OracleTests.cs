@@ -289,7 +289,8 @@ public sealed class VectorInt8OracleTests(TestDirectoryFixture fixture) : IClass
             .ThenBy(static item => item.SourceOrdinal)
             .ToArray();
         int expectedHits = Math.Min(topK, expected.Count);
-        Assert.Equal(expected.Count, actual.TotalHits);
+        // TopK bounds the selected set, so TotalHits is its size (issue #121, ADR049).
+        Assert.Equal(expectedHits, actual.TotalHits);
         Assert.Equal(expectedHits, actual.ScoreDocs.Length);
 
         int[] actualOrdinals = actual.ScoreDocs.Select(hit => SourceOrdinal(searcher, hit.DocId)).ToArray();

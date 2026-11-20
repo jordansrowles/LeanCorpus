@@ -48,6 +48,28 @@ var hits = searcher.Search(parentQuery, topN: 10);
 
 Execution finds matching child document IDs, skips any match that is itself a parent, and maps each child to the next parent marker in its block. A parent is returned once even when several children match.
 
+## Boolean child queries
+
+A Boolean child query is evaluated per child document with the ordinary
+Boolean rules. `Must` clauses must all match the same child, `MustNot`
+clauses exclude children, and `MinimumNumberShouldMatch` counts the `Should`
+clauses that one child matches. With a `Must` clause present, `Should`
+clauses are optional unless a positive minimum is set; without one, at least
+one `Should` clause must match.
+
+```csharp
+// Parents with a red child; a green child neither adds nor removes parents.
+var child = new BooleanQuery.Builder()
+    .Add(new TermQuery("sku", "red"), Occur.Must)
+    .Add(new TermQuery("sku", "green"), Occur.Should)
+    .Build();
+var parents = new BlockJoinQuery(child);
+```
+
+Matches from different children of one parent are not combined: a parent with
+one red child and one green child does not satisfy a child minimum of two over
+`red` and `green`.
+
 ## Parent filtering
 
 `BlockJoinQuery` has only a child query. To apply a parent-level condition, combine the join with another clause:
@@ -60,6 +82,9 @@ var query = new BooleanQuery.Builder()
     .Add(new TermQuery("status", "published"), Occur.Must)
     .Build();
 ```
+
+`BlockJoinQuery` can be used under `Must`, `Should` or `MustNot`, and inside
+other wrapping queries, with the same results as at the top level.
 
 Use a field that is present on parents and absent from children. This also guards against accidentally treating a child as an ordinary top-level result in other queries.
 

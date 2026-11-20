@@ -272,7 +272,9 @@ public sealed class VectorExactOracleTests(TestDirectoryFixture fixture) : IClas
             .ToArray();
 
         int expectedHits = Math.Min(topK, expected.Length);
-        Assert.Equal(expected.Length, actual.TotalHits);
+        // TopK bounds the query's selected set (issue #121, ADR049), so TotalHits reports that
+        // set's size rather than every vector scanned.
+        Assert.Equal(expectedHits, actual.TotalHits);
         Assert.Equal(expectedHits, actual.ScoreDocs.Length);
 
         var actualOrdinals = actual.ScoreDocs

@@ -57,11 +57,20 @@ public sealed partial class IndexSearcher : IDisposable
 
     /// <summary>Starts one search's shared fuzzy plans and multi-term expansions; disposal restores the outer search's.</summary>
     private IDisposable PushFuzzyQueryExecutionContext()
+        => EnterFuzzyQueryExecutionContext(CreateFuzzyQueryExecutionContext());
+
+    private FuzzyQueryExecutionContext CreateFuzzyQueryExecutionContext()
+        => new(_readers, _config.UseFuzzyExpansionCache, _seededVectorPlans.Value);
+
+    /// <summary>
+    /// Makes <paramref name="context"/> current until disposal. An asynchronous iterator re-enters
+    /// the same context on each step, because an AsyncLocal value set in one step does not survive
+    /// into the next.
+    /// </summary>
+    private IDisposable EnterFuzzyQueryExecutionContext(FuzzyQueryExecutionContext context)
     {
         var previous = _fuzzyQueryExecutionContext.Value;
-        _fuzzyQueryExecutionContext.Value = new FuzzyQueryExecutionContext(
-            _readers,
-            _config.UseFuzzyExpansionCache);
+        _fuzzyQueryExecutionContext.Value = context;
         return new FuzzyQueryExecutionContextScope(this, previous);
     }
 
@@ -524,6 +533,7 @@ public sealed partial class IndexSearcher : IDisposable
     {
         ArgumentNullException.ThrowIfNull(query);
         query = RewriteQuery(query);
+        ValidateQueryComposition(query);
         int requestedTopN = topN;
         int effectiveTopN = NormaliseTopN(topN);
         if (effectiveTopN < 0 || _readers.Count == 0)
@@ -568,6 +578,8 @@ public sealed partial class IndexSearcher : IDisposable
     private TopDocs SearchCore(Query query, int topN, ISideCollector? sideCollector = null)
     {
         query = RewriteQuery(query);
+        // Public entry points validate composition once (ADR049); SearchCore is also reached for
+        // whole-index children such as RRF branches, which the root validation already covered.
         if (query is FuzzyQuery fuzzyQuery && HasCachedFuzzyNoMatches(fuzzyQuery))
             return TopDocs.Empty;
 
@@ -663,6 +675,7 @@ public sealed partial class IndexSearcher : IDisposable
         ArgumentNullException.ThrowIfNull(strategy);
 
         query = RewriteQuery(query);
+        ValidateQueryComposition(query);
         using var fuzzyExecutionScope = PushFuzzyQueryExecutionContext();
         var collector = new TopNCollector(strategy);
         if (_readers.Count == 0)
@@ -713,6 +726,7 @@ public sealed partial class IndexSearcher : IDisposable
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(collector);
+        ValidateQueryComposition(query);
 
         if (_readers.Count == 0) return;
 
@@ -785,6 +799,7 @@ public sealed partial class IndexSearcher : IDisposable
     {
         ArgumentNullException.ThrowIfNull(query);
         query = RewriteQuery(query);
+        ValidateQueryComposition(query);
 
         if (query.CreateWeight(this) is { } weight)
         {
@@ -895,6 +910,7 @@ public sealed partial class IndexSearcher : IDisposable
     {
         ArgumentNullException.ThrowIfNull(query);
         query = RewriteQuery(query);
+        ValidateQueryComposition(query);
         int requestedTopN = topN;
         int effectiveTopN = NormaliseTopN(topN);
         if (effectiveTopN < 0 || _readers.Count == 0)
@@ -993,7 +1009,9 @@ public sealed partial class IndexSearcher : IDisposable
     /// <param name="options">Per-query resource controls.</param>
     public TopDocs Search(Query query, int topN, SearchOptions options)
     {
+        ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(options);
+        ValidateQueryComposition(query);
         if (topN < 0 || _readers.Count == 0)
             return TopDocs.Empty;
 
@@ -1083,6 +1101,7 @@ public sealed partial class IndexSearcher : IDisposable
         SearchOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(query);
+        ValidateQueryComposition(query);
         if (perSegmentTopN <= 0 || _readers.Count == 0)
             yield break;
 
@@ -1127,6 +1146,7 @@ public sealed partial class IndexSearcher : IDisposable
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(options);
+        ValidateQueryComposition(query);
 
         if (_readers.Count == 0)
             yield break;
@@ -1165,10 +1185,13 @@ public sealed partial class IndexSearcher : IDisposable
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(options);
+        ValidateQueryComposition(query);
 
         if (_readers.Count == 0)
             yield break;
 
+        // One context for the whole operation, entered only around synchronous work between yields.
+        var executionContext = CreateFuzzyQueryExecutionContext();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
             options.CancellationToken, cancellationToken);
         var ct = linkedCts.Token;
@@ -1179,7 +1202,9 @@ public sealed partial class IndexSearcher : IDisposable
             ? (long)(options.Timeout.Value.TotalSeconds * System.Diagnostics.Stopwatch.Frequency)
             : null;
 
-        var globalDFs = PrecomputeWithResourceChecks(query, options, sw, deadlineTicks, ct);
+        Dictionary<(string Field, string Term), int>? globalDFs;
+        using (EnterFuzzyQueryExecutionContext(executionContext))
+            globalDFs = PrecomputeWithResourceChecks(query, options, sw, deadlineTicks, ct);
         if (globalDFs is null) yield break;
         long perSegmentBytes = (long)perSegment * Scoring.ScoreDoc.EstimatedBytes;
         long emittedBytes = 0;
@@ -1192,9 +1217,13 @@ public sealed partial class IndexSearcher : IDisposable
             if (emittedBytes + perSegmentBytes > options.MaxResultBytes)
                 yield break;
 
-            var segmentCollector = new TopNCollector(perSegment);
-            ExecuteQuery(query, reader, globalDFs, ref segmentCollector);
-            var segmentDocs = segmentCollector.ToTopDocs();
+            TopDocs segmentDocs;
+            using (EnterFuzzyQueryExecutionContext(executionContext))
+            {
+                var segmentCollector = new TopNCollector(perSegment);
+                ExecuteQuery(query, reader, globalDFs, ref segmentCollector);
+                segmentDocs = segmentCollector.ToTopDocs();
+            }
             emittedBytes += (long)segmentDocs.ScoreDocs.Length * Scoring.ScoreDoc.EstimatedBytes;
 
             foreach (var sd in segmentDocs.ScoreDocs)
@@ -1233,6 +1262,7 @@ public sealed partial class IndexSearcher : IDisposable
     private Dictionary<(string Field, string Term), int> PrecomputeGlobalDocFreqsForSearch(Query query, Action? checkResources = null)
     {
         ValidateExpansionLimits(query, checkResources);
+        PrepareVectorQueries(query, checkResources);
         if (query is CombinedFieldsQuery combined)
             return PrecomputeCombinedFieldUnionDocFreqs(combined);
 
@@ -1471,62 +1501,67 @@ public sealed partial class IndexSearcher : IDisposable
             ValidateExpansionLimits(bjq, checkResources);
 
         var collector = new TopNCollector(topN, sideCollector);
-        float boost = bjq.Boost;
-
-        for (int r = 0; r < _readers.Count; r++)
-        {
-            var reader = _readers[r];
-            using var queryLease = reader.AcquireQueryLease();
-            collector.SetSideCollectorContext(reader);
-            int docBase = _docBases[r];
-            var pbs = reader.GetParentBitSet();
-            if (pbs is null) continue;
-
-            // Block join children are contiguous before their parent, so parents
-            // are encountered in non-decreasing docId order. A simple lastParent
-            // check replaces the BitArray(MaxDoc) dedup at zero allocation cost.
-            int lastParent = -1;
-
-            if (bjq.ChildQuery is TermQuery tq)
-            {
-                // Fast path: stream PostingsEnum directly
-                var qt = string.Concat(tq.Field, "\x00", tq.Term);
-                using var pe = reader.GetPostingsEnum(qt);
-                while (pe.MoveNextUnchecked(out int childDocId, out _))
-                {
-                    if (!reader.IsLive(childDocId) || pbs.IsParent(childDocId)) continue;
-                    int parentLocal = pbs.NextParent(childDocId + 1);
-                    if (parentLocal >= 0 && parentLocal != lastParent)
-                    {
-                        lastParent = parentLocal;
-                        if (reader.IsLive(parentLocal))
-                            collector.Collect(docBase + parentLocal, boost);
-                    }
-                }
-            }
-            else
-            {
-                // General path: collect matching child doc IDs into a lightweight
-                // BitArray instead of materialising a TopNCollector(MaxDoc).
-                var childBits = new System.Collections.BitArray(reader.MaxDoc);
-                CollectChildDocsIntoBitArray(bjq.ChildQuery, reader, childBits);
-
-                for (int docId = 0; docId < reader.MaxDoc; docId++)
-                {
-                    if (!childBits[docId] || !reader.IsLive(docId)) continue;
-                    if (pbs.IsParent(docId)) continue;
-                    int parentLocal = pbs.NextParent(docId + 1);
-                    if (parentLocal >= 0 && parentLocal != lastParent)
-                    {
-                        lastParent = parentLocal;
-                        if (reader.IsLive(parentLocal))
-                            collector.Collect(docBase + parentLocal, boost);
-                    }
-                }
-            }
-        }
+        foreach (var reader in _readers)
+            ExecuteBlockJoinOnSegment(bjq, reader, ref collector);
 
         return collector.ToTopDocs();
+    }
+
+    /// <summary>
+    /// Matches one segment's live children and collects each live parent once. Both the top-level
+    /// block-join route and nested clauses use this matcher, so they share one child interpretation.
+    /// </summary>
+    private void ExecuteBlockJoinOnSegment(BlockJoinQuery bjq, SegmentReader reader, ref TopNCollector collector)
+    {
+        using var queryLease = reader.AcquireQueryLease();
+        collector.SetSideCollectorContext(reader);
+        int docBase = reader.DocBase;
+        var pbs = reader.GetParentBitSet();
+        if (pbs is null) return;
+
+        float boost = bjq.Boost;
+
+        // Block join children are contiguous before their parent, so parents
+        // are encountered in non-decreasing docId order. A simple lastParent
+        // check replaces the BitArray(MaxDoc) dedup at zero allocation cost.
+        int lastParent = -1;
+
+        if (bjq.ChildQuery is TermQuery tq)
+        {
+            // Fast path: stream PostingsEnum directly
+            var qt = string.Concat(tq.Field, "\x00", tq.Term);
+            using var pe = reader.GetPostingsEnum(qt);
+            while (pe.MoveNextUnchecked(out int childDocId, out _))
+            {
+                if (!reader.IsLive(childDocId) || pbs.IsParent(childDocId)) continue;
+                int parentLocal = pbs.NextParent(childDocId + 1);
+                if (parentLocal >= 0 && parentLocal != lastParent)
+                {
+                    lastParent = parentLocal;
+                    if (reader.IsLive(parentLocal))
+                        collector.Collect(docBase + parentLocal, boost);
+                }
+            }
+            return;
+        }
+
+        // General path: collect matching child doc IDs into a lightweight
+        // BitArray instead of materialising a TopNCollector(MaxDoc).
+        var childBits = new System.Collections.BitArray(reader.MaxDoc);
+        CollectChildDocsIntoBitArray(bjq.ChildQuery, reader, childBits);
+
+        for (int docId = 0; docId < reader.MaxDoc; docId++)
+        {
+            if (!childBits[docId] || !reader.IsLive(docId)) continue;
+            if (pbs.IsParent(docId)) continue;
+            int parentLocal = pbs.NextParent(docId + 1);
+            if (parentLocal >= 0 && parentLocal != lastParent)
+            {
+                lastParent = parentLocal;
+                if (reader.IsLive(parentLocal))
+                    collector.Collect(docBase + parentLocal, boost);
+            }
+        }
     }
 
     /// <summary>Collects matching doc IDs for a child query into a BitArray (doc-ID-only, no scores).</summary>
@@ -1547,50 +1582,13 @@ public sealed partial class IndexSearcher : IDisposable
                     break;
                 }
             case BooleanQuery bq:
-                {
-                    System.Collections.BitArray? mustResult = null;
-                    System.Collections.BitArray? scratch = null;
-
-                    foreach (var clause in bq.Clauses)
-                    {
-                        if (clause.Occur == Occur.MustNot) continue;
-
-                        if (clause.Occur == Occur.Must && mustResult is null)
-                        {
-                            // First MUST clause owns its BitArray for the AND chain
-                            mustResult = new System.Collections.BitArray(bits.Length);
-                            CollectChildDocsIntoBitArray(clause.Query, reader, mustResult);
-                        }
-                        else
-                        {
-                            // Reuse scratch for SHOULD and subsequent MUST clauses
-                            scratch ??= new System.Collections.BitArray(bits.Length);
-                            scratch.SetAll(false);
-                            CollectChildDocsIntoBitArray(clause.Query, reader, scratch);
-
-                            if (clause.Occur == Occur.Must)
-                                mustResult!.And(scratch);
-                            else // Should
-                                bits.Or(scratch);
-                        }
-                    }
-                    if (mustResult is not null) bits.Or(mustResult);
-
-                    foreach (var clause in bq.Clauses)
-                    {
-                        if (clause.Occur != Occur.MustNot) continue;
-                        scratch ??= new System.Collections.BitArray(bits.Length);
-                        scratch.SetAll(false);
-                        CollectChildDocsIntoBitArray(clause.Query, reader, scratch);
-                        bits.And(scratch.Not());
-                    }
-                    break;
-                }
+                CollectChildBooleanIntoBitArray(bq, reader, bits);
+                break;
             default:
                 {
                     // Fallback for complex child queries: full query execution
                     var globalDFs = PrecomputeGlobalDocFreqs(query);
-                    var segCollector = new TopNCollector(reader.MaxDoc);
+                    var segCollector = new TopNCollector(Math.Max(reader.MaxDoc, 1));
                     ExecuteQuery(query, reader, globalDFs, ref segCollector);
                     int docBase = reader.DocBase;
                     var childDocs = segCollector.ToTopDocs();
@@ -1599,6 +1597,110 @@ public sealed partial class IndexSearcher : IDisposable
                     break;
                 }
         }
+    }
+
+    /// <summary>
+    /// Applies general Boolean matching to block-join children: Must clauses intersect, MustNot
+    /// clauses exclude, and Should clauses are counted per child. With Must present, Should clauses
+    /// are optional unless a positive minimum is set; without Must, at least
+    /// <c>max(1, MinimumNumberShouldMatch)</c> must match. Pure-negative Booleans match nothing.
+    /// </summary>
+    private void CollectChildBooleanIntoBitArray(BooleanQuery bq, SegmentReader reader,
+        System.Collections.BitArray bits)
+    {
+        int length = bits.Length;
+        System.Collections.BitArray? mustResult = null;
+        System.Collections.BitArray? scratch = null;
+        int shouldCount = 0;
+        foreach (var clause in bq.Clauses)
+        {
+            if (clause.Occur == Occur.Should)
+            {
+                shouldCount++;
+                continue;
+            }
+            if (clause.Occur != Occur.Must)
+                continue;
+
+            if (mustResult is null)
+            {
+                mustResult = new System.Collections.BitArray(length);
+                CollectChildDocsIntoBitArray(clause.Query, reader, mustResult);
+            }
+            else
+            {
+                scratch ??= new System.Collections.BitArray(length);
+                scratch.SetAll(false);
+                CollectChildDocsIntoBitArray(clause.Query, reader, scratch);
+                mustResult.And(scratch);
+            }
+        }
+
+        int minimum = bq.MinimumNumberShouldMatch;
+        if (mustResult is null)
+        {
+            if (shouldCount == 0)
+                return;
+            minimum = Math.Max(1, minimum);
+        }
+
+        // Without Must, minimum is at least 1 here, so this branch always has a Must result.
+        System.Collections.BitArray result;
+        if (minimum <= 0 && mustResult is not null)
+        {
+            result = mustResult;
+        }
+        else if (minimum > shouldCount)
+        {
+            return;
+        }
+        else if (minimum == 1)
+        {
+            var anyShould = new System.Collections.BitArray(length);
+            foreach (var clause in bq.Clauses)
+            {
+                if (clause.Occur != Occur.Should) continue;
+                scratch ??= new System.Collections.BitArray(length);
+                scratch.SetAll(false);
+                CollectChildDocsIntoBitArray(clause.Query, reader, scratch);
+                anyShould.Or(scratch);
+            }
+            result = mustResult is null ? anyShould : mustResult.And(anyShould);
+        }
+        else
+        {
+            var counts = new int[length];
+            foreach (var clause in bq.Clauses)
+            {
+                if (clause.Occur != Occur.Should) continue;
+                scratch ??= new System.Collections.BitArray(length);
+                scratch.SetAll(false);
+                CollectChildDocsIntoBitArray(clause.Query, reader, scratch);
+                for (int docId = 0; docId < length; docId++)
+                {
+                    if (scratch[docId])
+                        counts[docId]++;
+                }
+            }
+
+            result = new System.Collections.BitArray(length);
+            for (int docId = 0; docId < length; docId++)
+            {
+                if (counts[docId] >= minimum && (mustResult is null || mustResult[docId]))
+                    result[docId] = true;
+            }
+        }
+
+        foreach (var clause in bq.Clauses)
+        {
+            if (clause.Occur != Occur.MustNot) continue;
+            scratch ??= new System.Collections.BitArray(length);
+            scratch.SetAll(false);
+            CollectChildDocsIntoBitArray(clause.Query, reader, scratch);
+            result.And(scratch.Not());
+        }
+
+        bits.Or(result);
     }
 
     // Reusable buffer for PrecomputeGlobalDocFreqs to avoid per-call HashSet allocation
@@ -1679,6 +1781,11 @@ public sealed partial class IndexSearcher : IDisposable
                 break;
             case ConstantScoreQuery csq:
                 CollectTerms(csq.Inner, terms);
+                break;
+            case FunctionScoreQuery fsq:
+                // A nested function score must score its inner terms with global statistics (ADR048),
+                // exactly as the top-level function-score path does.
+                CollectTerms(fsq.Inner, terms);
                 break;
             case DisjunctionMaxQuery dmq:
                 foreach (var d in dmq.Disjuncts)

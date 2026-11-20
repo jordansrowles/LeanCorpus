@@ -245,6 +245,13 @@ public sealed partial class IndexSearcher
             case XYShapeQuery xyShapeQuery:
                 ExecuteXYShapeQuery(xyShapeQuery, reader, ref collector);
                 break;
+            case BlockJoinQuery blockJoinQuery:
+                ExecuteBlockJoinOnSegment(blockJoinQuery, reader, ref collector);
+                break;
+            default:
+                // Whole-index queries (MoreLikeThis, RRF) and custom queries with neither a rewrite
+                // nor a weight cannot run per segment. Fail loudly rather than matching nothing.
+                throw UnsupportedComposition(query);
         }
     }
 
@@ -712,10 +719,7 @@ public sealed partial class IndexSearcher
                         {
                             inClause[sr.DocId] = true;
                             if (inCandidate[sr.DocId])
-                            {
                                 scores[sr.DocId] += sr.Score;
-                                shouldMatches[sr.DocId]++;
-                            }
                         }
 
                         // Intersect using compact candidate list instead of O(maxDoc) scan
@@ -751,7 +755,10 @@ public sealed partial class IndexSearcher
                         foreach (var sr in results)
                         {
                             if (inCandidate[sr.DocId])
+                            {
                                 scores[sr.DocId] += sr.Score;
+                                shouldMatches[sr.DocId]++;
+                            }
                         }
                     }
                 }
@@ -1147,6 +1154,37 @@ public sealed partial class IndexSearcher
                     var subDocs = subCollector.ToTopDocs();
                     foreach (var scoreDoc in subDocs.ScoreDocs)
                         results.Add(new ScoreDoc(scoreDoc.DocId - reader.DocBase, scoreDoc.Score));
+                    break;
+                }
+            case VectorQuery vq:
+                {
+                    // The selected set is already live, scored and bounded; copy this segment's share.
+                    int docBase = reader.DocBase;
+                    var members = GetPreparedVectorQuery(vq).InRange(docBase, docBase + reader.MaxDoc);
+                    results.EnsureCapacity(results.Count + members.Length);
+                    foreach (var member in members)
+                        results.Add(new ScoreDoc(member.DocId - docBase, member.Score));
+                    break;
+                }
+            default:
+                {
+                    // Every other executable query uses the ordinary segment dispatcher, which throws
+                    // for queries that cannot run per segment. Global IDs are converted to local once.
+                    // The heap must hold every match, so it is rented rather than allocated per clause.
+                    int capacity = Math.Max(reader.MaxDoc, 1);
+                    var heap = ArrayPool<ScoreDoc>.Shared.Rent(capacity);
+                    try
+                    {
+                        var subCollector = new TopNCollector(heap, capacity);
+                        ExecuteQuery(query, reader, globalDFs, ref subCollector);
+                        int docBase = reader.DocBase;
+                        foreach (var scoreDoc in subCollector.ToTopDocs().ScoreDocs)
+                            results.Add(new ScoreDoc(scoreDoc.DocId - docBase, scoreDoc.Score));
+                    }
+                    finally
+                    {
+                        ArrayPool<ScoreDoc>.Shared.Return(heap);
+                    }
                     break;
                 }
         }

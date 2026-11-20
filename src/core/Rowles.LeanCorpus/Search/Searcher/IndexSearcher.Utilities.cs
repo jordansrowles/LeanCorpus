@@ -134,8 +134,15 @@ public sealed partial class IndexSearcher
     /// Explains the score and execution strategy for a <see cref="VectorQuery"/> against a specific document.
     /// Surfaces the chosen ANN strategy (flat scan, HNSW two-phase, brute-force filter,
     /// HNSW pre-filter, HNSW post-filter), the configured <c>ef</c>, and shortlist size.
-    /// Returns null if the document does not exist or has no vector for the query field.
+    /// Returns null if the document does not exist or has no vector for the query field. A document
+    /// outside the query's selected <see cref="VectorQuery.TopK"/> set returns a zero-score non-match
+    /// explanation naming the cap, matching search results.
     /// </summary>
+    /// <remarks>
+    /// Deciding membership selects the query's whole <see cref="VectorQuery.TopK"/> set, so each call
+    /// costs about as much as running the query. To explain many hits, prefer explaining only the
+    /// documents of interest.
+    /// </remarks>
     public Explanation? Explain(VectorQuery query, int globalDocId)
     {
         ArgumentNullException.ThrowIfNull(query);
@@ -156,6 +163,24 @@ public sealed partial class IndexSearcher
 
         var docVector = reader.GetVector(query.Field, localDocId);
         if (docVector is null || docVector.Length == 0) return null;
+
+        // Explain the same selected set that search returns (ADR049). Explanation is diagnostic,
+        // so its preparation does not record search metrics.
+        bool selected;
+        using (PushFuzzyQueryExecutionContext())
+        {
+            ValidateQueryComposition(query);
+            bool previous = t_suppressVectorSearchMetrics;
+            t_suppressVectorSearchMetrics = true;
+            try
+            {
+                selected = GetPreparedVectorQuery(query).TryGetScore(globalDocId, out _);
+            }
+            finally
+            {
+                t_suppressVectorSearchMetrics = previous;
+            }
+        }
 
         float similarity = VectorQuery.CosineSimilarity(query.QueryVector, docVector);
         similarity = ApplyVectorQueryBoost(query, similarity);
@@ -217,6 +242,17 @@ public sealed partial class IndexSearcher
         if (query.Boost != 1.0f)
             details.Add(new Explanation { Score = query.Boost, Description = $"queryBoost={query.Boost}" });
         details.Add(new Explanation { Score = indexBoost, Description = $"indexBoost={indexBoost}" });
+
+        if (!selected)
+        {
+            return new Explanation
+            {
+                Score = 0f,
+                Description = $"no match: document is not among the query's TopK={query.TopK} selected nearest neighbours " +
+                              $"(cosine similarity {similarity} for field '{query.Field}'; strategy: {strategy})",
+                Details = details.ToArray()
+            };
+        }
 
         return new Explanation
         {
@@ -942,6 +978,7 @@ public sealed partial class IndexSearcher
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(sideCollector);
+        ValidateQueryComposition(query);
         return (SearchCore(query, Math.Max(0, NormaliseTopN(topN)), sideCollector), sideCollector);
     }
 

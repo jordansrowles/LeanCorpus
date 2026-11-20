@@ -21,6 +21,27 @@ var query = new VectorQuery("embedding", queryVector, topK: 10);
 var hits = searcher.Search(query, topN: 10);
 ```
 
+## TopK and result counts
+
+`topK` selects the query's nearest neighbours across the whole searcher
+snapshot, and across every component of a `MultiReader`. It is independent of
+the search's `topN`: a search returns at most `min(topN, topK)` hits, and
+`TotalHits` and `Count` report the size of the selected set rather than every
+vector scanned. Ties are broken by the lower document ID. `topK` must be
+positive.
+
+```csharp
+var nearest = new VectorQuery("embedding", queryVector, topK: 5);
+TopDocs page = searcher.Search(nearest, topN: 100); // at most 5 hits
+int selected = searcher.Count(nearest);             // at most 5
+```
+
+Facets, sorting, `SearchAfter`, streaming and asynchronous search all observe
+the same selected set. `Explain(VectorQuery, docId)` reports a zero-score
+non-match, naming the cap, for a document outside it. Each `Explain` call
+selects the whole set to decide membership, so it costs about as much as
+running the query.
+
 All vectors in one field must have the same dimension. Vectors are normalised
 at index time by default, so scores use cosine similarity over the stored
 Float32 values. Set `NormaliseVectors` consistently with the embeddings and
@@ -62,6 +83,22 @@ recover the original components.
 
 ## Filtering and hybrid queries
 
+`VectorQuery.Filter` restricts candidates *before* the top `topK` are chosen.
+A sibling Boolean clause restricts the selected set *afterwards* and does not
+refill it, so it can return fewer than `topK` hits:
+
+```csharp
+// The 10 nearest published documents.
+var prefiltered = new VectorQuery("embedding", queryVector, topK: 10,
+    filter: new TermQuery("status", "published"));
+
+// Of the 10 nearest documents overall, those that are published.
+var postfiltered = new BooleanQuery.Builder()
+    .Add(new VectorQuery("embedding", queryVector, topK: 10), Occur.Must)
+    .Add(new TermQuery("status", "published"), Occur.Must)
+    .Build();
+```
+
 Float32 and historical Int8 queries apply the filter first, then scan only the
 matching live documents with vectors. Historical BBQ keeps its existing
 graph-based search behaviour. See [Filtered vector search](08-filtered-vector-search.md)
@@ -77,8 +114,11 @@ var rrf = new RrfQuery()
 ```
 
 `efSearch` and `oversamplingFactor` remain available for compatibility with
-historical BBQ graph queries. They do not affect exact Float32 or decoded-Int8
-scans.
+historical BBQ graph queries. They govern candidate discovery, not the final
+`topK` cap, and do not affect exact Float32 or decoded-Int8 scans.
+
+See [ADR049](../articles/ADRs/ADR049-query-composition-and-vector-result-bounds.md)
+for the composition and result-bound rules.
 
 See [Score explanations](../searching/11-score-explanations.md), [storage
 formats](../contributors/storage-formats.md), and

@@ -20,6 +20,10 @@ var rrf = new RrfQuery(k: 60)
 var hits = searcher.Search(rrf, topN: 10);
 ```
 
+`RrfQuery` runs each child as an independent top-level search, so it must be the
+root of a search. Using it as a Boolean clause, filter or block-join child
+throws `NotSupportedException`.
+
 ## Tuning k
 
 Higher `k` flattens the contribution from top-ranked documents. Default `60` is from the original RRF paper.

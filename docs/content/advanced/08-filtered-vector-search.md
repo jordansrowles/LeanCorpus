@@ -33,8 +33,17 @@ flowchart TD
     Z -->|Yes| V{Present live vector?}
     V -->|No| S[Skip document]
     V -->|Yes| C[Score stored Float32 or decoded Int8 value]
-    C --> T[Collect top-N]
+    C --> T[Select global top-K across segments]
 ```
+
+## Filter or Boolean clause
+
+The filter runs before selection, so the query returns up to `topK` matching
+documents. Placing the same constraint in a sibling Boolean clause instead
+filters the `topK` already selected from all documents, and does not refill
+it. Use `filter:` when you want up to `topK` documents that all satisfy the
+constraint. A filter cannot contain `RrfQuery` or `MoreLikeThisQuery`;
+those throw `NotSupportedException`.
 
 The scan cost depends on the matching document count and vector dimension.
 For large result sets, measure the workload with realistic filters and corpus
