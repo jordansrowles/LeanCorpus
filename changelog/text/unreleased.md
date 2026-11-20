@@ -8,16 +8,16 @@ Rowles.Text 2.0 is the first standalone release since 1.0.0. It corrects token p
 
 ## Compatibility
 
-- The English, French, German, Spanish, Italian, Portuguese, Dutch, Russian and Arabic stemmers, `AnalyserFactory.Create` for those languages and `StemmedAnalyser` produce different stems. Re-analyse stored output. `AnalyserFactory.GetDefaultAnalysisId` reports the new identities (`rowles-analysis/<code>/3.2.0`). For the earlier `StemmedAnalyser` behaviour, use `PorterStemmerFilter` or `StemmerAnalyser.Porter()`.
+- The English, French, German, Spanish, Italian, Portuguese, Dutch, Russian and Arabic stemmers, `AnalyserFactory.Create` for those languages and `StemmedAnalyser` produce different stems. Re-analyse stored output. `AnalyserFactory.GetDefaultAnalysisId` reports the new identities (`rowles-analysis/<code>/3.2.0`). For the earlier `StemmedAnalyser` behaviour, use `PorterStemmerFilter` or `StemmerAnalyser.Porter()`. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
 - Removing stop words now leaves position gaps, so phrase matching over analysed text no longer joins words across removed tokens. Text analysed and stored by an earlier version must be analysed again from source to get the corrected positions. ([3fb412f5a](https://github.com/jordansrowles/LeanCorpus/commit/3fb412f5aaa035a7184ecd0736bdcf1317ede65a))
 - Combining-mark tokenisation, Unicode-scalar handling and `StandardAnalyser` lowercasing change the tokens some text produces. Re-analyse stored output to benefit. ([c35c7644f](https://github.com/jordansrowles/LeanCorpus/commit/c35c7644f217ee1d6cf4272c59ec920f5b403b17), [9ff862ec9](https://github.com/jordansrowles/LeanCorpus/commit/9ff862ec94d8f0f848c889e826a29248b8c970b1), [a861b9832](https://github.com/jordansrowles/LeanCorpus/commit/a861b98323182722c900ca51495b6fb21b7039d6), [1e194acad](https://github.com/jordansrowles/LeanCorpus/commit/1e194acadc77c8ca92b1934d41b3eda5cf89b89f))
 - `ICharFilter` now returns `CharFilterResult`; custom character filters must be updated. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 
 ## Added
 
-- Add `AnalyserFactory.Create(string, ISpanStemmer?)`, which keeps a language's tokeniser and stop words and replaces its stemmer, or removes it with `null`. Requested by [@nordmanndev](https://github.com/nordmanndev) in #123.
-- Add `AnalyserFactory.GetDefaultAnalysisId`, which returns an identity such as `rowles-analysis/de/3.2.0` for each default language pipeline. It changes whenever the pipeline's output can change, so callers can tell when to re-analyse.
-- Ship `THIRD-PARTY-NOTICES.md` in the package, with the BSD licence for the Snowball algorithms.
+- Add `AnalyserFactory.Create(string, ISpanStemmer?)`, which keeps a language's tokeniser and stop words and replaces its stemmer, or removes it with `null`. Requested by [@nordmanndev](https://github.com/nordmanndev) in #123. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
+- Add `AnalyserFactory.GetDefaultAnalysisId`, which returns an identity such as `rowles-analysis/de/3.2.0` for each default language pipeline. It changes whenever the pipeline's output can change, so callers can tell when to re-analyse. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
+- Ship `THIRD-PARTY-NOTICES.md` in the package, with the BSD licence for the Snowball algorithms. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
 - Add Slovak (`sk`) analysis with built-in stop words, `SlovakStemmer` and analyser-factory registration. ([57d7d29a0](https://github.com/jordansrowles/LeanCorpus/commit/57d7d29a03c78a2dba09e15df30a21a649f19a72))
 - `Token` carries a positive `PositionLength`, and span sinks and span filters keep graph edges complete, so shingles, synonyms and quoted analysis retain multi-position tokens. Indexing pipelines that cannot store graph edges must flatten non-unit position lengths. ([6b702a035](https://github.com/jordansrowles/LeanCorpus/commit/6b702a035c035d587f81c161a8d6dd0aff81cb15), [da8301733](https://github.com/jordansrowles/LeanCorpus/commit/da830173319d87ab9b9b255b41c3db66e1d14a4f))
 - Add `UrlEmailTokeniser` for URL, email, hashtag and mention heuristics. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
@@ -27,10 +27,10 @@ Rowles.Text 2.0 is the first standalone release since 1.0.0. It corrects token p
 
 ## Changed
 
-- The English (Porter2), French, German, Spanish, Italian, Portuguese, Dutch, Russian and Arabic stemmers run the official Snowball 3.2.0 algorithms. They match Snowball's published word lists exactly and do not allocate on the span path. The classes keep their names and base class. Reported by [@nordmanndev](https://github.com/nordmanndev) in #122.
-- `StemmedAnalyser` uses Porter2 (`EnglishStemmer`) instead of the original Porter algorithm.
-- The German stop words include `ans`, `aufs`, `ins` and `vom`.
-- `StemTokenFilter` retries with larger buffers when a stem is longer than its word, and keeps the token unstemmed if no stem fits.
+- The English (Porter2), French, German, Spanish, Italian, Portuguese, Dutch, Russian and Arabic stemmers run the official Snowball 3.2.0 algorithms. They match Snowball's published word lists exactly and do not allocate on the span path. The classes keep their names and base class. Reported by [@nordmanndev](https://github.com/nordmanndev) in #122. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
+- `StemmedAnalyser` uses Porter2 (`EnglishStemmer`) instead of the original Porter algorithm. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
+- The German stop words include `ans`, `aufs`, `ins` and `vom`. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
+- `StemTokenFilter` retries with larger buffers when a stem is longer than its word, and keeps the token unstemmed if no stem fits. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
 - Publish a symbol package alongside the Rowles.Text package. ([f02e7c1c4](https://github.com/jordansrowles/LeanCorpus/commit/f02e7c1c4e26be0a571f2a32a79599a98ac5440b))
 - Return `CharFilterResult` from `ICharFilter` with public `OffsetCorrectionMap` support for composable UTF-16 offset corrections, mapping token offsets back to the original input across chained transformations. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
 - Replace path-owning `JapaneseTokeniser` construction with explicit `JapaneseDictionary` ownership; tokenisers borrow supplied dictionaries, and disposal waits for active tokenisation. ([f03538876](https://github.com/jordansrowles/LeanCorpus/commit/f035388760fa914e334139962cc288debbf72f76))
@@ -41,8 +41,8 @@ Rowles.Text 2.0 is the first standalone release since 1.0.0. It corrects token p
 
 ## Fixed
 
-- German stemming no longer throws for words with several `ß`, and German singular and plural forms such as `Tomate` and `Tomaten` share a stem. Reported by [@nordmanndev](https://github.com/nordmanndev) in #122.
-- The `ISpanStemmer` documentation no longer says that an output buffer as long as the word always suffices.
+- German stemming no longer throws for words with several `ß`, and German singular and plural forms such as `Tomate` and `Tomaten` share a stem. Reported by [@nordmanndev](https://github.com/nordmanndev) in #122. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
+- The `ISpanStemmer` documentation no longer says that an output buffer as long as the word always suffices. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
 - `LowercaseFilter` lowercases non-ASCII uppercase letters. ([a717abcce](https://github.com/jordansrowles/LeanCorpus/commit/a717abccea6c726c0862400c6f21aee35d52d36b))
 - A token-budget rejection is accounted per call, so a rejected input no longer prevents later reuse of the same tokeniser. ([2783e3720](https://github.com/jordansrowles/LeanCorpus/commit/2783e3720084117a2b283794159afe93f75f288f))
 - Removing stop words preserves the position gap, so phrase-style matching no longer spans removed words. ([3fb412f5a](https://github.com/jordansrowles/LeanCorpus/commit/3fb412f5aaa035a7184ecd0736bdcf1317ede65a))
