@@ -15,7 +15,7 @@ internal static class PackageArchiveInspector
 {
     private static readonly HashSet<string> StandardEntries = new(StringComparer.Ordinal)
     {
-        "[Content_Types].xml", "README.md", "LICENCE", "LICENSE"
+        "[Content_Types].xml", "README.md", "LICENCE", "LICENSE", "THIRD-PARTY-NOTICES.md"
     };
 
     public static void Validate(

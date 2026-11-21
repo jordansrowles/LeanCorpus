@@ -870,6 +870,7 @@ public sealed class DevOpsWorkbenchTests
         public int ShowConfiguration(ConfigSummaryCommandOptions options) => 0;
         public int ValidateConfiguration(ConfigValidateCommandOptions options) => 0;
         public int BackupRestoreMatrix(BackupRestoreMatrixCommandOptions options) => 0;
+        public int Snowball(SnowballCommandOptions options) => 0;
     }
 
     private sealed class GatedDataForgeProcessRunner(string childPath, string temporaryRoot) : IProcessRunner

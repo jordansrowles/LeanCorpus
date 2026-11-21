@@ -63,16 +63,27 @@ public sealed class StemTokenFilter : ISpanTokenFilter, IReusableAnalysisFilter
                 ? ks.StemPreLowered(text, buf)
                 : _stemmer.Stem(text, buf);
 
-            if (len < 0)
+            // A stem can be longer than its word (German expands each ß to ss). ISpanStemmer returns
+            // -1 without writing when the buffer is too small, so retry with larger buffers up to the
+            // bound documented on ISpanStemmer.Stem.
+            int maxSize = MaxStemLength(text.Length);
+            while (len < 0 && bufSize < maxSize)
             {
-                // Buffer too small (e.g. multiple ß→ss expansions). Rent larger.
                 if (rented is not null) { ArrayPool<char>.Shared.Return(rented); rented = null; }
-                bufSize = text.Length * 2;
+                bufSize = Math.Min(maxSize, Math.Max(16, bufSize * 2));
                 rented = ArrayPool<char>.Shared.Rent(bufSize);
                 buf = rented.AsSpan(0, bufSize);
                 len = ks is not null
                     ? ks.StemPreLowered(text, buf)
                     : _stemmer.Stem(text, buf);
+            }
+
+            if (len < 0)
+            {
+                // Keeping the unstemmed token would silently change the analysis, so fail loudly.
+                throw new InvalidOperationException(
+                    $"Stemmer '{_stemmer.GetType().FullName}' did not produce a stem for a {text.Length}-character token " +
+                    $"within {maxSize} characters. A stem may be at most 8 times the word length plus 64 characters (see ISpanStemmer.Stem).");
             }
 
             // When len == text.Length with KStemmer, the word was explicitly
@@ -95,6 +106,9 @@ public sealed class StemTokenFilter : ISpanTokenFilter, IReusableAnalysisFilter
             if (rented is not null) ArrayPool<char>.Shared.Return(rented);
         }
     }
+
+    /// <summary>The longest stem the filter accepts for a word, as documented on <see cref="ISpanStemmer.Stem"/>.</summary>
+    internal static int MaxStemLength(int wordLength) => checked((wordLength * 8) + 64);
 
     /// <inheritdoc/>
     public ISpanTokenFilter Clone()

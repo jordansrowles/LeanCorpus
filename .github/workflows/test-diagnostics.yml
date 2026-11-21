@@ -107,6 +107,9 @@ jobs:
       - name: Bootstrap managed DevOps host
         shell: pwsh
         run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Fetch pinned Snowball word lists
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 snowball fetch-data
 
       - name: Build prepared test output
         shell: pwsh
@@ -194,6 +197,9 @@ jobs:
       - name: Bootstrap managed DevOps host
         shell: pwsh
         run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Fetch pinned Snowball word lists
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 snowball fetch-data
 
       - name: Build prepared test output
         shell: pwsh

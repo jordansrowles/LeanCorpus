@@ -4,6 +4,7 @@ The managed DevOps CLI is versioned and released independently of LeanCorpus. Th
 
 ## Added
 
+- Add `./devops snowball generate`, `verify` and `fetch-data`. They generate the Snowball stemmer ports and analysis identities from pinned sources, refusing an output change without an identity change; check that the committed output is current; and download the pinned French and Italian word lists after verifying their SHA-256. CI runs `fetch-data` before the test and coverage suites, and `verify` in the Linux test job. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
 - Establish DevOps `1.0.0` independently of the LeanCorpus Core package version. ([f27dcf9b6](https://github.com/jordansrowles/LeanCorpus/commit/f27dcf9b68d690954c7b9b0b24199fe7f437322b))
 - Add an isolated managed DevOps host for `build`, `clean` and foreground `server start`; bootstrap it with `pwsh ./devops.ps1 bootstrap`. ([197f3c091](https://github.com/jordansrowles/LeanCorpus/commit/197f3c091354ed246d6e75b4287d62fa2ed9c7a6))
 - Add a framework-dependent .NET 10 tool distribution profile for the managed DevOps command, with package readme and licence metadata. ([f27dcf9b6](https://github.com/jordansrowles/LeanCorpus/commit/f27dcf9b68d690954c7b9b0b24199fe7f437322b))
@@ -32,6 +33,7 @@ The managed DevOps CLI is versioned and released independently of LeanCorpus. Th
 
 ## Changed
 
+- Package validation accepts `THIRD-PARTY-NOTICES.md` at the package root. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
 - Write managed run envelopes to `run.json`, retain historical manifest readers, display managed evidence in the existing runs UI, and protect active runs in every supported artefact category. ([4a9ef5b73](https://github.com/jordansrowles/LeanCorpus/commit/4a9ef5b73421ba944851ee6b5e8751cc6b66c081))
 - Route every `devops.ps1` invocation through the fingerprint-validated managed host, retire the legacy `benchmarks docs` and `setup` command aliases, and consolidate bootstrap, host fingerprint validation and argument forwarding behind the explicit `bootstrap` verb. ([b1a8535ec](https://github.com/jordansrowles/LeanCorpus/commit/b1a8535ec46b3fb2619d59a64c4326df0326fb95), [0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23))
 - Pin DocFX 2.78.5 in the repository-local .NET tool manifest and add bootstrap checks for PowerShell 7, Git and the `global.json` SDK family. Setup fails early with the exact missing DevOps project or configuration path. ([0c6b091a6](https://github.com/jordansrowles/LeanCorpus/commit/0c6b091a6ef4f59abfc113e4607a603b60447a23), [a37cb13e0](https://github.com/jordansrowles/LeanCorpus/commit/a37cb13e0a79f33a2550fdb22a8950d1a77b79db))
