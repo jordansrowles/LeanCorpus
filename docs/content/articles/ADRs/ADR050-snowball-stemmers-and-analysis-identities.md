@@ -4,6 +4,7 @@ title: "Snowball stemmers and analysis identities"
 date: 2026-11-20
 status: Accepted
 version-added: v4.0.0
+last-updated: 2026-11-21
 summary: "The nine Snowball-language stemmers are generated from pinned official Snowball 3.2.0 sources and must match the reference exactly. Each default language pipeline has an identity that changes exactly when its output can change, and the factory can replace or remove a language's stemmer."
 areas: [analysis, stemmers, devops]
 relates-to: [ADR021]
@@ -32,11 +33,19 @@ LeanCorpus does not commit copyleft data.
 
 ## Decision
 
-1. **Official algorithms, generated.** The nine stemmers run code generated from the pinned
-   Snowball 3.2.0 `.sbl` sources and the C# compiler output, by `./devops snowball generate`. The
-   transform rewrites a fixed set of constructs onto a `char[]` runtime (`SnowballRuntime`), so
-   the span path does not allocate. It fails on anything it does not recognise. Generated files
-   are committed, never hand-edited, and checked in CI by `./devops snowball verify`.
+1. **Official algorithms, generated.** The nine stemmers run code that `./devops snowball generate`
+   derives from the Snowball 3.2.0 compiler's C# output, pinned in the test fixtures with its
+   `.sbl` source. The transform rewrites a fixed set of constructs onto a `char[]` runtime
+   (`SnowballRuntime`), so the span path does not allocate. It fails on anything it does not
+   recognise. Generated files are committed, never hand-edited, and checked in CI by
+   `./devops snowball verify`.
+
+   `generate` and `verify` check each pinned file against its own SHA-256. They do not re-run the
+   Snowball compiler, so they do not prove that the pinned C# was compiled from the pinned `.sbl`.
+   That link was checked when the fixtures were pinned, by compiling each `.sbl` with the compiler
+   at the pinned commit and comparing the output byte for byte. It must be checked again whenever
+   the fixtures are updated. Conformance does not depend on it, because production output is
+   tested against the official word lists and the unchanged reference runtime.
 2. **Conformance is exact.** Production output must equal the pinned reference on every word of
    the official lists. Vendored BSD lists are committed. French and Italian are downloaded at a
    pinned revision and SHA-256 by `./devops snowball fetch-data`, and their tests fail rather
@@ -69,7 +78,7 @@ LeanCorpus does not commit copyleft data.
 
 ## Rationale
 
-Generating from pinned sources makes "matches Snowball" checkable rather than aspirational, and
+Generating from pinned compiler output makes "matches Snowball" checkable rather than aspirational, and
 makes an upgrade a regeneration plus a reviewed diff. A fixed set of rewrites with fail-closed
 checks keeps the generated code reviewable. Naming identities after the Snowball version tells
 users which algorithm they run. The Rowles line is versioned separately because those languages
@@ -93,3 +102,4 @@ no output change ships under an old identity.
 | Date | Type | Change | Reference |
 | --- | --- | --- | --- |
 | 2026-11-20 | Accepted | Original decision accepted. | `#122`, `#123` |
+| 2026-11-21 | Clarified | Stated the limits of fixture provenance checks. | `#131` |

@@ -64,9 +64,9 @@ public sealed class StemTokenFilter : ISpanTokenFilter, IReusableAnalysisFilter
                 : _stemmer.Stem(text, buf);
 
             // A stem can be longer than its word (German expands each ß to ss). ISpanStemmer returns
-            // -1 without writing when the buffer is too small, so retry with larger buffers up to a
-            // bound, then keep the token unstemmed rather than failing the whole analysis.
-            int maxSize = text.Length * 8 + 64;
+            // -1 without writing when the buffer is too small, so retry with larger buffers up to the
+            // bound documented on ISpanStemmer.Stem.
+            int maxSize = MaxStemLength(text.Length);
             while (len < 0 && bufSize < maxSize)
             {
                 if (rented is not null) { ArrayPool<char>.Shared.Return(rented); rented = null; }
@@ -80,8 +80,10 @@ public sealed class StemTokenFilter : ISpanTokenFilter, IReusableAnalysisFilter
 
             if (len < 0)
             {
-                sink.Add(text, startOffset, endOffset, type, positionIncrement, payload);
-                return;
+                // Keeping the unstemmed token would silently change the analysis, so fail loudly.
+                throw new InvalidOperationException(
+                    $"Stemmer '{_stemmer.GetType().FullName}' did not produce a stem for a {text.Length}-character token " +
+                    $"within {maxSize} characters. A stem may be at most 8 times the word length plus 64 characters (see ISpanStemmer.Stem).");
             }
 
             // When len == text.Length with KStemmer, the word was explicitly
@@ -104,6 +106,9 @@ public sealed class StemTokenFilter : ISpanTokenFilter, IReusableAnalysisFilter
             if (rented is not null) ArrayPool<char>.Shared.Return(rented);
         }
     }
+
+    /// <summary>The longest stem the filter accepts for a word, as documented on <see cref="ISpanStemmer.Stem"/>.</summary>
+    internal static int MaxStemLength(int wordLength) => checked((wordLength * 8) + 64);
 
     /// <inheritdoc/>
     public ISpanTokenFilter Clone()

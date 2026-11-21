@@ -137,9 +137,25 @@ internal static class AnalysisVersionPlanner
 
         if (string.Equals(BaseVersion(language.Version), snowballVersion, StringComparison.Ordinal))
         {
+            // A LeanCorpus-only change at the same Snowball version takes the next +rN revision. The
+            // fingerprint step then records the new output under that revision.
+            if (requests.Rebaseline.Contains(language.Code))
+            {
+                var revised = language with
+                {
+                    Version = NextRevision(language.Version),
+                    CodeSha256 = code,
+                    CompiledSnowballVersion = snowballVersion,
+                    EquivalenceNote = null,
+                };
+                changes.Add($"{language.Code}: {language.Identity} -> {revised.Identity} (generated code changed; rebaselined).");
+                return revised;
+            }
+
             throw new InvalidOperationException(
                 $"The generated code for '{language.Code}' changed without a Snowball version change. " +
-                $"Pass --equivalent {language.Code} with --reason if its output is unchanged, or --rebaseline {language.Code}.");
+                $"Pass --equivalent {language.Code} with --reason if its output is unchanged, or " +
+                $"--rebaseline {language.Code} with --accept-fingerprints.");
         }
 
         var next = language with

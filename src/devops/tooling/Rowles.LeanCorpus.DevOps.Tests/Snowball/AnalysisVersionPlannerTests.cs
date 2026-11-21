@@ -90,6 +90,32 @@ public sealed class AnalysisVersionPlannerTests
         Assert.Equal("rowles-analysis/de/3.2.0+r3", twice.Languages[0].Identity);
     }
 
+    /// <summary>
+    /// PR #131 review: a LeanCorpus-only change to the generated code at the same Snowball version,
+    /// with changed output, must be recordable with --rebaseline. It takes one revision, not two.
+    /// </summary>
+    [Fact]
+    public void Rebaseline_AcceptsChangedCodeAndOutputAtTheSameSnowballVersion()
+    {
+        var changed = new Dictionary<string, string>(StringComparer.Ordinal) { ["german"] = "code-2" };
+        var (versions, changes) = AnalysisVersionPlanner.Apply(
+            Versions(), "3.2.0", changed, Requests(pending: new() { ["de"] = "fp-2", ["sk"] = "sk-1" }, rebaseline: ["de"]));
+
+        var de = versions.Languages[0];
+        Assert.Equal("rowles-analysis/de/3.2.0+r2", de.Identity);
+        Assert.Equal("code-2", de.CodeSha256);
+        Assert.Equal("fp-2", de.Fingerprint);
+        Assert.Equal("3.2.0+r2", de.FingerprintVersion);
+        Assert.Equal("3.2.0", de.CompiledSnowballVersion);
+        Assert.Contains(changes, static change => change.Contains("rebaselined", StringComparison.Ordinal));
+        Assert.Equal("rowles-analysis/sk/0.1.0", versions.Languages[1].Identity);
+
+        // The rebaselined result is stable: the same inputs again change nothing.
+        var (again, noChanges) = AnalysisVersionPlanner.Apply(versions, "3.2.0", changed, Requests(pending: new() { ["de"] = "fp-2", ["sk"] = "sk-1" }));
+        Assert.Equal(versions.Languages, again.Languages);
+        Assert.Empty(noChanges);
+    }
+
     [Fact]
     public void NewSnowballVersion_ResetsTheRevision()
     {

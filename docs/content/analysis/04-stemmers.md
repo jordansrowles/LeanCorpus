@@ -32,7 +32,7 @@ var analyser = new StemmerAnalyser(
 `ArabicStemmer`, `DutchStemmer`, `FrenchStemmer`, `GermanStemmer`, `ItalianStemmer`,
 `PortugueseStemmer`, `RussianStemmer` and `SpanishStemmer` run the official
 [Snowball](https://snowballstem.org/) 3.2.0 algorithms. Their output matches Snowball's published
-word lists exactly. The code is generated from the pinned Snowball sources by
+word lists exactly. The code is generated from the Snowball compiler's pinned C# output by
 `./devops snowball generate` and is BSD-licensed (see `THIRD-PARTY-NOTICES.md`). They expect
 lower-cased input, are safe to share across threads, and do not allocate on the span path.
 
@@ -50,7 +50,8 @@ language stemmers derive from it for compatibility but no longer use its tables.
 
 `ISpanStemmer.Stem(word, output)` returns `-1` and writes nothing when `output` is too small. A
 stem can be longer than its word (German `ß` becomes `ss`), so retry with a larger buffer.
-`StemTokenFilter` does this for you.
+`StemTokenFilter` does this for you, up to `8 * word.Length + 64` characters. A custom stemmer that
+needs more makes it throw `InvalidOperationException` rather than emit the word unstemmed.
 
 ## Choosing
 

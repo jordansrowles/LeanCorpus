@@ -25,7 +25,9 @@ internal sealed record PreflightAllowList(bool CjkOnNonAsciiDocuments = false, s
 }
 
 /// <summary>Counts from one preflight comparison.</summary>
-internal sealed record PreflightResult(string Case, int Documents, int Identical, int AllowedDifferences, int Tokens);
+/// <remarks><see cref="NamedTermDifferences"/> counts the tokens whose term text differs under a named,
+/// term-only allow-list, so a declared stemming difference is reported rather than only excused.</remarks>
+internal sealed record PreflightResult(string Case, int Documents, int Identical, int AllowedDifferences, int Tokens, int NamedTermDifferences = 0);
 
 /// <summary>
 /// Compares <c>(term, position increment, position length, offsets)</c> across engines on the first
@@ -48,7 +50,7 @@ internal static class TextOutputPreflight
         ArgumentNullException.ThrowIfNull(documents);
         VerifyAllowListRejectsStructuralChanges(allow);
         int count = Math.Min(DocumentCount, documents.Count);
-        int identical = 0, allowed = 0, tokens = 0;
+        int identical = 0, allowed = 0, tokens = 0, namedTermDifferences = 0;
         var failures = new List<string>();
         for (int i = 0; i < count; i++)
         {
@@ -64,6 +66,8 @@ internal static class TextOutputPreflight
             if (IsAllowed(documents[i], left, right, allow))
             {
                 allowed++;
+                if (allow.NamedDifference is not null)
+                    namedTermDifferences += CountTermDifferences(left, right);
                 continue;
             }
 
@@ -71,9 +75,9 @@ internal static class TextOutputPreflight
                 failures.Add(Describe(i, left, right));
         }
 
-        var result = new PreflightResult(caseName, count, identical, allowed, tokens);
+        var result = new PreflightResult(caseName, count, identical, allowed, tokens, namedTermDifferences);
         Console.WriteLine(string.Create(CultureInfo.InvariantCulture,
-            $"Benchmark preflight text {caseName}: documents={count}, identical={identical}, allowed={allowed}, tokens={tokens}, allow={Describe(allow)}"));
+            $"Benchmark preflight text {caseName}: documents={count}, identical={identical}, allowed={allowed}, tokens={tokens}, namedTermDifferences={namedTermDifferences}, allow={Describe(allow)}"));
         if (identical + allowed != count)
             throw new InvalidOperationException(
                 $"Text output preflight '{caseName}' found {count - identical - allowed} documents with differences not on the allow-list ({Describe(allow)}):"
@@ -138,6 +142,20 @@ internal static class TextOutputPreflight
                 return false;
         }
         return true;
+    }
+
+    /// <summary>Counts aligned non-CJK tokens whose term text differs; CJK tokens are excused separately.</summary>
+    internal static int CountTermDifferences(IReadOnlyList<AnalysedToken> lean, IReadOnlyList<AnalysedToken> lucene)
+    {
+        var left = lean.Where(static token => !token.Term.Any(IsCjk)).ToArray();
+        var right = lucene.Where(static token => !token.Term.Any(IsCjk)).ToArray();
+        int differences = 0;
+        for (int i = 0; i < Math.Min(left.Length, right.Length); i++)
+        {
+            if (!string.Equals(left[i].Term, right[i].Term, StringComparison.Ordinal))
+                differences++;
+        }
+        return differences;
     }
 
     internal static bool IsCjk(char character)

@@ -10,6 +10,9 @@ namespace Rowles.LeanCorpus.Benchmarks;
 /// chain with <c>PorterStemFilter</c> replaced by <c>SnowballFilter(EnglishStemmer)</c>, so both
 /// sides run Porter2. Since #122 <see cref="StemmedAnalyser"/> uses Porter2; the stock
 /// <c>EnglishAnalyzer</c> uses the original Porter algorithm and would not be a like-for-like pair.
+/// Lucene.NET's bundled Snowball English is older than 3.2.0, so setup accepts a named term-only
+/// difference and reports the divergent tokens (<c>namedTermDifferences</c>). Token structure is
+/// proven equal, stemming semantics are not: treat the rows as directional, not qualified parity.
 /// Reading rows copy every term; <c>_CountOnly</c> rows allocate a counting sink per document and
 /// only count tokens. Setup proves equal output on the first 500 documents. Directional
 /// head-to-head rows.

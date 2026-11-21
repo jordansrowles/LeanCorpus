@@ -69,10 +69,12 @@ public sealed class ManagedCliWorkflowContractTests
         foreach (var relativePath in relativeFiles)
         {
             string content = File.ReadAllText(Path.Combine(checkout.RepositoryRoot, relativePath.Replace('/', Path.DirectorySeparatorChar)));
-            foreach (Match job in Regex.Matches(content, @"(?ms)^  (?<name>[a-z][a-z0-9-]*):\s*$(?<body>.*?)(?=^  [a-z][a-z0-9-]*:\s*$|\z)"))
+            foreach (Match job in Regex.Matches(content, @"(?ms)^  (?<name>[a-z][a-z0-9-]*):\s*$(?<body>.*?)(?=^  [a-z][a-z0-9-]*:\s*$|\z)",
+                RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout))
             {
                 string body = job.Groups["body"].Value;
-                var runsText = Regex.Match(body, @"devops(?:\.exe)?['""]?\s+(?:test\s+(?:all|text|affected|\$)|coverage\b)|TEST_SUITE");
+                var runsText = Regex.Match(body, @"devops(?:\.exe)?['""]?\s+(?:test\s+(?:all|text|affected|\$)|coverage\b)|TEST_SUITE",
+                    RegexOptions.CultureInvariant, RegexMatchTimeoutPolicy.MatchTimeout);
                 if (!runsText.Success)
                     continue;
 

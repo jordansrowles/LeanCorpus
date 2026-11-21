@@ -234,31 +234,31 @@ internal static partial class SnowballTransform
 
     internal static string Sha256(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
-    [GeneratedRegex(@"^        private static readonly Among\[\] (?<name>a_\d+) = new\[\]$")]
+    [GeneratedRegex(@"^        private static readonly Among\[\] (?<name>a_\d+) = new\[\]$", RegexOptions.None, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex AmongArrayDeclaration();
 
-    [GeneratedRegex(@"^(?<indent>\s+)new Among\((?<args>""(?:[^""\\]|\\.)*"", -?\d+, -?\d+), (?<condition>-?\d+)\)(?<tail>,?)$")]
+    [GeneratedRegex(@"^(?<indent>\s+)new Among\((?<args>""(?:[^""\\]|\\.)*"", -?\d+, -?\d+), (?<condition>-?\d+)\)(?<tail>,?)$", RegexOptions.None, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex AmongEntry();
 
-    [GeneratedRegex(@"^        private (?<type>int|bool) (?<name>[IB]_\w+);$")]
+    [GeneratedRegex(@"^        private (?<type>int|bool) (?<name>[IB]_\w+);$", RegexOptions.None, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex StateField();
 
-    [GeneratedRegex(@"(?<call>find_among(?:_b)?)\((?<table>a_\d+), null\)")]
+    [GeneratedRegex(@"(?<call>find_among(?:_b)?)\((?<table>a_\d+), null\)", RegexOptions.None, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex FindAmongCall();
 
-    [GeneratedRegex(@"find_among(?:_b)?\(a_\d+\)")]
+    [GeneratedRegex(@"find_among(?:_b)?\(a_\d+\)", RegexOptions.None, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex ProductionFindAmong();
 
-    [GeneratedRegex(@"\bCurrent\b")]
+    [GeneratedRegex(@"\bCurrent\b", RegexOptions.None, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex CurrentWord();
 
-    [GeneratedRegex(@"(?<!Snowball)Among\[\]")]
+    [GeneratedRegex(@"(?<!Snowball)Among\[\]", RegexOptions.None, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex BareAmongArray();
 
-    [GeneratedRegex(@"\bcurrent\b(?!Length)")]
+    [GeneratedRegex(@"\bcurrent\b(?!Length)", RegexOptions.None, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex CurrentField();
 
-    [GeneratedRegex(@"^\s*public\s", RegexOptions.Multiline)]
+    [GeneratedRegex(@"^\s*public\s", RegexOptions.Multiline, RegexMatchTimeoutPolicy.MatchTimeoutMilliseconds)]
     private static partial Regex PublicMember();
 }
 
