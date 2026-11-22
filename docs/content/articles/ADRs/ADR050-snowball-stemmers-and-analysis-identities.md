@@ -68,7 +68,8 @@ LeanCorpus does not commit copyleft data.
      The Rowles line numbers the earlier output eras traced from the source history, so the
      4.0 versions follow them: `zh`, `ja` and `ko` were `0.1.0` (1.1.1 to 1.4.2), `0.1.1` (2.0.0
      to 2.1.1), `0.1.2` (2.2.0) and `0.2.0` (2.3.0 to 3.1.1), and are `0.3.0` in 4.0; `sk` was
-     `0.1.0` (2.2.0 to 3.1.1). The Snowball line has no identity before 4.0.
+     `0.1.0` (2.2.0 to 3.1.1) and is `0.2.0` in 4.0, which also carries the Slovak stemmer rework.
+     The Snowball line has no identity before 4.0.
 
    `analysis-versions.json` records each language's version, generated-code hash and a
    fingerprint of the default pipeline's output over a fixed corpus. The generated
@@ -114,4 +115,4 @@ no output change ships under an old identity.
 | 2026-11-20 | Accepted | Original decision accepted. | `#122`, `#123` |
 | 2026-11-21 | Clarified | Stated the limits of fixture provenance checks. | `#131` |
 | 2026-11-21 | Amended | Corrected the pre-4.0 output claim; identities are recorded and enforced per index (ADR051). | `#131` |
-| 2026-11-22 | Amended | Rowles-line versions follow the pre-4.0 output eras; the code hash covers the runtime; the fingerprint corpus is pinned; added `--code-only`. | `#131` |
+| 2026-11-22 | Amended | Rowles-line versions follow the pre-4.0 output eras; the code hash covers the runtime; the fingerprint corpus is pinned; added `--code-only`; `sk` is `0.2.0`. | `#131` |

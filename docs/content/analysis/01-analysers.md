@@ -62,7 +62,7 @@ Every pipeline tokenises, lowercases and removes the language's stop words, then
 | `nl` | `Tokeniser` | `DutchStemmer` (Snowball 3.2.0) | `rowles-analysis/nl/3.2.0` |
 | `ru` | `Tokeniser` | `RussianStemmer` (Snowball 3.2.0) | `rowles-analysis/ru/3.2.0` |
 | `ar` | `Tokeniser` | `ArabicStemmer` (Snowball 3.2.0) | `rowles-analysis/ar/3.2.0` |
-| `sk` | `Tokeniser` | `SlovakStemmer` | `rowles-analysis/sk/0.1.0` |
+| `sk` | `Tokeniser` | `SlovakStemmer` | `rowles-analysis/sk/0.2.0` |
 | `zh` | `ChineseLexiconTokeniser` | None | `rowles-analysis/zh/0.3.0` |
 | `ja` | `JapaneseTokeniser` | None | `rowles-analysis/ja/0.3.0` |
 | `ko` | `CJKBigramTokeniser` | None | `rowles-analysis/ko/0.3.0` |
@@ -136,6 +136,7 @@ their earlier output eras, so the 4.0 versions are not `0.1.0`:
 | `zh`, `ja`, `ko` | `0.1.2` | 2.2.0 | | Non-ASCII capitals lower-cased again |
 | `zh`, `ja`, `ko` | `0.1.1` | 2.0.0 to 2.1.1 | | Lower-casing only from the first A to Z |
 | `zh`, `ja`, `ko` | `0.1.0` | 1.1.1 to 1.4.2 | | CJK bigrams, whole-token invariant lower-casing |
+| `sk` | `0.2.0` | 4.0 | 2.0.0 | The 4.0 pipeline changes above, and the stemmer rework: hard final consonants, `-omat` nouns, no foreign-word `-i` rewrite, syllabic `ĺ`, and no crash on suffix-only tokens |
 | `sk` | `0.1.0` | 2.2.0 to 3.1.1 | 1.0.0 | Added in 2.2.0 |
 
 The earlier eras were traced from the source history. They are listed to explain the 4.0

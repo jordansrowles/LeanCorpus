@@ -99,11 +99,14 @@ ar	فوق	45	48	1	1
 ar	كلاب	49	55	1	1
 ar	كسول	56	63	1	1
 ar	مساء	67	73	2	1
-# rowles-analysis/sk/0.1.0
-sk	velk	0	5	1	1
+# rowles-analysis/sk/0.2.0
+sk	veľk	0	5	1	1
 sk	dom	6	10	1	1
 sk	vel	14	19	2	1
 sk	pekn	20	25	1	1
+sk	mest	33	38	3	1
+sk	star	42	47	2	1
+sk	škol	48	53	1	1
 # rowles-analysis/zh/0.3.0
 zh	敏	0	1	1	1
 zh	捷	1	2	1	1

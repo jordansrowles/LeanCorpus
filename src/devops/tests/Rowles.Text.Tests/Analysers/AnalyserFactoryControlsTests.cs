@@ -133,7 +133,7 @@ public sealed class AnalyserFactoryControlsTests
         foreach (var code in SnowballLanguages)
             Assert.Equal($"rowles-analysis/{code}/3.2.0", AnalyserFactory.GetDefaultAnalysisId(code));
         // The Rowles line continues the pre-4.0 output eras (ADR050): zh, ja and ko had four, sk one.
-        Assert.Equal("rowles-analysis/sk/0.1.0", AnalyserFactory.GetDefaultAnalysisId("sk"));
+        Assert.Equal("rowles-analysis/sk/0.2.0", AnalyserFactory.GetDefaultAnalysisId("sk"));
         foreach (var code in new[] { "zh", "ja", "ko" })
             Assert.Equal($"rowles-analysis/{code}/0.3.0", AnalyserFactory.GetDefaultAnalysisId(code));
 

@@ -20,7 +20,7 @@ internal static class AnalysisIdentities
         "nl" => "rowles-analysis/nl/3.2.0",
         "ru" => "rowles-analysis/ru/3.2.0",
         "ar" => "rowles-analysis/ar/3.2.0",
-        "sk" => "rowles-analysis/sk/0.1.0",
+        "sk" => "rowles-analysis/sk/0.2.0",
         "zh" => "rowles-analysis/zh/0.3.0",
         "ja" => "rowles-analysis/ja/0.3.0",
         "ko" => "rowles-analysis/ko/0.3.0",
