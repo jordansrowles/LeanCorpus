@@ -11,11 +11,12 @@ public sealed class SlovakStemmerTests
 {
     private readonly SlovakStemmer _stemmer = new();
 
-    [Theory(DisplayName = "SlovakStemmer: words under four letters keep their letters")]
+    [Theory(DisplayName = "SlovakStemmer: words under four letters keep their letters apart from a long diphthong")]
     [InlineData("dom", "dom")]
-    [InlineData("pes", "pes")]
-    [InlineData("psa", "psa")]
-    [InlineData("rúk", "rúk")]
+    [InlineData("syn", "syn")]
+    [InlineData("súd", "súd")]        // á, í and ú stay long in short words, so súd and sud stay apart
+    [InlineData("hôr", "hor")]        // hora, G.pl
+    [InlineData("vôd", "vod")]        // voda, G.pl
     public void StemString_ShortWord_KeepsItsLetters(string word, string expected)
     {
         Assert.Equal(expected, _stemmer.Stem(word));
@@ -110,9 +111,39 @@ public sealed class SlovakStemmerTests
         Assert.Equal("brat", _stemmer.Stem("brat"));
     }
 
+    /// <summary>
+    /// The irregular nouns no rule can join: fleeting vowels in short words (deň, dňa; pes, psa),
+    /// suppletive plurals (človek, ľudia; dieťa, deti) and palatalised plurals (oko, oči; ucho, uši).
+    /// </summary>
+    [Theory(DisplayName = "SlovakStemmer: irregular forms join their family through the exception table")]
+    [InlineData("dňa", "den")]
+    [InlineData("dňami", "den")]
+    [InlineData("psa", "pes")]
+    [InlineData("psom", "pes")]
+    [InlineData("oči", "ok")]
+    [InlineData("očami", "ok")]
+    [InlineData("uši", "uch")]
+    [InlineData("ľudia", "človek")]
+    [InlineData("deťmi", "diet")]
+    [InlineData("rúk", "ruk")]
+    [InlineData("nôh", "noh")]
+    [InlineData("DŇA", "DEN")]
+    public void StemString_IrregularForms(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Fact(DisplayName = "SlovakStemmer: an irregular stem longer than its form fits only a large enough buffer")]
+    public void StemSpan_IrregularLongerThanForm()
+    {
+        var exact = new char[6];
+        Assert.Equal(6, _stemmer.Stem("ľudia".AsSpan(), exact));
+        Assert.Equal("človek", new string(exact));
+        Assert.Equal(-1, _stemmer.Stem("ľudia".AsSpan(), new char[5]));
+    }
+
     [Theory(DisplayName = "SlovakStemmer: the over-stemming guard on words of four letters or more")]
-    [InlineData("psom", "psom")]      // pes, I.sg: "ps" has no vowel or syllabic liquid, so the ending stays
-    [InlineData("psov", "psov")]      // pes, G.pl
+    [InlineData("snemu", "snem")]     // snem, G.sg: "-emu" would leave "sn", so the shorter "-u" is removed
     [InlineData("vlkom", "vlk")]      // vlk, I.sg: syllabic l inside the root allows the cut
     [InlineData("krvou", "krv")]      // krv, I.sg: syllabic r inside the root
     [InlineData("stĺpa", "stĺp")]     // stĺp, G.sg: syllabic ĺ inside the root (0.1.0 listed í instead)
@@ -129,8 +160,9 @@ public sealed class SlovakStemmerTests
     [InlineData("kníh", "knih")]      // kniha, G.pl
     [InlineData("ciest", "cest")]     // cesta, G.pl
     [InlineData("vŕch", "vrch")]
-    [InlineData("kríž", "križ")]
-    [InlineData("kľúč", "kľuč")]
+    [InlineData("hodín", "hodin")]    // hodina, G.pl: í before n, t, c or h is the -ina, -ita, -ica, -iha plural
+    [InlineData("aktivít", "aktivit")]
+    [InlineData("ulíc", "ulic")]
     [InlineData("stôl", "stol")]      // joins stola, stole, stolom
     [InlineData("MIEST", "MEST")]     // upper-case long vowels are located as well as found
     [InlineData("ŠKÔL", "ŠKOL")]
@@ -140,16 +172,75 @@ public sealed class SlovakStemmerTests
     }
 
     /// <summary>
-    /// The rule cannot tell a genitive plural from a nominative with a long vowel, so "kráľ" is
-    /// shortened while "kráľa" is not. This split, and "sud"/"súd" staying apart, are pinned until
-    /// the length rules are revisited (deferred P1 work, see the judgement fixture).
+    /// A bare form cannot say whether a long á or ú is a masculine nominative (štát, kráľ, súd) or a
+    /// feminine genitive plural (strán). The masculine reading is the more frequent on UD Slovak-SNK, so
+    /// the vowel is kept: štát joins štátu, and strán stays apart from strany.
     /// </summary>
-    [Theory(DisplayName = "SlovakStemmer: known long-vowel limits are pinned")]
-    [InlineData("kráľ", "kral")]
+    [Theory(DisplayName = "SlovakStemmer: a bare form keeps a long á, ú and -ík")]
+    [InlineData("štát", "štát")]
+    [InlineData("štátu", "štát")]
+    [InlineData("kráľ", "král")]
     [InlineData("kráľa", "král")]
+    [InlineData("pracovník", "pracovník")]
+    [InlineData("pracovníci", "pracovník")] // animate -ník plural writes k as c
+    [InlineData("kľúč", "kľúč")]
     [InlineData("súdu", "súd")]
     [InlineData("sudu", "sud")]
-    public void StemString_LongVowelLimits(string word, string expected)
+    [InlineData("strán", "strán")]     // strana, G.pl: the accepted cost
+    [InlineData("strany", "stran")]
+    public void StemString_LongVowelsInBareForms(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: an ie inserted in a genitive plural is removed")]
+    [InlineData("okien", "okn")]      // okno
+    [InlineData("matiek", "matk")]    // matka
+    [InlineData("farieb", "farb")]    // farba
+    [InlineData("božstiev", "božstv")] // božstvo
+    [InlineData("žien", "žen")]       // žena: no vowel would remain, so the ie is shortened instead
+    [InlineData("cigariet", "cigaret")] // cigareta: -iet lengthens e, so it is shortened
+    public void StemString_InsertedIe(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: comparatives and superlatives join the positive")]
+    [InlineData("nový", "nov")]
+    [InlineData("novší", "nov")]
+    [InlineData("najnovšieho", "nov")]
+    [InlineData("rýchly", "rýchl")]
+    [InlineData("rýchleho", "rýchl")]  // -eho after a long syllable
+    [InlineData("rýchlejší", "rýchl")]
+    [InlineData("najdôležitejších", "dôležit")]
+    [InlineData("menší", "menš")]      // irregular comparatives keep -š, so menší stays apart from meno
+    [InlineData("kamošom", "kamoš")]   // -š after a noun ending is not a comparative
+    public void StemString_AdjectiveDegree(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: infinitive and present tense share the verb stem")]
+    [InlineData("robiť", "rob")]
+    [InlineData("robíš", "rob")]
+    [InlineData("robíme", "rob")]
+    [InlineData("pracovať", "prac")]
+    [InlineData("pracuje", "prac")]
+    [InlineData("pracoval", "prac")]
+    [InlineData("robil", "robil")]     // the -l past tense is not removed: hotel, model and telo end the same way
+    public void StemString_Verbs(string word, string expected)
+    {
+        Assert.Equal(expected, _stemmer.Stem(word));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: -ém nouns and fixed-vowel nouns share one term")]
+    [InlineData("systém", "syst")]
+    [InlineData("systému", "syst")]
+    [InlineData("kostol", "kostl")]
+    [InlineData("kostola", "kostl")]   // the bare form's -ol rewrite applies to every form
+    [InlineData("papier", "papir")]
+    [InlineData("papiera", "papir")]
+    public void StemString_FixedVowelNouns(string word, string expected)
     {
         Assert.Equal(expected, _stemmer.Stem(word));
     }
@@ -326,7 +417,7 @@ public sealed class SlovakStemmerTests
 
             string expected = _stemmer.Stem(word);
             int length = _stemmer.Stem(word.AsSpan(), output);
-            Assert.True(length >= 0 && length <= word.Length, word);
+            Assert.True(length >= 0, word);
             Assert.Equal(expected, new string(output, 0, length));
         }
     }

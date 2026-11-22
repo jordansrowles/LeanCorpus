@@ -136,7 +136,7 @@ their earlier output eras, so the 4.0 versions are not `0.1.0`:
 | `zh`, `ja`, `ko` | `0.1.2` | 2.2.0 | | Non-ASCII capitals lower-cased again |
 | `zh`, `ja`, `ko` | `0.1.1` | 2.0.0 to 2.1.1 | | Lower-casing only from the first A to Z |
 | `zh`, `ja`, `ko` | `0.1.0` | 1.1.1 to 1.4.2 | | CJK bigrams, whole-token invariant lower-casing |
-| `sk` | `0.2.0` | 4.0 | 2.0.0 | The 4.0 pipeline changes above, and the stemmer rework: hard final consonants, `-omat` nouns, no foreign-word `-i` rewrite, syllabic `ĺ`, and no crash on suffix-only tokens |
+| `sk` | `0.2.0` | 4.0 | 2.0.0 | The 4.0 pipeline changes above, and the stemmer rework: hard final consonants, long vowels, inserted `ie`, adjective degree, infinitives, irregular nouns, `-omat` nouns, no foreign-word `-i` rewrite, syllabic `ĺ`, and no crash on suffix-only tokens |
 | `sk` | `0.1.0` | 2.2.0 to 3.1.1 | 1.0.0 | Added in 2.2.0 |
 
 The earlier eras were traced from the source history. They are listed to explain the 4.0
@@ -146,7 +146,8 @@ LeanCorpus 4.0 replaced the earlier Snowball-style suffix tables with the offici
 fields analysed by an earlier release with `en`, `fr`, `de`, `es`, `it`, `pt`, `nl`, `ru` or `ar`
 (and `StemmedAnalyser`) need reindexing. The German stop-word list also gained `ans`, `aufs`,
 `ins` and `vom`. Slovak (`sk`) fields need reindexing too: the 4.0 Slovak stemmer writes every
-stem with a hard final consonant, so `mesto` and `meste`, or `kosť` and `kosti`, now share a term.
+stem with a hard final consonant and joins more forms of one word, so `mesto` and `meste`, `kosť`
+and `kosti`, `štát` and `štátu`, or `nový` and `najnovší`, now share a term.
 
 ## Per-field override
 

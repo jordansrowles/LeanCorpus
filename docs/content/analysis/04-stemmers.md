@@ -41,9 +41,21 @@ lower-cased input, are safe to share across threads, and do not allocate on the 
 Snowball has no Slovak algorithm. It removes case endings and writes the stem's final consonant
 hard (`ď`, `ť`, `ň` and `ľ` become `d`, `t`, `n` and `l`), because Slovak spells a soft consonant
 without its caron before `e`, `i`, `í` and `ia`. It expects lower-cased NFC input with diacritics:
-analysis does not normalise, so decomposed text gives different terms. Irregular nouns such as
-`človek`/`ľudia`, long-vowel alternation such as `ruka`/`rúk`, verbs and adjective degree are only
-partly conflated. `ChineseStemmer`, `JapaneseStemmer` and `KoreanStemmer` are also
+analysis does not normalise, so decomposed text gives different terms. It also:
+
+- keeps a long `á` or `ú` in a word with no ending, so a masculine nominative joins its other forms
+  (`štát`, `štátu`). It shortens `ô`, `ie` and `ŕ`, and `í` before `n`, `t`, `c` or `h`, the genitive
+  plurals of `-ina`, `-ita`, `-ica` and `-iha` nouns (`hodín`, `kníh`). Feminine genitive plurals with
+  `á` or `ú`, such as `strán`, stay apart from their other forms;
+- removes an `ie` inserted in a genitive plural (`okien`, `matiek`) and applies the fleeting-vowel
+  rewrites of `-er`, `-ok`, `-ol` and `-ec` to every form (`kostol`, `kostola`);
+- joins comparatives and superlatives with their positive (`novší`, `najnovší`, `rýchlejší`), except
+  irregular ones such as `menší` and `lepší`;
+- joins infinitives with the present tense (`robiť`, `robíme`; `pracovať`, `pracuje`) but not the
+  `-l` past tense, which nouns such as `hotel` and `telo` share;
+- maps a short list of irregular forms to their family (`dňa`, `psa`, `oči`, `uši`, `ľudia`, `deti`).
+
+`ChineseStemmer`, `JapaneseStemmer` and `KoreanStemmer` are also
 LeanCorpus's own.
 
 Use them with `LanguageAnalyser`, `AnalyserFactory.Create(code, stemmer)` or a custom pipeline.

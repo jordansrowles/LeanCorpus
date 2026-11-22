@@ -114,7 +114,7 @@
       "line": "rowles",
       "version": "0.2.0",
       "stemmer": "SlovakStemmer (Rowles; Jozef Gajdoš, PR #49)",
-      "fingerprint": "c86066e4428b1f1a763a9c4a6795c034a9fd625cf03ed5a7ff8361d65d179144",
+      "fingerprint": "48dc8f6c1f6f7110810e8f024b462d41ea2d9c938d7fa9d501cb91e69dcb1154",
       "fingerprintVersion": "0.2.0"
     },
     {
@@ -164,5 +164,5 @@
       "kind": "analyser"
     }
   ],
-  "fingerprintCorpusSha256": "87283460c13fa17eaba43f8bd933305e51882ea86b006500137ed7504fc33dd0"
+  "fingerprintCorpusSha256": "03830c56c030a11e0bcf5b16d960cb29649eefc0b733eb97735bcb4f1ad5b3bb"
 }
