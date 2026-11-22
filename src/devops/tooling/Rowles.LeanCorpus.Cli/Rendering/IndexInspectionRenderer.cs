@@ -17,7 +17,7 @@ internal static class IndexInspectionRenderer
         grid.AddRow("Documents", $"{value.LiveDocumentCount:N0} live / {value.DocumentCount:N0} total / {value.DeletedDocumentCount:N0} deleted");
         grid.AddRow("Segments", value.SegmentCount.ToString("N0"));
         grid.AddRow("Files and size", $"{value.FileCount:N0} / {FormatBytes(value.TotalSizeBytes)}");
-        grid.AddRow("Vectors / HNSW", $"{Yes(value.HasVectors)} / {Yes(value.HasHnsw)}");
+        grid.AddRow("Vectors / HNSW / graph", $"{Yes(value.HasVectors)} / {Yes(value.HasHnsw)} / {Yes(value.HasVectorGraph)}");
         grid.AddRow("Ordinal DocValues", Yes(value.HasOrdinalDocValues));
         grid.AddRow("Geo fields", Yes(value.HasGeo));
         grid.AddRow("Compound segments", value.CompoundSegmentCount.ToString("N0"));
@@ -39,7 +39,7 @@ internal static class IndexInspectionRenderer
         var table = new Table().Border(TableBorder.Rounded).AddColumn("Field").AddColumn("Indexed").AddColumn("Stored").AddColumn("DocValues").AddColumn("Docs").AddColumn("Terms / TF").AddColumn("Vector").AddColumn("Spatial");
         foreach (IndexInspectionField field in fields)
         {
-            string vector = field.VectorDimension is null ? "" : $"{field.VectorDimension}d, {field.VectorQuantisation}, HNSW {Yes(field.HasHnsw ?? false)} ({field.HnswNodeCount ?? 0:N0})";
+            string vector = field.VectorDimension is null ? "" : $"{field.VectorDimension}d, {field.VectorQuantisation}, HNSW {Yes(field.HasHnsw ?? false)} ({field.HnswNodeCount ?? 0:N0}), graph {Yes(field.HasVectorGraph ?? false)} ({field.VectorGraphNodeCount ?? 0:N0})";
             table.AddRow(Markup.Escape(field.Name), Yes(field.Indexed), Yes(field.Stored), Yes(field.HasDocValues), field.DocumentCount.ToString("N0"), field.UniqueTermCount is null ? "" : $"{field.UniqueTermCount:N0} / {field.TotalTermFrequency:N0}", vector, field.SpatialKind?.ToString() ?? "");
         }
         console.Write(table);
@@ -91,7 +91,7 @@ internal static class IndexInspectionRenderer
         writer.WriteLine($"Documents: {value.LiveDocumentCount} live, {value.DeletedDocumentCount} deleted ({value.DocumentCount} total)");
         writer.WriteLine($"Segments: {value.SegmentCount}");
         writer.WriteLine($"Files: {value.FileCount}, {FormatBytes(value.TotalSizeBytes)}");
-        writer.WriteLine($"Vectors: {Yes(value.HasVectors)}, HNSW: {Yes(value.HasHnsw)}, facets: {Yes(value.HasOrdinalDocValues)}, geo: {Yes(value.HasGeo)}");
+        writer.WriteLine($"Vectors: {Yes(value.HasVectors)}, HNSW: {Yes(value.HasHnsw)}, vector graph: {Yes(value.HasVectorGraph)}, facets: {Yes(value.HasOrdinalDocValues)}, geo: {Yes(value.HasGeo)}");
         writer.WriteLine($"Compound segments: {value.CompoundSegmentCount}; orphan files: {value.OrphanFileCount}");
         writer.WriteLine($"Format: {(value.HasUnsupportedFutureFormat ? "future format" : value.HasUnknownFormat ? "unknown format" : value.HasOutdatedCodec ? "readable, outdated codec" : "current")}");
     }

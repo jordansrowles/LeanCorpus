@@ -103,9 +103,9 @@ Writer defaults such as `CompressionPolicy`, `StoredFieldBlockSize`,
 `PostingsSkipInterval`, `VectorQuantisation`, HNSW build parameters,
 `TrackSequenceNumbers`, and `SoftDeletesEnabled` affect newly written segment
 representation or persisted metadata. New vectors use Float32, while new Int8,
-BBQ and HNSW graph writes are retired; selecting Int8 or BBQ, or setting
-`BuildHnswOnFlush` to `true`, is rejected. HNSW build parameters remain for
-source compatibility and do not create graphs.
+BBQ and `.hnsw` graph writes are retired; selecting Int8 or BBQ is rejected.
+`BuildHnswOnFlush` builds an opt-in Float32 vector graph (`.vgr`) with the HNSW
+build parameters; see [Vector search](../advanced/05-vector-search.md#optional-vector-graph).
 These settings do not replace the codec and segment metadata used to read an
 existing index.
 

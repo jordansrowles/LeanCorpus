@@ -162,4 +162,13 @@ public static class IndexCheckIssueCodes
     public const string ReadOnlyRetiredCodec = "LLIDX051";
     /// <summary>A segment predates the preserved position-increment contract.</summary>
     public const string PositionContractNotRecorded = "LLIDX052";
+
+    /// <summary>A vector field declares a Float32 vector graph (<c>.vgr</c>) file that is missing.</summary>
+    public const string VectorGraphFileMissing = "LLIDX053";
+
+    /// <summary>
+    /// A Float32 vector graph could not be opened or failed structural validation. Queries fall back
+    /// to exact search for that segment; rebuilding the segment through a merge restores the graph.
+    /// </summary>
+    public const string VectorGraphReadFailure = "LLIDX054";
 }

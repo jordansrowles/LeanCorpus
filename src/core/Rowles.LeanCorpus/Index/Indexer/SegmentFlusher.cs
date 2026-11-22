@@ -34,9 +34,6 @@ internal static class SegmentFlusher
         out int[]? inversePerm)
     {
         inversePerm = null;
-        if (config.BuildHnswOnFlush)
-            throw new InvalidOperationException(
-                "HnswGraphCreationRetired: new HNSW graph writes are not supported for 4.0; use exact Float32 vector search.");
         VectorCodecFiles.EnsureCanCreate(config.VectorQuantisation);
 
         // The detached batch is exclusively owned here, so sorting can safely
@@ -217,36 +214,32 @@ internal static class SegmentFlusher
                     (int8Min, int8Alpha) = ComputeInt8Params(perField);
                 }
 
-                bool hasHnsw = false;
-                if (config.BuildHnswOnFlush && perField.Count >= 2 && perField.Count >= minDocsForHnsw)
+                if (quantisation == VectorQuantisation.Int8)
                 {
-                    var docIds = perField.Keys.ToArray();
-                    var hnswSw = System.Diagnostics.Stopwatch.StartNew();
-                    Codecs.Hnsw.HnswGraph graph;
-
-                    if (quantisation == VectorQuantisation.Int8)
-                    {
-                        var int8Source = new Codecs.Vectors.Int8QuantisedMemoryVectorSource(perField, dimension, int8Min, int8Alpha);
-                        var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
-                        Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, docCount, dimension, perField);
-                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(int8Source, docIds, config.HnswBuildConfig, config.HnswSeed);
-                    }
-                    else
-                    {
-                        var memSource = new Dictionary<int, ReadOnlyMemory<float>>(perField);
-                        var vectorSource = new Codecs.Vectors.InMemoryVectorSource(memSource, dimension);
-                        graph = Codecs.Hnsw.HnswGraphBuilder.Build(vectorSource, docIds, config.HnswBuildConfig, config.HnswSeed);
-                    }
-                    hnswSw.Stop();
-                    config.Metrics.RecordHnswBuild(hnswSw.Elapsed, docIds.Length);
-                    var hnswPath = Codecs.Vectors.VectorFilePaths.HnswFile(basePath, fieldName);
-                    Codecs.Hnsw.HnswWriter.Write(hnswPath, graph, dimension, config.NormaliseVectors);
-                    hasHnsw = true;
-                }
-                else if (quantisation == VectorQuantisation.Int8)
-                {
+                    // Unreachable while Int8 creation is retired (EnsureCanCreate above), kept for the
+                    // catalogue lifecycle to decide. Int8 never receives a graph.
                     var vqPath = Codecs.Vectors.VectorFilePaths.QuantisedVectorFile(basePath, fieldName);
                     Codecs.Vectors.QuantisedVectorWriter.WriteInt8(vqPath, docCount, dimension, perField);
+                }
+
+                // Float32 vector graph (ADR052): opt-in, built over the stored (normalised when
+                // configured) vectors and written before segment publication like every other file.
+                bool hasGraph = false;
+                if (config.BuildHnswOnFlush && quantisation == VectorQuantisation.None
+                    && perField.Count >= 2 && perField.Count >= minDocsForHnsw
+                    && Codecs.Hnsw.VectorGraphBuilder.CanBuild(perField.Count, config.HnswBuildConfig))
+                {
+                    var docIds = perField.Keys.ToArray();
+                    Array.Sort(docIds);
+                    var graphSw = System.Diagnostics.Stopwatch.StartNew();
+                    var vectorSource = new Codecs.Vectors.InMemoryVectorSource(
+                        new Dictionary<int, ReadOnlyMemory<float>>(perField), dimension);
+                    using var graph = Codecs.Hnsw.VectorGraphBuilder.Build(vectorSource, docIds, config.HnswBuildConfig,
+                        config.HnswSeed ?? Codecs.Hnsw.VectorGraphBuilder.DefaultSeed, config.NormaliseVectors);
+                    Codecs.Hnsw.VectorGraphWriter.Write(Codecs.Vectors.VectorFilePaths.GraphFile(basePath, fieldName), graph);
+                    graphSw.Stop();
+                    config.Metrics.RecordHnswBuild(graphSw.Elapsed, docIds.Length);
+                    hasGraph = true;
                 }
 
                 segInfo.VectorFields.Add(new VectorFieldInfo
@@ -255,7 +248,7 @@ internal static class SegmentFlusher
                     Dimension = dimension,
                     Normalised = config.NormaliseVectors,
                     Quantisation = quantisation,
-                    HasHnsw = hasHnsw,
+                    HasGraph = hasGraph,
                 });
             }
 

@@ -192,7 +192,7 @@ public sealed class IndexWriterDefaultOptions
     public bool? NormaliseVectors { get; set; }
     /// <summary>Gets or sets the vector quantisation strategy.</summary>
     public VectorQuantisation? VectorQuantisation { get; set; }
-    /// <summary>Gets or sets whether HNSW graphs are built during flush.</summary>
+    /// <summary>Gets or sets whether Float32 vector graphs are built during flush and rebuilt on merge.</summary>
     public bool? BuildHnswOnFlush { get; set; }
     /// <summary>Gets or sets the optional HNSW seed. Null clears the override.</summary>
     public long? HnswSeed { get; set; }

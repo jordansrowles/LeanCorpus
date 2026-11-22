@@ -89,7 +89,10 @@ public sealed class IndexInspector : IDisposable
                 _format.OrphanFiles.Count,
                 _format.HasUnsupportedFutureFormat,
                 _format.Segments.SelectMany(static segment => segment.Files).Any(static file => file.IsSupported && !file.IsCurrent),
-                _format.HasUnknownFormat);
+                _format.HasUnknownFormat)
+            {
+                HasVectorGraph = _infos.Any(static info => info.VectorFields.Any(static vectorInfo => vectorInfo.HasGraph)),
+            };
         }
     }
 
@@ -139,6 +142,8 @@ public sealed class IndexInspector : IDisposable
             bool? normalised = null;
             bool? hasHnsw = null;
             int? hnswNodeCount = null;
+            bool? hasVectorGraph = null;
+            int? vectorGraphNodeCount = null;
             VectorQuantisation? quantisation = null;
             SpatialFieldKind? spatialKind = null;
             bool indexed = false;
@@ -169,6 +174,11 @@ public sealed class IndexInspector : IDisposable
                     hasHnsw = (hasHnsw ?? false) || vector.HasHnsw;
                     int nodes = vector.HasHnsw ? reader.GetHnswGraph(name)?.NodeCount ?? 0 : 0;
                     hnswNodeCount = (hnswNodeCount ?? 0) + nodes;
+                    hasVectorGraph = (hasVectorGraph ?? false) || vector.HasGraph;
+                    int graphNodes = 0;
+                    if (vector.HasGraph)
+                        reader.TryValidateVectorGraph(name, out graphNodes, out _);
+                    vectorGraphNodeCount = (vectorGraphNodeCount ?? 0) + graphNodes;
                 }
 
                 SpatialFieldInfo? spatial = info.SpatialFields.FirstOrDefault(field => string.Equals(field.FieldName, name, StringComparison.Ordinal));
@@ -213,7 +223,11 @@ public sealed class IndexInspector : IDisposable
 
             results.Add(new IndexInspectionField(name, indexed, stored, hasDocValues, hasTermVectors,
                 hasOrdinalDocValues, segmentCount, documentsWithValue, uniqueTerms.Count, totalTermFrequency,
-                dimension, normalised, hasHnsw, hnswNodeCount, quantisation, spatialKind));
+                dimension, normalised, hasHnsw, hnswNodeCount, quantisation, spatialKind)
+            {
+                HasVectorGraph = hasVectorGraph,
+                VectorGraphNodeCount = vectorGraphNodeCount,
+            });
         }
 
         return Array.AsReadOnly(results.ToArray());

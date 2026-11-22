@@ -907,7 +907,7 @@ internal sealed partial class SegmentReaderState
         if (state.QuantisedVector is { HasPersistedPresence: true } quantised)
             return quantised.HasVector(docId);
         // Legacy dense bodies have no presence. Persisted graph membership is authoritative.
-        if (_info.VectorFields.FirstOrDefault(field => field.FieldName == fieldName)?.HasHnsw == true)
+        if (FindVectorField(fieldName)?.HasHnsw == true)
             return GetHnswGraph(fieldName)?.ContainsNode(docId) == true;
         throw new InvalidDataException($"UnsupportedMigrationPath: v1 vector field '{fieldName}' has no authoritative persisted presence; rebuild it from source documents.");
     }
@@ -1094,6 +1094,89 @@ internal sealed partial class SegmentReaderState
             fieldState.SetGraph(graph);
             return graph;
         }
+    }
+
+    /// <summary>
+    /// Returns the (lazy-loaded) Float32 vector graph for an unquantised field that declares one
+    /// (ADR052), or null. A graph that fails its checksum or validation is never exposed and the
+    /// failure is remembered; a transient I/O failure is reported but retried on the next call.
+    /// <paramref name="unavailableReason"/> names the failure and queries search exactly.
+    /// </summary>
+    internal VectorGraph? GetVectorGraph(string fieldName, out string? unavailableReason)
+    {
+        unavailableReason = null;
+        VectorFieldInfo? field = FindVectorField(fieldName);
+        if (field is not { HasGraph: true, Quantisation: VectorQuantisation.None }
+            || !_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState))
+            return null;
+        if (fieldState.VectorGraphLoaded)
+        {
+            unavailableReason = fieldState.VectorGraphFailure;
+            return fieldState.VectorGraph;
+        }
+
+        lock (fieldState.LoadLock)
+        {
+            if (!fieldState.VectorGraphLoaded)
+            {
+                VectorGraph? graph = null;
+                string? failure = null;
+                try
+                {
+                    if (!EnsureVectorReadersLoaded(fieldName, fieldState)
+                        || fieldState.Vector is not { HasPersistedPresence: true } vectors)
+                    {
+                        failure = "the field has no Float32 vectors with persisted presence";
+                    }
+                    else
+                    {
+                        string extension = Path.GetFileName(VectorFilePaths.GraphFile(_basePath, fieldName))[_info.SegmentId.Length..];
+                        graph = VectorGraphReader.Read(_files.OpenInput(extension), new VectorGraphReader.Expectation(
+                            field.Dimension, field.Normalised, _info.DocCount, vectors.HasVector));
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidDataException or CodecFileException)
+                {
+                    // Structural or checksum failure: the file itself is bad, so remember it.
+                    failure = ex.Message;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // A transient open failure (sharing violation, handle exhaustion) must not
+                    // disable the graph for the reader's lifetime: report it and retry next query.
+                    unavailableReason = ex.Message;
+                    return null;
+                }
+
+                fieldState.SetVectorGraph(graph, failure);
+            }
+
+            unavailableReason = fieldState.VectorGraphFailure;
+            return fieldState.VectorGraph;
+        }
+    }
+
+    /// <summary>
+    /// Returns the segment metadata for a vector field. A loop rather than a capturing lambda: this
+    /// runs once per scored vector, and a captured parameter would allocate on every call.
+    /// </summary>
+    private VectorFieldInfo? FindVectorField(string fieldName)
+    {
+        foreach (VectorFieldInfo field in _info.VectorFields)
+        {
+            if (string.Equals(field.FieldName, fieldName, StringComparison.Ordinal))
+                return field;
+        }
+        return null;
+    }
+
+    /// <summary>Returns the field's Float32 vector reader, or null for quantised or absent fields.</summary>
+    internal VectorReader? GetFloat32VectorReader(string fieldName)
+    {
+        if (!_vectorFieldStates.TryGetValue(fieldName, out VectorFieldState? fieldState)
+            || !EnsureVectorReadersLoaded(fieldName, fieldState))
+            return null;
+        return fieldState.Vector;
     }
 
     private static Dictionary<string, Dictionary<int, double>> ReadNumericIndex(string filePath)

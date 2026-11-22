@@ -51,6 +51,8 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
     private long _vectorExactScanCount;
     private long _vectorExactVectorsScanned;
     private long _vectorRetiredHnswExactScanCount;
+    private long _vectorGraphRouteCount;
+    private long _vectorGraphFallbackCount;
     private long _pad6_0, _pad6_1;
 
 #pragma warning restore CS0169
@@ -140,6 +142,15 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
     }
 
     /// <inheritdoc/>
+    public void RecordVectorSearchRoute(VectorSearchRoute route)
+    {
+        if (route == VectorSearchRoute.Graph)
+            Interlocked.Increment(ref _vectorGraphRouteCount);
+        else if (route != VectorSearchRoute.ExactNoGraph)
+            Interlocked.Increment(ref _vectorGraphFallbackCount);
+    }
+
+    /// <inheritdoc/>
     public void RecordVectorExactScan(int vectorsScanned, bool retiredHnswGraphIgnored)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(vectorsScanned);
@@ -202,7 +213,9 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
             HnswNodesBuilt = Interlocked.Read(ref _hnswNodesBuilt),
             VectorExactScanCount = Interlocked.Read(ref _vectorExactScanCount),
             VectorExactVectorsScanned = Interlocked.Read(ref _vectorExactVectorsScanned),
-            VectorRetiredHnswExactScanCount = Interlocked.Read(ref _vectorRetiredHnswExactScanCount)
+            VectorRetiredHnswExactScanCount = Interlocked.Read(ref _vectorRetiredHnswExactScanCount),
+            VectorGraphRouteCount = Interlocked.Read(ref _vectorGraphRouteCount),
+            VectorGraphFallbackCount = Interlocked.Read(ref _vectorGraphFallbackCount)
         };
     }
 

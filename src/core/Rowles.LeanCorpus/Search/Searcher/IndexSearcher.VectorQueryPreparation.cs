@@ -104,12 +104,13 @@ public sealed partial class IndexSearcher
             int capacity = Math.Min(query.TopK, Math.Max(_totalDocCount, 1));
             var collector = new TopNCollector(capacity);
             var filterDocFreqs = new Dictionary<(string Field, string Term), int>();
+            var scratch = new VectorPreparationScratch(query);
             foreach (var reader in _readers)
             {
                 checkResources?.Invoke();
                 // Pin the segment for the whole scan or traversal (ADR011), as ExecuteQuery does.
                 using var segmentLease = reader.AcquireQueryLease();
-                CollectVectorCandidates(query, reader, filterDocFreqs, ref collector);
+                CollectVectorCandidates(query, reader, filterDocFreqs, scratch, ref collector);
             }
 
             return new PreparedVectorQuery(collector.ToTopDocs().ScoreDocs);

@@ -89,7 +89,10 @@ internal static class MergeScheduler
                 destinationVectorQuantisation: writer.Config.VectorQuantisation,
                 hnswSeed: writer.Config.HnswSeed)
             {
-                FileCatalog = writer.Config.CodecCatalog
+                FileCatalog = writer.Config.CodecCatalog,
+                BuildVectorGraphs = writer.Config.BuildHnswOnFlush,
+                Metrics = writer.Config.Metrics,
+                MergeCancellation = writer.MergeCts.Token
             };
             var merged = merger.MergeAll(sources.ToList(), ref nextOrdinal, commitGeneration);
             if (merged is null)

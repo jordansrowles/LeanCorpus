@@ -721,6 +721,29 @@ public sealed partial class SegmentReader : IDisposable
     public IReadOnlyCollection<string> VectorFieldNames { get { using var lease = AcquireReadLease(); return lease.State.VectorFieldNames.ToArray(); } }
     internal HnswGraph? GetHnswGraph(string fieldName) { using var lease = AcquireReadLease(); return lease.State.GetHnswGraph(fieldName); }
 
+    /// <summary>
+    /// Returns the field's Float32 vector graph and its stored vectors for a traversal (ADR052).
+    /// Requires an active query pin for this reader on the current thread; neither object, nor
+    /// any span borrowed from them, may be used after that pin is released.
+    /// </summary>
+    internal VectorGraph? GetPinnedVectorGraph(string fieldName, out Codecs.Vectors.VectorReader? vectors, out string? unavailableReason)
+    {
+        if (!TryGetFastState(out var state))
+            throw new InvalidOperationException("Traversing a vector graph requires a query pin for this segment reader.");
+        var graph = state.GetVectorGraph(fieldName, out unavailableReason);
+        vectors = graph is null ? null : state.GetFloat32VectorReader(fieldName);
+        return vectors is null ? null : graph;
+    }
+
+    /// <summary>Opens the field's vector graph for validation or inspection, reporting why it is unavailable.</summary>
+    internal bool TryValidateVectorGraph(string fieldName, out int nodeCount, out string? unavailableReason)
+    {
+        using var lease = AcquireReadLease();
+        var graph = lease.State.GetVectorGraph(fieldName, out unavailableReason);
+        nodeCount = graph?.NodeCount ?? 0;
+        return graph is not null;
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {

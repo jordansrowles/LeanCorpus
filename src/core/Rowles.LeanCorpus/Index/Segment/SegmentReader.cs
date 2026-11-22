@@ -599,6 +599,13 @@ internal sealed partial class SegmentReaderState : IDisposable
                     string extension = Path.GetFileName(path)[_info.SegmentId.Length..];
                     vectorsBytes += FileBytes(extension) * 2;
                 }
+                if (fieldState.VectorGraph is not null)
+                {
+                    // Mapped level zero plus the materialised document IDs, inverse norms and upper
+                    // levels, which together stay below a second copy of the file.
+                    string path = VectorFilePaths.GraphFile(_basePath, fieldName);
+                    vectorsBytes += FileBytes(Path.GetFileName(path)[_info.SegmentId.Length..]) * 2;
+                }
             }
         }
 
@@ -758,12 +765,25 @@ internal sealed partial class SegmentReaderState : IDisposable
         private QuantisedVectorReader? _quantisedVector;
         private HnswGraph? _graph;
         private int _graphLoaded;
+        private VectorGraph? _vectorGraph;
+        private string? _vectorGraphFailure;
+        private int _vectorGraphLoaded;
 
         internal object LoadLock { get; } = new();
         internal VectorReader? Vector => Volatile.Read(ref _vector);
         internal QuantisedVectorReader? QuantisedVector => Volatile.Read(ref _quantisedVector);
         internal HnswGraph? Graph => Volatile.Read(ref _graph);
         internal bool GraphLoaded => Volatile.Read(ref _graphLoaded) != 0;
+        internal VectorGraph? VectorGraph => Volatile.Read(ref _vectorGraph);
+        internal string? VectorGraphFailure => Volatile.Read(ref _vectorGraphFailure);
+        internal bool VectorGraphLoaded => Volatile.Read(ref _vectorGraphLoaded) != 0;
+
+        internal void SetVectorGraph(VectorGraph? graph, string? failure)
+        {
+            Volatile.Write(ref _vectorGraph, graph);
+            Volatile.Write(ref _vectorGraphFailure, failure);
+            Volatile.Write(ref _vectorGraphLoaded, 1);
+        }
 
         internal void SetVector(VectorReader vector) => Volatile.Write(ref _vector, vector);
 
@@ -781,6 +801,8 @@ internal sealed partial class SegmentReaderState : IDisposable
             lock (LoadLock)
             {
                 Graph?.Dispose();
+                VectorGraph?.Dispose();
+                Volatile.Write(ref _vectorGraph, null);
                 Vector?.Dispose();
                 QuantisedVector?.Dispose();
                 SetGraph(null);

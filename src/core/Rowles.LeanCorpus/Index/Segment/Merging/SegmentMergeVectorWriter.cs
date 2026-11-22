@@ -3,9 +3,20 @@ using MergeDocument = Rowles.LeanCorpus.Index.Segment.Merging.SegmentMergeDocume
 
 namespace Rowles.LeanCorpus.Index.Segment.Merging;
 
-/// <summary>Owns vector remapping and encoding during merges; merged segments omit retired HNSW graphs.</summary>
+/// <summary>
+/// Owns vector remapping and encoding during merges. Merged segments never carry historical
+/// <c>.hnsw</c> graphs; when enabled, each merged Float32 field receives a Float32 vector graph
+/// rebuilt from scratch over the merged <c>.vec</c> file (ADR052).
+/// </summary>
 internal sealed class SegmentMergeVectorWriter
 {
+    /// <summary>Vector graph parameters for a merge that rebuilds graphs.</summary>
+    internal sealed record GraphSettings(
+        Codecs.Hnsw.HnswBuildConfig Config,
+        long Seed,
+        Diagnostics.IMetricsCollector Metrics,
+        CancellationToken CancellationToken);
+
     internal sealed class State
     {
         internal int TotalDocs { get; }
@@ -54,17 +65,18 @@ internal sealed class SegmentMergeVectorWriter
         }
     }
 
-    internal List<VectorFieldInfo> Write(SegmentMergePlan plan, State ctx)
+    internal List<VectorFieldInfo> Write(SegmentMergePlan plan, State ctx, GraphSettings? graphs = null)
     {
         VectorCodecFiles.EnsureCanCreate(plan.VectorQuantisation);
-        return MergeVectors(ctx, plan.DocumentMap.Documents, plan.BasePath, plan.VectorContracts);
+        return MergeVectors(ctx, plan.DocumentMap.Documents, plan.BasePath, plan.VectorContracts, graphs);
     }
 
     private List<VectorFieldInfo> MergeVectors(
         State ctx,
         IReadOnlyList<MergeDocument> documentOrder,
         string basePath,
-        IReadOnlyDictionary<string, VectorFieldContract> vectorContracts)
+        IReadOnlyDictionary<string, VectorFieldContract> vectorContracts,
+        GraphSettings? graphs)
     {
         var merged = new List<VectorFieldInfo>();
         foreach (var (fieldName, vectorDocIds) in ctx.VectorFieldDocIds)
@@ -79,6 +91,9 @@ internal sealed class SegmentMergeVectorWriter
             string vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
             var mergedSource = new MergedDocumentVectorSource(documentOrder, fieldName, dimension);
             VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, mergedSource, vectorDocIds);
+            bool hasGraph = graphs is not null && vectorDocIds.Count >= 2
+                && Codecs.Hnsw.VectorGraphBuilder.CanBuild(vectorDocIds.Count, graphs.Config)
+                && BuildGraph(vecPath, Codecs.Vectors.VectorFilePaths.GraphFile(basePath, fieldName), vectorDocIds, normalised, graphs);
             merged.Add(new VectorFieldInfo
             {
                 FieldName = fieldName,
@@ -86,9 +101,29 @@ internal sealed class SegmentMergeVectorWriter
                 Normalised = normalised,
                 Quantisation = VectorQuantisation.None,
                 HasHnsw = false,
+                HasGraph = hasGraph,
             });
         }
         return merged;
+    }
+
+    /// <summary>
+    /// Rebuilds the field's graph from the merged vector file just written, so memory stays bounded
+    /// by the mapped vectors plus the graph. The graph is written before segment publication.
+    /// </summary>
+    private static bool BuildGraph(string vecPath, string graphPath, List<int> vectorDocIds, bool normalised, GraphSettings graphs)
+    {
+        int[] docIds = vectorDocIds.ToArray();
+        Array.Sort(docIds);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        using var vectors = VectorReader.Open(vecPath);
+        // Cancellable between insertions, so writer disposal does not wait out a whole build.
+        using var graph = Codecs.Hnsw.VectorGraphBuilder.Build(
+            new VectorReaderSource(vectors), docIds, graphs.Config, graphs.Seed, normalised, graphs.CancellationToken);
+        Codecs.Hnsw.VectorGraphWriter.Write(graphPath, graph);
+        stopwatch.Stop();
+        graphs.Metrics.RecordHnswBuild(stopwatch.Elapsed, docIds.Length);
+        return true;
     }
 
     private sealed class MergedDocumentVectorSource : IVectorSource

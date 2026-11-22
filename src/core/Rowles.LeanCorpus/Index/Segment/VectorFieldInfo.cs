@@ -18,8 +18,18 @@ public sealed class VectorFieldInfo
     /// <summary>Whether vectors were L2-normalised at write time. When true, dot product equals cosine similarity.</summary>
     public bool Normalised { get; init; }
 
-    /// <summary>Whether a built HNSW graph file is present for this field.</summary>
+    /// <summary>
+    /// Whether a historical HNSW graph file (<c>.hnsw</c> v1) is present for this field. 4.0 writers
+    /// never set this; Float32 and Int8 queries ignore such graphs and search exactly.
+    /// </summary>
     public bool HasHnsw { get; init; }
+
+    /// <summary>
+    /// Whether a Float32 vector graph file (<c>.vgr</c>) is present for this field. Set only when the
+    /// writer enables <see cref="Index.Indexer.IndexWriterConfig.BuildHnswOnFlush"/> for an unquantised field.
+    /// Default: <c>false</c>.
+    /// </summary>
+    public bool HasGraph { get; init; }
 
     /// <summary>Quantisation strategy applied to this vector field. Default: <see cref="Codecs.Vectors.VectorQuantisation.None"/>.</summary>
     public VectorQuantisation Quantisation { get; init; } = VectorQuantisation.None;
@@ -43,6 +53,8 @@ public sealed class VectorFieldInfo
             throw new InvalidDataException($"Vector field '{FieldName}' has a non-positive Dimension ({Dimension}).");
         if (!Enum.IsDefined(Quantisation))
             throw new InvalidDataException($"Vector field '{FieldName}' has an undefined quantisation value '{Quantisation}'.");
+        if (HasGraph && Quantisation != VectorQuantisation.None)
+            throw new InvalidDataException($"Vector field '{FieldName}' declares a vector graph for quantisation '{Quantisation}'; graphs are Float32 only.");
     }
 }
 

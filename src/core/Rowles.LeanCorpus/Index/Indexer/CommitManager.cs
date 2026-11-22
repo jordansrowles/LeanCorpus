@@ -425,7 +425,10 @@ internal static class CommitManager
                 destinationVectorQuantisation: writer.Config.VectorQuantisation,
                 hnswSeed: writer.Config.HnswSeed)
             {
-                FileCatalog = writer.Config.CodecCatalog
+                FileCatalog = writer.Config.CodecCatalog,
+                BuildVectorGraphs = writer.Config.BuildHnswOnFlush,
+                Metrics = writer.Config.Metrics,
+                MergeCancellation = writer.MergeCts.Token
             };
             int localOrdinal = writer.ReserveSegmentOrdinal();
             var merged = merger.MergeAll(mergeable, ref localOrdinal, writer.CommitGeneration);
@@ -509,7 +512,10 @@ internal static class CommitManager
                     destinationVectorQuantisation: writer.Config.VectorQuantisation,
                     hnswSeed: writer.Config.HnswSeed)
                 {
-                    FileCatalog = writer.Config.CodecCatalog
+                    FileCatalog = writer.Config.CodecCatalog,
+                    BuildVectorGraphs = writer.Config.BuildHnswOnFlush,
+                    Metrics = writer.Config.Metrics,
+                    MergeCancellation = writer.MergeCts.Token
                 };
                 lastMerger = merger;
                 int localOrdinal = writer.ReserveSegmentOrdinal();

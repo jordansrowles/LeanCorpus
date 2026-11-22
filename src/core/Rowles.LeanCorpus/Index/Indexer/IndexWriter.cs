@@ -421,7 +421,10 @@ public sealed partial class IndexWriter : IDisposable
                         destinationVectorQuantisation: _config.VectorQuantisation,
                         hnswSeed: _config.HnswSeed)
                     {
-                        FileCatalog = _config.CodecCatalog
+                        FileCatalog = _config.CodecCatalog,
+                        BuildVectorGraphs = _config.BuildHnswOnFlush,
+                        Metrics = _config.Metrics,
+                        MergeCancellation = _mergeCts.Token
                     };
                     int localOrdinal = ReserveSegmentOrdinalRange(sourceSegments.Count + 8);
 

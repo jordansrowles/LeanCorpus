@@ -72,7 +72,8 @@ The geo query accepts a centre latitude and longitude in decimal degrees and a p
 Presets use DataForge as a library and write `.leancorpus/recipe.json` and `.leancorpus/dataforge-manifest.json` beside the index. The catalogue includes `minimal`, `search-small`, `search-medium`, `realistic-mixed`, `vector-flat`, `vector-filtered`, `hybrid-balanced`, `hybrid-text-heavy`, `hybrid-vector-heavy`, `multilingual`, `compound`, `non-compound`, `many-small-segments`, `delete-heavy`, `codec-current`, and the frozen `codec-migration-required` release fixture.
 
 `vector-hnsw`, `vector-int8`, and `vector-bbq` are retired and return an error
-before creating an index. New vectors use exact Float32 search. Historical
+before creating an index. New vectors use exact Float32 search unless a custom
+schema requests a graph. Historical
 Int8 vectors remain readable through exact decoded scoring, and historical BBQ
 indexes remain readable with their existing scorer but are read-only. See the
 [upgrade guide](../reference/upgrades.md) before rebuilding from original
@@ -91,7 +92,7 @@ leancorpus-cli index diff ./vector-index ./vector-index-recreated --logical --js
 leancorpus-cli index fingerprint ./vector-index
 ```
 
-Custom schemas use deterministic Search-profile records as their value source. Supported field types are `text`, `keyword`, `double`, `int64`, `vector`, and `geoPoint`; keyword fields can use sorted DocValues or facet paths. Vector fields use exact Float32 search; requesting HNSW is rejected. For example:
+Custom schemas use deterministic Search-profile records as their value source. Supported field types are `text`, `keyword`, `double`, `int64`, `vector`, and `geoPoint`; keyword fields can use sorted DocValues or facet paths. Vector fields use exact Float32 search; requesting HNSW builds an opt-in Float32 vector graph (`.vgr`). For example:
 
 ```json
 {
@@ -157,7 +158,7 @@ leancorpus-cli.exe check <path> [--deep] [--json] [--postings] [--stored-fields]
 | `--stored-fields` | Deep-check stored fields |
 | `--doc-values` | Deep-check DocValues |
 | `--vectors` | Deep-check vector files |
-| `--hnsw` | Deep-check HNSW graph files |
+| `--hnsw` | Deep-check historical HNSW and Float32 vector graph (`.vgr`) files |
 | `--live-docs` | Deep-check live-doc bitsets |
 | `--summary-only` | Only the healthy/unhealthy summary line |
 | `--fail-on-warnings` | Exit code 1 for warnings too |

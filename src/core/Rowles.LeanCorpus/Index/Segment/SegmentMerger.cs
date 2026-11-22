@@ -22,8 +22,22 @@ public sealed class SegmentMerger
     private readonly double _softDeleteRetentionSeconds;
     private readonly bool _useCompoundFile;
     private readonly VectorQuantisation _destinationVectorQuantisation;
+    private readonly HnswBuildConfig _graphConfig;
+    private readonly long _graphSeed;
 
     internal CodecCatalog FileCatalog { get; set; } = CodecCatalog.Default;
+
+    /// <summary>
+    /// Whether merged Float32 vector fields receive a rebuilt vector graph (ADR052), mirroring the
+    /// writer's <see cref="Indexer.IndexWriterConfig.BuildHnswOnFlush"/>. Default: <c>false</c>.
+    /// </summary>
+    internal bool BuildVectorGraphs { get; init; }
+
+    /// <summary>Metrics for merged vector graph builds. Default: <see cref="Diagnostics.NullMetricsCollector.Instance"/>.</summary>
+    internal Diagnostics.IMetricsCollector Metrics { get; init; } = Diagnostics.NullMetricsCollector.Instance;
+
+    /// <summary>Cancels a merged vector graph build between insertions, for example on writer disposal.</summary>
+    internal CancellationToken MergeCancellation { get; init; }
 
     /// <summary>Default merge threshold: when this many segments exist, merge.</summary>
     public const int DefaultMergeThreshold = 10;
@@ -39,7 +53,7 @@ public sealed class SegmentMerger
     /// <param name="mergePolicy">The merge policy used to select segments for merging.</param>
     /// <param name="skipInterval">Postings skip interval used when writing the merged segment.</param>
     /// <param name="softDeleteRetentionSeconds">Minimum seconds to retain soft-deleted documents during merge.</param>
-    /// <param name="hnswBuildConfig">Retained for source compatibility; merged HNSW graph creation is retired.</param>
+    /// <param name="hnswBuildConfig">Vector graph build parameters, used when merged graphs are enabled (ADR052).</param>
     /// <param name="metrics">Optional metrics collector. Defaults to <see cref="Diagnostics.NullMetricsCollector.Instance"/>.</param>
     /// <param name="useCompoundFile">Whether merged immutable codec files should be packed into a compound file.</param>
     public SegmentMerger(
@@ -72,6 +86,9 @@ public sealed class SegmentMerger
         _softDeleteRetentionSeconds = softDeleteRetentionSeconds;
         _useCompoundFile = useCompoundFile;
         _destinationVectorQuantisation = destinationVectorQuantisation;
+        _graphConfig = hnswBuildConfig ?? new HnswBuildConfig();
+        Metrics = metrics ?? Diagnostics.NullMetricsCollector.Instance;
+        _graphSeed = hnswSeed ?? VectorGraphBuilder.DefaultSeed;
     }
 
     internal SegmentMerger(
@@ -96,7 +113,7 @@ public sealed class SegmentMerger
     /// <param name="mergeThreshold">Number of segments at one tier before a merge is triggered.</param>
     /// <param name="skipInterval">Postings skip interval used when writing the merged segment.</param>
     /// <param name="softDeleteRetentionSeconds">Minimum seconds to retain soft-deleted documents during merge.</param>
-    /// <param name="hnswBuildConfig">Retained for source compatibility; merged HNSW graph creation is retired.</param>
+    /// <param name="hnswBuildConfig">Vector graph build parameters, used when merged graphs are enabled (ADR052).</param>
     /// <param name="metrics">Optional metrics collector. Defaults to <see cref="Diagnostics.NullMetricsCollector.Instance"/>.</param>
     public SegmentMerger(
         MMapDirectory directory,
@@ -242,7 +259,10 @@ public sealed class SegmentMerger
             SegmentMergeStoredPayloadWriter.Write(plan, FileCatalog, columns, vectors, spatial);
             SegmentMergeDocValuesWriter.Write(plan, columns);
             var vectorWriter = new SegmentMergeVectorWriter();
-            var vectorFields = vectorWriter.Write(plan, vectors);
+            var vectorFields = vectorWriter.Write(plan, vectors,
+                BuildVectorGraphs
+                    ? new SegmentMergeVectorWriter.GraphSettings(_graphConfig, _graphSeed, Metrics, MergeCancellation)
+                    : null);
             SegmentMergeSpatialWriter.Write(plan, columns, spatial);
             return SegmentMergeFinaliser.Finish(plan, vectorFields, _directory, FileCatalog, _useCompoundFile);
         }

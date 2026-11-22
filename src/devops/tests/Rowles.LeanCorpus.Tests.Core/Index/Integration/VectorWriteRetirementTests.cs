@@ -162,18 +162,32 @@ public sealed class VectorWriteRetirementTests
     }
 
     [Fact]
-    public void ExplicitHnswCreationIsRejectedBeforeIndexSideEffects()
+    public void ExplicitGraphCreationWritesAVectorGraphAndNeverHnsw()
     {
+        // ADR052: BuildHnswOnFlush builds the Float32 .vgr graph; .hnsw writes stay retired.
         string path = RepositoryTemporaryStorage.NewPath("tests", "vector-hnsw-retired-");
         Directory.CreateDirectory(path);
         try
         {
-            using var directory = new MMapDirectory(path);
-            var exception = Assert.Throws<ArgumentException>(() =>
-                new IndexWriter(directory, new IndexWriterConfig { BuildHnswOnFlush = true }));
+            using (var directory = new MMapDirectory(path))
+            using (var writer = new IndexWriter(directory, new IndexWriterConfig { BuildHnswOnFlush = true }))
+            {
+                foreach (float[] vector in new[] { new[] { 1f, 0f }, new[] { 0f, 1f }, new[] { 0.6f, 0.8f } })
+                {
+                    var document = new LeanDocument();
+                    document.Add(new VectorField("embedding", vector));
+                    writer.AddDocument(document);
+                }
+                writer.Commit();
+            }
 
-            Assert.Contains("HnswGraphCreationRetired", exception.Message, StringComparison.Ordinal);
-            Assert.Empty(Directory.EnumerateFileSystemEntries(path));
+            Assert.Empty(Directory.EnumerateFiles(path, "*.hnsw"));
+            Assert.Single(Directory.EnumerateFiles(path, "*.vgr"));
+            using var reopened = new MMapDirectory(path);
+            using var searcher = new IndexSearcher(reopened);
+            var field = Assert.Single(Assert.Single(searcher.GetSegmentReaders()).Info.VectorFields);
+            Assert.True(field.HasGraph);
+            Assert.False(field.HasHnsw);
         }
         finally
         {
