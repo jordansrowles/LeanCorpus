@@ -1,4 +1,5 @@
 language	term	start	end	positionIncrement	positionLength
+# rowles-analysis/en/3.2.0
 en	run	4	11	2	1
 en	fox	12	17	1	1
 en	jump	18	24	1	1
@@ -11,24 +12,37 @@ en	sun	66	69	1	1
 en	while	70	75	1	1
 en	children	76	84	1	1
 en	watch	85	92	1	1
+# rowles-analysis/fr/3.2.0
+fr	renard	4	11	2	1
+fr	rapid	12	19	1	1
+fr	saut	20	29	1	1
+fr	dessus	34	40	2	1
+fr	chien	45	51	2	1
+fr	paress	52	61	1	1
+fr	pend	62	69	1	1
+fr	enfant	78	85	3	1
+fr	regard	86	97	1	1
+# rowles-analysis/de/3.2.0
 de	schnell	4	13	2	1
 de	fuchs	14	20	1	1
 de	sprang	21	29	1	1
 de	faul	39	45	3	1
 de	hund	46	51	1	1
-de	wahr	52	59	1	1
+de	wahrend	52	59	1	1
 de	haus	64	70	2	1
 de	sonn	78	83	3	1
 de	glanzt	84	92	1	1
+# rowles-analysis/es/3.2.0
 es	zorr	4	10	2	1
-es	ráp	11	18	1	1
+es	rap	11	18	1	1
 es	salt	19	27	1	1
 es	perr	38	44	3	1
-es	perezos	45	54	1	1
+es	perez	45	54	1	1
 es	mientr	55	63	1	1
 es	niñ	68	73	2	1
 es	observ	74	84	1	1
 es	tranquil	85	99	1	1
+# rowles-analysis/it/3.2.0
 it	volp	3	8	2	1
 it	veloc	9	15	1	1
 it	salt	16	25	1	1
@@ -39,42 +53,61 @@ it	mentr	45	51	1	1
 it	bambin	54	61	2	1
 it	guard	62	72	1	1
 it	finestr	79	87	2	1
+# rowles-analysis/pt/3.2.0
 pt	rapos	3	10	2	1
 pt	ráp	11	18	1	1
 pt	salt	19	27	1	1
-pt	sobre	28	33	1	1
-pt	cães	37	41	2	1
-pt	preguiços	42	53	1	1
+pt	sobr	28	33	1	1
+pt	cã	37	41	2	1
+pt	preguic	42	53	1	1
 pt	enquant	54	62	1	1
-pt	crianç	66	74	2	1
+pt	crianc	66	74	2	1
 pt	observ	75	85	1	1
 pt	janel	91	97	2	1
-nl	snell	3	9	2	1
-nl	voss	10	16	1	1
+# rowles-analysis/nl/3.2.0
+nl	snel	3	9	2	1
+nl	vos	10	16	1	1
 nl	sprong	17	25	1	1
-nl	lui	34	38	3	1
-nl	hon	39	45	1	1
+nl	luie	34	38	3	1
+nl	hond	39	45	1	1
 nl	terwijl	46	53	1	1
-nl	kind	57	65	2	1
+nl	kinder	57	65	2	1
 nl	vanuit	66	72	1	1
 nl	raam	77	81	2	1
 nl	toekek	82	90	1	1
+# rowles-analysis/ru/3.2.0
 ru	быстр	0	7	1	1
 ru	лис	8	12	1	1
-ru	прыг	13	20	1	1
+ru	прыга	13	20	1	1
 ru	через	21	26	1	1
 ru	ленив	27	34	1	1
 ru	собак	35	40	1	1
 ru	пок	41	45	1	1
 ru	дет	46	50	1	1
 ru	смотрел	51	59	1	1
-ru	окно	62	66	2	1
+ru	окн	62	66	2	1
 ru	тих	67	72	1	1
 ru	вечер	73	80	1	1
-sk	velk	0	5	1	1
+# rowles-analysis/ar/3.2.0
+ar	اطفال	4	11	2	1
+ar	يشاهد	12	19	1	1
+ar	ثعالب	20	27	1	1
+ar	سريع	28	35	1	1
+ar	وه	36	39	1	1
+ar	تقفز	40	44	1	1
+ar	فوق	45	48	1	1
+ar	كلاب	49	55	1	1
+ar	كسول	56	63	1	1
+ar	مساء	67	73	2	1
+# rowles-analysis/sk/0.2.0
+sk	veľk	0	5	1	1
 sk	dom	6	10	1	1
 sk	vel	14	19	2	1
 sk	pekn	20	25	1	1
+sk	mest	33	38	3	1
+sk	star	42	47	2	1
+sk	škol	48	53	1	1
+# rowles-analysis/zh/0.3.0
 zh	敏	0	1	1	1
 zh	捷	1	2	1	1
 zh	狐	3	4	2	1
@@ -96,6 +129,7 @@ zh	下	24	25	2	1
 zh	午	25	26	1	1
 zh	阳	26	27	1	1
 zh	光	27	28	1	1
+# rowles-analysis/ja/0.3.0
 ja	素早い	0	3	1	1
 ja	狐	3	4	1	1
 ja	怠け者	5	8	2	1
@@ -111,6 +145,7 @@ ja	眺め	33	35	2	1
 ja	い	36	37	2	1
 ja	まし	37	39	1	1
 ja	た	39	40	1	1
+# rowles-analysis/ko/0.3.0
 ko	빠른	0	2	1	1
 ko	여우가	3	6	1	1
 ko	게으른	7	10	1	1

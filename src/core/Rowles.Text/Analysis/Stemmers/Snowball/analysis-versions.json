@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "languages": [
+    {
+      "code": "en",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball english (Porter2)",
+      "algorithm": "english",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "ca0c544ceb891e26f01fdee62e0cc6206d079e2573bf721fad6e38c29a337efa",
+      "fingerprint": "d375109ed10eb029534f694fdaf8e01fa5297443c47af48887bc1fcd4ee0cee1",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged"
+    },
+    {
+      "code": "fr",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball french",
+      "algorithm": "french",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "8b489d946c1eb417fed2e445d82392ed7212e50c027ee5d498783bf9ee4e0e55",
+      "fingerprint": "f39ab85e7bfeae71de9ef0be5da6c0aad468a8d64280a749b79325b625a5a835",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged"
+    },
+    {
+      "code": "de",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball german",
+      "algorithm": "german",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "599a251224f25e5641b3eab0f746887e882257a861039ad967a1d767f08481a5",
+      "fingerprint": "ea231b8c5c89744cc50a73473718bab4e8f1d317064087ba177248762a51035c",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged"
+    },
+    {
+      "code": "es",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball spanish",
+      "algorithm": "spanish",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "5a799bee0c156381b4dd413edc1c1a2848c49ed434226e00482910388606c3a9",
+      "fingerprint": "46d48bf53bf8a9097694d8d6b2b328d7e1dc11a2b6da404efb7f159d026bd7f9",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged"
+    },
+    {
+      "code": "it",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball italian",
+      "algorithm": "italian",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "ef32048a081a6762fac0005d8ab14f08230fd310ea7e22b7389c9d9941a4d4ce",
+      "fingerprint": "4abd8bca5c8c4dc355e276275196da522a63c96aff1788ee416bba266c62db9d",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged"
+    },
+    {
+      "code": "pt",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball portuguese",
+      "algorithm": "portuguese",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "2144f5a1156e79f373f0c649470b90e44942239c29b9f14f7b8942604afbb03c",
+      "fingerprint": "76f31ad42c62e98ceb71071cb2f3ab803a20559a2a2c2eabb2a9e79f4aa62bd8",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged"
+    },
+    {
+      "code": "nl",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball dutch (Kraaij-Pohlmann)",
+      "algorithm": "dutch",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "ad2b8164c62f327ffa1410c10f74b09198a5d0c6fb031f876a21e331546da9d7",
+      "fingerprint": "ac7e6efa42fac87402409e1481efab41043d549d3a044241213712e4444786db",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged"
+    },
+    {
+      "code": "ru",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball russian",
+      "algorithm": "russian",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "bb51149330b0edbbe5575a7c73c5600652b2a9400c3cb92b6f10c1b6ce3ceace",
+      "fingerprint": "505f6d848c3d056ad316699ccbbc2c34a22f53e0df68d112453b4bdbc36677e9",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged"
+    },
+    {
+      "code": "ar",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball arabic",
+      "algorithm": "arabic",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "825e2e049208d7f521161b10919c75218ed79f9b4098675297c6a1ccb5ff4820",
+      "fingerprint": "41e0121f893d2a2bae88de8255d05ef07589a5c0b9f0e66f8c57e39e7335d75f",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged"
+    },
+    {
+      "code": "sk",
+      "line": "rowles",
+      "version": "0.2.0",
+      "stemmer": "SlovakStemmer (Rowles; Jozef Gajdoš, PR #49)",
+      "fingerprint": "48dc8f6c1f6f7110810e8f024b462d41ea2d9c938d7fa9d501cb91e69dcb1154",
+      "fingerprintVersion": "0.2.0"
+    },
+    {
+      "code": "zh",
+      "line": "rowles",
+      "version": "0.3.0",
+      "stemmer": "none (lexicon segmentation)",
+      "fingerprint": "4b4ecf4a32971a2f91ef09f68fc1427c9bf81c1bb63c6d983ebdd84d37f455cd",
+      "fingerprintVersion": "0.3.0"
+    },
+    {
+      "code": "ja",
+      "line": "rowles",
+      "version": "0.3.0",
+      "stemmer": "none (dictionary-backed Viterbi segmentation)",
+      "fingerprint": "f84b7bb790914fc73f2362a81aa25af95b94b179b444bf6aff447c452e1cf8b3",
+      "fingerprintVersion": "0.3.0"
+    },
+    {
+      "code": "ko",
+      "line": "rowles",
+      "version": "0.3.0",
+      "stemmer": "none (CJK bigram tokeniser)",
+      "fingerprint": "cfbdd0e58812c9de27e9c3e074f78f344131c9aefe511fdff98f86f5eb038c27",
+      "fingerprintVersion": "0.3.0"
+    },
+    {
+      "code": "standard",
+      "line": "rowles",
+      "version": "0.1.0",
+      "stemmer": "none (StandardAnalyser with its default English stop words)",
+      "fingerprint": "a07a0309f7b45c3e2b9f9e0db647e37d247f7be1190b4ea9b320e830857700ca",
+      "fingerprintVersion": "0.1.0",
+      "kind": "analyser"
+    },
+    {
+      "code": "stemmed-en",
+      "line": "snowball",
+      "version": "3.2.0",
+      "stemmer": "Snowball english (Porter2) via StemmedAnalyser, without a keyword marker",
+      "algorithm": "english",
+      "compiledSnowballVersion": "3.2.0",
+      "codeSha256": "ca0c544ceb891e26f01fdee62e0cc6206d079e2573bf721fad6e38c29a337efa",
+      "fingerprint": "d375109ed10eb029534f694fdaf8e01fa5297443c47af48887bc1fcd4ee0cee1",
+      "fingerprintVersion": "3.2.0",
+      "equivalenceNote": "codeSha256 now also covers the shared Snowball runtime; the generated code and the output are unchanged",
+      "kind": "analyser"
+    }
+  ],
+  "fingerprintCorpusSha256": "03830c56c030a11e0bcf5b16d960cb29649eefc0b733eb97735bcb4f1ad5b3bb"
+}

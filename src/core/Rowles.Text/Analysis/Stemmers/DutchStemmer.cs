@@ -1,36 +1,26 @@
+using Rowles.LeanCorpus.Analysis.Stemmers.Snowball;
+
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
-/// Dutch Snowball-inspired stemmer. Handles common Dutch inflectional and
-/// derivational suffixes. Expects lowercased input. Dutch vowel sequences (ij, oe,
-/// eu, ui) are not decomposed here; apply normalisation upstream if needed.
+/// Dutch stemmer implementing the official Snowball 3.2.0 <c>dutch</c> algorithm
+/// (<see href="https://snowballstem.org/algorithms/dutch/stemmer.html"/>). Uses the Kraaij-Pohlmann algorithm, the Snowball default for Dutch since 3.0 (not the older <c>dutch_porter</c>).
 /// </summary>
+/// <remarks>
+/// <para>Expects lower-cased input, as <see cref="Filters.LowercaseFilter"/> produces; the language
+/// analysers lower-case before stemming. Output matches the official Snowball word list exactly.</para>
+/// <para>Holds no mutable state and is safe to share between threads.</para>
+/// </remarks>
 public sealed class DutchStemmer : SnowballStemmer
 {
     /// <inheritdoc/>
-    protected override (string Suffix, string Replacement)[][] Steps { get; } =
-    [
-        [
-            ("heden", "heid"), ("heid", ""), ("ingen", ""), ("ing", ""),
-            ("lijk", ""), ("baar", ""), ("zaam", ""), ("ster", ""),
-            ("achtig", ""), ("erij", ""), ("isme", ""), ("ist", ""),
-        ],
-        [
-            ("enden", ""), ("ende", ""), ("tten", "t"), ("dden", "d"),
-            ("ten", ""), ("den", ""), ("tte", "t"), ("dde", "d"),
-            ("te", ""), ("de", ""),
-        ],
-        [
-            ("eren", ""), ("ens", ""), ("ers", ""), ("en", ""),
-            ("es", ""), ("s", ""),
-        ],
-    ];
+    /// <remarks>Not used: this stemmer runs the Snowball algorithm rather than suffix tables.</remarks>
+    protected override (string Suffix, string Replacement)[][] Steps => NoSteps;
 
     /// <inheritdoc/>
-    protected override int Postprocess(Span<char> buf, int len)
-    {
-        if (len > 3 && buf[len - 1] == 'e')
-            len--;
-        return len;
-    }
+    public override string Stem(string word) => SnowballPort.Stem(SnowballAlgorithm.Dutch, word);
+
+    /// <inheritdoc/>
+    public override int Stem(ReadOnlySpan<char> word, Span<char> output)
+        => SnowballPort.Stem(SnowballAlgorithm.Dutch, word, output);
 }

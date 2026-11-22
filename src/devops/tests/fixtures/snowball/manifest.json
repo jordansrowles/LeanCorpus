@@ -1,0 +1,144 @@
+{
+  "schemaVersion": 1,
+  "snowballTag": "v3.2.0",
+  "compilerCommit": "6389c79f91cd67ed2de3ebdcf84ec8c2d2d23c11",
+  "snowballDataRepository": "https://github.com/snowballstem/snowball-data",
+  "snowballDataRevision": "019921c3a41c2b70063ee3feb215a00c8e594597",
+  "runtime": {
+    "Runtime/Stemmer.cs": "b85bc8e11717a6a6dd5138cad4a908d661458899de667601e0d2e277f48d9759",
+    "Runtime/Among.cs": "05b00b7717b8e08b514558f891543818056ea03695b00dacf61482f81a56a554"
+  },
+  "algorithms": [
+    {
+      "name": "english",
+      "sbl": "sbl/english.sbl",
+      "sblSha256": "ab7e9160a0b86d22cc43886a042986021b23bf1a24a1656c597f92b127154dc9",
+      "reference": "reference/Algorithms/englishStemmer.generated.cs",
+      "referenceSha256": "4fbd652d654caa948577d4b0b9ab30eda0f1f384fcc1eced84ad38e569ffcf62",
+      "vectors": {
+        "source": "vendored",
+        "file": "vectors/english.tsv.gz",
+        "tsvSha256": "b2236c6590b02407d4b1caf188727c889d0752be10dff00921eba898dde974c4",
+        "rows": 42649,
+        "licence": "BSD-3-Clause (vectors/LICENSE-snowball-data.txt)"
+      }
+    },
+    {
+      "name": "french",
+      "sbl": "sbl/french.sbl",
+      "sblSha256": "7219e4de900bf324752cedc834acf6e8a9fda3b1b73f6f3e13fe1f1ff8bf2cc1",
+      "reference": "reference/Algorithms/frenchStemmer.generated.cs",
+      "referenceSha256": "bd81ae1c7b2338fbbce7ac711482aa479d4c4f36057698a0703967782cfd28f2",
+      "vectors": {
+        "source": "download",
+        "vocPath": "french/voc.txt",
+        "vocSha256": "e03ab56225052f5ca775669089499a8fa2d8219b047c6224c2359e15e0c5edb9",
+        "outputPath": "french/output.txt",
+        "outputSha256": "7cf8d92e304f5ab30cbe41430826880f4d2ea2ab678a0a59cc6048a4ea2eb12d",
+        "rows": 21653,
+        "licence": "BSD-3-Clause merged with CC BY-SA 3.0 Wikipedia-derived words; not committed"
+      }
+    },
+    {
+      "name": "german",
+      "sbl": "sbl/german.sbl",
+      "sblSha256": "4e20529c10b393de83b0ffab5be116e903cc82917d944f4d200f475a9e344f34",
+      "reference": "reference/Algorithms/germanStemmer.generated.cs",
+      "referenceSha256": "3c7e8126706502daa4b3a7f8f661a5054dc02b2f6bce78b45c32dc77a03a77eb",
+      "vectors": {
+        "source": "vendored",
+        "file": "vectors/german.tsv.gz",
+        "tsvSha256": "0fe40c8068801f175e8fee822083f8e60781f53d6c0360e7dc56d899f2ff80bb",
+        "rows": 35053,
+        "licence": "BSD-3-Clause (vectors/LICENSE-snowball-data.txt)"
+      }
+    },
+    {
+      "name": "spanish",
+      "sbl": "sbl/spanish.sbl",
+      "sblSha256": "fef2179431b2356d4ce4ceaf31c9aafc42fa514d81bcfbcdb80cc79b98343f1e",
+      "reference": "reference/Algorithms/spanishStemmer.generated.cs",
+      "referenceSha256": "b4f1aec53f405937efc3952a6d1877e5ae39d0f24e455b2f125fa8419832ca84",
+      "vectors": {
+        "source": "vendored",
+        "file": "vectors/spanish.tsv.gz",
+        "tsvSha256": "97a9ee165c2a25536eaf5808a4aaa248b23530963fad348a4ed3a90e8713f5b5",
+        "rows": 28378,
+        "licence": "BSD-3-Clause (vectors/LICENSE-snowball-data.txt)"
+      }
+    },
+    {
+      "name": "italian",
+      "sbl": "sbl/italian.sbl",
+      "sblSha256": "ada877a1d21e072ae64c5ddc34d96dc7a16ecea6d35df82970eaafc1ea72e1ca",
+      "reference": "reference/Algorithms/italianStemmer.generated.cs",
+      "referenceSha256": "c6a59b6abc054c338c8ad49d34b78822dbf0066de63d947c07f792523a4962cc",
+      "vectors": {
+        "source": "download",
+        "vocPath": "italian/voc.txt",
+        "vocSha256": "8081c7fd8cc1bb0608b504c3a9fb2e7697c4e00457be2db693bd5ca3fad641da",
+        "outputPath": "italian/output.txt",
+        "outputSha256": "88ed5959a10f38231f5872d0a9712283f3dbf6ca123282976dacdaf6ed8426b6",
+        "rows": 37426,
+        "licence": "BSD-3-Clause merged with CC BY-SA 3.0 Wikipedia-derived words; not committed"
+      }
+    },
+    {
+      "name": "portuguese",
+      "sbl": "sbl/portuguese.sbl",
+      "sblSha256": "e74ad94b1d5b82a8edffb753d6c1e514dddd0ae4515eec1dc1ab12c20096136e",
+      "reference": "reference/Algorithms/portugueseStemmer.generated.cs",
+      "referenceSha256": "509e9dba3153f3dd91dfb9c315fb0dd2308789381ddeae693a5b9eb8ed881a34",
+      "vectors": {
+        "source": "vendored",
+        "file": "vectors/portuguese.tsv.gz",
+        "tsvSha256": "111648fb3f776a68172cbe2c750f8d3a8baf8dc19a16d0955a0ca4a87e188ae6",
+        "rows": 32016,
+        "licence": "BSD-3-Clause (vectors/LICENSE-snowball-data.txt)"
+      }
+    },
+    {
+      "name": "dutch",
+      "sbl": "sbl/dutch.sbl",
+      "sblSha256": "0804bc66b3f6b60da03278565e7a7aa78d831d1fcc9153244cdbf2ce2d4c83d2",
+      "reference": "reference/Algorithms/dutchStemmer.generated.cs",
+      "referenceSha256": "c72d56735ccc61ddcf88cc06d1e1cc4be6cf9bf62b071ccdde8de40e5d009796",
+      "vectors": {
+        "source": "vendored",
+        "file": "vectors/dutch.tsv.gz",
+        "tsvSha256": "e1a91c06ceee6b4aebdf8a676a3632106bc4769aaeea400e95d21ee00e4618c3",
+        "rows": 45670,
+        "licence": "BSD-3-Clause (vectors/LICENSE-snowball-data.txt)"
+      }
+    },
+    {
+      "name": "russian",
+      "sbl": "sbl/russian.sbl",
+      "sblSha256": "f1b54ea9315b434c4595529e95dd6ad024490785aa56d5013de988a0d3d27fc9",
+      "reference": "reference/Algorithms/russianStemmer.generated.cs",
+      "referenceSha256": "56954d6a2702c17fa648d6e7eafc24d2ed5cf5f04bad47b236e51a9967dd24ec",
+      "vectors": {
+        "source": "vendored",
+        "file": "vectors/russian.tsv.gz",
+        "tsvSha256": "f8d5debee98d484f6b90e5815dbae42c3442e0db4c903d38487c5f64f18808cd",
+        "rows": 49785,
+        "licence": "BSD-3-Clause (vectors/LICENSE-snowball-data.txt)"
+      }
+    },
+    {
+      "name": "arabic",
+      "sbl": "sbl/arabic.sbl",
+      "sblSha256": "ff7495f0ce6738f29684c66399c32c018eb3f25a01c30bd2e69180db484b8f56",
+      "reference": "reference/Algorithms/arabicStemmer.generated.cs",
+      "referenceSha256": "f13b0e7a9116f18b6883b7cfe755f4a90dbcd61b382ebd8dc71f029d647ff661",
+      "vectors": {
+        "source": "pinned",
+        "file": "arabic-pinned.tsv",
+        "tsvSha256": "cdd3f8344d3d897786f48edd75cc3d8d5729e06099e82d50b7519ab5ae80b58e",
+        "rows": 958,
+        "licence": "Apache-2.0: input words written for LeanCorpus (roots combined with the prefixes and suffixes arabic.sbl handles, plus diacritics, hamza forms and digits); expected stems from Snowball 3.2.0 C stemwords.",
+        "reason": "The official Arabic word list is GPLv3 and is not used."
+      }
+    }
+  ]
+}

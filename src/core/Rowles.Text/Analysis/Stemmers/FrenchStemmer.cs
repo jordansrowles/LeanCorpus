@@ -1,39 +1,26 @@
+using Rowles.LeanCorpus.Analysis.Stemmers.Snowball;
+
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
-/// French Snowball-inspired stemmer. Handles common French suffixes.
+/// French stemmer implementing the official Snowball 3.2.0 <c>french</c> algorithm
+/// (<see href="https://snowballstem.org/algorithms/french/stemmer.html"/>). Handles elision forms such as <c>l'</c> and <c>qu'</c>, and marks vowels used as consonants before applying the standard, residual and verb suffix steps.
 /// </summary>
+/// <remarks>
+/// <para>Expects lower-cased input, as <see cref="Filters.LowercaseFilter"/> produces; the language
+/// analysers lower-case before stemming. Output matches the official Snowball word list exactly.</para>
+/// <para>Holds no mutable state and is safe to share between threads.</para>
+/// </remarks>
 public sealed class FrenchStemmer : SnowballStemmer
 {
     /// <inheritdoc/>
-    protected override int MinStemGuard => 2;
+    /// <remarks>Not used: this stemmer runs the Snowball algorithm rather than suffix tables.</remarks>
+    protected override (string Suffix, string Replacement)[][] Steps => NoSteps;
 
     /// <inheritdoc/>
-    protected override (string Suffix, string Replacement)[][] Steps { get; } =
-    [
-        [
-            ("issements", ""), ("issement", ""), ("ements", ""), ("ement", ""),
-            ("ations", ""), ("ation", ""), ("euses", ""), ("euse", ""),
-            ("eurs", ""), ("eur", ""), ("eux", ""), ("ités", ""), ("ité", ""),
-            ("ives", ""), ("ive", ""), ("ifs", ""), ("if", ""),
-            ("aux", "al"),
-        ],
-        [
-            ("issent", ""), ("issons", ""), ("issez", ""), ("issait", ""), ("issant", ""),
-            ("irent", ""), ("eront", ""), ("erons", ""), ("erez", ""), ("aient", ""),
-            ("ait", ""), ("ais", ""), ("ent", ""), ("ez", ""), ("er", ""), ("ir", ""),
-            ("es", ""), ("és", ""), ("ées", ""), ("ée", ""), ("é", ""), ("it", ""),
-        ],
-        [
-            ("s", ""),
-        ],
-    ];
+    public override string Stem(string word) => SnowballPort.Stem(SnowballAlgorithm.French, word);
 
     /// <inheritdoc/>
-    protected override int Postprocess(Span<char> buf, int len)
-    {
-        if (len > 2 && buf[len - 1] == 'e')
-            len--;
-        return len;
-    }
+    public override int Stem(ReadOnlySpan<char> word, Span<char> output)
+        => SnowballPort.Stem(SnowballAlgorithm.French, word, output);
 }

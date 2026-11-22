@@ -141,7 +141,8 @@ internal static class CommitManager
                 .Select(SegmentCommitState.FromSegmentInfo)
                 .ToList(),
             Generation = gen,
-            ContentToken = writer.ContentToken
+            ContentToken = writer.ContentToken,
+            FieldAnalysisIdentities = writer.AnalysisIdentities.Snapshot()
         };
         var commitJson = JsonSerializer.Serialize(commitData, LeanCorpusJsonContext.Default.CommitData);
 
@@ -164,6 +165,9 @@ internal static class CommitManager
             // durable commit. Retaining every generation would grow process-wide state.
             DirtyFileTracker.Forget(commitFile);
         }
+
+        if (!pending)
+            writer.AnalysisIdentities.OnCommitted(hasSegments: writer.CommittedSegments.Count > 0);
     }
 
     private static void SyncChangedFiles(IndexWriter writer)
@@ -274,7 +278,12 @@ internal static class CommitManager
         var occupiedSegmentIds = SegmentFileSet.FindSegmentIds(directory.ListAll(), config.CodecCatalog);
         writer.InitialiseNextSegmentOrdinal(GetNextSegmentOrdinal(
             (recovery?.SegmentIds ?? []).Concat(occupiedSegmentIds)));
-        if (recovery is null) return;
+        if (recovery is null)
+        {
+            writer.AnalysisIdentities = AnalysisIdentityTracker.Create(
+                config, writer.DefaultAnalyser, new Dictionary<string, string>(StringComparer.Ordinal), hasCommittedSegments: false);
+            return;
+        }
         IndexOpenGuard.EnsureCanOpenSegments(
             directory,
             recovery.SegmentIds,
@@ -287,6 +296,8 @@ internal static class CommitManager
 
         var dirPath = directory.DirectoryPath;
         writer.CommittedSegments.AddRange(recovery.SegmentInfos);
+        writer.AnalysisIdentities = AnalysisIdentityTracker.Create(
+            config, writer.DefaultAnalyser, recovery.FieldAnalysisIdentities, recovery.SegmentInfos.Count > 0);
 
         if (config.DurableCommits)
         {

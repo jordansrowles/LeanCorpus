@@ -1,63 +1,26 @@
+using Rowles.LeanCorpus.Analysis.Stemmers.Snowball;
+
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
-/// German Snowball-inspired stemmer. Handles common German inflectional and
-/// derivational suffixes. Folds umlauts (ä→a, ö→o, ü→u) and ß→ss as a
-/// preliminary step, mirroring Snowball's approach for German.
+/// German stemmer implementing the official Snowball 3.2.0 <c>german</c> algorithm
+/// (<see href="https://snowballstem.org/algorithms/german/stemmer.html"/>). Folds <c>ä</c>, <c>ö</c>, <c>ü</c> and the <c>ae</c>, <c>oe</c>, <c>ue</c> spellings, and expands <c>ß</c> to <c>ss</c>, so a stem can be longer than its word (<c>überläßt</c> becomes <c>uberlasst</c>).
 /// </summary>
+/// <remarks>
+/// <para>Expects lower-cased input, as <see cref="Filters.LowercaseFilter"/> produces; the language
+/// analysers lower-case before stemming. Output matches the official Snowball word list exactly.</para>
+/// <para>Holds no mutable state and is safe to share between threads.</para>
+/// </remarks>
 public sealed class GermanStemmer : SnowballStemmer
 {
     /// <inheritdoc/>
-    protected override (string Suffix, string Replacement)[][] Steps { get; } =
-    [
-        [
-            ("erungen", ""), ("erung", ""), ("ungen", ""), ("ung", ""),
-            ("heiten", ""), ("heits", ""), ("heit", ""), ("keiten", ""),
-            ("keit", ""), ("schaften", ""), ("schaft", ""), ("ismus", ""),
-            ("isten", ""), ("ist", ""),
-        ],
-        [
-            ("lichen", ""), ("liche", ""), ("licher", ""), ("lichem", ""),
-            ("liches", ""), ("lich", ""),
-            ("ischen", ""), ("ische", ""), ("ischer", ""), ("ischem", ""),
-            ("isches", ""), ("isch", ""),
-            ("igen", ""), ("ige", ""), ("iger", ""), ("igem", ""),
-            ("iges", ""), ("ig", ""),
-        ],
-        [
-            ("test", ""), ("etet", ""), ("est", ""), ("tet", ""),
-            ("et", ""), ("te", ""), ("nd", ""),
-        ],
-        [
-            ("innen", ""), ("erns", ""), ("ern", ""), ("ens", ""),
-            ("ers", ""), ("en", ""), ("em", ""), ("es", ""),
-            ("er", ""), ("e", ""), ("s", ""),
-        ],
-    ];
+    /// <remarks>Not used: this stemmer runs the Snowball algorithm rather than suffix tables.</remarks>
+    protected override (string Suffix, string Replacement)[][] Steps => NoSteps;
 
     /// <inheritdoc/>
-    protected override int MaxOutputLength(string word)
-    {
-        int len = word.Length;
-        for (int i = 0; i < word.Length; i++) if (word[i] == 'ß') len++;
-        return len;
-    }
+    public override string Stem(string word) => SnowballPort.Stem(SnowballAlgorithm.German, word);
 
     /// <inheritdoc/>
-    protected override int Preprocess(ReadOnlySpan<char> word, Span<char> output)
-    {
-        int len = 0;
-        foreach (var ch in word)
-        {
-            switch (ch)
-            {
-                case 'ä': output[len++] = 'a'; break;
-                case 'ö': output[len++] = 'o'; break;
-                case 'ü': output[len++] = 'u'; break;
-                case 'ß': output[len++] = 's'; output[len++] = 's'; break;
-                default: output[len++] = ch; break;
-            }
-        }
-        return len;
-    }
+    public override int Stem(ReadOnlySpan<char> word, Span<char> output)
+        => SnowballPort.Stem(SnowballAlgorithm.German, word, output);
 }

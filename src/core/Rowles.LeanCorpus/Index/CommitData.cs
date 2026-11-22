@@ -14,6 +14,12 @@ internal sealed class CommitData
 
     public long ContentToken { get; set; }
 
+    /// <summary>
+    /// The analysis identity of every analysed field, by field name (ADR051). Null for commits written
+    /// before identities were recorded; such an index's analysis is unknown.
+    /// </summary>
+    public Dictionary<string, string>? FieldAnalysisIdentities { get; set; }
+
     internal SegmentCommitState? GetSegmentState(int index)
         => SegmentStates is null ? null : SegmentStates[index];
 
@@ -27,6 +33,14 @@ internal sealed class CommitData
             throw new InvalidDataException("Commit data has a null Segments list.");
         if (Generation < 0)
             throw new InvalidDataException($"Commit data has a negative Generation ({Generation}).");
+        if (FieldAnalysisIdentities is not null)
+        {
+            foreach (var (field, identity) in FieldAnalysisIdentities)
+            {
+                if (string.IsNullOrEmpty(field) || string.IsNullOrEmpty(identity))
+                    throw new InvalidDataException("Commit data has an empty field name or analysis identity.");
+            }
+        }
 
         if (SegmentStates is null)
             return;

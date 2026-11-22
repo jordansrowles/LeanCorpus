@@ -16,3 +16,10 @@
 # Historical fixture generator source hashes are pinned byte-for-byte.
 /src/devops/tests/fixtures/historical/branch-snapshots/pre-v3-bbq/Program.cs text eol=lf
 /src/devops/tests/fixtures/historical/branch-snapshots/pre-v3-bbq/PreV3BbqSnapshotGenerator.csproj text eol=lf
+
+# Pinned Snowball and Slovak fixtures are hashed byte-for-byte (manifest.json SHA-256), so their
+# text keeps the upstream LF bytes on every platform. Compressed word lists are binary.
+/src/devops/tests/fixtures/snowball/** text eol=lf
+/src/devops/tests/fixtures/snowball/**/*.gz binary
+/src/devops/tests/fixtures/slovak/** text eol=lf
+/src/devops/tests/fixtures/analysis/** text eol=lf

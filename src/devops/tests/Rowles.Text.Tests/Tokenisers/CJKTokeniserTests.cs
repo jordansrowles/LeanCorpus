@@ -485,17 +485,21 @@ public sealed class CJKTokeniserTests
         using var releaseSink = new ManualResetEventSlim();
         var disposeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var sink = new BlockingTokenSink(enteredSink, releaseSink);
-        Task tokenise = Task.Run(() => tokeniser.Tokenise("\u79C1", sink), TestContext.Current.CancellationToken);
+        // The sink blocks its thread, so both operations get dedicated threads: on a loaded thread pool
+        // a queued Dispose could otherwise wait past the sink's release timeout.
+        Task tokenise = Task.Factory.StartNew(
+            () => tokeniser.Tokenise("\u79C1", sink),
+            TestContext.Current.CancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         Task dispose = Task.CompletedTask;
 
         try
         {
             await enteredSink.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            dispose = Task.Run(() =>
+            dispose = Task.Factory.StartNew(() =>
             {
                 disposeStarted.TrySetResult();
                 dictionary.Dispose();
-            }, TestContext.Current.CancellationToken);
+            }, TestContext.Current.CancellationToken, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             await disposeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
             Task completed = await Task.WhenAny(dispose, Task.Delay(100, TestContext.Current.CancellationToken));
             Assert.True(!ReferenceEquals(dispose, completed), "Disposal must wait for the active tokenisation call.");

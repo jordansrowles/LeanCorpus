@@ -26,11 +26,11 @@ public class StemmedAnalyserTests
         _analyser.Analyse(input.AsSpan(), matSink);
         var tokens = matSink.Tokens;
 
-        // Assert — Porter stems: running→run, jumped→jump, quickly→quickli
+        // Assert: Porter2 (Snowball English) stems running→run, jumped→jump, quickly→quick
         Assert.Equal(3, tokens.Count);
         Assert.Equal("run", tokens[0].Text);
         Assert.Equal("jump", tokens[1].Text);
-        Assert.Equal("quickli", tokens[2].Text);
+        Assert.Equal("quick", tokens[2].Text);
     }
 
     /// <summary>

@@ -25,11 +25,12 @@ public sealed class RussianStemmerTests
         Assert.Equal("ты", buf[..len].ToString());
     }
 
-    [Fact(DisplayName = "RussianStemmer: Stem(string) strips noun ending ость")]
+    [Fact(DisplayName = "RussianStemmer: Stem(string) strips the soft sign after ость")]
     public void StemString_StripsOst()
     {
+        // Snowball 3.2.0 removes ость only from the R2 region, which радость does not reach.
         var result = _stemmer.Stem("радость");
-        Assert.Equal("рад", result);
+        Assert.Equal("радост", result);
     }
 
     [Fact(DisplayName = "RussianStemmer: Stem(string) strips adjective ending ый")]
@@ -46,11 +47,12 @@ public sealed class RussianStemmerTests
         Assert.Equal("больш", result);
     }
 
-    [Fact(DisplayName = "RussianStemmer: Stem(string) strips verb ending ать")]
+    [Fact(DisplayName = "RussianStemmer: Stem(string) strips verb ending ть after а")]
     public void StemString_StripsAt()
     {
+        // Snowball 3.2.0 keeps the а: the verb ending is ть, preceded by а or я.
         var result = _stemmer.Stem("читать");
-        Assert.Equal("чит", result);
+        Assert.Equal("чита", result);
     }
 
     [Fact(DisplayName = "RussianStemmer: Stem(string) strips reflexive ся")]
@@ -108,14 +110,14 @@ public sealed class RussianStemmerTests
     {
         Span<char> buf = stackalloc char[10];
         int len = _stemmer.Stem("радость".AsSpan(), buf);
-        Assert.Equal(3, len);
-        Assert.Equal("рад", buf[..len].ToString());
+        Assert.Equal(6, len);
+        Assert.Equal("радост", buf[..len].ToString());
     }
 
-    [Fact(DisplayName = "RussianStemmer: Stem(string) strips ость and ь")]
+    [Fact(DisplayName = "RussianStemmer: Stem(string) strips the soft sign from новость")]
     public void StemString_StripsOstAndSoftSign()
     {
         var result = _stemmer.Stem("новость");
-        Assert.Equal("нов", result);
+        Assert.Equal("новост", result);
     }
 }

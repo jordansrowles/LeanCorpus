@@ -19,6 +19,9 @@ public sealed record IndexFormatInventory
 
     internal IReadOnlyList<SegmentCommitState> SegmentStates { get; init; } = [];
 
+    /// <summary>The latest commit's field analysis identities, or <see langword="null"/> when it has none (ADR051).</summary>
+    internal IReadOnlyDictionary<string, string>? FieldAnalysisIdentities { get; init; }
+
     /// <summary>Gets inspected segment inventories.</summary>
     public required IReadOnlyList<SegmentFormatInventory> Segments { get; init; }
 

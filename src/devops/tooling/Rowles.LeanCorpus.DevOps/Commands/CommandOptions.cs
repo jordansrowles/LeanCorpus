@@ -162,4 +162,15 @@ internal sealed record TestCommandOptions(
     bool List = false,
     bool ExplainAffected = false);
 
+/// <summary>Options for <c>snowball generate|verify|fetch-data</c>.</summary>
+internal sealed record SnowballCommandOptions(
+    string Action,
+    IReadOnlyList<string> Equivalent,
+    string? Reason,
+    IReadOnlyList<string> Rebaseline,
+    IReadOnlyList<string> Bump,
+    bool AcceptFingerprints,
+    string? RepositoryPath = null,
+    bool CodeOnly = false);
+
 internal sealed record BackupRestoreMatrixCommandOptions(BackupRestoreMatrixOptions MatrixOptions, string? RepositoryPath = null);

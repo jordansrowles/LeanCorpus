@@ -1,14 +1,20 @@
 using Rowles.LeanCorpus.Analysis.Filters;
+using Rowles.LeanCorpus.Analysis.Stemmers;
 using Rowles.LeanCorpus.Analysis.Tokenisers;
 
 namespace Rowles.LeanCorpus.Analysis.Analysers;
 
 /// <summary>
-/// Extends the standard analysis pipeline with Porter stemming for improved recall.
-/// Pipeline: tokenise → lowercase → stop-word removal → Porter stem.
+/// Extends the standard analysis pipeline with Porter2 (Snowball English) stemming for improved recall.
+/// Pipeline: tokenise → lowercase → stop-word removal → <see cref="EnglishStemmer"/>.
 /// Uses the composable <see cref="Analyser"/> pipeline for zero-allocation streaming.
 /// </summary>
-public sealed class StemmedAnalyser : IThreadLocalAnalyser
+/// <remarks>
+/// Before LeanCorpus 4.0 this analyser used the original 1980 Porter algorithm. For that behaviour,
+/// use <see cref="StemmerAnalyser.Porter"/> or <see cref="PorterStemmerFilter"/>. Changing the
+/// stemmer changes indexed terms, so reindex fields analysed with the earlier version.
+/// </remarks>
+public sealed class StemmedAnalyser : IThreadLocalAnalyser, IAnalysisIdentityProvider
 {
     private readonly Analyser _pipeline;
 
@@ -21,7 +27,8 @@ public sealed class StemmedAnalyser : IThreadLocalAnalyser
             new Tokeniser(),
             new LowercaseFilter(),
             new StopWordFilter(),
-            new PorterStemmerFilter());
+            new StemTokenFilter(new EnglishStemmer()));
+        AnalysisId = Stemmers.Snowball.AnalysisIdentities.Find("stemmed-en");
     }
 
     /// <summary>
@@ -34,7 +41,8 @@ public sealed class StemmedAnalyser : IThreadLocalAnalyser
             new Tokeniser(),
             new LowercaseFilter(),
             new StopWordFilter(),
-            new PorterStemmerFilter(keywordMarker));
+            new StemTokenFilter(new EnglishStemmer(), keywordMarker));
+        AnalysisId = keywordMarker is null ? Stemmers.Snowball.AnalysisIdentities.Find("stemmed-en") : null;
     }
 
     /// <inheritdoc/>
@@ -42,5 +50,16 @@ public sealed class StemmedAnalyser : IThreadLocalAnalyser
         => _pipeline.Analyse(input, sink);
 
     /// <inheritdoc/>
-    public IAnalyser CreateThreadLocalAnalyser() => _pipeline.CreateThreadLocalAnalyser();
+    public IAnalyser CreateThreadLocalAnalyser()
+    {
+        var copy = _pipeline.CreateThreadLocalAnalyser();
+        return AnalysisId is null ? copy : AnalysisIdentity.Assign(copy, AnalysisId);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <c>rowles-analysis/stemmed-en/&lt;version&gt;</c> without a keyword marker. A keyword marker
+    /// changes the output, so an analyser constructed with one has no identity.
+    /// </remarks>
+    public string? AnalysisId { get; }
 }

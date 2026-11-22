@@ -157,6 +157,24 @@ public sealed class IndexWriterConfig
     /// <summary>Per-field analyser overrides. Key is the field name.</summary>
     public Dictionary<string, IAnalyser> FieldAnalysers { get; set; } = new();
 
+    /// <summary>
+    /// Whether the writer records a changed analysis identity instead of refusing it. Default:
+    /// <see langword="false"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>An index records the analysis identity of every analysed field (ADR051): the
+    /// <see cref="IAnalysisIdentityProvider.AnalysisId"/> of its analyser, or
+    /// <see cref="AnalysisIdentity.Unidentified"/> when the analyser declares none or writer-level
+    /// <see cref="CharFilters"/> are configured. When a field's identity would change, or the index
+    /// was written before identities were recorded, the writer throws
+    /// <see cref="AnalysisIdentityMismatchException"/>: on open for a recorded field, or before a new
+    /// field's first analysis.</para>
+    /// <para>Set this only when mixing terms from two analyses is acceptable, for example after
+    /// confirming that a field's output did not change for your content. Existing terms are not
+    /// reanalysed. To change a field's analysis safely, reindex it from source into a new index.</para>
+    /// </remarks>
+    public bool AcceptAnalysisIdentityChanges { get; set; }
+
     /// <summary>Deletion policy applied after each commit. Default: keep latest only.</summary>
     public IIndexDeletionPolicy DeletionPolicy { get; set; } = new KeepLatestCommitPolicy();
 

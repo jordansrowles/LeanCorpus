@@ -38,4 +38,11 @@
     <Using Include="Rowles.LeanCorpus.Tests.Shared.Fixtures" />
   </ItemGroup>
 
+  <!-- Pinned Snowball 3.2.0 oracle: unchanged reference code (namespace Snowball) and the fixture reader. Test-only. -->
+  <ItemGroup>
+    <Compile Include="..\fixtures\snowball\reference\**\*.cs" LinkBase="Snowball\Reference" />
+    <Compile Include="..\fixtures\snowball\SnowballFixtures.cs" Link="Snowball\SnowballFixtures.cs" />
+    <Compile Include="..\fixtures\snowball\SnowballReference.cs" Link="Snowball\SnowballReference.cs" />
+  </ItemGroup>
+
 </Project>

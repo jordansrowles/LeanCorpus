@@ -185,6 +185,7 @@ public static class IndexFormatInspector
             DirectoryPath = directoryPath,
             CommitGeneration = commitGeneration,
             ContentToken = commitData.ContentToken,
+            FieldAnalysisIdentities = commitData.FieldAnalysisIdentities,
             SegmentIds = segmentIds,
             SegmentStates = segmentStates,
             Segments = segments,

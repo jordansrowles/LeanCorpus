@@ -12,6 +12,7 @@ using Rowles.LeanCorpus.DevOps.Packaging;
 using Rowles.LeanCorpus.DevOps.Repository;
 using Rowles.LeanCorpus.DevOps.Reporting;
 using Rowles.LeanCorpus.DevOps.Server;
+using Rowles.LeanCorpus.DevOps.Snowball;
 using Rowles.LeanCorpus.DevOps.Terminal;
 using Rowles.LeanCorpus.DevOps.Testing;
 using Spectre.Console;
@@ -558,6 +559,66 @@ internal sealed class ManagedCommandHandler(
         finally
         {
             Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    public int Snowball(SnowballCommandOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        try
+        {
+            var checkout = RepositoryPaths.Resolve(options.RepositoryPath, Environment.CurrentDirectory, Environment.ProcessPath);
+            if (RejectStaleManagedHost(checkout) is { } staleExitCode)
+                return staleExitCode;
+
+            var workspace = new SnowballWorkspace(checkout.RepositoryRoot);
+            switch (options.Action)
+            {
+                case "verify":
+                {
+                    var problems = workspace.Verify();
+                    if (problems.Count == 0)
+                        return _renderer.Render(new CommandResult(OutcomeKind.Success, "Snowball ports and analysis identities are current."), output, error);
+                    return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                        "Snowball ports or analysis identities are not current.", Details: string.Join(Environment.NewLine, problems)), output, error);
+                }
+                case "fetch-data":
+                {
+                    using var cancellation = CreateCancellationSource();
+                    using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
+                    var lines = workspace.FetchDataAsync(client, cancellation.Token).GetAwaiter().GetResult();
+                    return _renderer.Render(new CommandResult(OutcomeKind.Success,
+                        "Snowball word lists are present and verified.", Details: string.Join(Environment.NewLine, lines)), output, error);
+                }
+                case "generate" when options.CodeOnly:
+                {
+                    if (options.Equivalent.Count > 0 || options.Rebaseline.Count > 0 || options.Bump.Count > 0 || options.AcceptFingerprints)
+                        throw new ArgumentException("--code-only records no identity decision; run generate again with the decision after the identity tests.");
+                    var written = workspace.WriteCodeOnly();
+                    return _renderer.Render(new CommandResult(OutcomeKind.Success,
+                        $"Wrote {written.Count} generated Snowball algorithms; analysis identities are unchanged. Run the analysis identity tests with LEANCORPUS_UPDATE_ANALYSIS_FINGERPRINTS=1, then generate with the identity decision.",
+                        Details: string.Join(Environment.NewLine, written)), output, error);
+                }
+                case "generate":
+                {
+                    var requests = SnowballCommandRequests.Parse(options, workspace);
+                    var generation = workspace.Plan(requests);
+                    workspace.Write(generation);
+                    string summary = generation.Changes.Count == 0
+                        ? "No identity changes."
+                        : string.Join(Environment.NewLine, generation.Changes);
+                    return _renderer.Render(new CommandResult(OutcomeKind.Success,
+                        $"Generated {generation.Files.Count} Snowball files in {workspace.GeneratedRoot}.", Details: summary), output, error);
+                }
+                default:
+                    return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure,
+                        $"Unknown snowball action '{options.Action}'."), output, error);
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or InvalidDataException
+            or SnowballTransformException or IOException or HttpRequestException or ArgumentException)
+        {
+            return _renderer.Render(new CommandResult(OutcomeKind.ValidationFailure, exception.Message), output, error);
         }
     }
 

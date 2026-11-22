@@ -6,7 +6,13 @@ using Rowles.LeanCorpus.Analysis.Analysers;
 namespace Rowles.LeanCorpus.Benchmarks;
 
 /// <summary>
-/// Compares <see cref="StemmedAnalyser"/> throughput against Lucene.NET <c>EnglishAnalyzer</c>.
+/// Compares <see cref="StemmedAnalyser"/> throughput against Lucene.NET's <c>EnglishAnalyzer</c>
+/// chain with <c>PorterStemFilter</c> replaced by <c>SnowballFilter(EnglishStemmer)</c>, so both
+/// sides run Porter2. Since #122 <see cref="StemmedAnalyser"/> uses Porter2; the stock
+/// <c>EnglishAnalyzer</c> uses the original Porter algorithm and would not be a like-for-like pair.
+/// Lucene.NET's bundled Snowball English is older than 3.2.0, so setup accepts a named term-only
+/// difference and reports the divergent tokens (<c>namedTermDifferences</c>). Token structure is
+/// proven equal, stemming semantics are not: treat the rows as directional, not qualified parity.
 /// Reading rows copy every term; <c>_CountOnly</c> rows allocate a counting sink per document and
 /// only count tokens. Setup proves equal output on the first 500 documents. Directional
 /// head-to-head rows.
@@ -25,7 +31,7 @@ public class StemmerParityBenchmarks
 
     private string[] _documents = [];
     private StemmedAnalyser _leanAnalyser = null!;
-    private EnglishAnalyzer _luceneAnalyser = null!;
+    private Lucene.Net.Analysis.Analyzer _luceneAnalyser = null!;
     private readonly ReadingTokenSink _readingSink = new();
 
     [GlobalSetup]
@@ -33,7 +39,7 @@ public class StemmerParityBenchmarks
     {
         _documents = TextBenchmarkData.BuildDocuments(DocumentCount);
         _leanAnalyser = new StemmedAnalyser();
-        _luceneAnalyser = new EnglishAnalyzer(LuceneVersion.LUCENE_48);
+        _luceneAnalyser = new SnowballEnglishAnalyzer();
         TextOutputPreflight.Compare("stemmer/english", _documents,
             document => TextOutputPreflight.CaptureLean(sink => _leanAnalyser.Analyse(document.AsSpan(), sink)),
             document =>
@@ -41,7 +47,10 @@ public class StemmerParityBenchmarks
                 using var stream = _luceneAnalyser.GetTokenStream("body", document);
                 return TextOutputPreflight.CaptureLucene(stream);
             },
-            PreflightAllowList.Cjk);
+            // Lucene.NET bundles an older Snowball English. Snowball 3.2.0 differs on some words, for
+            // example international -> internat (Lucene.NET: intern), confirmed against Snowball's C
+            // stemwords and word list. Term text only; positions and offsets must still match.
+            PreflightAllowList.NamedWithCjk("snowball-english-3.2.0-vs-lucene-net"));
     }
 
     [GlobalCleanup]
@@ -105,5 +114,23 @@ public class StemmerParityBenchmarks
             ts.End();
         }
         return total;
+    }
+
+    /// <summary>
+    /// Lucene.NET <c>EnglishAnalyzer</c>'s chain (standard tokeniser, standard and possessive filters,
+    /// lowercasing, English stop words) ending in the Snowball English (Porter2) stemmer.
+    /// </summary>
+    private sealed class SnowballEnglishAnalyzer : Lucene.Net.Analysis.Analyzer
+    {
+        protected override Lucene.Net.Analysis.TokenStreamComponents CreateComponents(string fieldName, System.IO.TextReader reader)
+        {
+            var source = new Lucene.Net.Analysis.Standard.StandardTokenizer(LuceneVersion.LUCENE_48, reader);
+            Lucene.Net.Analysis.TokenStream result = new Lucene.Net.Analysis.Standard.StandardFilter(LuceneVersion.LUCENE_48, source);
+            result = new EnglishPossessiveFilter(LuceneVersion.LUCENE_48, result);
+            result = new Lucene.Net.Analysis.Core.LowerCaseFilter(LuceneVersion.LUCENE_48, result);
+            result = new Lucene.Net.Analysis.Core.StopFilter(LuceneVersion.LUCENE_48, result, EnglishAnalyzer.DefaultStopSet);
+            result = new Lucene.Net.Analysis.Snowball.SnowballFilter(result, new Lucene.Net.Tartarus.Snowball.Ext.EnglishStemmer());
+            return new Lucene.Net.Analysis.TokenStreamComponents(source, result);
+        }
     }
 }

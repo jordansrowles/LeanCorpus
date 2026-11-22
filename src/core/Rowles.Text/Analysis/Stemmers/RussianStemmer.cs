@@ -1,70 +1,26 @@
+using Rowles.LeanCorpus.Analysis.Stemmers.Snowball;
+
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
-/// Russian Snowball-inspired stemmer. Strips common Russian inflectional endings
-/// written in Cyrillic. Based on the Dovgal/Snowball Russian algorithm.
-/// Expects lowercased input (е and ё are NOT equated — normalise upstream).
+/// Russian stemmer implementing the official Snowball 3.2.0 <c>russian</c> algorithm
+/// (<see href="https://snowballstem.org/algorithms/russian/stemmer.html"/>). Treats <c>ё</c> as <c>е</c>. Removes perfective gerund, adjectival, reflexive, verb and noun endings within the Snowball regions.
 /// </summary>
+/// <remarks>
+/// <para>Expects lower-cased input, as <see cref="Filters.LowercaseFilter"/> produces; the language
+/// analysers lower-case before stemming. Output matches the official Snowball word list exactly.</para>
+/// <para>Holds no mutable state and is safe to share between threads.</para>
+/// </remarks>
 public sealed class RussianStemmer : SnowballStemmer
 {
     /// <inheritdoc/>
-    protected override int MinWordLength => 2;
+    /// <remarks>Not used: this stemmer runs the Snowball algorithm rather than suffix tables.</remarks>
+    protected override (string Suffix, string Replacement)[][] Steps => NoSteps;
 
     /// <inheritdoc/>
-    protected override int MinStemGuard => 2;
+    public override string Stem(string word) => SnowballPort.Stem(SnowballAlgorithm.Russian, word);
 
     /// <inheritdoc/>
-    protected override (string Suffix, string Replacement)[][] Steps { get; } =
-    [
-        // Step 1: Perfective gerunds
-        [
-            ("ывшись", ""), ("ившись", ""), ("ывши", ""), ("ивши", ""),
-            ("вшись", ""), ("вши", ""),
-        ],
-        // Step 2: Reflexive endings
-        [
-            ("ться", ""), ("тся", ""),
-        ],
-        // Step 3: Adjective / participle endings
-        [
-            ("ующего", ""), ("ующему", ""), ("ующими", ""), ("ующих", ""),
-            ("ующим", ""), ("ующей", ""), ("ующую", ""), ("ующее", ""),
-            ("ующие", ""), ("ующий", ""), ("ующая", ""),
-            ("ованного", ""), ("ованному", ""), ("ованными", ""), ("ованных", ""),
-            ("ованным", ""), ("ованной", ""), ("ованную", ""), ("ованное", ""),
-            ("ованные", ""), ("ованный", ""), ("ованная", ""), ("ованно", ""),
-            ("ованн", ""),
-            ("ого", ""), ("ому", ""), ("ыми", ""), ("ими", ""),
-            ("ых", ""), ("их", ""), ("ым", ""), ("им", ""),
-            ("ей", ""), ("ой", ""), ("ую", ""), ("ые", ""),
-            ("ие", ""), ("ый", ""), ("ий", ""), ("ая", ""),
-            ("яя", ""),
-        ],
-        // Step 4: Verb endings
-        [
-            ("ывайте", ""), ("ивайте", ""), ("ывать", ""), ("ивать", ""),
-            ("ываю", ""), ("иваю", ""), ("овать", ""), ("евать", ""),
-            ("уйте", ""), ("ейте", ""), ("ите", ""), ("ешь", ""),
-            ("ишь", ""), ("ают", ""), ("яют", ""), ("ют", ""),
-            ("ут", ""), ("ал", ""), ("ял", ""), ("ала", ""),
-            ("яла", ""), ("али", ""), ("яли", ""), ("ать", ""),
-            ("ять", ""), ("ить", ""),
-        ],
-        // Step 5: Noun endings
-        [
-            ("ости", ""), ("ость", ""), ("ений", ""), ("ения", ""),
-            ("ению", ""), ("ение", ""), ("аний", ""), ("ания", ""),
-            ("анию", ""), ("ание", ""),
-            ("ами", ""), ("ями", ""), ("ах", ""), ("ях", ""),
-            ("ам", ""), ("ям", ""), ("ов", ""), ("ев", ""),
-            ("ей", ""), ("ий", ""), ("ая", ""), ("яя", ""),
-            ("ом", ""), ("ем", ""), ("и", ""), ("е", ""),
-            ("а", ""), ("я", ""), ("ы", ""), ("у", ""),
-            ("ю", ""),
-        ],
-        // Step 6: Derivational -ость / -ь
-        [
-            ("ость", ""), ("ь", ""),
-        ],
-    ];
+    public override int Stem(ReadOnlySpan<char> word, Span<char> output)
+        => SnowballPort.Stem(SnowballAlgorithm.Russian, word, output);
 }

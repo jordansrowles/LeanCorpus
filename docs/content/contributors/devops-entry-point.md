@@ -51,6 +51,7 @@ Callers should not need to reproduce long `dotnet` command lines or know which g
 | `diagnostics` | Managed apphost: list processes and capture .NET diagnostics with run evidence | `./devops diagnostics capture --pid 1234 --duration 5s` |
 | `corpus` | Prepare managed benchmark datasets | `./devops corpus gutenberg --book-count 200` |
 | `fixtures` | List or generate pinned historical fixtures | `./devops fixtures list`; `./devops fixtures generate --version 3.1.1 --scenario migration` |
+| `snowball` | Managed: regenerate the Snowball stemmer ports and analysis identities from the pinned sources, verify the committed output, or download the pinned French and Italian word lists | `./devops snowball verify`; `./devops snowball fetch-data`; `./devops snowball generate --accept-fingerprints`; `./devops snowball generate --code-only` |
 | `data` | Deprecated compatibility routes for corpus and historical fixture workflows | `./devops data gutenberg --book-count 200`; `./devops data fixtures --list` |
 | `dataforge` | Managed apphost: run DataForge generation, reference and qualification commands; `--help` resolves locally without launching the tool | `./devops dataforge --help`; `./devops dataforge qualify` |
 | `docs` | Managed: prepare inputs, generate API metadata, build, validate or serve DocFX | `./devops docs build --skip-benchmarks` |

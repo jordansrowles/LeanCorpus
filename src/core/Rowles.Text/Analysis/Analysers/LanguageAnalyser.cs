@@ -12,7 +12,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// Concurrent owners obtain independent instances through
 /// <see cref="IThreadLocalAnalyser.CreateThreadLocalAnalyser"/>.
 /// </remarks>
-public sealed class LanguageAnalyser : IThreadLocalAnalyser
+public sealed class LanguageAnalyser : IThreadLocalAnalyser, IAnalysisIdentityProvider
 {
     private readonly Analyser _inner;
 
@@ -25,7 +25,14 @@ public sealed class LanguageAnalyser : IThreadLocalAnalyser
     /// <param name="keywordMarker">Optional keyword marker used to skip stemming for selected token text.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="tokeniser"/> is <see langword="null"/>.</exception>
     public LanguageAnalyser(ISpanTokeniser tokeniser, IEnumerable<string>? stopWords, ISpanStemmer? stemmer, KeywordMarkerFilter? keywordMarker = null)
+        : this(tokeniser, stopWords, stemmer, keywordMarker, analysisId: null)
     {
+    }
+
+    /// <summary>Creates a built-in pipeline with a known identity (<see cref="AnalyserFactory"/>).</summary>
+    internal LanguageAnalyser(ISpanTokeniser tokeniser, IEnumerable<string>? stopWords, ISpanStemmer? stemmer, KeywordMarkerFilter? keywordMarker, string? analysisId)
+    {
+        AnalysisId = analysisId;
         ArgumentNullException.ThrowIfNull(tokeniser);
         var stopWordFilter = new StopWordFilter(stopWords);
 
@@ -53,5 +60,17 @@ public sealed class LanguageAnalyser : IThreadLocalAnalyser
     }
 
     /// <inheritdoc/>
-    public IAnalyser CreateThreadLocalAnalyser() => _inner.CreateThreadLocalAnalyser();
+    public IAnalyser CreateThreadLocalAnalyser()
+    {
+        var copy = _inner.CreateThreadLocalAnalyser();
+        return AnalysisId is null ? copy : AnalysisIdentity.Assign(copy, AnalysisId);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Set for the pipelines <see cref="AnalyserFactory.Create(string)"/> returns, and
+    /// <see langword="null"/> for a <see cref="LanguageAnalyser"/> built directly, because its parts are
+    /// the caller's choice. Use <see cref="AnalysisIdentity.Assign"/> to identify a custom pipeline.
+    /// </remarks>
+    public string? AnalysisId { get; }
 }

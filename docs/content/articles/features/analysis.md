@@ -60,16 +60,16 @@ Return to the [feature comparison overview](index.md) for status definitions and
 
 | Language or algorithm | LeanCorpus | Lucene.NET 4.8 | Java Lucene | Notes |
 | --- | :---: | :---: | :---: | --- |
-| Arabic | ✔ | ✔ | ✔ | `ArabicStemmer`. |
-| Dutch | ✔ | ✔ | ✔ | `DutchStemmer`. |
-| English Porter and Snowball | ✔ | ✔ | ✔ | `EnglishStemmer`. |
+| Arabic | ✔ | ✔ | ✔ | `ArabicStemmer`, the official Snowball 3.2.0 algorithm. |
+| Dutch | ✔ | ✔ | ✔ | `DutchStemmer`, the official Snowball 3.2.0 algorithm. |
+| English Porter and Snowball | ✔ | ✔ | ✔ | `EnglishStemmer` (Snowball 3.2.0 Porter2) and `PorterStemmer`. |
 | English Krovetz and light stemming | ✔ | ✔ | ✔ | `KStemmer` and `LightEnglishStemmer`. |
-| French | ✔ | ✔ | ✔ | `FrenchStemmer`. |
-| German | ✔ | ✔ | ✔ | `GermanStemmer`. |
-| Italian | ✔ | ✔ | ✔ | `ItalianStemmer`. |
-| Portuguese | ✔ | ✔ | ✔ | `PortugueseStemmer`. |
-| Russian | ✔ | ✔ | ✔ | `RussianStemmer`. |
-| Spanish | ✔ | ✔ | ✔ | `SpanishStemmer`. |
+| French | ✔ | ✔ | ✔ | `FrenchStemmer`, the official Snowball 3.2.0 algorithm. |
+| German | ✔ | ✔ | ✔ | `GermanStemmer`, the official Snowball 3.2.0 algorithm. |
+| Italian | ✔ | ✔ | ✔ | `ItalianStemmer`, the official Snowball 3.2.0 algorithm. |
+| Portuguese | ✔ | ✔ | ✔ | `PortugueseStemmer`, the official Snowball 3.2.0 algorithm. |
+| Russian | ✔ | ✔ | ✔ | `RussianStemmer`, the official Snowball 3.2.0 algorithm. |
+| Spanish | ✔ | ✔ | ✔ | `SpanishStemmer`, the official Snowball 3.2.0 algorithm. |
 | Slovak | ✔ | ✔ | ✔ | `SlovakStemmer`. |
 | Chinese | ◐ | ✔ | ✔ | Segmentation is handled by `ChineseLexiconTokeniser`; the stemmer is a no-op adapter. |
 | Japanese | ◐ | ✔ | ✔ | Segmentation is handled by `JapaneseTokeniser`; the stemmer is a no-op adapter. |
