@@ -14,7 +14,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// use <see cref="StemmerAnalyser.Porter"/> or <see cref="PorterStemmerFilter"/>. Changing the
 /// stemmer changes indexed terms, so reindex fields analysed with the earlier version.
 /// </remarks>
-public sealed class StemmedAnalyser : IThreadLocalAnalyser
+public sealed class StemmedAnalyser : IThreadLocalAnalyser, IAnalysisIdentityProvider
 {
     private readonly Analyser _pipeline;
 
@@ -28,6 +28,7 @@ public sealed class StemmedAnalyser : IThreadLocalAnalyser
             new LowercaseFilter(),
             new StopWordFilter(),
             new StemTokenFilter(new EnglishStemmer()));
+        AnalysisId = Stemmers.Snowball.AnalysisIdentities.Find("stemmed-en");
     }
 
     /// <summary>
@@ -41,6 +42,7 @@ public sealed class StemmedAnalyser : IThreadLocalAnalyser
             new LowercaseFilter(),
             new StopWordFilter(),
             new StemTokenFilter(new EnglishStemmer(), keywordMarker));
+        AnalysisId = keywordMarker is null ? Stemmers.Snowball.AnalysisIdentities.Find("stemmed-en") : null;
     }
 
     /// <inheritdoc/>
@@ -48,5 +50,16 @@ public sealed class StemmedAnalyser : IThreadLocalAnalyser
         => _pipeline.Analyse(input, sink);
 
     /// <inheritdoc/>
-    public IAnalyser CreateThreadLocalAnalyser() => _pipeline.CreateThreadLocalAnalyser();
+    public IAnalyser CreateThreadLocalAnalyser()
+    {
+        var copy = _pipeline.CreateThreadLocalAnalyser();
+        return AnalysisId is null ? copy : AnalysisIdentity.Assign(copy, AnalysisId);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <c>rowles-analysis/stemmed-en/&lt;version&gt;</c> without a keyword marker. A keyword marker
+    /// changes the output, so an analyser constructed with one has no identity.
+    /// </remarks>
+    public string? AnalysisId { get; }
 }

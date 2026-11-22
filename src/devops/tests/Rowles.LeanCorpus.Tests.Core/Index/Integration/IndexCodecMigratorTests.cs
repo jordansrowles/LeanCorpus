@@ -1203,6 +1203,33 @@ public sealed class IndexCodecMigratorTests : IClassFixture<TestDirectoryFixture
         AssertIndexReadable(path);
     }
 
+    /// <summary>ADR051: migration rewrites codecs, not terms, so the recorded analysis identities carry over.</summary>
+    [Fact(DisplayName = "Migrate: Rewrite preserves the recorded analysis identities")]
+    public void Migrate_Rewrite_PreservesAnalysisIdentities()
+    {
+        var path = CreateCurrentVersionIndex("migrate_rewrite_identities");
+        var before = IndexAnalysisIdentities.Read(new MMapDirectory(path));
+        Assert.NotNull(before);
+        Assert.NotEmpty(before);
+        DowngradeStoredFieldsToV4(path);
+
+        var result = IndexCodecMigrator.Migrate(
+            new MMapDirectory(path),
+            new IndexCodecMigrationOptions
+            {
+                DryRun = false,
+                ValidateBeforeMigration = false,
+                ValidateAfterMigration = true,
+            });
+
+        Assert.True(result.Succeeded,
+            $"Migration failed. Issues: {string.Join("; ", result.Issues.Select(i => $"{i.Code}: {i.Message}"))}");
+        Assert.NotEmpty(result.ExecutedActions);
+        var after = IndexAnalysisIdentities.Read(new MMapDirectory(path));
+        Assert.NotNull(after);
+        Assert.Equal(before.OrderBy(static pair => pair.Key, StringComparer.Ordinal), after.OrderBy(static pair => pair.Key, StringComparer.Ordinal));
+    }
+
     [Fact(DisplayName = "Migrate: Stored-fields family rewrites when only the index member is legacy")]
     public void Migrate_StoredFieldsIndexOnlyLegacy_RewritesFamily()
     {

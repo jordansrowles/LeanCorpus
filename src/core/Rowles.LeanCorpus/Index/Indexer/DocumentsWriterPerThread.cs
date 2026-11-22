@@ -22,6 +22,7 @@ internal sealed class DocumentsWriterPerThread : IDisposable
 {
     private readonly IAnalyser _analyser;
     private readonly Dictionary<string, IAnalyser> _fieldAnalysers;
+
     private readonly IndexWriterConfig _config;
     private readonly ArrayPool<PostingTermState> _postingsStatePool;
     private readonly ArrayPool<byte> _postingsBytePool;

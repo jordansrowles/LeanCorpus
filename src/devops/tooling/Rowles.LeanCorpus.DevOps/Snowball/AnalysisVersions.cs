@@ -42,6 +42,7 @@ internal sealed record AnalysisVersions(
 /// <param name="Fingerprint">SHA-256 of the default pipeline's output over the fingerprint corpus.</param>
 /// <param name="FingerprintVersion">The version that <paramref name="Fingerprint"/> was recorded under.</param>
 /// <param name="EquivalenceNote">Why a code change kept the previous identity, when one did.</param>
+/// <param name="Kind"><c>analyser</c> for a built-in analyser such as <c>StandardAnalyser</c>; omitted for a factory language.</param>
 internal sealed record AnalysisLanguage(
     [property: JsonPropertyName("code")] string Code,
     [property: JsonPropertyName("line")] string Line,
@@ -52,8 +53,12 @@ internal sealed record AnalysisLanguage(
     [property: JsonPropertyName("codeSha256")] string? CodeSha256 = null,
     [property: JsonPropertyName("fingerprint")] string? Fingerprint = null,
     [property: JsonPropertyName("fingerprintVersion")] string? FingerprintVersion = null,
-    [property: JsonPropertyName("equivalenceNote")] string? EquivalenceNote = null)
+    [property: JsonPropertyName("equivalenceNote")] string? EquivalenceNote = null,
+    [property: JsonPropertyName("kind")] string? Kind = null)
 {
+    public const string AnalyserKind = "analyser";
+
+    [JsonIgnore]
     public string Identity => $"rowles-analysis/{Code}/{Version}";
 }
 

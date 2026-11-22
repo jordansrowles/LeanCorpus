@@ -1038,7 +1038,11 @@ public static class IndexCodecMigrator
             Segments = segmentIds,
             SegmentStates = segmentStates,
             Generation = newGeneration,
-            ContentToken = plan.Inventory.ContentToken ?? 0
+            ContentToken = plan.Inventory.ContentToken ?? 0,
+            // Migration rewrites codecs, not terms, so the analysis identities carry over unchanged.
+            FieldAnalysisIdentities = plan.Inventory.FieldAnalysisIdentities is null
+                ? null
+                : new Dictionary<string, string>(plan.Inventory.FieldAnalysisIdentities, StringComparer.Ordinal)
         };
         var json = JsonSerializer.Serialize(commitData, LeanCorpusJsonContext.Default.CommitData);
         var content = CommitFileFormat.Wrap(json);

@@ -40,7 +40,7 @@ public static class AnalyserFactory
     public static IAnalyser Create(string languageCode)
     {
         var language = Resolve(languageCode);
-        return Build(language, language.DefaultStemmer());
+        return new LanguageAnalyser(language.Tokeniser(), language.StopWords, language.DefaultStemmer(), keywordMarker: null, IdentityOf(language));
     }
 
     /// <summary>
@@ -83,20 +83,21 @@ public static class AnalyserFactory
     /// <exception cref="NotSupportedException">Thrown for unsupported language codes.</exception>
     /// <remarks>
     /// <para>The identity changes exactly when the default pipeline's output can change, so a field
-    /// indexed under one identity must be reindexed when the identity changes. Store it alongside the
-    /// index and compare it on start-up. Compare identities only for equality; they are opaque.</para>
+    /// indexed under one identity must be reindexed when the identity changes. The analyser that
+    /// <see cref="Create(string)"/> returns reports the same identity through
+    /// <see cref="IAnalysisIdentityProvider"/>, and an index records it for every field the analyser
+    /// writes and refuses a different one. Compare identities only for equality; they are opaque.</para>
     /// <para>Snowball languages carry the Snowball version at which their output last changed
     /// (<c>3.2.0</c>, with <c>+rN</c> for later LeanCorpus-only changes); other languages carry a
-    /// LeanCorpus version (<c>0.1.0</c>). Releases before 4.0 had no identity; their output
-    /// corresponds to <c>0.1.0</c> for every language. The identity describes only the built-in
-    /// default pipeline, and is not stored in or enforced against index metadata.</para>
+    /// LeanCorpus version, starting at <c>0.1.0</c>. Releases before 4.0 had no identities, and their
+    /// output matches none of these: 4.0 also keeps position gaps where stop words are removed. The
+    /// identity describes only the built-in default pipeline.</para>
     /// </remarks>
-    public static string GetDefaultAnalysisId(string languageCode)
-    {
-        var language = Resolve(languageCode);
-        return AnalysisIdentities.Find(language.Tag)
+    public static string GetDefaultAnalysisId(string languageCode) => IdentityOf(Resolve(languageCode));
+
+    private static string IdentityOf(LanguageDefinition language)
+        => AnalysisIdentities.Find(language.Tag)
             ?? throw new InvalidOperationException($"No analysis identity is defined for '{language.Tag}'.");
-    }
 
     private static IAnalyser Build(LanguageDefinition language, ISpanStemmer? stemmer)
         => new LanguageAnalyser(language.Tokeniser(), language.StopWords, stemmer);

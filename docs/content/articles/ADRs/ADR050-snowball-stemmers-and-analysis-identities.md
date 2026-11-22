@@ -62,15 +62,17 @@ LeanCorpus does not commit copyleft data.
    - **Snowball line** (en, fr, de, es, it, pt, nl, ru, ar): the Snowball version at which the
      generated code last changed (`3.2.0`). A LeanCorpus-only output change on the same Snowball
      version adds `+rN`.
-   - **Rowles line** (sk, zh, ja, ko): a LeanCorpus `0.x.y` version, starting at `0.1.0`, which
-     also names the output of every release before 4.0.
+   - **Rowles line** (sk, zh, ja, ko): a LeanCorpus `0.x.y` version, starting at `0.1.0`.
+     Releases before 4.0 had no identities, and their output matches none of these, because 4.0
+     also keeps position gaps where stop words are removed.
 
    `analysis-versions.json` records each language's version, generated-code hash and a
    fingerprint of the default pipeline's output over a fixed corpus. The generated
    `AnalysisIdentities` table is compiled from it. `generate` refuses a code or fingerprint
    change without an identity change, unless the change is passed explicitly with
    `--equivalent <code> --reason`, `--rebaseline <code>` or `--bump <code>=minor|patch`.
-   Identities are opaque, compared for equality, and not stored in index metadata.
+   Identities are opaque and compared for equality. ADR051 records them in each commit and
+   enforces them when an index is written.
 5. **Factory override.** `AnalyserFactory.Create(code, ISpanStemmer?)` builds the language's
    tokeniser and stop words with the given stemmer, or none. Ownership follows
    `LanguageAnalyser`: a stemmer must be shareable or thread-local, or analysis throws. A custom
@@ -103,3 +105,4 @@ no output change ships under an old identity.
 | --- | --- | --- | --- |
 | 2026-11-20 | Accepted | Original decision accepted. | `#122`, `#123` |
 | 2026-11-21 | Clarified | Stated the limits of fixture provenance checks. | `#131` |
+| 2026-11-21 | Amended | Corrected the pre-4.0 output claim; identities are recorded and enforced per index (ADR051). | `#131` |

@@ -89,12 +89,39 @@ A custom stemmer must implement `IShareableSpanStemmer` (safe to share) or
 ### Analysis identities and reindexing
 
 `AnalyserFactory.GetDefaultAnalysisId(code)` returns an identity such as `rowles-analysis/de/3.2.0`
-for the `Create(code)` pipeline. It changes exactly when that pipeline's output can change, so
-store it with your index and reindex the affected fields when it differs. Snowball languages carry
-the Snowball version of their algorithm, with `+rN` for later LeanCorpus-only changes; other
-languages carry a LeanCorpus version. Releases before 4.0 had no identity; their output
-corresponds to `0.1.0` for every language. A pipeline with a custom stemmer has no built-in
-identity.
+for the `Create(code)` pipeline. It changes exactly when that pipeline's output can change.
+Snowball languages carry the Snowball version of their algorithm, with `+rN` for later
+LeanCorpus-only changes; other languages carry a LeanCorpus version, starting at `0.1.0`.
+`StandardAnalyser` (default stop words) and `StemmedAnalyser` (no keyword marker) also carry
+identities, `rowles-analysis/standard/...` and `rowles-analysis/stemmed-en/...`.
+
+An analyser reports its identity through `IAnalysisIdentityProvider`, which `AnalysisIdentity.Of`
+reads. A pipeline you configure yourself (a custom stemmer, custom stop words, a keyword marker,
+or a hand-built `Analyser`) has no identity unless you give it one:
+
+```csharp
+var products = AnalysisIdentity.Assign(myAnalyser, "myapp/en-products/1"); // bump when output changes
+```
+
+### Index enforcement
+
+An index records the identity of every analysed field in each commit, and `IndexWriter` refuses a
+field whose identity would change, with `AnalysisIdentityMismatchException`. A recorded field is
+checked when the writer opens; a new field before its first analysis. An analyser without an
+identity is recorded as `unidentified`, and so is every field while writer-level character
+filters are configured. Changing between two unidentified analysers is not detected, so identify
+custom pipelines with `AnalysisIdentity.Assign`.
+
+An index written before 4.0 has no recorded identities, and its analysis matches none of the 4.0
+identities, because 4.0 also keeps position gaps where stop words are removed. The writer
+therefore refuses to analyse any field into such an index. Reindex from source, or set
+`IndexWriterConfig.AcceptAnalysisIdentityChanges` to record the current identities and keep the
+existing terms. That setting also accepts a deliberate change on a 4.0 index; existing terms are
+not reanalysed either way.
+
+Query analysis happens outside the index. Check a query analyser against the recorded identity
+with `IndexAnalysisIdentities.EnsureCompatible(directory, field, analyser)`, or read them all with
+`IndexAnalysisIdentities.Read(directory)`.
 
 LeanCorpus 4.0 replaced the earlier Snowball-style suffix tables with the official algorithms, so
 fields analysed by an earlier release with `en`, `fr`, `de`, `es`, `it`, `pt`, `nl`, `ru` or `ar`

@@ -782,6 +782,21 @@ public sealed partial class IndexWriter : IDisposable
         ArgumentNullException.ThrowIfNull(doc);
         VectorCodecFiles.EnsureCanCreate(_config.VectorQuantisation);
         _config.Schema?.Validate(doc);
+        ValidateAnalysisIdentities(doc);
+    }
+
+    /// <summary>
+    /// Rejects a document before any mutation when one of its analysed fields would change analysis
+    /// identity (ADR051), so the rejection leaves the writer usable.
+    /// </summary>
+    private void ValidateAnalysisIdentities(LeanDocument doc)
+    {
+        var fields = doc.Fields;
+        for (int i = 0; i < fields.Count; i++)
+        {
+            if (fields[i] is TextField text)
+                AnalysisIdentities.EnsureField(text.Name);
+        }
     }
 
     internal void ValidateDocuments(IReadOnlyList<LeanDocument> documents)
@@ -790,7 +805,10 @@ public sealed partial class IndexWriter : IDisposable
         if (_config.Schema is not { } schema)
         {
             for (int i = 0; i < documents.Count; i++)
+            {
                 ArgumentNullException.ThrowIfNull(documents[i]);
+                ValidateAnalysisIdentities(documents[i]);
+            }
             return;
         }
 
@@ -798,6 +816,7 @@ public sealed partial class IndexWriter : IDisposable
         {
             ArgumentNullException.ThrowIfNull(documents[i]);
             schema.Validate(documents[i]);
+            ValidateAnalysisIdentities(documents[i]);
         }
     }
 
@@ -1150,6 +1169,9 @@ public sealed partial class IndexWriter : IDisposable
     internal int ResolvedIndexingConcurrency => _resolvedIndexingConcurrency;
 
     internal List<SegmentInfo> CommittedSegments => _committedSegments;
+
+    /// <summary>Records and enforces each analysed field's analysis identity (ADR051).</summary>
+    internal AnalysisIdentityTracker AnalysisIdentities { get; set; } = null!;
 
     internal List<DeleteTerm> PendingDeletes => _deleteQueue.GetOrderedList();
     internal PendingDeleteQueue DeleteQueue => _deleteQueue;

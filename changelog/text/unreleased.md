@@ -15,6 +15,7 @@ Rowles.Text 2.0 is the first standalone release since 1.0.0. It corrects token p
 
 ## Added
 
+- Add `IAnalysisIdentityProvider` and `AnalysisIdentity`. `AnalyserFactory.Create(code)`, `StandardAnalyser` with its default stop words and `StemmedAnalyser` without a keyword marker declare the identity of their output, which their thread-local copies keep. `AnalysisIdentity.Assign` identifies any other analyser without changing its output.
 - Add `AnalyserFactory.Create(string, ISpanStemmer?)`, which keeps a language's tokeniser and stop words and replaces its stemmer, or removes it with `null`. Requested by [@nordmanndev](https://github.com/nordmanndev) in #123. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
 - Add `AnalyserFactory.GetDefaultAnalysisId`, which returns an identity such as `rowles-analysis/de/3.2.0` for each default language pipeline. It changes whenever the pipeline's output can change, so callers can tell when to re-analyse. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))
 - Ship `THIRD-PARTY-NOTICES.md` in the package, with the BSD licence for the Snowball algorithms. ([017824fb2](https://github.com/jordansrowles/LeanCorpus/commit/017824fb200f872ee2ef45ccf91633255ba0a10f))

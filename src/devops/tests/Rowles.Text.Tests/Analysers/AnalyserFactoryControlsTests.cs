@@ -145,9 +145,15 @@ public sealed class AnalyserFactoryControlsTests
     public void DefaultIdentities_MatchTheCommittedManifest()
     {
         var manifest = ReadVersions();
-        Assert.Equal(AnalyserFactory.SupportedLanguages.Order(StringComparer.Ordinal), manifest.Keys.Order(StringComparer.Ordinal));
-        foreach (var (code, entry) in manifest)
+        var languages = manifest.Where(static pair => !pair.Value.IsAnalyser).ToDictionary(static pair => pair.Key, static pair => pair.Value);
+        Assert.Equal(AnalyserFactory.SupportedLanguages.Order(StringComparer.Ordinal), languages.Keys.Order(StringComparer.Ordinal));
+        foreach (var (code, entry) in languages)
             Assert.Equal($"rowles-analysis/{code}/{entry.Version}", AnalyserFactory.GetDefaultAnalysisId(code));
+
+        // Built-in analysers outside the factory (ADR051) carry identities from the same manifest.
+        Assert.Equal(BuiltInAnalysers.Keys.Order(StringComparer.Ordinal), manifest.Where(static pair => pair.Value.IsAnalyser).Select(static pair => pair.Key).Order(StringComparer.Ordinal));
+        foreach (var (code, create) in BuiltInAnalysers)
+            Assert.Equal($"rowles-analysis/{code}/{manifest[code].Version}", AnalysisIdentity.Of(create()));
     }
 
     /// <summary>
@@ -158,7 +164,10 @@ public sealed class AnalyserFactoryControlsTests
     [Fact]
     public void DefaultPipelineOutput_MatchesItsRecordedFingerprint()
     {
-        var actual = AnalyserFactory.SupportedLanguages.ToDictionary(static code => code, Fingerprint, StringComparer.Ordinal);
+        var actual = AnalyserFactory.SupportedLanguages
+            .Select(static code => (Code: code, Fingerprint: Fingerprint(AnalyserFactory.Create(code), code)))
+            .Concat(BuiltInAnalysers.Select(static pair => (Code: pair.Key, Fingerprint: Fingerprint(pair.Value(), "en"))))
+            .ToDictionary(static pair => pair.Code, static pair => pair.Fingerprint, StringComparer.Ordinal);
         if (Environment.GetEnvironmentVariable(FingerprintUpdateVariable) == "1")
         {
             string path = Path.Combine(Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.RepositoryRoot, "artifacts", "snowball", "pending-fingerprints.json");
@@ -260,9 +269,15 @@ public sealed class AnalyserFactoryControlsTests
         }
     }
 
-    private static string Fingerprint(string code)
+    /// <summary>Built-in analysers with an identity outside <see cref="AnalyserFactory"/>, by manifest code.</summary>
+    private static readonly Dictionary<string, Func<IAnalyser>> BuiltInAnalysers = new(StringComparer.Ordinal)
     {
-        var analyser = AnalyserFactory.Create(code);
+        ["standard"] = static () => new StandardAnalyser(),
+        ["stemmed-en"] = static () => new StemmedAnalyser(),
+    };
+
+    private static string Fingerprint(IAnalyser analyser, string code)
+    {
         var builder = new StringBuilder();
         foreach (var text in FingerprintCorpus(code))
         {
@@ -331,7 +346,8 @@ public sealed class AnalyserFactoryControlsTests
             result[language.GetProperty("code").GetString()!] = new VersionEntry(
                 language.GetProperty("version").GetString()!,
                 language.TryGetProperty("fingerprint", out var fingerprint) ? fingerprint.GetString() : null,
-                language.TryGetProperty("fingerprintVersion", out var version) ? version.GetString() : null);
+                language.TryGetProperty("fingerprintVersion", out var version) ? version.GetString() : null,
+                language.TryGetProperty("kind", out var kind) && kind.GetString() == "analyser");
         }
         return result;
     }
@@ -373,7 +389,7 @@ public sealed class AnalyserFactoryControlsTests
         token.PositionIncrement.ToString(CultureInfo.InvariantCulture),
         token.PositionLength.ToString(CultureInfo.InvariantCulture));
 
-    private sealed record VersionEntry(string Version, string? Fingerprint, string? FingerprintVersion);
+    private sealed record VersionEntry(string Version, string? Fingerprint, string? FingerprintVersion, bool IsAnalyser);
 
     private sealed class UpperCaseStemmer : IShareableSpanStemmer
     {

@@ -24,6 +24,8 @@ internal static class AnalysisIdentities
         "zh" => "rowles-analysis/zh/0.1.0",
         "ja" => "rowles-analysis/ja/0.1.0",
         "ko" => "rowles-analysis/ko/0.1.0",
+        "standard" => "rowles-analysis/standard/0.1.0",
+        "stemmed-en" => "rowles-analysis/stemmed-en/3.2.0",
         _ => null,
     };
 }

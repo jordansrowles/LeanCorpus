@@ -172,6 +172,7 @@ public static class IndexRecovery
             {
                 Generation = generation,
                 ContentToken = commitData.ContentToken,
+                FieldAnalysisIdentities = commitData.FieldAnalysisIdentities,
                 SegmentIds = validSegments,
                 SegmentInfos = resolvedSegments,
                 CommitFilePath = commitFilePath,
@@ -488,6 +489,12 @@ public static class IndexRecovery
 
         /// <summary>Gets the segment IDs referenced by the recovered commit.</summary>
         public List<string> SegmentIds { get; init; } = [];
+
+        /// <summary>
+        /// Gets the analysis identity of every analysed field, or <see langword="null"/> when the commit
+        /// predates recorded identities (ADR051).
+        /// </summary>
+        internal IReadOnlyDictionary<string, string>? FieldAnalysisIdentities { get; init; }
 
         /// <summary>Gets immutable segment metadata overlaid with this commit's deletion state.</summary>
         internal List<Segment.SegmentInfo> SegmentInfos { get; init; } = [];

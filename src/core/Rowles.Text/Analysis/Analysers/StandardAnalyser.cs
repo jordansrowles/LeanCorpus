@@ -9,7 +9,7 @@ namespace Rowles.LeanCorpus.Analysis.Analysers;
 /// for performance. Each instance should be used by a single thread, or callers should create
 /// separate instances per thread (as IndexWriter does in AddDocumentsConcurrent).
 /// </summary>
-public sealed class StandardAnalyser : IThreadLocalAnalyser, ITermNormaliser
+public sealed class StandardAnalyser : IThreadLocalAnalyser, ITermNormaliser, IAnalysisIdentityProvider
 {
     private readonly Tokeniser _tokeniser = new();
     private readonly StopWordFilter _stopWordFilter;
@@ -31,6 +31,13 @@ public sealed class StandardAnalyser : IThreadLocalAnalyser, ITermNormaliser
 
     /// <inheritdoc/>
     public IAnalyser CreateThreadLocalAnalyser() => new StandardAnalyser(stopWords: _configuredStopWords);
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <c>rowles-analysis/standard/&lt;version&gt;</c> with the default English stop words. Custom stop
+    /// words change the output, so an analyser constructed with <c>stopWords</c> has no identity.
+    /// </remarks>
+    public string? AnalysisId => _configuredStopWords is null ? Stemmers.Snowball.AnalysisIdentities.Find("standard") : null;
 
     /// <inheritdoc/>
     public void Analyse(ReadOnlySpan<char> input, ISpanTokenSink sink)

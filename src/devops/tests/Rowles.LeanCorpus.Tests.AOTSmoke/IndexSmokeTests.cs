@@ -47,6 +47,34 @@ public class IndexSmokeTests : IClassFixture<IndexSmokeFixture>
         _fixture = fixture;
     }
 
+    // ADR051: commit-recorded analysis identities round-trip through the source-generated JSON
+    // context and are enforced under Native AOT.
+    [Fact]
+    public void AnalysisIdentities_AreRecordedAndEnforced()
+    {
+        string path = Path.Combine(_fixture.RootPath, "analysis-identities");
+        using var directory = new MMapDirectory(path);
+        var german = new IndexWriterConfig();
+        german.FieldAnalysers["body"] = AnalyserFactory.Create("de");
+        using (var writer = new IndexWriter(directory, german))
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", "Tomaten und Zwiebeln"));
+            writer.AddDocument(document);
+            writer.Commit();
+        }
+
+        var identities = Rowles.LeanCorpus.Index.IndexAnalysisIdentities.Read(directory);
+        Assert.NotNull(identities);
+        Assert.Equal("rowles-analysis/de/3.2.0", identities["body"]);
+
+        var french = new IndexWriterConfig();
+        french.FieldAnalysers["body"] = AnalyserFactory.Create("fr");
+        var exception = Assert.Throws<Rowles.LeanCorpus.Index.AnalysisIdentityMismatchException>(() => new IndexWriter(directory, french));
+        Assert.Equal("rowles-analysis/de/3.2.0", exception.RecordedIdentity);
+        Assert.Equal("test/fr/1", AnalysisIdentity.Of(AnalysisIdentity.Assign(AnalyserFactory.Create("fr"), "test/fr/1")));
+    }
+
     [Fact]
     public async Task AsyncWriter_ShutdownAndReopen_PreservesCommittedDocuments()
     {
