@@ -38,7 +38,12 @@ lower-cased input, are safe to share across threads, and do not allocate on the 
 
 `SlovakStemmer` is LeanCorpus's own, contributed by Jozef Gajdoš from his
 [2014 work on Slovak stemming](https://www.itspy.cz/wp-content/uploads/2015/01/acmspy2014_submission_08.pdf).
-Snowball has no Slovak algorithm. `ChineseStemmer`, `JapaneseStemmer` and `KoreanStemmer` are also
+Snowball has no Slovak algorithm. It removes case endings and writes the stem's final consonant
+hard (`ď`, `ť`, `ň` and `ľ` become `d`, `t`, `n` and `l`), because Slovak spells a soft consonant
+without its caron before `e`, `i`, `í` and `ia`. It expects lower-cased NFC input with diacritics:
+analysis does not normalise, so decomposed text gives different terms. Irregular nouns such as
+`človek`/`ľudia`, long-vowel alternation such as `ruka`/`rúk`, verbs and adjective degree are only
+partly conflated. `ChineseStemmer`, `JapaneseStemmer` and `KoreanStemmer` are also
 LeanCorpus's own.
 
 Use them with `LanguageAnalyser`, `AnalyserFactory.Create(code, stemmer)` or a custom pipeline.

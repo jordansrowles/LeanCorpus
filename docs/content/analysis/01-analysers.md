@@ -145,7 +145,8 @@ numbers; an index built by those releases records no identity, so 4.0 treats it 
 LeanCorpus 4.0 replaced the earlier Snowball-style suffix tables with the official algorithms, so
 fields analysed by an earlier release with `en`, `fr`, `de`, `es`, `it`, `pt`, `nl`, `ru` or `ar`
 (and `StemmedAnalyser`) need reindexing. The German stop-word list also gained `ans`, `aufs`,
-`ins` and `vom`.
+`ins` and `vom`. Slovak (`sk`) fields need reindexing too: the 4.0 Slovak stemmer writes every
+stem with a hard final consonant, so `mesto` and `meste`, or `kosť` and `kosti`, now share a term.
 
 ## Per-field override
 
