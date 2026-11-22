@@ -1,4 +1,4 @@
-namespace Rowles.Text.Tests.Stemmers;
+﻿namespace Rowles.Text.Tests.Stemmers;
 
 /// <summary>
 /// Unit tests for <see cref="SlovakStemmer"/>.
@@ -266,5 +266,52 @@ public sealed class SlovakStemmerTests
         var changed = rows.Where(row => _stemmer.Stem(row[0]) != row[2]).Select(static row => row[0]).ToArray();
         Assert.Empty(changed);
         Assert.Equal(19, rows.Count(static row => row[1] != row[2]));
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: a token that is only a softening suffix does not throw")]
+    [InlineData("iach")]
+    [InlineData("iami")]
+    [InlineData("IACH")]
+    [InlineData("Iami")]
+    public void StemString_SuffixOnlyToken_DoesNotThrow(string word)
+    {
+        string stem = _stemmer.Stem(word);
+
+        Assert.NotEmpty(stem);
+        Assert.True(stem.Length <= word.Length);
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: Stem(Span) returns minus one and leaves a short output untouched on every rule")]
+    [InlineData("meste")]
+    [InlineData("zeniam")]
+    [InlineData("chlapok")]
+    [InlineData("centrum")]
+    [InlineData("public")]
+    [InlineData("kocovi")]
+    [InlineData("miest")]
+    public void StemSpan_ShortOutput_IsAtomic(string word)
+    {
+        string stem = _stemmer.Stem(word);
+        Span<char> output = stackalloc char[stem.Length + 2];
+        output.Fill('#');
+
+        int length = _stemmer.Stem(word.AsSpan(), output[..(stem.Length - 1)]);
+
+        Assert.Equal(-1, length);
+        Assert.Equal(new string('#', output.Length), output.ToString());
+    }
+
+    [Theory(DisplayName = "SlovakStemmer: Stem(Span) writes a stem into an output of exactly its length")]
+    [InlineData("meste")]
+    [InlineData("domov")]
+    [InlineData("chlapok")]
+    public void StemSpan_OutputOfStemLength_Works(string word)
+    {
+        string stem = _stemmer.Stem(word);
+        Span<char> output = stackalloc char[stem.Length];
+
+        int length = _stemmer.Stem(word.AsSpan(), output);
+
+        Assert.Equal(stem, output[..length].ToString());
     }
 }

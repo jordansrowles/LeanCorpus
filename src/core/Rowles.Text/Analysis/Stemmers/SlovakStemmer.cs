@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Buffers;
+using System.Runtime.CompilerServices;
 
 namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
@@ -81,7 +82,33 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
             return word.Length;
         }
 
-        return RemoveSuffixes(word, output);
+        // No rule lengthens a word, so a word-sized buffer always holds the stem. A shorter output gets
+        // the stem only if it fits, and is left untouched otherwise.
+        if (output.Length >= word.Length)
+        {
+            return RemoveSuffixes(word, output);
+        }
+
+        char[]? rented = null;
+        Span<char> scratch = word.Length <= 64 ? stackalloc char[64] : (rented = ArrayPool<char>.Shared.Rent(word.Length));
+        try
+        {
+            int length = RemoveSuffixes(word, scratch);
+            if (length < 0 || length > output.Length)
+            {
+                return -1;
+            }
+
+            scratch[..length].CopyTo(output);
+            return length;
+        }
+        finally
+        {
+            if (rented is not null)
+            {
+                ArrayPool<char>.Shared.Return(rented);
+            }
+        }
     }
 
     private static int RemoveSuffixes(ReadOnlySpan<char> word, Span<char> output)
@@ -90,7 +117,8 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
         {
             foreach (string suffix in suffixesGroup)
             {
-                if (word.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                // A suffix must leave a root: a token that is only a suffix, such as "iach", tries the next one.
+                if (suffix.Length < word.Length && word.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                 {
                     if (IsDtnl(suffix))
                     {
@@ -297,6 +325,11 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
 
     private static int RestoreDtnl(ReadOnlySpan<char> wordRoot, Span<char> output)
     {
+        if (wordRoot.Length > output.Length)
+        {
+            return -1;
+        }
+
         wordRoot.CopyTo(output);
         output[wordRoot.Length - 1] = wordRoot[^1] switch
         {
