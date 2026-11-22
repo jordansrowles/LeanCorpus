@@ -83,8 +83,6 @@ internal abstract class SnowballRuntime
     {
         // The previous word's contents are discarded, so nothing is copied when the buffer changes.
         _length = 0;
-        if (_buffer.Length > RetainedCapacity)
-            _buffer = new char[InitialCapacity];
         EnsureCapacity(word.Length);
         word.CopyTo(_buffer);
         _length = word.Length;
@@ -93,6 +91,17 @@ internal abstract class SnowballRuntime
         limit_backward = bra = ket = cursor = 0;
         limit = _length;
         ResetState();
+    }
+
+    /// <summary>
+    /// Releases a buffer that grew past the retained size, once the caller has copied the result, so
+    /// one very long token does not stay pinned until the thread's next word.
+    /// </summary>
+    internal void Release()
+    {
+        _length = 0;
+        if (_buffer.Length > RetainedCapacity)
+            _buffer = new char[InitialCapacity];
     }
 
     /// <summary>Runs the algorithm over the loaded word.</summary>

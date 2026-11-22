@@ -132,8 +132,10 @@ public sealed class AnalyserFactoryControlsTests
     {
         foreach (var code in SnowballLanguages)
             Assert.Equal($"rowles-analysis/{code}/3.2.0", AnalyserFactory.GetDefaultAnalysisId(code));
-        foreach (var code in new[] { "sk", "zh", "ja", "ko" })
-            Assert.Equal($"rowles-analysis/{code}/0.1.0", AnalyserFactory.GetDefaultAnalysisId(code));
+        // The Rowles line continues the pre-4.0 output eras (ADR050): zh, ja and ko had four, sk one.
+        Assert.Equal("rowles-analysis/sk/0.1.0", AnalyserFactory.GetDefaultAnalysisId("sk"));
+        foreach (var code in new[] { "zh", "ja", "ko" })
+            Assert.Equal($"rowles-analysis/{code}/0.3.0", AnalyserFactory.GetDefaultAnalysisId(code));
 
         Assert.Equal(AnalyserFactory.GetDefaultAnalysisId("de"), AnalyserFactory.GetDefaultAnalysisId("de-DE"));
         Assert.Equal(AnalyserFactory.GetDefaultAnalysisId("pt"), AnalyserFactory.GetDefaultAnalysisId("PT-br"));
@@ -290,17 +292,25 @@ public sealed class AnalyserFactoryControlsTests
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
     }
 
-    /// <summary>Sample sentences, every stop word, and words from the pinned lists and a seeded generator.</summary>
+    /// <summary>
+    /// The pinned corpus lines for the language, every stop word, the corpus lines for all languages,
+    /// and words from the pinned lists and a seeded generator.
+    /// </summary>
     private static IEnumerable<string> FingerprintCorpus(string code)
     {
-        foreach (var (language, sentence) in LanguageOutputSnapshotTests.Samples)
+        var corpus = FingerprintCorpusLines();
+        foreach (var (language, line) in corpus)
         {
             if (language == code)
-                yield return sentence;
+                yield return line;
         }
 
         yield return string.Join(' ', StopWords.ForLanguage(code) ?? []);
-        yield return "vom zum beim ans ins aufs Straße ßßßß Tomaten Zwiebeln Kürbisse";
+        foreach (var (language, line) in corpus)
+        {
+            if (language == "*")
+                yield return line;
+        }
 
         string? algorithm = SnowballAlgorithm(code);
         if (algorithm is not null && SnowballFixtures.VendoredAlgorithms.Concat(["arabic"]).Contains(algorithm))
@@ -334,6 +344,37 @@ public sealed class AnalyserFactoryControlsTests
         "pt" => "portuguese", "nl" => "dutch", "ru" => "russian", "ar" => "arabic",
         _ => null,
     };
+
+    private static string FingerprintCorpusPath => Path.Combine(Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.RepositoryRoot,
+        "src", "devops", "tests", "fixtures", "analysis", "fingerprint-corpus.tsv");
+
+    private static (string Language, string Line)[] FingerprintCorpusLines()
+        => File.ReadAllText(FingerprintCorpusPath, new UTF8Encoding(false, true)).ReplaceLineEndings("\n")
+            .Split('\n')
+            .Where(static line => line.Length > 0 && line[0] != '#')
+            .Select(static line => line.Split('\t', 2))
+            .Select(static cells => (cells[0], cells[1]))
+            .ToArray();
+
+    /// <summary>
+    /// The recorded fingerprints are only comparable over the corpus they were computed from, so the
+    /// manifest pins the corpus by hash and an edit to it cannot pass silently.
+    /// </summary>
+    [Fact]
+    public void FingerprintCorpus_MatchesItsRecordedHash()
+    {
+        string text = File.ReadAllText(FingerprintCorpusPath, new UTF8Encoding(false, true)).ReplaceLineEndings("\n");
+        string actual = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+        string path = Path.Combine(Rowles.LeanCorpus.Tests.Shared.Fixtures.RepositoryTemporaryStorage.RepositoryRoot,
+            "src", "core", "Rowles.Text", "Analysis", "Stemmers", "Snowball", "analysis-versions.json");
+        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        Assert.True(document.RootElement.TryGetProperty("fingerprintCorpusSha256", out var recorded), "analysis-versions.json has no fingerprintCorpusSha256.");
+        Assert.True(string.Equals(recorded.GetString(), actual, StringComparison.Ordinal),
+            $"fingerprint-corpus.tsv changed ({actual}). Run the text tests with {FingerprintUpdateVariable}=1, then " +
+            "'./devops snowball generate --accept-fingerprints' with a new identity for every language whose fingerprint changed.");
+        Assert.Equal(AnalyserFactory.SupportedLanguages.Order(StringComparer.Ordinal),
+            FingerprintCorpusLines().Select(static row => row.Language).Where(static code => code != "*").Distinct().Order(StringComparer.Ordinal));
+    }
 
     private static Dictionary<string, VersionEntry> ReadVersions()
     {

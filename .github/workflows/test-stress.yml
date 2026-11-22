@@ -107,6 +107,11 @@ jobs:
       - name: Bootstrap managed DevOps host
         shell: pwsh
         run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Cache pinned Snowball word lists
+        uses: actions/cache@v4
+        with:
+          path: artifacts/snowball-data
+          key: snowball-data-${{ hashFiles('src/devops/tests/fixtures/snowball/manifest.json') }}
       - name: Fetch pinned Snowball word lists
         shell: pwsh
         run: pwsh -NoProfile -File ./devops.ps1 snowball fetch-data
@@ -196,6 +201,11 @@ jobs:
       - name: Bootstrap managed DevOps host
         shell: pwsh
         run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      - name: Cache pinned Snowball word lists
+        uses: actions/cache@v4
+        with:
+          path: artifacts/snowball-data
+          key: snowball-data-${{ hashFiles('src/devops/tests/fixtures/snowball/manifest.json') }}
       - name: Fetch pinned Snowball word lists
         shell: pwsh
         run: pwsh -NoProfile -File ./devops.ps1 snowball fetch-data

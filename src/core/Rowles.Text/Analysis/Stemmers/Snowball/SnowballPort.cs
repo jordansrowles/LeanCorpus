@@ -49,6 +49,7 @@ internal static class SnowballPort
         }
         finally
         {
+            runtime.Release();
             if (shared)
                 t_inUse = false;
         }
@@ -68,6 +69,7 @@ internal static class SnowballPort
         }
         finally
         {
+            runtime.Release();
             if (shared)
                 t_inUse = false;
         }

@@ -135,6 +135,16 @@ public sealed class AnalysisVersionPlannerTests
     }
 
     [Fact]
+    public void OutputChange_ClearsAnEarlierEquivalenceNote()
+    {
+        var noted = Versions() with { Languages = [Versions().Languages[0] with { EquivalenceNote = "refactor only" }, Versions().Languages[1]] };
+        var (versions, _) = AnalysisVersionPlanner.Apply(noted, "3.2.0", Code, Requests(pending: new() { ["de"] = "fp-2" }, rebaseline: ["de"]));
+
+        Assert.Equal("3.2.0+r2", versions.Languages[0].Version);
+        Assert.Null(versions.Languages[0].EquivalenceNote);
+    }
+
+    [Fact]
     public void BumpWithoutAnOutputChange_IsRejected()
     {
         Assert.Throws<InvalidOperationException>(() => AnalysisVersionPlanner.Apply(

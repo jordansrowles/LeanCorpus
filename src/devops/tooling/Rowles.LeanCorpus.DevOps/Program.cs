@@ -775,12 +775,17 @@ internal static class Program
         {
             Description = "Record the pipeline fingerprints written by the analysis identity tests."
         };
+        var codeOnly = new Option<bool>("--code-only")
+        {
+            Description = "Write only the generated algorithms, leaving the identities unchanged, so the identity tests can fingerprint changed code."
+        };
         var generate = new Command("generate", "Regenerate the production Snowball algorithms and analysis identities.");
         generate.Add(equivalent);
         generate.Add(reason);
         generate.Add(rebaseline);
         generate.Add(bump);
         generate.Add(acceptFingerprints);
+        generate.Add(codeOnly);
         generate.SetAction(result => handler.Snowball(new SnowballCommandOptions(
             "generate",
             result.GetValue(equivalent) ?? [],
@@ -788,7 +793,8 @@ internal static class Program
             result.GetValue(rebaseline) ?? [],
             result.GetValue(bump) ?? [],
             result.GetValue(acceptFingerprints),
-            result.GetValue(repository))));
+            result.GetValue(repository),
+            result.GetValue(codeOnly))));
 
         var verify = new Command("verify", "Fail if the committed Snowball algorithms or identities differ from a fresh generation.");
         verify.SetAction(result => handler.Snowball(new SnowballCommandOptions(

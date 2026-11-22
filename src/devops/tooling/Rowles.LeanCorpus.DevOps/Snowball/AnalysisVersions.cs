@@ -10,9 +10,13 @@ namespace Rowles.LeanCorpus.DevOps.Snowball;
 /// use the Snowball version at which their output last changed, with <c>+rN</c> for later Rowles-only
 /// changes; Rowles-owned languages use Rowles 0.x.y versions.
 /// </summary>
+/// <param name="SchemaVersion">The manifest schema version.</param>
+/// <param name="Languages">The identity of each language and built-in analyser.</param>
+/// <param name="FingerprintCorpusSha256">SHA-256 of the pinned fingerprint corpus the recorded fingerprints were computed over.</param>
 internal sealed record AnalysisVersions(
     [property: JsonPropertyName("schemaVersion")] int SchemaVersion,
-    [property: JsonPropertyName("languages")] IReadOnlyList<AnalysisLanguage> Languages)
+    [property: JsonPropertyName("languages")] IReadOnlyList<AnalysisLanguage> Languages,
+    [property: JsonPropertyName("fingerprintCorpusSha256")] string? FingerprintCorpusSha256 = null)
 {
     public const string SnowballLine = "snowball";
     public const string RowlesLine = "rowles";
@@ -212,7 +216,8 @@ internal static class AnalysisVersionPlanner
                 $"Run './devops snowball generate --accept-fingerprints {command}'.");
         }
 
-        var next = language with { Version = version, Fingerprint = fingerprint, FingerprintVersion = version };
+        // The output changed, so an earlier claim that a code change kept the output no longer applies.
+        var next = language with { Version = version, Fingerprint = fingerprint, FingerprintVersion = version, EquivalenceNote = null };
         changes.Add($"{language.Code}: {language.Identity} -> {next.Identity} (pipeline output changed).");
         return next;
     }

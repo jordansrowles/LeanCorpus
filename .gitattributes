@@ -22,3 +22,4 @@
 /src/devops/tests/fixtures/snowball/** text eol=lf
 /src/devops/tests/fixtures/snowball/**/*.gz binary
 /src/devops/tests/fixtures/slovak/** text eol=lf
+/src/devops/tests/fixtures/analysis/** text eol=lf

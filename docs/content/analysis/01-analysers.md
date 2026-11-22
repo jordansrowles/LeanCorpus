@@ -63,9 +63,9 @@ Every pipeline tokenises, lowercases and removes the language's stop words, then
 | `ru` | `Tokeniser` | `RussianStemmer` (Snowball 3.2.0) | `rowles-analysis/ru/3.2.0` |
 | `ar` | `Tokeniser` | `ArabicStemmer` (Snowball 3.2.0) | `rowles-analysis/ar/3.2.0` |
 | `sk` | `Tokeniser` | `SlovakStemmer` | `rowles-analysis/sk/0.1.0` |
-| `zh` | `ChineseLexiconTokeniser` | None | `rowles-analysis/zh/0.1.0` |
-| `ja` | `JapaneseTokeniser` | None | `rowles-analysis/ja/0.1.0` |
-| `ko` | `CJKBigramTokeniser` | None | `rowles-analysis/ko/0.1.0` |
+| `zh` | `ChineseLexiconTokeniser` | None | `rowles-analysis/zh/0.3.0` |
+| `ja` | `JapaneseTokeniser` | None | `rowles-analysis/ja/0.3.0` |
+| `ko` | `CJKBigramTokeniser` | None | `rowles-analysis/ko/0.3.0` |
 <!-- analysis-languages:end -->
 
 Chinese uses lexicon-based longest-match segmentation, Japanese uses
@@ -91,7 +91,7 @@ A custom stemmer must implement `IShareableSpanStemmer` (safe to share) or
 `AnalyserFactory.GetDefaultAnalysisId(code)` returns an identity such as `rowles-analysis/de/3.2.0`
 for the `Create(code)` pipeline. It changes exactly when that pipeline's output can change.
 Snowball languages carry the Snowball version of their algorithm, with `+rN` for later
-LeanCorpus-only changes; other languages carry a LeanCorpus version, starting at `0.1.0`.
+LeanCorpus-only changes; other languages carry a LeanCorpus `0.x.y` version.
 `StandardAnalyser` (default stop words) and `StemmedAnalyser` (no keyword marker) also carry
 identities, `rowles-analysis/standard/...` and `rowles-analysis/stemmed-en/...`.
 
@@ -122,6 +122,24 @@ not reanalysed either way.
 Query analysis happens outside the index. Check a query analyser against the recorded identity
 with `IndexAnalysisIdentities.EnsureCompatible(directory, field, analyser)`, or read them all with
 `IndexAnalysisIdentities.Read(directory)`.
+
+### Identities before 4.0
+
+Releases before 4.0 reported no identities, and no 4.0 identity describes their output. The
+nine Snowball languages had no identity before 4.0. The LeanCorpus-versioned languages number
+their earlier output eras, so the 4.0 versions are not `0.1.0`:
+
+| Language | Identity | Engine releases | Rowles.Text | What defines it |
+| --- | --- | --- | --- | --- |
+| `zh`, `ja`, `ko` | `0.3.0` | 4.0 | 2.0.0 | Stop-word position gaps, whole-token lower-casing, combining marks and supplementary-plane letters, digits and punctuation |
+| `zh`, `ja`, `ko` | `0.2.0` | 2.3.0 to 3.1.1 | 1.0.0 | `zh` lexicon tokeniser, `ja` Viterbi segmentation, `ko` no longer bigrams Hangul |
+| `zh`, `ja`, `ko` | `0.1.2` | 2.2.0 | | Non-ASCII capitals lower-cased again |
+| `zh`, `ja`, `ko` | `0.1.1` | 2.0.0 to 2.1.1 | | Lower-casing only from the first A to Z |
+| `zh`, `ja`, `ko` | `0.1.0` | 1.1.1 to 1.4.2 | | CJK bigrams, whole-token invariant lower-casing |
+| `sk` | `0.1.0` | 2.2.0 to 3.1.1 | 1.0.0 | Added in 2.2.0 |
+
+The earlier eras were traced from the source history. They are listed to explain the 4.0
+numbers; an index built by those releases records no identity, so 4.0 treats it as unknown.
 
 LeanCorpus 4.0 replaced the earlier Snowball-style suffix tables with the official algorithms, so
 fields analysed by an earlier release with `en`, `fr`, `de`, `es`, `it`, `pt`, `nl`, `ru` or `ar`

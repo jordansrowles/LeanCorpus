@@ -89,9 +89,9 @@ public static class AnalyserFactory
     /// writes and refuses a different one. Compare identities only for equality; they are opaque.</para>
     /// <para>Snowball languages carry the Snowball version at which their output last changed
     /// (<c>3.2.0</c>, with <c>+rN</c> for later LeanCorpus-only changes); other languages carry a
-    /// LeanCorpus version, starting at <c>0.1.0</c>. Releases before 4.0 had no identities, and their
-    /// output matches none of these: 4.0 also keeps position gaps where stop words are removed. The
-    /// identity describes only the built-in default pipeline.</para>
+    /// LeanCorpus <c>0.x.y</c> version, numbered after their earlier output eras. Releases before 4.0
+    /// reported no identities, and their output matches none of these: 4.0 also keeps position gaps
+    /// where stop words are removed. The identity describes only the built-in default pipeline.</para>
     /// </remarks>
     public static string GetDefaultAnalysisId(string languageCode) => IdentityOf(Resolve(languageCode));
 

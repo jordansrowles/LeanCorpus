@@ -170,6 +170,7 @@ internal sealed record SnowballCommandOptions(
     IReadOnlyList<string> Rebaseline,
     IReadOnlyList<string> Bump,
     bool AcceptFingerprints,
-    string? RepositoryPath = null);
+    string? RepositoryPath = null,
+    bool CodeOnly = false);
 
 internal sealed record BackupRestoreMatrixCommandOptions(BackupRestoreMatrixOptions MatrixOptions, string? RepositoryPath = null);

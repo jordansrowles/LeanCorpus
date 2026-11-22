@@ -590,6 +590,15 @@ internal sealed class ManagedCommandHandler(
                     return _renderer.Render(new CommandResult(OutcomeKind.Success,
                         "Snowball word lists are present and verified.", Details: string.Join(Environment.NewLine, lines)), output, error);
                 }
+                case "generate" when options.CodeOnly:
+                {
+                    if (options.Equivalent.Count > 0 || options.Rebaseline.Count > 0 || options.Bump.Count > 0 || options.AcceptFingerprints)
+                        throw new ArgumentException("--code-only records no identity decision; run generate again with the decision after the identity tests.");
+                    var written = workspace.WriteCodeOnly();
+                    return _renderer.Render(new CommandResult(OutcomeKind.Success,
+                        $"Wrote {written.Count} generated Snowball algorithms; analysis identities are unchanged. Run the analysis identity tests with LEANCORPUS_UPDATE_ANALYSIS_FINGERPRINTS=1, then generate with the identity decision.",
+                        Details: string.Join(Environment.NewLine, written)), output, error);
+                }
                 case "generate":
                 {
                     var requests = SnowballCommandRequests.Parse(options, workspace);

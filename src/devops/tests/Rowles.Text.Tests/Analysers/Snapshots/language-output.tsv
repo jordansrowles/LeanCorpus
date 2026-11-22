@@ -104,7 +104,7 @@ sk	velk	0	5	1	1
 sk	dom	6	10	1	1
 sk	vel	14	19	2	1
 sk	pekn	20	25	1	1
-# rowles-analysis/zh/0.1.0
+# rowles-analysis/zh/0.3.0
 zh	敏	0	1	1	1
 zh	捷	1	2	1	1
 zh	狐	3	4	2	1
@@ -126,7 +126,7 @@ zh	下	24	25	2	1
 zh	午	25	26	1	1
 zh	阳	26	27	1	1
 zh	光	27	28	1	1
-# rowles-analysis/ja/0.1.0
+# rowles-analysis/ja/0.3.0
 ja	素早い	0	3	1	1
 ja	狐	3	4	1	1
 ja	怠け者	5	8	2	1
@@ -142,7 +142,7 @@ ja	眺め	33	35	2	1
 ja	い	36	37	2	1
 ja	まし	37	39	1	1
 ja	た	39	40	1	1
-# rowles-analysis/ko/0.1.0
+# rowles-analysis/ko/0.3.0
 ko	빠른	0	2	1	1
 ko	여우가	3	6	1	1
 ko	게으른	7	10	1	1

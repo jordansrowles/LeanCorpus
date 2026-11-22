@@ -71,7 +71,7 @@ migration move terms without reanalysing them. Commits are the only visibility b
 Recording identities per field in the commit puts them on the same visibility boundary as the
 content they describe, and needs no change to segment or codec formats. Failing when the writer
 opens catches a changed analyser before any mixed content exists. Treating pre-identity content as
-unknown, rather than mapping it to `0.1.0`, is the only honest policy: 4.0 changed every pipeline's
+unknown, rather than mapping it to an earlier identity, is the only honest policy: 4.0 changed every pipeline's
 positions, so no 4.0 identity describes 3.x output. Built-in identities are declared only where
 the output is fully determined, because a wrong identity is worse than none.
 

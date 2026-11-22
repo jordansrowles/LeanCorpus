@@ -16,7 +16,7 @@ internal static class SnowballCommandRequests
         foreach (var value in options.Bump)
         {
             var parts = value.Split('=', 2);
-            if (parts.Length != 2 || !Enum.TryParse<AnalysisBump>(parts[1], ignoreCase: true, out var kind))
+            if (parts.Length != 2 || !Enum.TryParse<AnalysisBump>(parts[1], ignoreCase: true, out var kind) || !Enum.IsDefined(kind))
                 throw new ArgumentException($"--bump '{value}' must be <code>=minor or <code>=patch.");
             bump[parts[0]] = kind;
         }

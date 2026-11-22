@@ -23,13 +23,67 @@ internal sealed class SnowballWorkspace(string repositoryRoot)
 
     public string PendingFingerprintsPath => Path.Combine(RepositoryRoot, "artifacts", "snowball", "pending-fingerprints.json");
 
+    public string FingerprintCorpusPath => Path.Combine(RepositoryRoot, "src", "devops", "tests", "fixtures", "analysis", "fingerprint-corpus.tsv");
+
     public const string IdentitiesFile = "AnalysisIdentities.g.cs";
+
+    /// <summary>
+    /// The hand-written runtime every generated algorithm runs on. Its source is part of each Snowball
+    /// language's <c>codeSha256</c>, so a runtime change needs the same identity decision as a generated one.
+    /// </summary>
+    public static readonly string[] RuntimeFiles = ["SnowballRuntime.cs", "SnowballPort.cs"];
 
     /// <summary>Computes every generated file and the updated identities, without writing anything.</summary>
     public SnowballGeneration Plan(AnalysisVersionRequests requests)
     {
+        var (manifest, files, codeSha) = TransformAlgorithms();
+        var current = AnalysisVersions.Parse(File.ReadAllText(VersionsPath, Encoding.UTF8));
+        var (versions, changes) = AnalysisVersionPlanner.Apply(current, manifest.SnowballVersion, codeSha, requests);
+
+        string corpus = FingerprintCorpusSha256();
+        if (!string.Equals(current.FingerprintCorpusSha256, corpus, StringComparison.Ordinal))
+        {
+            if (requests.PendingFingerprints is null)
+            {
+                throw new InvalidOperationException(
+                    "The fingerprint corpus (src/devops/tests/fixtures/analysis/fingerprint-corpus.tsv) differs from the " +
+                    "recorded fingerprintCorpusSha256. Run the analysis identity tests with LEANCORPUS_UPDATE_ANALYSIS_FINGERPRINTS=1, " +
+                    "then './devops snowball generate --accept-fingerprints'; every language whose fingerprint changes needs a new identity.");
+            }
+
+            changes = [.. changes, $"recorded the fingerprint corpus {corpus}."];
+            versions = versions with { FingerprintCorpusSha256 = corpus };
+        }
+
+        files[IdentitiesFile] = AnalysisVersionPlanner.RenderIdentities(versions);
+        return new SnowballGeneration(files, versions, changes);
+    }
+
+    /// <summary>
+    /// Writes only the generated algorithms, leaving <c>analysis-versions.json</c> and the identity
+    /// table unchanged, so the identity tests can fingerprint changed code before an identity is chosen.
+    /// </summary>
+    public IReadOnlyList<string> WriteCodeOnly()
+    {
+        var (_, files, _) = TransformAlgorithms();
+        Directory.CreateDirectory(GeneratedRoot);
+        foreach (var (name, content) in files)
+            WriteIfChanged(Path.Combine(GeneratedRoot, name), content);
+        return [.. files.Keys.Order(StringComparer.Ordinal)];
+    }
+
+    /// <summary>SHA-256 of the pinned fingerprint corpus, with line endings normalised.</summary>
+    public string FingerprintCorpusSha256()
+        => Sha256(Encoding.UTF8.GetBytes(ReadVerified(FingerprintCorpusPath, expectedSha256: null)));
+
+    private (SnowballFixtureManifest Manifest, Dictionary<string, string> Files, Dictionary<string, string> CodeSha) TransformAlgorithms()
+    {
         var manifest = SnowballFixtureManifest.Load(FixtureRoot);
         string licence = ReadVerified(Path.Combine(FixtureRoot, "LICENSE-snowball.txt"), expectedSha256: null);
+        var runtime = new StringBuilder();
+        foreach (var file in RuntimeFiles)
+            runtime.Append(file).Append('\n').Append(ReadVerified(Path.Combine(SnowballSourceRoot, file), expectedSha256: null)).Append('\n');
+
         var files = new Dictionary<string, string>(StringComparer.Ordinal);
         var codeSha = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var algorithm in manifest.Algorithms)
@@ -38,13 +92,10 @@ internal sealed class SnowballWorkspace(string repositoryRoot)
             ReadVerified(Path.Combine(FixtureRoot, algorithm.Sbl), algorithm.SblSha256);
             var result = SnowballTransform.Transform(algorithm.Name, reference, algorithm.SblSha256, licence);
             files[result.ClassName + ".g.cs"] = result.Source;
-            codeSha[algorithm.Name] = result.BodySha256;
+            codeSha[algorithm.Name] = Sha256(Encoding.UTF8.GetBytes(result.BodySha256 + "\n" + runtime));
         }
 
-        var current = AnalysisVersions.Parse(File.ReadAllText(VersionsPath, Encoding.UTF8));
-        var (versions, changes) = AnalysisVersionPlanner.Apply(current, manifest.SnowballVersion, codeSha, requests);
-        files[IdentitiesFile] = AnalysisVersionPlanner.RenderIdentities(versions);
-        return new SnowballGeneration(files, versions, changes);
+        return (manifest, files, codeSha);
     }
 
     /// <summary>Writes a planned generation to the repository.</summary>

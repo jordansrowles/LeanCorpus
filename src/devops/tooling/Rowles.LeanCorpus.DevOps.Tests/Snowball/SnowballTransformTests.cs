@@ -106,6 +106,8 @@ public sealed class SnowballTransformTests
         var copy = new SnowballWorkspace(root);
         Directory.CreateDirectory(copy.SnowballSourceRoot);
         File.Copy(source.VersionsPath, copy.VersionsPath);
+        foreach (var runtime in SnowballWorkspace.RuntimeFiles)
+            File.Copy(Path.Combine(source.SnowballSourceRoot, runtime), Path.Combine(copy.SnowballSourceRoot, runtime));
         string german = Path.Combine(copy.FixtureRoot, "reference", "Algorithms", "germanStemmer.generated.cs");
         File.AppendAllText(german, "// edited\n");
 

@@ -4,7 +4,7 @@ title: "Snowball stemmers and analysis identities"
 date: 2026-11-20
 status: Accepted
 version-added: v4.0.0
-last-updated: 2026-11-21
+last-updated: 2026-11-22
 summary: "The nine Snowball-language stemmers are generated from pinned official Snowball 3.2.0 sources and must match the reference exactly. Each default language pipeline has an identity that changes exactly when its output can change, and the factory can replace or remove a language's stemmer."
 areas: [analysis, stemmers, devops]
 relates-to: [ADR021]
@@ -62,13 +62,21 @@ LeanCorpus does not commit copyleft data.
    - **Snowball line** (en, fr, de, es, it, pt, nl, ru, ar): the Snowball version at which the
      generated code last changed (`3.2.0`). A LeanCorpus-only output change on the same Snowball
      version adds `+rN`.
-   - **Rowles line** (sk, zh, ja, ko): a LeanCorpus `0.x.y` version, starting at `0.1.0`.
-     Releases before 4.0 had no identities, and their output matches none of these, because 4.0
-     also keeps position gaps where stop words are removed.
+   - **Rowles line** (sk, zh, ja, ko): a LeanCorpus `0.x.y` version. Releases before 4.0
+     reported no identities, and their output matches no 4.0 identity, because 4.0 also keeps
+     position gaps where stop words are removed and changes lower-casing and Unicode handling.
+     The Rowles line numbers the earlier output eras traced from the source history, so the
+     4.0 versions follow them: `zh`, `ja` and `ko` were `0.1.0` (1.1.1 to 1.4.2), `0.1.1` (2.0.0
+     to 2.1.1), `0.1.2` (2.2.0) and `0.2.0` (2.3.0 to 3.1.1), and are `0.3.0` in 4.0; `sk` was
+     `0.1.0` (2.2.0 to 3.1.1). The Snowball line has no identity before 4.0.
 
    `analysis-versions.json` records each language's version, generated-code hash and a
    fingerprint of the default pipeline's output over a fixed corpus. The generated
-   `AnalysisIdentities` table is compiled from it. `generate` refuses a code or fingerprint
+   `AnalysisIdentities` table is compiled from it. The code hash covers the generated algorithm
+   and the shared runtime (`SnowballRuntime.cs`, `SnowballPort.cs`). The fixed corpus is a pinned
+   fixture whose hash is recorded in the manifest, so editing it is an explicit identity event.
+   `generate --code-only` writes changed algorithms without touching identities, so the identity
+   tests can fingerprint the new code before the decision is recorded. `generate` refuses a code or fingerprint
    change without an identity change, unless the change is passed explicitly with
    `--equivalent <code> --reason`, `--rebaseline <code>` or `--bump <code>=minor|patch`.
    Identities are opaque and compared for equality. ADR051 records them in each commit and
@@ -106,3 +114,4 @@ no output change ships under an old identity.
 | 2026-11-20 | Accepted | Original decision accepted. | `#122`, `#123` |
 | 2026-11-21 | Clarified | Stated the limits of fixture provenance checks. | `#131` |
 | 2026-11-21 | Amended | Corrected the pre-4.0 output claim; identities are recorded and enforced per index (ADR051). | `#131` |
+| 2026-11-22 | Amended | Rowles-line versions follow the pre-4.0 output eras; the code hash covers the runtime; the fingerprint corpus is pinned; added `--code-only`. | `#131` |
