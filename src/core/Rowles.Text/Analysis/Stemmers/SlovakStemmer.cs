@@ -5,8 +5,14 @@ namespace Rowles.LeanCorpus.Analysis.Stemmers;
 
 /// <summary>
 /// Slovak stemmer.
-/// Expects UTF-8 normalized input with diacritics.
+/// Expects lower-cased NFC input with diacritics.
 /// </summary>
+/// <remarks>
+/// The stem's final consonant is always written hard (<c>ď</c>, <c>ť</c>, <c>ň</c> and <c>ľ</c> become
+/// <c>d</c>, <c>t</c>, <c>n</c> and <c>l</c>). Slovak spells a soft consonant without its caron before
+/// <c>e</c>, <c>i</c>, <c>í</c> and <c>ia</c>, so the ending alone cannot say whether a stem is soft;
+/// one hard spelling lets <c>mesto</c> and <c>meste</c>, and <c>kosť</c> and <c>kosti</c>, share a term.
+/// </remarks>
 public sealed class SlovakStemmer : IShareableSpanStemmer
 {
     private static readonly List<string[]> suffixesGroups =
@@ -33,21 +39,14 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
         ("á", "a" ),
         ("ie", "e" ),
         ("ŕ", "r" ),
-        ("ľ", "l" ),
         ("í", "i" ),
         ("ú", "u" ),
-        ("ň", "n" ),
         ("ô", "o" )
     ];
 
     private static readonly string[] lettersRandL =
     [
-       "r", "ŕ", "l", "í"
-    ];
-
-    private static readonly string[] eiSuffix =
-    [
-       "e", "i", "iam", "iach", "iami", "í", "ia", "ie", "iu", "ím"
+       "r", "ŕ", "l", "ĺ"
     ];
 
     private static readonly string[] vowels =
@@ -58,7 +57,7 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
 
     /// <summary>
     /// Stems the given word and returns the stemmed result as a string.
-    /// Short words (fewer than 4 characters) are returned unchanged.
+    /// Short words (fewer than 4 characters) keep their letters apart from a hard final consonant.
     /// </summary>
     public string Stem(string word)
     {
@@ -79,21 +78,21 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
             }
 
             word.CopyTo(output);
-            return word.Length;
+            return Harden(output, word.Length);
         }
 
         // No rule lengthens a word, so a word-sized buffer always holds the stem. A shorter output gets
         // the stem only if it fits, and is left untouched otherwise.
         if (output.Length >= word.Length)
         {
-            return RemoveSuffixes(word, output);
+            return Harden(output, RemoveSuffixes(word, output));
         }
 
         char[]? rented = null;
         Span<char> scratch = word.Length <= 64 ? stackalloc char[64] : (rented = ArrayPool<char>.Shared.Rent(word.Length));
         try
         {
-            int length = RemoveSuffixes(word, scratch);
+            int length = Harden(scratch, RemoveSuffixes(word, scratch));
             if (length < 0 || length > output.Length)
             {
                 return -1;
@@ -111,6 +110,28 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
         }
     }
 
+    /// <summary>Writes the stem's final soft consonant hard, so soft and hard spellings share a term.</summary>
+    private static int Harden(Span<char> stem, int length)
+    {
+        if (length > 0)
+        {
+            stem[length - 1] = stem[length - 1] switch
+            {
+                'ď' => 'd',
+                'ť' => 't',
+                'ň' => 'n',
+                'ľ' => 'l',
+                'Ď' => 'D',
+                'Ť' => 'T',
+                'Ň' => 'N',
+                'Ľ' => 'L',
+                char c => c,
+            };
+        }
+
+        return length;
+    }
+
     private static int RemoveSuffixes(ReadOnlySpan<char> word, Span<char> output)
     {
         foreach (string[] suffixesGroup in suffixesGroups)
@@ -120,13 +141,11 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
                 // A suffix must leave a root: a token that is only a suffix, such as "iach", tries the next one.
                 if (suffix.Length < word.Length && word.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (IsDtnl(suffix))
+                    // "-at" is the genitive plural of neuter "-a" nouns (dievčat), but part of the root in
+                    // "-omat" nouns such as automat and bankomat, whose other forms keep it.
+                    if (suffix == "at" && word.EndsWith("omat", StringComparison.OrdinalIgnoreCase))
                     {
-                        return RestoreDtnl(RemoveSuffix(word, suffix), output);
-                    }
-                    if (suffix.EndsWith("i", StringComparison.OrdinalIgnoreCase) && IsForeignWord(word, suffix))
-                    {
-                        return TryChangeSuffix(word, suffix, "i", output);
+                        continue;
                     }
                     if (IsOverStemming(word, suffix))
                     {
@@ -230,7 +249,7 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
 
     private static bool IsLastSyllable(ReadOnlySpan<char> word, ReadOnlySpan<char> longVowel)
     {
-        int lastVowelIndex = word.LastIndexOf(longVowel);
+        int lastVowelIndex = word.LastIndexOf(longVowel, StringComparison.OrdinalIgnoreCase);
         if (lastVowelIndex == -1)
         {
             return false;
@@ -260,29 +279,17 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
 
         word.Slice(0, replacedLetterIndex).CopyTo(output);
         newLetter.CopyTo(output.Slice(replacedLetterIndex));
+        if (char.IsUpper(word[replacedLetterIndex]))
+        {
+            // Keep the case of the letter being shortened: MIEST becomes MEST, not MeST.
+            for (int i = replacedLetterIndex; i < replacedLetterIndex + newLetter.Length; i++)
+            {
+                output[i] = char.ToUpperInvariant(output[i]);
+            }
+        }
         suffix.CopyTo(output.Slice(replacedLetterIndex + newLetter.Length));
 
         return replacedLetterIndex + newLetter.Length + suffix.Length;
-    }
-
-    private static bool IsForeignWord(ReadOnlySpan<char> word, ReadOnlySpan<char> suffix)
-    {
-        ReadOnlySpan<char> check = RemoveSuffix(word, suffix);
-        if (check.Length == 0)
-        {
-            return false;
-        }
-
-        return check[^1] switch
-        {
-            'c' => true,
-            'C' => true,
-            'z' => true,
-            'Z' => true,
-            'g' => true,
-            'G' => true,
-            _ => false
-        };
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -309,41 +316,5 @@ public sealed class SlovakStemmer : IShareableSpanStemmer
         newSuffix.CopyTo(output.Slice(stemLen));
 
         return stemLen + newSuffix.Length;
-    }
-
-    private static bool IsDtnl(ReadOnlySpan<char> suffix)
-    {
-        foreach (string value in eiSuffix)
-        {
-            if (suffix.Equals(value, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static int RestoreDtnl(ReadOnlySpan<char> wordRoot, Span<char> output)
-    {
-        if (wordRoot.Length > output.Length)
-        {
-            return -1;
-        }
-
-        wordRoot.CopyTo(output);
-        output[wordRoot.Length - 1] = wordRoot[^1] switch
-        {
-            'd' => 'ď',
-            'D' => 'ď',
-            't' => 'ť',
-            'T' => 'ť',
-            'n' => 'ň',
-            'N' => 'ň',
-            'l' => 'ľ',
-            'L' => 'ľ',
-            char c => c
-        };
-
-        return wordRoot.Length;
     }
 }
