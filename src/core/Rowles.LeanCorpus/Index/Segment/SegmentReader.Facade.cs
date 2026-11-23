@@ -129,6 +129,10 @@ public sealed partial class SegmentReader : IDisposable
     private readonly CodecCatalog _codecCatalog;
     private readonly BoundedLruCache<string, SegmentReaderState> _cache;
     private readonly Func<SegmentReaderState> _stateFactory;
+
+    // Graph validation outcomes outlive evicted reader states, so a segment whose state the cache
+    // cannot retain does not re-validate its graph on every query.
+    private readonly Codecs.Hnsw.VectorGraphValidationMemo _graphValidation = new();
     private readonly bool _ownsCache;
     private readonly OperationDrain _operations = new();
     private FileSnapshotLease? _snapshot;
@@ -181,7 +185,7 @@ public sealed partial class SegmentReader : IDisposable
         _info = descriptor;
         _codecCatalog = codecCatalog;
         _cache = new BoundedLruCache<string, SegmentReaderState>(1, StringComparer.Ordinal);
-        _stateFactory = () => new SegmentReaderState(directory, descriptor, _codecCatalog);
+        _stateFactory = () => new SegmentReaderState(directory, descriptor, _codecCatalog, _graphValidation);
         _ownsCache = true;
     }
 
@@ -211,7 +215,7 @@ public sealed partial class SegmentReader : IDisposable
         _info = info;
         _codecCatalog = codecCatalog;
         _cache = cache;
-        _stateFactory = () => new SegmentReaderState(directory, info, _codecCatalog);
+        _stateFactory = () => new SegmentReaderState(directory, info, _codecCatalog, _graphValidation);
     }
 
     private static CodecCatalog CaptureDefaultCodecCatalog(MMapDirectory directory, object segmentInfo)

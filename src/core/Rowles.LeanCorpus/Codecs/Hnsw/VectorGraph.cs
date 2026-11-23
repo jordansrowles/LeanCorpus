@@ -218,15 +218,21 @@ internal sealed class VectorGraph : IDisposable
         float entryDistance = QueryDistance(query, vectors, entry);
         evaluations++;
 
+        // Greedy descent. Within a level a node is scored once: one scored earlier was already
+        // worse than the entry it was compared with, so it cannot become the new entry.
         for (int level = MaxLevel; level >= 1 && !exceeded; level--)
         {
             layers++;
+            scratch.NextVisitGeneration();
+            scratch.TryVisit(entry);
             bool improved = true;
             while (improved && !exceeded)
             {
                 improved = false;
                 foreach (int neighbour in Neighbours(entry, level))
                 {
+                    if (!scratch.TryVisit(neighbour))
+                        continue;
                     if (evaluations >= evaluationBudget)
                     {
                         exceeded = true;
@@ -250,6 +256,7 @@ internal sealed class VectorGraph : IDisposable
 
         var candidates = scratch.Candidates;
         var best = scratch.Results;
+        scratch.NextVisitGeneration();
         scratch.TryVisit(entry);
         visited++;
         candidates.Push(entryDistance, entry);

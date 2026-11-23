@@ -21,6 +21,7 @@ internal sealed partial class SegmentReaderState : IDisposable
     private readonly MMapDirectory _directory;
     private readonly SegmentDescriptor _info;
     private readonly CodecCatalog _codecCatalog;
+    private readonly Codecs.Hnsw.VectorGraphValidationMemo? _graphValidation;
     private readonly SegmentFileAccess _files;
     private TermDictionaryReader? _dictionaryReader;
     private IndexInput? _postingsInput;
@@ -103,14 +104,17 @@ internal sealed partial class SegmentReaderState : IDisposable
     /// </summary>
     /// <param name="directory">The directory containing the segment files.</param>
     /// <param name="info">The segment metadata.</param>
+    /// <param name="graphValidation">The owning reader's graph validation outcomes, which outlive this state.</param>
     /// <param name="codecCatalog">The immutable codec catalogue for stored-field compression.</param>
     /// <exception cref="FileNotFoundException">Thrown if required segment files are missing.</exception>
     /// <exception cref="InvalidDataException">Thrown if segment files contain corrupted or incompatible data.</exception>
     internal SegmentReaderState(
         MMapDirectory directory,
         SegmentDescriptor info,
-        CodecCatalog? codecCatalog = null)
+        CodecCatalog? codecCatalog = null,
+        Codecs.Hnsw.VectorGraphValidationMemo? graphValidation = null)
     {
+        _graphValidation = graphValidation;
         _directory = directory;
         _info = info;
         _codecCatalog = codecCatalog ?? CodecCatalog.Default;

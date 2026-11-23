@@ -1123,7 +1123,11 @@ internal sealed partial class SegmentReaderState
                 string? failure = null;
                 try
                 {
-                    if (!EnsureVectorReadersLoaded(fieldName, fieldState)
+                    if (_graphValidation is not null && _graphValidation.TryGetFailure(fieldName, out string? known))
+                    {
+                        failure = known;
+                    }
+                    else if (!EnsureVectorReadersLoaded(fieldName, fieldState)
                         || fieldState.Vector is not { HasPersistedPresence: true } vectors)
                     {
                         failure = "the field has no Float32 vectors with persisted presence";
@@ -1131,14 +1135,18 @@ internal sealed partial class SegmentReaderState
                     else
                     {
                         string extension = Path.GetFileName(VectorFilePaths.GraphFile(_basePath, fieldName))[_info.SegmentId.Length..];
+                        bool validated = _graphValidation?.IsValidated(fieldName) == true;
                         graph = VectorGraphReader.Read(_files.OpenInput(extension), new VectorGraphReader.Expectation(
-                            field.Dimension, field.Normalised, _info.DocCount, vectors.HasVector));
+                            field.Dimension, field.Normalised, _info.DocCount, vectors.HasVector), fullValidation: !validated);
+                        _graphValidation?.RecordValidated(fieldName);
                     }
                 }
                 catch (Exception ex) when (ex is InvalidDataException or CodecFileException)
                 {
-                    // Structural or checksum failure: the file itself is bad, so remember it.
+                    // Structural or checksum failure: the file itself is bad, so remember it for
+                    // this state and for every later state of the same reader.
                     failure = ex.Message;
+                    _graphValidation?.RecordFailure(fieldName, failure);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {

@@ -217,12 +217,18 @@ internal sealed class VectorGraphBuilder
 
     private void GreedyDescend(int baseOrdinal, int level, ref int entry, ref float entryDistance)
     {
+        // A node scored earlier on this level was worse than the entry then, so it is skipped.
+        NextEpoch();
+        _visited[entry] = _epoch;
         bool improved = true;
         while (improved)
         {
             improved = false;
             foreach (int neighbour in Neighbours(entry, level))
             {
+                if (_visited[neighbour] == _epoch)
+                    continue;
+                _visited[neighbour] = _epoch;
                 float distance = Distance(baseOrdinal, neighbour);
                 if (VectorGraphHeap.Less(distance, neighbour, entryDistance, entry))
                 {
@@ -303,7 +309,9 @@ internal sealed class VectorGraphBuilder
             bool diverse = true;
             foreach (var chosen in _selected)
             {
-                if (Distance(candidate.Ordinal, chosen.Ordinal) < candidate.Distance)
+                // A tie is not diverse (as in Lucene): near-duplicate neighbours with equal
+                // distances would otherwise all be kept, densifying the graph without adding reach.
+                if (Distance(candidate.Ordinal, chosen.Ordinal) <= candidate.Distance)
                 {
                     diverse = false;
                     break;

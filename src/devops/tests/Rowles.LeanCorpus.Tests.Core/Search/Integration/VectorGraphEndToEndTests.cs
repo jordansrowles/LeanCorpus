@@ -393,6 +393,64 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
         Assert.Contains(check.DetailedIssues, issue => issue.Code == IndexCheckIssueCodes.VectorGraphReadFailure);
     }
 
+    [Fact(DisplayName = "Graph: An Uncacheable Segment Reopens Its Graph On Every Query And Keeps The Graph Route")]
+    public void EvictedReaderState_ReopensValidatedGraphAndKeepsResults()
+    {
+        var vectors = Clustered(1_500, 16, clusters: 15, spread: 0.12f, seed: 193);
+        using var directory = new MMapDirectory(SubDir("evicted-state"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        var cachedMetrics = new RouteMetrics();
+        var evictedMetrics = new RouteMetrics();
+        using var cached = new IndexSearcher(directory, SearcherConfig(cachedMetrics));
+        var evictedConfig = SearcherConfig(evictedMetrics);
+        evictedConfig.MaxCachedSegmentReaderBytes = 1; // No state can be retained between queries.
+        using var evicted = new IndexSearcher(directory, evictedConfig);
+
+        var queries = QueriesNear(vectors, 20, seed: 194);
+        for (int pass = 0; pass < 2; pass++)
+        {
+            foreach (var query in queries)
+            {
+                var expected = cached.Search(new VectorQuery(Field, query, topK: 10), 10).ScoreDocs;
+                var actual = evicted.Search(new VectorQuery(Field, query, topK: 10), 10).ScoreDocs;
+                Assert.Equal(expected.Select(hit => (hit.DocId, hit.Score)), actual.Select(hit => (hit.DocId, hit.Score)));
+            }
+        }
+
+        Assert.Equal(2 * queries.Length, evictedMetrics.Routes.Count);
+        Assert.All(evictedMetrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
+    }
+
+    [Fact(DisplayName = "Graph: A Corrupt Graph Stays Unavailable When The Reader State Is Evicted")]
+    public void CorruptGraph_StaysUnavailableAcrossEvictedStates()
+    {
+        var vectors = Clustered(600, 8, clusters: 6, spread: 0.2f, seed: 195);
+        string path = SubDir("corrupt-evicted");
+        using (var directory = new MMapDirectory(path))
+            Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        string graphFile = Directory.EnumerateFiles(path, "*.vgr").Single();
+        byte[] bytes = File.ReadAllBytes(graphFile);
+        bytes[bytes.Length / 2] ^= 0x33;
+        File.WriteAllBytes(graphFile, bytes);
+
+        using var reopened = new MMapDirectory(path);
+        var metrics = new RouteMetrics();
+        var config = SearcherConfig(metrics);
+        config.MaxCachedSegmentReaderBytes = 1;
+        using var searcher = new IndexSearcher(reopened, config);
+        for (int i = 0; i < 3; i++)
+        {
+            var query = Normalise(vectors[i * 7]);
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+            Assert.Equal(1.0, TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10));
+        }
+
+        Assert.Equal(3, metrics.Routes.Count);
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.ExactGraphUnavailable, route));
+    }
+
     [Fact(DisplayName = "Graph: Explain Reports The Route")]
     public void Explain_ReportsTheRoute()
     {

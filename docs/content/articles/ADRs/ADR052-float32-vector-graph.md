@@ -99,7 +99,11 @@ or inside the conditioned range, empty unused slots and no trailing bytes.
 
 **Construction.** Single-threaded and deterministic: seeded insertion order and
 level assignment `floor(-ln(u) / ln(M))`, an efConstruction beam per level, the
-diversity heuristic for selection and reciprocal links pruned through it. A node
+diversity heuristic for selection and reciprocal links pruned through it. As in
+Lucene, a candidate no closer to the base node than to an already chosen
+neighbour is not diverse, so ties are pruned: otherwise near-duplicate vectors
+at equal distances are all kept and densify the graph without adding reach. Each
+upper-level descent scores a node at most once per level. A node
 left with fewer than `M / 2` neighbours is backfilled from rejected candidates in
 distance order, and a repair pass links any level-zero node unreachable from the
 entry point. Repair keeps a spanning tree of the reached nodes and never removes
@@ -157,7 +161,11 @@ recorded as exact and never as approximate search.
 Opening a graph validates its frame checksum before any structural check, so a
 change that leaves the structure valid is still rejected. A graph that fails
 its checksum or validation is never used and the failure is remembered for the
-reader state: queries fall back to exact search, `IndexValidator` reports
+segment reader, across evictions of its cached state. A graph that passed full
+validation is not re-validated when an evicted state reopens it: the file is
+immutable while the reader is open, so the checksum, level-zero scan and
+reachability check are skipped and only the header, document IDs, upper levels
+and inverse norms are read again. Queries on a failed graph fall back to exact search, `IndexValidator` reports
 `LLIDX054`, and recovery treats the role as a recoverable query accelerator,
 like BKD trees. A transient open failure (a sharing violation or handle
 exhaustion) falls back for that query only and is retried.
@@ -237,3 +245,4 @@ unchanged historical gates and the real-data gates keep the published bar.
 | 2026-11-22 | Accepted | Owner accepted; checksum validation at open, transient-failure retry, oversized-segment, cancellation and scratch-pooling rules recorded. | `4.0/vector-rebound` |
 | 2026-11-23 | Clarified | PR #132 review: conditioned inverse norms with a scaled-cosine marker, spanning-tree repair with a verified reachability postcondition enforced by writer and reader, zero-query and empty-filter route rules, and a measured `eligible / 2` traversal budget. | `4.0/vector-rebound` |
 | 2026-11-23 | Clarified | PR #132 second review: a hard budget covering the descent, an `eligible / 3` budget with measured fallback cost, `ExactBudgetPredicted`, wasted-traversal and skipped-build metrics, duplicate-neighbour rejection, cancellation during repair, and measured open cost. | `4.0/vector-rebound` |
+| 2026-11-23 | Clarified | Release qualification: ties are not diverse (Lucene parity on near-duplicate data), the descent scores a node once per level, and full graph validation is remembered per segment reader so an uncacheable segment does not re-validate on every query. | `4.0/vector-rebound` |

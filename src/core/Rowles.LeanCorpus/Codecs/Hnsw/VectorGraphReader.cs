@@ -20,7 +20,14 @@ internal static class VectorGraphReader
     internal readonly record struct Expectation(int Dimension, bool Normalised, int DocCount, Func<int, bool> HasVector);
 
     /// <summary>Opens a graph and takes ownership of <paramref name="input"/>.</summary>
-    internal static VectorGraph Read(IndexInput input, Expectation expected)
+    /// <param name="input">The <c>.vgr</c> file.</param>
+    /// <param name="expected">The segment's field contract.</param>
+    /// <param name="fullValidation">
+    /// False only when this reader has already fully validated this immutable file: the checksum,
+    /// the level-zero record scan and the reachability traversal are then skipped, while the
+    /// header, parameters, document IDs, upper levels and inverse norms are still checked.
+    /// </param>
+    internal static VectorGraph Read(IndexInput input, Expectation expected, bool fullValidation = true)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(expected.HasVector);
@@ -32,11 +39,12 @@ internal static class VectorGraphReader
             {
                 // Structural checks cannot see a flipped in-range neighbour or a changed inverse
                 // norm, so a checksum mismatch must reject the whole graph before it is used.
-                frame.ValidateChecksum();
+                if (fullValidation)
+                    frame.ValidateChecksum();
                 body = frame.OpenBodyInput();
             }
 
-            var result = ReadBody(body, expected, mapLevelZero: BitConverter.IsLittleEndian);
+            var result = ReadBody(body, expected, mapLevelZero: BitConverter.IsLittleEndian, fullValidation);
             if (!result.HasMappedBody)
                 body.Dispose();
             body = null;
@@ -51,7 +59,7 @@ internal static class VectorGraphReader
 
     internal readonly record struct ReadResult(VectorGraph Graph, bool HasMappedBody);
 
-    internal static ReadResult ReadBody(IndexInput body, Expectation expected, bool mapLevelZero)
+    internal static ReadResult ReadBody(IndexInput body, Expectation expected, bool mapLevelZero, bool fullValidation = true)
     {
         long position = 0;
         int dimension = body.ReadInt32(ref position);
@@ -113,12 +121,18 @@ internal static class VectorGraphReader
         // Stamped per record, so each record's neighbours are checked for duplicates in O(degree).
         var marks = new int[nodeCount];
         int stamp = 0;
-        ValidateLevelZero(body, nodeCount, m0, level0, marks, ref stamp, ref position);
+        if (fullValidation || level0 is not null)
+            ValidateLevelZero(body, nodeCount, m0, level0, marks, ref stamp, ref position);
+        else
+            position = checked(position + (long)nodeCount * stride0 * sizeof(int));
 
         var upperOrdinals = new int[Math.Max(0, maxLevel)][];
         var upperAdjacency = new int[Math.Max(0, maxLevel)][];
         int stride = 1 + m;
         ReadOnlySpan<int> below = default;
+        // Highest level each node has been seen on, so membership checks are O(1) rather than a
+        // binary search per neighbour.
+        var topLevel = maxLevel > 0 ? new byte[nodeCount] : [];
         for (int level = 1; level <= maxLevel; level++)
         {
             int levelCount = body.ReadInt32(ref position);
@@ -132,8 +146,9 @@ internal static class VectorGraphReader
             {
                 if (ordinal <= last || ordinal >= nodeCount)
                     throw Invalid($"level {level} ordinals are not strictly ascending node ordinals");
-                if (level > 1 && below.BinarySearch(ordinal) < 0)
+                if (topLevel[ordinal] != level - 1)
                     throw Invalid($"level {level} node {ordinal} is absent from level {level - 1}");
+                topLevel[ordinal] = (byte)level;
                 last = ordinal;
             }
 
@@ -142,7 +157,7 @@ internal static class VectorGraphReader
             for (int i = 0; i < levelCount; i++)
             {
                 ReadOnlySpan<int> record = adjacency.AsSpan(i * stride, stride);
-                ValidateRecord(record, m, ordinals[i], nodeCount, level, ordinals, marks, ref stamp);
+                ValidateRecord(record, m, ordinals[i], nodeCount, level, topLevel, marks, ref stamp);
             }
 
             upperOrdinals[level - 1] = ordinals;
@@ -181,7 +196,7 @@ internal static class VectorGraphReader
                 entryOrdinal, docIds, body, level0Offset, upperOrdinals, upperAdjacency, inverseNorms);
 
         // The builder never publishes a graph with an unreachable node; one would silently hide documents.
-        int reachable = graph.CountReachableFromEntry();
+        int reachable = fullValidation ? graph.CountReachableFromEntry() : nodeCount;
         if (reachable != nodeCount)
         {
             // An owned graph is released here; a mapped one wraps the body, which the caller disposes on failure.
@@ -207,7 +222,7 @@ internal static class VectorGraphReader
                 Span<int> chunk = buffer.AsSpan(0, records * stride);
                 body.ReadInt32Array(chunk, chunk.Length, ref position);
                 for (int i = 0; i < records; i++)
-                    ValidateRecord(chunk.Slice(i * stride, stride), m0, start + i, nodeCount, level: 0, levelMembers: default,
+                    ValidateRecord(chunk.Slice(i * stride, stride), m0, start + i, nodeCount, level: 0, topLevel: [],
                         marks, ref stamp);
                 if (destination is not null)
                     chunk.CopyTo(destination.AsSpan(start * stride));
@@ -220,7 +235,7 @@ internal static class VectorGraphReader
     }
 
     private static void ValidateRecord(
-        ReadOnlySpan<int> record, int degree, int self, int nodeCount, int level, ReadOnlySpan<int> levelMembers,
+        ReadOnlySpan<int> record, int degree, int self, int nodeCount, int level, ReadOnlySpan<byte> topLevel,
         int[] marks, ref int stamp)
     {
         int count = record[0];
@@ -239,7 +254,7 @@ internal static class VectorGraphReader
             if (marks[neighbour] == stamp)
                 throw Invalid($"level {level} node {self} lists neighbour {neighbour} twice");
             marks[neighbour] = stamp;
-            if (level > 0 && levelMembers.BinarySearch(neighbour) < 0)
+            if (level > 0 && topLevel[neighbour] < level)
                 throw Invalid($"level {level} node {self} links to {neighbour}, which is not on that level");
         }
         for (int i = count + 1; i <= degree; i++)

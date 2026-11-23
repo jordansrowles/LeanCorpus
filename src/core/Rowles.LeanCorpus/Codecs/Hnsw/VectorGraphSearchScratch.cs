@@ -74,6 +74,17 @@ internal sealed class VectorGraphSearchScratch : IDisposable
         Results.Clear();
     }
 
+    /// <summary>Makes every node unvisited again without touching the heaps.</summary>
+    internal void NextVisitGeneration()
+    {
+        if (_epoch == int.MaxValue)
+        {
+            Array.Clear(_visited);
+            _epoch = 0;
+        }
+        _epoch++;
+    }
+
     /// <summary>Marks <paramref name="ordinal"/> visited and returns whether it was unvisited.</summary>
     internal bool TryVisit(int ordinal)
     {
