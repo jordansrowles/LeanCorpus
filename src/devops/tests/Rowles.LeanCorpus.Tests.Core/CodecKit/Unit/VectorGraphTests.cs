@@ -230,8 +230,7 @@ public sealed class VectorGraphTests
 
         Assert.Equal(100, results.Count);
         Assert.Equal(results.Count, results.Select(static h => h.DocId).Distinct().Count());
-        for (int i = 1; i < results.Count; i++)
-            Assert.True(results[i - 1].Distance <= results[i].Distance);
+        Assert.All(results.Zip(results.Skip(1)), pair => Assert.True(pair.First.Distance <= pair.Second.Distance));
         Assert.Equal(5, results[0].DocId);
     }
 

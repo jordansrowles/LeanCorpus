@@ -33,7 +33,7 @@ internal sealed class VectorGraphHeap
     /// <summary>Returns whether <c>(da, oa)</c> orders strictly before <c>(db, ob)</c>.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static bool Less(float da, int oa, float db, int ob)
-        => da < db || (da == db && oa < ob);
+        => da < db || (da == db && oa < ob); // NOSONAR S1244: exact ties between finite distances break by ordinal, keeping order total and deterministic
 
     internal void Push(float distance, int ordinal)
     {
