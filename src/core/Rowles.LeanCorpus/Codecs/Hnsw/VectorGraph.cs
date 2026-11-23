@@ -13,10 +13,18 @@ namespace Rowles.LeanCorpus.Codecs.Hnsw;
 /// mapped <c>.vgr</c> body. Upper levels, document IDs and inverse norms are materialised.
 /// </summary>
 /// <remarks>
-/// Distances are negative cosine similarity. Query to node: <c>-dot(q, v) * invNorm(v)</c> for a
-/// unit query. Node to node: <c>-dot(a, b) * invNorm(a) * invNorm(b)</c>. A normalised field
-/// stores no inverse norms and treats each as one. A zero vector has inverse norm zero, so its
-/// distance is zero, matching the exact scorer's cosine of zero.
+/// Distances are negative cosine similarity. A normalised field stores no inverse norms and treats
+/// each as one. Otherwise each node persists one inverse L2 norm, chosen so that Float32 arithmetic
+/// cannot overflow or lose the result to underflow:
+/// <list type="bullet">
+/// <item><description>zero for a zero vector, whose distance is zero, matching the exact scorer;</description></item>
+/// <item><description>the inverse norm when the norm lies in
+/// [<see cref="MinConditionedNorm"/>, <see cref="MaxConditionedNorm"/>]: query to node is
+/// <c>-dot(q, v) * invNorm(v)</c> for a unit query, node to node is
+/// <c>-dot(a, b) * invNorm(a) * invNorm(b)</c>;</description></item>
+/// <item><description><see cref="ScaledCosine"/> for any other non-zero vector: its distances use the
+/// exact scorer's cosine, which rescales in double precision.</description></item>
+/// </list>
 /// </remarks>
 internal sealed class VectorGraph : IDisposable
 {
@@ -24,6 +32,15 @@ internal sealed class VectorGraph : IDisposable
     internal const byte FlagNormalised = 1;
     internal const byte FlagInverseNorms = 2;
     internal const int MaxLevels = 64;
+
+    /// <summary>Persisted inverse-norm marker for a non-zero vector outside the conditioned range.</summary>
+    internal const float ScaledCosine = -1f;
+
+    /// <summary>Smallest norm (2^-50) whose products stay clear of Float32 underflow.</summary>
+    internal const double MinConditionedNorm = 8.8817841970012523e-16;
+
+    /// <summary>Largest norm (2^50); a product of two such norms stays well inside Float32 range.</summary>
+    internal const double MaxConditionedNorm = 1125899906842624.0;
 
     private readonly int[] _docIds;
     private readonly int[]? _level0;
@@ -277,7 +294,71 @@ internal sealed class VectorGraph : IDisposable
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private float QueryDistance(ReadOnlySpan<float> query, IVectorSource vectors, int ordinal)
-        => FiniteDistance(-VectorMath.DotProduct(query, vectors.GetVector(_docIds[ordinal])) * InverseNorm(ordinal));
+    {
+        ReadOnlySpan<float> vector = vectors.GetVector(_docIds[ordinal]);
+        float inverseNorm = InverseNorm(ordinal);
+        return inverseNorm >= 0f
+            ? FiniteDistance(-VectorMath.DotProduct(query, vector) * inverseNorm)
+            : FiniteDistance(-VectorMath.CosineSimilarity(query, vector));
+    }
+
+    /// <summary>
+    /// Node-to-node distance for two stored vectors with their persisted inverse norms (one each for
+    /// a normalised field). A <see cref="ScaledCosine"/> marker on either side uses the exact cosine.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static float NodeDistance(ReadOnlySpan<float> a, float inverseNormA, ReadOnlySpan<float> b, float inverseNormB)
+        => inverseNormA >= 0f && inverseNormB >= 0f
+            ? FiniteDistance(-VectorMath.DotProduct(a, b) * inverseNormA * inverseNormB)
+            : FiniteDistance(-VectorMath.CosineSimilarity(a, b));
+
+    /// <summary>
+    /// Returns the persisted inverse norm of <paramref name="vector"/>: zero for a zero vector, the
+    /// inverse norm inside the conditioned range, or <see cref="ScaledCosine"/> outside it.
+    /// </summary>
+    internal static float InverseNormOf(ReadOnlySpan<float> vector)
+    {
+        // Squares of any finite Float32 value, including subnormals, are exact enough in double.
+        double squared = 0;
+        foreach (float value in vector)
+            squared += (double)value * value;
+        if (squared == 0) // NOSONAR S1244: only an all-zero vector sums to exactly zero
+            return 0f;
+        double norm = Math.Sqrt(squared);
+        if (!double.IsFinite(norm) || norm < MinConditionedNorm || norm > MaxConditionedNorm)
+            return ScaledCosine;
+        return (float)(1.0 / norm);
+    }
+
+    /// <summary>Returns whether a persisted inverse norm is one <see cref="InverseNormOf"/> can produce.</summary>
+    internal static bool IsValidInverseNorm(float inverseNorm)
+        => inverseNorm == 0f // NOSONAR S1244: exact persisted marker
+            || inverseNorm == ScaledCosine // NOSONAR S1244: exact persisted marker
+            || (inverseNorm >= (float)(1.0 / MaxConditionedNorm) && inverseNorm <= (float)(1.0 / MinConditionedNorm));
+
+    /// <summary>Returns how many nodes are reachable from the entry point through level zero.</summary>
+    internal int CountReachableFromEntry()
+    {
+        if (NodeCount == 0)
+            return 0;
+        var reached = new bool[NodeCount];
+        var stack = new Stack<int>();
+        reached[EntryOrdinal] = true;
+        stack.Push(EntryOrdinal);
+        int count = 1;
+        while (stack.Count > 0)
+        {
+            foreach (int neighbour in Neighbours(stack.Pop(), 0))
+            {
+                if (reached[neighbour])
+                    continue;
+                reached[neighbour] = true;
+                count++;
+                stack.Push(neighbour);
+            }
+        }
+        return count;
+    }
 
     /// <summary>Maps a non-finite distance to the farthest value so ordering stays total.</summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

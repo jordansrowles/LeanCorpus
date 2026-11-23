@@ -79,11 +79,21 @@ The search falls back to an exact scan of the segment, and reports why, when:
   more than the shortlist, `topK * oversamplingFactor`), because scanning them
   is cheaper;
 - the traversal exhausts its work budget, about `max(4 * efSearch, eligible
-  documents)` distance evaluations;
+  documents / 2)` distance evaluations, so it never costs more than the scan it
+  replaces;
 - the traversal returns fewer candidates than requested;
 - the graph file cannot be opened or fails validation;
-- the score is not monotonic in cosine: per-document field boosts, a zero or
-  negative query boost, or a zero query vector.
+- the score is not monotonic in cosine: per-document field boosts, or a zero
+  or negative query boost.
+
+A zero query vector has no direction, so it returns no hits on any field and
+records no route. A filter that matches nothing records `ExactSelectiveFilter`.
+
+Graph distances use the same cosine as the exact scorer for every finite
+vector, including very large, very small and subnormal magnitudes on fields
+with `NormaliseVectors = false`. Every published graph reaches all of its
+vectors; if construction cannot guarantee that, the segment is written without
+a graph and searched exactly.
 
 `IMetricsCollector.RecordVectorSearchRoute` receives one `VectorSearchRoute`
 per segment, and `Explain(VectorQuery, docId)` names the route. A fallback is

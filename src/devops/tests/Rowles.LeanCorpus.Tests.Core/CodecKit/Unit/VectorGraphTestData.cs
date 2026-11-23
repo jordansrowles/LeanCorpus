@@ -110,6 +110,14 @@ internal static class VectorGraphTestData
         return VectorGraphBuilder.Build(new ArrayVectorSource(vectors), docIds, config, seed, normalised);
     }
 
+    internal static VectorGraph? TryBuild(
+        float[][] vectors, HnswBuildConfig config, long seed, bool normalised, int repairPasses = VectorGraphBuilder.DefaultRepairPasses)
+    {
+        var docIds = Enumerable.Range(0, vectors.Length).Where(i => vectors[i] is not null).ToArray();
+        return VectorGraphBuilder.TryBuild(new ArrayVectorSource(vectors), docIds, config, seed, normalised,
+            CancellationToken.None, repairPasses);
+    }
+
     /// <summary>Returns every node reachable from the entry point at level zero.</summary>
     internal static int ReachableFromEntry(VectorGraph graph)
     {

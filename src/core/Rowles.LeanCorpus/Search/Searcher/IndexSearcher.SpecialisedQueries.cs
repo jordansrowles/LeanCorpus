@@ -1250,6 +1250,11 @@ public sealed partial class IndexSearcher
         if (fieldInfo is null) return;
         ValidateVectorQueryDimension(query, fieldInfo.Dimension);
 
+        // A zero query has no direction, so cosine is undefined and it matches nothing on any field.
+        // No segment is searched and no route is recorded.
+        if (scratch.UnitQuery.Length == 0)
+            return;
+
         int docBase = reader.DocBase;
 
         // Resolve filter (if any) to a docId bitmap and choose a strategy.
@@ -1257,7 +1262,16 @@ public sealed partial class IndexSearcher
         if (query.Filter is not null)
         {
             filterBitmap = ExecuteFilterToBitmap(query.Filter, reader, globalDFs);
-            if (filterBitmap.Cardinality == 0) return;
+            if (filterBitmap.Cardinality == 0)
+            {
+                // Every segment of a Float32 field records exactly one route; an empty filter is the
+                // most selective filter, answered without reading a vector.
+                if (fieldInfo is { HasGraph: true, Quantisation: VectorQuantisation.None })
+                    RecordVectorRoute(query, reader, Diagnostics.VectorSearchRoute.ExactSelectiveFilter);
+                else
+                    RecordExactRouteWithoutGraph(query, reader, fieldInfo);
+                return;
+            }
         }
 
         Util.IBitSet? queryFilterMask = filterBitmap is null
@@ -1278,13 +1292,7 @@ public sealed partial class IndexSearcher
 
         // The query vector, and its unit form for normalised fields, computed once per query.
         var queryVec = query.QueryVector;
-        float[]? normalisedQuery = null;
-        if (fieldInfo.Normalised)
-        {
-            normalisedQuery = scratch.UnitQuery;
-            if (normalisedQuery.Length == 0)
-                return;
-        }
+        float[]? normalisedQuery = fieldInfo.Normalised ? scratch.UnitQuery : null;
 
         // Float32 vector graph (ADR052). Any fallback continues to the exact route below.
         if (fieldInfo is { HasGraph: true, Quantisation: VectorQuantisation.None }
@@ -1453,17 +1461,16 @@ public sealed partial class IndexSearcher
             return false;
         }
 
+        // Never empty here: the caller returns early for a zero query.
         float[] unitQuery = scratch.UnitQuery;
-        if (unitQuery.Length == 0)
-        {
-            RecordVectorRoute(query, reader, Diagnostics.VectorSearchRoute.ExactScoreTransform);
-            return false;
-        }
 
         int ef = query.GetEffectiveEfSearch(graph.NodeCount);
-        // Beyond the eligible count an exact scan is no more expensive than continuing; the slack
-        // covers the upper-level descent.
-        long budget = Math.Max(GraphBudgetEfMultiplier * (long)ef, eligibleUpperBound) + 64L * (graph.MaxLevel + 1);
+        // A graph evaluation costs about 1.2-1.4x one vector of the exact scan (random access, heap
+        // and visited-set work), so a traversal is stopped at half the eligible count: it can then
+        // cost at most about 0.7x the exact scan it replaces. The ef floor lets small segments
+        // converge and the slack covers the upper-level descent.
+        long budget = Math.Max(GraphBudgetEfMultiplier * (long)ef, eligibleUpperBound / GraphBudgetEligibleDivisor)
+            + 64L * (graph.MaxLevel + 1);
         var hits = new List<Codecs.Hnsw.VectorGraphHit>(shortlist);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var stats = graph.Search(unitQuery, new VectorReaderSource(vectors), shortlist, ef, eligibleMask, budget, hits);
@@ -1502,6 +1509,7 @@ public sealed partial class IndexSearcher
     private const int SelectiveFilterMinimum = 64;
     private const double SelectiveFilterFraction = 0.005;
     private const long GraphBudgetEfMultiplier = 4;
+    private const long GraphBudgetEligibleDivisor = 2;
 
     // Captures per-segment routes of the query being explained while Explain prepares its set.
     // Vector queries nested in its filter record their own routes elsewhere and are not captured.

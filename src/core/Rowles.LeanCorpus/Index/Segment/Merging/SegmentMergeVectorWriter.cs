@@ -110,6 +110,7 @@ internal sealed class SegmentMergeVectorWriter
     /// <summary>
     /// Rebuilds the field's graph from the merged vector file just written, so memory stays bounded
     /// by the mapped vectors plus the graph. The graph is written before segment publication.
+    /// Returns false, writing nothing, when the built graph is refused.
     /// </summary>
     private static bool BuildGraph(string vecPath, string graphPath, List<int> vectorDocIds, bool normalised, GraphSettings graphs)
     {
@@ -118,8 +119,11 @@ internal sealed class SegmentMergeVectorWriter
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         using var vectors = VectorReader.Open(vecPath);
         // Cancellable between insertions, so writer disposal does not wait out a whole build.
-        using var graph = Codecs.Hnsw.VectorGraphBuilder.Build(
+        using var graph = Codecs.Hnsw.VectorGraphBuilder.TryBuild(
             new VectorReaderSource(vectors), docIds, graphs.Config, graphs.Seed, normalised, graphs.CancellationToken);
+        // A graph that repair could not make fully reachable is not published; the field is searched exactly.
+        if (graph is null)
+            return false;
         Codecs.Hnsw.VectorGraphWriter.Write(graphPath, graph);
         stopwatch.Stop();
         graphs.Metrics.RecordHnswBuild(stopwatch.Elapsed, docIds.Length);

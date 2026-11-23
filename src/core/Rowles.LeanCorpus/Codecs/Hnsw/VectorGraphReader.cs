@@ -163,24 +163,31 @@ internal static class VectorGraphReader
             body.ReadSingleArray(inverseNorms, nodeCount, ref position);
             foreach (float inverseNorm in inverseNorms)
             {
-                if (!float.IsFinite(inverseNorm) || inverseNorm < 0f)
-                    throw Invalid("an inverse norm is negative or not finite");
+                if (!VectorGraph.IsValidInverseNorm(inverseNorm))
+                    throw Invalid("an inverse norm is outside the conditioned range and is not a zero or scaled-cosine marker");
             }
         }
 
         if (position != body.Length)
             throw Invalid($"{body.Length - position} trailing body bytes");
 
-        if (level0 is not null)
+        var graph = level0 is not null
+            ? VectorGraph.FromArrays(dimension, normalised, m, m0, efConstruction, seed, maxLevel,
+                entryOrdinal, docIds, level0, upperOrdinals, upperAdjacency, inverseNorms)
+            : VectorGraph.FromMapped(dimension, normalised, m, m0, efConstruction, seed, maxLevel,
+                entryOrdinal, docIds, body, level0Offset, upperOrdinals, upperAdjacency, inverseNorms);
+
+        // The builder never publishes a graph with an unreachable node; one would silently hide documents.
+        int reachable = graph.CountReachableFromEntry();
+        if (reachable != nodeCount)
         {
-            var owned = VectorGraph.FromArrays(dimension, normalised, m, m0, efConstruction, seed, maxLevel,
-                entryOrdinal, docIds, level0, upperOrdinals, upperAdjacency, inverseNorms);
-            return new ReadResult(owned, HasMappedBody: false);
+            // An owned graph is released here; a mapped one wraps the body, which the caller disposes on failure.
+            if (level0 is not null)
+                graph.Dispose();
+            throw Invalid($"{nodeCount - reachable} level-zero nodes are unreachable from the entry point");
         }
 
-        var mapped = VectorGraph.FromMapped(dimension, normalised, m, m0, efConstruction, seed, maxLevel,
-            entryOrdinal, docIds, body, level0Offset, upperOrdinals, upperAdjacency, inverseNorms);
-        return new ReadResult(mapped, HasMappedBody: true);
+        return new ReadResult(graph, HasMappedBody: level0 is null);
     }
 
     private static void ValidateLevelZero(IndexInput body, int nodeCount, int m0, int[]? destination, ref long position)

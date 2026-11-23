@@ -3,7 +3,7 @@ adr: ADR052
 title: "Opt-in Float32 vector graph"
 date: 2026-11-22
 status: Accepted
-last-updated: 2026-11-22
+last-updated: 2026-11-23
 version-added: v4.0.0
 summary: "Restore opt-in approximate search for Float32 vectors through a new rebuildable .vgr graph role that selects candidates for exact rescoring, with explicit exact fallbacks and a reference-parity qualification gate."
 areas: [vectors, codecs, hnsw, indexing, search]
@@ -58,10 +58,16 @@ Int8 queries.
 construction, traversal and final scoring all target it. Normalise-at-write stays
 the canonical stored form when `NormaliseVectors` is true. Otherwise stored values
 are the supplied values and the graph persists one inverse L2 norm per node.
-Query-to-node distance is `-dot(q, v) * invNorm(v)` for a unit query;
-node-to-node distance is `-dot(a, b) * invNorm(a) * invNorm(b)`. A zero vector
-has inverse norm zero, so its distance is zero, matching the exact scorer. Graph
-distances never reach the collector: every candidate is rescored by the exact
+For a node whose norm lies in `[2^-50, 2^50]`, query-to-node distance is
+`-dot(q, v) * invNorm(v)` for a unit query and node-to-node distance is
+`-dot(a, b) * invNorm(a) * invNorm(b)`; in that range no Float32 product can
+overflow or lose the result to underflow. Any other non-zero vector, such as
+`[1e20, 0]` or a subnormal `[1e-40, 0]`, persists the marker `-1` and every
+distance involving it uses the exact scorer's cosine, which rescales in double
+precision. A zero vector has inverse norm zero, so its distance is zero,
+matching the exact scorer. Construction and traversal therefore rank every
+finite input as the exact scorer does; rescoring is not relied on to correct
+candidate selection. Graph distances never reach the collector: every candidate is rescored by the exact
 scorer over the stored Float32 vector, and query and field boosts apply after
 cosine as before. The route is purely a candidate-selection choice.
 
@@ -81,38 +87,51 @@ value fails closed), flags (normalised, inverse norms present), M, M0,
 efConstruction, seed, node count, maximum level and entry ordinal, then the
 ascending document IDs of the ordinal nodes, a fixed-stride `1 + M0` level-zero
 block, each upper level's ascending ordinals and `1 + M` records, and the inverse
-norms when present. Unused slots are `-1`. The reader validates every structural
+norms when present (`0` for a zero vector, `-1` for a vector outside the
+conditioned range). Unused slots are `-1`. The reader validates every structural
 rule before exposing a graph: field dimension and normalisation, parameter
 ranges, strictly ascending document IDs that are exactly the field's present
 vectors (ADR039), neighbour counts and ordinals in range without self-edges,
-upper levels nested in the level below, the entry point on the top level, finite
-non-negative inverse norms, empty unused slots and no trailing bytes.
+upper levels nested in the level below, the entry point on the top level, every
+level-zero node reachable from the entry point, inverse norms that are `0`, `-1`
+or inside the conditioned range, empty unused slots and no trailing bytes.
 
 **Construction.** Single-threaded and deterministic: seeded insertion order and
 level assignment `floor(-ln(u) / ln(M))`, an efConstruction beam per level, the
 diversity heuristic for selection and reciprocal links pruned through it. A node
 left with fewer than `M / 2` neighbours is backfilled from rejected candidates in
-distance order, and a bounded repair pass links any level-zero node unreachable
-from the entry point. All orderings use `(distance, ordinal)`. Without an
+distance order, and a repair pass links any level-zero node unreachable from the
+entry point. Repair keeps a spanning tree of the reached nodes and never removes
+a tree edge: it links a node from its nearest reached node with a free slot, or
+replaces that node's farthest non-tree link. Such a link always exists, because
+full reached nodes hold at least `2 * reached` links against `reached - 1` tree
+edges. Full reachability is then verified; a graph that fails it is not
+published, and the segment field is searched exactly. All orderings use
+`(distance, ordinal)`. Without an
 explicit `HnswSeed`, a fixed default seed keeps builds reproducible. Flush builds
 over the in-memory field vectors; merge rebuilds from scratch over the merged
 `.vec` file. The graph is written before segment publication like any other
 segment file.
 
-**Query routing.** For each segment of a Float32 field, in order:
+**Query routing.** A zero query vector has no direction, so cosine is undefined:
+it returns no hits on every field, whatever the stored form, searches no segment
+and records no route. Otherwise each segment holding the field records exactly
+one route, chosen in order:
 
-1. a non-positive query boost, per-document field boosts or a zero query on a
-   non-normalised field: exact (`ExactScoreTransform`), because the final score is
-   not monotonic in cosine;
+1. a non-positive query boost or per-document field boosts: exact
+   (`ExactScoreTransform`), because the final score is not monotonic in cosine;
 2. no graph: exact (`ExactNoGraph`); an unusable graph: exact
    (`ExactGraphUnavailable`);
 3. a filter leaving fewer than `max(64, 0.5% of MaxDoc)` documents, or no more
-   than the shortlist: exact (`ExactSelectiveFilter`);
+   than the shortlist: exact (`ExactSelectiveFilter`), including a filter that
+   matches nothing;
 4. otherwise one greedy descent and a level-zero beam of width
    `VectorQuery.GetEffectiveEfSearch`. Filters and deletions restrict results, not
-   routing. Traversal stops at `max(4 * ef, eligible upper bound)` distance
-   evaluations plus a small descent allowance, because beyond that an exact scan is
-   no more expensive. An exhausted budget (`ExactBudgetExceeded`) or fewer
+   routing. Traversal stops at `max(4 * ef, eligible upper bound / 2)` distance
+   evaluations plus a small descent allowance. A graph evaluation was measured at
+   about 1.2 to 1.4 times the cost of one vector of the optimised exact scan, so
+   an unfiltered traversal can cost at most about 0.7 of the scan it replaces.
+   An exhausted budget (`ExactBudgetExceeded`) or fewer
    candidates than the shortlist (`ExactUnderfilled`) runs the exact route instead.
 
 The ADR049 global TopK selection is unchanged: each segment contributes its
@@ -192,3 +211,4 @@ unchanged historical gates and the real-data gates keep the published bar.
 | --- | --- | --- | --- |
 | 2026-11-22 | Proposed | Original proposal recorded with the implementation. | `4.0/vector-rebound` |
 | 2026-11-22 | Accepted | Owner accepted; checksum validation at open, transient-failure retry, oversized-segment, cancellation and scratch-pooling rules recorded. | `4.0/vector-rebound` |
+| 2026-11-23 | Clarified | PR #132 review: conditioned inverse norms with a scaled-cosine marker, spanning-tree repair with a verified reachability postcondition enforced by writer and reader, zero-query and empty-filter route rules, and a measured `eligible / 2` traversal budget. | `4.0/vector-rebound` |

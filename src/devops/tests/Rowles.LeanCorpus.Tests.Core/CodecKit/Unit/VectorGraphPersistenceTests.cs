@@ -177,6 +177,19 @@ public sealed class VectorGraphPersistenceTests : IClassFixture<TestDirectoryFix
         (unsorted[3], unsorted[4]) = (unsorted[4], unsorted[3]);
         AssertInvalid(Write(With(graph, docIds: unsorted), "unsorted.vgr"), expectation, "strictly ascending");
 
+        // Remove every in-edge of one node: each record stays valid, but the node is unreachable.
+        int stranded = Enumerable.Range(0, graph.NodeCount).First(o => o != graph.EntryOrdinal);
+        int[] unreachable = graph.CopyLevel0();
+        for (int o = 0; o < graph.NodeCount; o++)
+        {
+            Span<int> record = unreachable.AsSpan(o * stride0, stride0);
+            var kept = record.Slice(1, record[0]).ToArray().Where(n => n != stranded).ToArray();
+            record.Fill(-1);
+            record[0] = kept.Length;
+            kept.CopyTo(record[1..]);
+        }
+        AssertInvalid(Write(With(graph, level0: unreachable), "unreachable.vgr"), expectation, "unreachable from the entry point");
+
         int notTop = Enumerable.Range(0, graph.NodeCount).First(o => Array.BinarySearch(graph.LevelOrdinals(graph.MaxLevel).ToArray(), o) < 0);
         AssertInvalid(Write(With(graph, entry: notTop), "entry.vgr"), expectation, "entry ordinal");
     }
@@ -192,6 +205,12 @@ public sealed class VectorGraphPersistenceTests : IClassFixture<TestDirectoryFix
         float[] norms = graph.InverseNorms.ToArray();
         norms[9] = float.NaN;
         AssertInvalid(Write(With(graph, inverseNorms: norms), "norms.vgr"), expectation, "inverse norm");
+        norms[9] = 1e16f; // above the conditioned range: the vector would need the scaled cosine
+        AssertInvalid(Write(With(graph, inverseNorms: norms), "unconditioned.vgr"), expectation, "inverse norm");
+        norms[9] = -0.5f;
+        AssertInvalid(Write(With(graph, inverseNorms: norms), "negative.vgr"), expectation, "inverse norm");
+        norms[9] = VectorGraph.ScaledCosine;
+        VectorGraphReader.Read(new IndexInput(Write(With(graph, inverseNorms: norms), "scaled.vgr")), expectation).Dispose();
 
         string trailing = Path.Combine(_fixture.Path, "trailing.vgr");
         CodecFileWriter.WriteAtomically(trailing, VectorCodecFiles.Graph, durable: false, body =>

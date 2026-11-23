@@ -14,7 +14,10 @@ namespace Rowles.LeanCorpus.Codecs.Hnsw;
 /// reciprocal links re-pruned through the same heuristic. Two deliberate additions: a node the
 /// heuristic leaves with fewer than <c>M / 2</c> neighbours is backfilled from rejected
 /// candidates in distance order, and a final repair pass makes every level-zero node
-/// reachable from the entry point. All orderings use <c>(distance, ordinal)</c>.
+/// reachable from the entry point. Full reachability is verified afterwards: a graph that repair
+/// could not connect is refused rather than published. All orderings use <c>(distance, ordinal)</c>.
+/// Distances follow <see cref="VectorGraph.NodeDistance"/>, so extreme magnitudes rank exactly as
+/// the exact scorer ranks them.
 /// </remarks>
 internal sealed class VectorGraphBuilder
 {
@@ -22,7 +25,7 @@ internal sealed class VectorGraphBuilder
     internal const long DefaultSeed = 0x4C43_5647_5231L;
 
     private const int MaxAssignedLevel = 15;
-    private const int MaxRepairPasses = 8;
+    internal const int DefaultRepairPasses = 8;
 
     private readonly IVectorSource _vectors;
     private readonly int[] _docIds;
@@ -31,6 +34,7 @@ internal sealed class VectorGraphBuilder
     private readonly int _efConstruction;
     private readonly long _seed;
     private readonly bool _normalised;
+    private readonly int _repairPasses;
     private readonly float[]? _inverseNorms;
     private readonly int[] _level0;
     private readonly int[] _nodeLevels;
@@ -46,8 +50,9 @@ internal sealed class VectorGraphBuilder
     private readonly List<(float Distance, int Ordinal)> _selected = new(256);
     private readonly List<(float Distance, int Ordinal)> _rejected = new(256);
 
-    private VectorGraphBuilder(IVectorSource vectors, int[] docIds, HnswBuildConfig config, long seed, bool normalised)
+    private VectorGraphBuilder(IVectorSource vectors, int[] docIds, HnswBuildConfig config, long seed, bool normalised, int repairPasses)
     {
+        _repairPasses = repairPasses;
         _vectors = vectors;
         _docIds = docIds;
         _m = config.M;
@@ -64,7 +69,7 @@ internal sealed class VectorGraphBuilder
         {
             _inverseNorms = new float[n];
             for (int ordinal = 0; ordinal < n; ordinal++)
-                _inverseNorms[ordinal] = InverseNormOf(vectors.GetVector(docIds[ordinal]));
+                _inverseNorms[ordinal] = VectorGraph.InverseNormOf(vectors.GetVector(docIds[ordinal]));
         }
     }
 
@@ -78,13 +83,10 @@ internal sealed class VectorGraphBuilder
         return nodeCount >= 0 && (long)nodeCount * (1 + config.EffectiveM0) <= Array.MaxLength;
     }
 
-    /// <summary>Builds a graph over <paramref name="docIds"/>, which must be strictly ascending.</summary>
-    /// <param name="vectors">Stored vectors addressed by document ID.</param>
-    /// <param name="docIds">Present document IDs, strictly ascending; they become ordinals 0..n-1.</param>
-    /// <param name="config">Degree and beam parameters.</param>
-    /// <param name="seed">Seed for insertion order and level assignment.</param>
-    /// <param name="normalised">Whether the stored vectors are unit length (no inverse norms persisted).</param>
-    /// <param name="cancellationToken">Observed between insertions.</param>
+    /// <summary>
+    /// Builds a graph over <paramref name="docIds"/>, or throws when repair cannot make every node
+    /// reachable. Writers use <see cref="TryBuild"/> and search such a field exactly instead.
+    /// </summary>
     internal static VectorGraph Build(
         IVectorSource vectors,
         ReadOnlySpan<int> docIds,
@@ -92,7 +94,30 @@ internal sealed class VectorGraphBuilder
         long seed,
         bool normalised,
         CancellationToken cancellationToken = default)
+        => TryBuild(vectors, docIds, config, seed, normalised, cancellationToken)
+            ?? throw new InvalidOperationException("The vector graph could not be made fully reachable.");
+
+    /// <summary>
+    /// Builds a graph over <paramref name="docIds"/>, which must be strictly ascending. Returns null
+    /// when the repair pass leaves a level-zero node unreachable from the entry point.
+    /// </summary>
+    /// <param name="vectors">Stored vectors addressed by document ID.</param>
+    /// <param name="docIds">Present document IDs, strictly ascending; they become ordinals 0..n-1.</param>
+    /// <param name="config">Degree and beam parameters.</param>
+    /// <param name="seed">Seed for insertion order and level assignment.</param>
+    /// <param name="normalised">Whether the stored vectors are unit length (no inverse norms persisted).</param>
+    /// <param name="cancellationToken">Observed between insertions.</param>
+    /// <param name="repairPasses">Reachability repair passes; tests lower it to exercise refusal.</param>
+    internal static VectorGraph? TryBuild(
+        IVectorSource vectors,
+        ReadOnlySpan<int> docIds,
+        HnswBuildConfig config,
+        long seed,
+        bool normalised,
+        CancellationToken cancellationToken = default,
+        int repairPasses = DefaultRepairPasses)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(repairPasses);
         ArgumentNullException.ThrowIfNull(vectors);
         ArgumentNullException.ThrowIfNull(config);
         if (!CanBuild(docIds.Length, config))
@@ -104,11 +129,11 @@ internal sealed class VectorGraphBuilder
                 throw new ArgumentException("Graph document IDs must be strictly ascending.", nameof(docIds));
         }
 
-        var builder = new VectorGraphBuilder(vectors, docIds.ToArray(), config, seed, normalised);
+        var builder = new VectorGraphBuilder(vectors, docIds.ToArray(), config, seed, normalised, repairPasses);
         return builder.BuildCore(cancellationToken);
     }
 
-    private VectorGraph BuildCore(CancellationToken cancellationToken)
+    private VectorGraph? BuildCore(CancellationToken cancellationToken)
     {
         int n = _docIds.Length;
         var order = new int[n];
@@ -140,7 +165,12 @@ internal sealed class VectorGraphBuilder
         if (n > 0)
             RepairLevelZeroReachability();
 
-        return Freeze();
+        // Postcondition: every node is reachable from the entry point, or no graph is published.
+        var graph = Freeze();
+        if (graph.CountReachableFromEntry() == n)
+            return graph;
+        graph.Dispose();
+        return null;
     }
 
     private void Insert(int ordinal)
@@ -331,116 +361,118 @@ internal sealed class VectorGraphBuilder
     }
 
     /// <summary>
-    /// Pruning can leave a level-zero node with no path from the entry point. Each unreachable
-    /// node is linked from its nearest reachable node, in ordinal order. A replaced link can in
-    /// rare cases strand another node, so reachability is re-checked for a bounded number of passes.
+    /// Pruning can leave a level-zero node with no path from the entry point. Reached nodes form a
+    /// spanning tree from the entry point, and tree edges are never removed, so repair cannot strand
+    /// a node it has already reached. Each unreachable node, in ordinal order, is linked from its
+    /// nearest reached node that has a free slot, otherwise from the nearest reached node by
+    /// replacing that node's farthest non-tree link. When the beam offers neither, any reached node
+    /// does: once every reached node is full they hold at least <c>2 * reached</c> links, more than
+    /// the <c>reached - 1</c> tree edges. One pass therefore connects the graph; the caller still
+    /// verifies the postcondition.
     /// </summary>
     private void RepairLevelZeroReachability()
     {
         int n = _docIds.Length;
-        var reached = new bool[n];
+        var parent = new int[n];
         var stack = new Stack<int>();
-        var inDegree = new int[n];
-        for (int pass = 0; pass < MaxRepairPasses; pass++)
+        for (int pass = 0; pass < _repairPasses; pass++)
         {
-            Array.Clear(reached);
-            MarkReachable(_entry, reached, stack);
-            if (Array.IndexOf(reached, false) < 0)
+            Array.Fill(parent, -1);
+            parent[_entry] = _entry;
+            if (Grow(_entry, parent, stack) == n)
                 return;
 
-            Array.Clear(inDegree);
             for (int ordinal = 0; ordinal < n; ordinal++)
             {
-                foreach (int neighbour in Neighbours(ordinal, 0))
-                    inDegree[neighbour]++;
-            }
-
-            for (int ordinal = 0; ordinal < n; ordinal++)
-            {
-                if (reached[ordinal])
+                if (parent[ordinal] >= 0)
                     continue;
 
                 _beam.Clear();
                 _beam.Add((Distance(ordinal, _entry), _entry));
                 SearchLayer(ordinal, 0);
-                if (LinkFromNearestWithCapacity(ordinal, reached, inDegree)
-                    || ReplaceFarthestRedundantLink(ordinal, reached, inDegree))
-                {
-                    MarkReachable(ordinal, reached, stack);
-                }
-            }
-        }
-    }
-
-    private bool LinkFromNearestWithCapacity(int ordinal, bool[] reached, int[] inDegree)
-    {
-        foreach (var (_, candidate) in _beam)
-        {
-            if (!reached[candidate])
-                continue;
-            Span<int> record = Record(candidate, 0);
-            if (record[0] >= _m0)
-                continue;
-            record[1 + record[0]] = ordinal;
-            record[0]++;
-            inDegree[ordinal]++;
-            return true;
-        }
-
-        return false;
-    }
-
-    private bool ReplaceFarthestRedundantLink(int ordinal, bool[] reached, int[] inDegree)
-    {
-        foreach (var (_, candidate) in _beam)
-        {
-            if (!reached[candidate])
-                continue;
-            Span<int> record = Record(candidate, 0);
-            int replaceAt = -1;
-            float farthest = float.MinValue;
-            for (int i = 0; i < record[0]; i++)
-            {
-                int neighbour = record[1 + i];
-                if (inDegree[neighbour] <= 1)
+                int from = LinkFromReached(ordinal, parent);
+                if (from < 0)
                     continue;
-                float distance = Distance(candidate, neighbour);
-                if (distance > farthest)
-                {
-                    farthest = distance;
-                    replaceAt = i;
-                }
+                parent[ordinal] = from;
+                Grow(ordinal, parent, stack);
             }
-
-            if (replaceAt < 0)
-                continue;
-            inDegree[record[1 + replaceAt]]--;
-            record[1 + replaceAt] = ordinal;
-            inDegree[ordinal]++;
-            return true;
         }
-
-        return false;
     }
 
-    private void MarkReachable(int start, bool[] reached, Stack<int> stack)
+    /// <summary>Links <paramref name="ordinal"/> from a reached node and returns that node, or -1.</summary>
+    private int LinkFromReached(int ordinal, int[] parent)
     {
-        if (reached[start])
-            return;
-        reached[start] = true;
+        foreach (var (_, candidate) in _beam)
+        {
+            if (parent[candidate] >= 0 && TryAddSlot(candidate, ordinal))
+                return candidate;
+        }
+        foreach (var (_, candidate) in _beam)
+        {
+            if (parent[candidate] >= 0 && TryReplaceNonTreeLink(candidate, ordinal, parent))
+                return candidate;
+        }
+        for (int candidate = 0; candidate < parent.Length; candidate++)
+        {
+            if (parent[candidate] >= 0 && (TryAddSlot(candidate, ordinal) || TryReplaceNonTreeLink(candidate, ordinal, parent)))
+                return candidate;
+        }
+        return -1;
+    }
+
+    private bool TryAddSlot(int from, int ordinal)
+    {
+        Span<int> record = Record(from, 0);
+        if (record[0] >= _m0)
+            return false;
+        record[1 + record[0]] = ordinal;
+        record[0]++;
+        return true;
+    }
+
+    /// <summary>Replaces the farthest link of <paramref name="from"/> that is not its child's tree edge.</summary>
+    private bool TryReplaceNonTreeLink(int from, int ordinal, int[] parent)
+    {
+        Span<int> record = Record(from, 0);
+        int replaceAt = -1;
+        float farthest = float.MinValue;
+        for (int i = 0; i < record[0]; i++)
+        {
+            int neighbour = record[1 + i];
+            if (parent[neighbour] == from)
+                continue;
+            float distance = Distance(from, neighbour);
+            if (replaceAt < 0 || VectorGraphHeap.Less(farthest, record[1 + replaceAt], distance, neighbour))
+            {
+                farthest = distance;
+                replaceAt = i;
+            }
+        }
+
+        if (replaceAt < 0)
+            return false;
+        record[1 + replaceAt] = ordinal;
+        return true;
+    }
+
+    /// <summary>Extends the spanning tree from <paramref name="start"/>; returns the nodes newly reached plus one.</summary>
+    private int Grow(int start, int[] parent, Stack<int> stack)
+    {
+        int reached = 1;
         stack.Push(start);
         while (stack.Count > 0)
         {
             int current = stack.Pop();
             foreach (int neighbour in Neighbours(current, 0))
             {
-                if (!reached[neighbour])
-                {
-                    reached[neighbour] = true;
-                    stack.Push(neighbour);
-                }
+                if (parent[neighbour] >= 0)
+                    continue;
+                parent[neighbour] = current;
+                reached++;
+                stack.Push(neighbour);
             }
         }
+        return reached;
     }
 
     private VectorGraph Freeze()
@@ -502,11 +534,9 @@ internal sealed class VectorGraphBuilder
     }
 
     private float Distance(int left, int right)
-    {
-        float dot = VectorMath.DotProduct(_vectors.GetVector(_docIds[left]), _vectors.GetVector(_docIds[right]));
-        float distance = _inverseNorms is null ? -dot : -dot * _inverseNorms[left] * _inverseNorms[right];
-        return VectorGraph.FiniteDistance(distance);
-    }
+        => VectorGraph.NodeDistance(
+            _vectors.GetVector(_docIds[left]), _inverseNorms is null ? 1f : _inverseNorms[left],
+            _vectors.GetVector(_docIds[right]), _inverseNorms is null ? 1f : _inverseNorms[right]);
 
     private void NextEpoch()
     {
@@ -516,17 +546,5 @@ internal sealed class VectorGraphBuilder
             _epoch = 0;
         }
         _epoch++;
-    }
-
-    /// <summary>Returns <c>1 / ||v||</c>, or zero for a zero or non-finite vector.</summary>
-    internal static float InverseNormOf(ReadOnlySpan<float> vector)
-    {
-        double squared = 0;
-        foreach (float value in vector)
-            squared += (double)value * value;
-        if (!(squared > 0) || !double.IsFinite(squared))
-            return 0f;
-        float inverse = (float)(1.0 / Math.Sqrt(squared));
-        return float.IsFinite(inverse) ? inverse : 0f;
     }
 }

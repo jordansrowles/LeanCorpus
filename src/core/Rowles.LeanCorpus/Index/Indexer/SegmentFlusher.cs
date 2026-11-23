@@ -234,12 +234,17 @@ internal static class SegmentFlusher
                     var graphSw = System.Diagnostics.Stopwatch.StartNew();
                     var vectorSource = new Codecs.Vectors.InMemoryVectorSource(
                         new Dictionary<int, ReadOnlyMemory<float>>(perField), dimension);
-                    using var graph = Codecs.Hnsw.VectorGraphBuilder.Build(vectorSource, docIds, config.HnswBuildConfig,
+                    // A graph that repair could not make fully reachable is not published; the
+                    // field is then searched exactly.
+                    using var graph = Codecs.Hnsw.VectorGraphBuilder.TryBuild(vectorSource, docIds, config.HnswBuildConfig,
                         config.HnswSeed ?? Codecs.Hnsw.VectorGraphBuilder.DefaultSeed, config.NormaliseVectors);
-                    Codecs.Hnsw.VectorGraphWriter.Write(Codecs.Vectors.VectorFilePaths.GraphFile(basePath, fieldName), graph);
-                    graphSw.Stop();
-                    config.Metrics.RecordHnswBuild(graphSw.Elapsed, docIds.Length);
-                    hasGraph = true;
+                    if (graph is not null)
+                    {
+                        Codecs.Hnsw.VectorGraphWriter.Write(Codecs.Vectors.VectorFilePaths.GraphFile(basePath, fieldName), graph);
+                        graphSw.Stop();
+                        config.Metrics.RecordHnswBuild(graphSw.Elapsed, docIds.Length);
+                        hasGraph = true;
+                    }
                 }
 
                 segInfo.VectorFields.Add(new VectorFieldInfo

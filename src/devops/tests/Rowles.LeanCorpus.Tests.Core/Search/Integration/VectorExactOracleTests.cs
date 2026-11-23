@@ -134,8 +134,10 @@ public sealed class VectorExactOracleTests(TestDirectoryFixture fixture) : IClas
         AssertOracleTopK(afterMerge, documents, [1f, 0f], topK: 8, queryBoost: 2f, filterToKeep: true);
     }
 
-    [Fact]
-    public void ExactFloat32_ZeroQueryOnNormalisedFieldReturnsNoMatches()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ExactFloat32_ZeroQueryReturnsNoMatches(bool normaliseVectors)
     {
         OracleDocument[] documents =
         [
@@ -145,8 +147,9 @@ public sealed class VectorExactOracleTests(TestDirectoryFixture fixture) : IClas
             new(3, null, "all", 1f),
         ];
 
-        using var directory = new MMapDirectory(SubDir(nameof(ExactFloat32_ZeroQueryOnNormalisedFieldReturnsNoMatches)));
-        using (var writer = new IndexWriter(directory, ExactConfig(normaliseVectors: true)))
+        // Cosine is undefined for a zero query, so no document matches whatever the stored form.
+        using var directory = new MMapDirectory(SubDir(nameof(ExactFloat32_ZeroQueryReturnsNoMatches) + normaliseVectors));
+        using (var writer = new IndexWriter(directory, ExactConfig(normaliseVectors)))
         {
             AddDocuments(writer, documents);
             writer.Commit();

@@ -3,6 +3,8 @@ namespace Rowles.LeanCorpus.Diagnostics;
 /// <summary>
 /// The candidate route one Float32 vector field segment took for a vector query (ADR052).
 /// Every route except <see cref="Graph"/> is an exact scan and never counts as approximate search.
+/// Each segment holding the field records exactly one route per query, including when an empty
+/// filter matches nothing. A zero query vector matches nothing on any field and records no route.
 /// </summary>
 public enum VectorSearchRoute
 {
@@ -12,7 +14,7 @@ public enum VectorSearchRoute
     /// <summary>The field has no vector graph in this segment.</summary>
     ExactNoGraph = 1,
 
-    /// <summary>The filter left too few eligible documents for a traversal to pay off.</summary>
+    /// <summary>The filter left too few eligible documents for a traversal to pay off, or none.</summary>
     ExactSelectiveFilter = 2,
 
     /// <summary>The traversal reached its distance-evaluation budget before converging.</summary>
@@ -25,8 +27,8 @@ public enum VectorSearchRoute
     ExactGraphUnavailable = 5,
 
     /// <summary>
-    /// The final score is not monotonic in cosine similarity: a non-positive query boost, per-document
-    /// field boosts or a zero query vector on a non-normalised field.
+    /// The final score is not monotonic in cosine similarity: a non-positive query boost or
+    /// per-document field boosts.
     /// </summary>
     ExactScoreTransform = 6,
 }

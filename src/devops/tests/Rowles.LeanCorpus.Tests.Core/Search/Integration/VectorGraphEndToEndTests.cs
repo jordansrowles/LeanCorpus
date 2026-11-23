@@ -122,9 +122,9 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
         }
     }
 
-    // Selectivity 0%, 0.1% and 1% leave fewer than 64 eligible documents and scan exactly. At 10%,
-    // an exact scan of 400 vectors can cost less than a beam that needs about ef / 0.1 visits, so
-    // the budget may send it exact. 100% must use the graph.
+    // Selectivity 0%, 0.1% and 1% leave fewer than 64 eligible documents and scan exactly; an empty
+    // filter still records its route. At 10%, an exact scan of 400 vectors can cost less than a
+    // beam that needs about ef / 0.1 visits, so the budget may send it exact. 100% must use the graph.
     [Theory(DisplayName = "Graph: Filter Selectivity Picks The Route And Stays Correct")]
     [InlineData(0, new[] { VectorSearchRoute.ExactSelectiveFilter })]
     [InlineData(1, new[] { VectorSearchRoute.ExactSelectiveFilter })]
@@ -141,7 +141,8 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
         var metrics = new RouteMetrics();
         using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
         var filter = new TermQuery("bucket", "keep");
-        foreach (var query in QueriesNear(vectors, 10, seed: 142))
+        var queries = QueriesNear(vectors, 10, seed: 142);
+        foreach (var query in queries)
         {
             var hits = searcher.Search(new VectorQuery(Field, query, topK: 10, filter: filter), 10);
             var ordinals = hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray();
@@ -151,7 +152,81 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
             Assert.True(recall >= 0.9, $"Filtered tie-aware recall@10 at {perThousand} per thousand was {recall:F3}.");
         }
 
+        // One segment: exactly one route per query, never an empty record set.
+        Assert.Equal(queries.Length, metrics.Routes.Count);
         Assert.All(metrics.Routes, route => Assert.Contains(route, allowedRoutes));
+    }
+
+    [Theory(DisplayName = "Graph: A Zero Query Returns No Hits And Records No Route")]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void ZeroQuery_ReturnsNoHitsAndRecordsNoRoute(bool normalise, bool graph)
+    {
+        var vectors = Clustered(300, 8, clusters: 4, spread: 0.2f, seed: 171);
+        vectors[5] = new float[8];
+        using var directory = new MMapDirectory(SubDir($"zero-{normalise}-{graph}"));
+        var config = GraphConfig(normalise);
+        config.BuildHnswOnFlush = graph;
+        Write(directory, vectors, config, commitEvery: vectors.Length);
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        Assert.Equal(graph, Assert.Single(searcher.GetSegmentReaders()).Info.VectorFields.Single().HasGraph);
+        var zero = new VectorQuery(Field, new float[8], topK: 10);
+        var filtered = new VectorQuery(Field, new float[8], topK: 10, filter: new TermQuery("bucket", "keep"));
+
+        Assert.Equal(0, searcher.Search(zero, 10).TotalHits);
+        Assert.Equal(0, searcher.Search(filtered, 10).TotalHits);
+        Assert.Empty(metrics.Routes);
+    }
+
+    [Fact(DisplayName = "Graph: An Empty Filter Records One Exact Route Per Segment")]
+    public void EmptyFilter_RecordsOneExactRoutePerSegment()
+    {
+        var vectors = Clustered(900, 8, clusters: 6, spread: 0.2f, seed: 181);
+        using var directory = new MMapDirectory(SubDir("empty-filter"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: 300, keep: static _ => false);
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        int segments = searcher.GetSegmentReaders().Count;
+        Assert.True(segments >= 2, "The fixture needs several segments.");
+        var hits = searcher.Search(new VectorQuery(Field, vectors[0], topK: 10, filter: new TermQuery("bucket", "keep")), 10);
+
+        Assert.Equal(0, hits.TotalHits);
+        Assert.Equal(segments, metrics.Routes.Count);
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.ExactSelectiveFilter, route));
+    }
+
+    [Fact(DisplayName = "Graph: Extreme Magnitudes On A Non-Normalised Field Use The Graph With Recall")]
+    public void ExtremeMagnitudes_UseGraphWithRecall()
+    {
+        var random = new Random(191); // NOSONAR S2245: deterministic test data
+        // One magnitude per vector, from 1e-35 to 1e35, so directions keep their cluster structure.
+        var vectors = Clustered(2_000, 16, clusters: 20, spread: 0.1f, seed: 192)
+            .Select(v => Scale(v, (float)Math.Pow(10, random.NextDouble() * 70 - 35)))
+            .ToArray();
+        using var directory = new MMapDirectory(SubDir("extreme"));
+        Write(directory, vectors, GraphConfig(normalise: false), commitEvery: vectors.Length);
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        double recall = 0;
+        var queries = QueriesNear(vectors.Select(Normalise).ToArray(), 30, seed: 193);
+        foreach (var query in queries)
+        {
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+            var ordinals = hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray();
+            recall += TieAwareRecall(vectors, query, ordinals, 10);
+            foreach (var hit in hits.ScoreDocs)
+                Assert.Equal(Cosine(query, vectors[Ordinal(searcher, hit.DocId)]), hit.Score, 1e-5);
+        }
+
+        Assert.True(recall / queries.Length >= 0.95, $"Tie-aware recall@10 was {recall / queries.Length:F3}.");
+        Assert.Equal(queries.Length, metrics.Routes.Count);
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
     }
 
     [Fact(DisplayName = "Graph: A Filter Disconnected In The Graph Stays Exact Or Correct")]
@@ -458,6 +533,8 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
         Assert.Contains(vectors.Length, ordinals);
         Assert.DoesNotContain(ordinals, ordinal => ordinal < vectors.Length && ordinal % 5 == 0);
     }
+
+    private static float[] Scale(float[] vector, float scale) => vector.Select(x => x * scale).ToArray();
 
     private static IndexWriterConfig GraphConfig(bool normalise)
         => new()

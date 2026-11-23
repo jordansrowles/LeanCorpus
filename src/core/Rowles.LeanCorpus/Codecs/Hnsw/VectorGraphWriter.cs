@@ -17,7 +17,8 @@ namespace Rowles.LeanCorpus.Codecs.Hnsw;
 /// level 0: nodeCount records of (1 + M0) int32: count, then M0 slots (unused = -1)
 /// per level 1..maxLevel: int32 levelNodeCount, int32[levelNodeCount] ascending ordinals,
 ///                        levelNodeCount records of (1 + M) int32
-/// float32[nodeCount] inverse norms, only when flags bit1 is set
+/// float32[nodeCount] inverse norms, only when flags bit1 is set: 0 for a zero vector, -1 (scaled
+/// cosine) outside the conditioned norm range [2^-50, 2^50], otherwise 1 / norm
 /// </code>
 /// </remarks>
 internal static class VectorGraphWriter
