@@ -451,6 +451,41 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
         Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.ExactGraphUnavailable, route));
     }
 
+    [Fact(DisplayName = "Graph: Recovery Removes Interrupted And Orphaned Graph Files But Keeps The Live Graph")]
+    public void Recovery_RemovesTemporaryAndOrphanedGraphFiles()
+    {
+        var vectors = Clustered(3_000, 16, clusters: 30, spread: 0.1f, seed: 197);
+        string path = SubDir("recovery");
+        using (var directory = new MMapDirectory(path))
+            Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        string live = Directory.EnumerateFiles(path, "*.vgr").Single();
+        byte[] liveBytes = File.ReadAllBytes(live);
+        string interrupted = live + ".tmp";
+        File.WriteAllBytes(interrupted, liveBytes[..64]);
+        // An unreferenced segment, as a crash between writing a merge's files and its commit leaves.
+        string orphanSegment = Path.Combine(path, "seg_9999.seg");
+        File.Copy(Directory.EnumerateFiles(path, "*.seg").Single(), orphanSegment);
+        string orphanGraph = Path.Combine(path, "seg_9999_v_" + Field + ".vgr");
+        File.WriteAllBytes(orphanGraph, liveBytes);
+
+        Assert.NotNull(IndexRecovery.RecoverLatestCommit(path, cleanupOrphans: true));
+
+        Assert.False(File.Exists(interrupted));
+        Assert.False(File.Exists(orphanGraph));
+        Assert.False(File.Exists(orphanSegment));
+        Assert.Equal(liveBytes, File.ReadAllBytes(live));
+
+        using var reopened = new MMapDirectory(path);
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(reopened, SearcherConfig(metrics));
+        var query = Normalise(vectors[11]);
+        var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+        Assert.Equal(1.0, TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10));
+        Assert.Equal(VectorSearchRoute.Graph, Assert.Single(metrics.Routes));
+        Assert.True(IndexValidator.Check(reopened, new IndexCheckOptions { Deep = true }).IsHealthy);
+    }
+
     [Fact(DisplayName = "Graph: Explain Reports The Route")]
     public void Explain_ReportsTheRoute()
     {

@@ -54,6 +54,29 @@ public sealed class VectorGraphPersistenceTests : IClassFixture<TestDirectoryFix
         Assert.Equal(File.ReadAllBytes(Write(first, "same_a.vgr")), File.ReadAllBytes(Write(second, "same_b.vgr")));
     }
 
+    [Theory(DisplayName = "Format: The v1 File Has Locked Golden Bytes")]
+    [InlineData(true, "4C4343460118010000000000000003006C65616E636F727075732E766563746F72732E67726170680200000001010200000004000000080000000807060504030201030000000100000000000000000000000200000003000000020000000100000002000000FFFFFFFFFFFFFFFF020000000000000002000000FFFFFFFFFFFFFFFF020000000000000001000000FFFFFFFFFFFFFFFF0200000000000000020000000100000002000000FFFFFFFF0100000000000000FFFFFFFF92000000000000004FDDC893DB63502F")]
+    [InlineData(false, "4C4343460118010000000000000003006C65616E636F727075732E766563746F72732E67726170680200000001020200000004000000080000000807060504030201030000000100000000000000000000000200000003000000020000000100000002000000FFFFFFFFFFFFFFFF020000000000000002000000FFFFFFFFFFFFFFFF020000000000000001000000FFFFFFFFFFFFFFFF0200000000000000020000000100000002000000FFFFFFFF0100000000000000FFFFFFFF0000803F0000003F0000803E9E00000000000000B5F0BE3881042CF4")]
+    public void Format_V1File_HasLockedGoldenBytes(bool normalised, string expectedHex)
+    {
+        // A hand-built three-node graph with one upper level, so the bytes pin the writer's wire
+        // format (frame, header, document IDs, level zero, upper level, inverse norms) and not the
+        // builder's choices. Changing these bytes is a format change: bump the body version.
+        using var graph = VectorGraph.FromArrays(
+            dimension: 2, normalised, m: 2, m0: 4, efConstruction: 8, seed: 0x0102030405060708,
+            maxLevel: 1, entryOrdinal: 0, docIds: [0, 2, 3],
+            level0: [2, 1, 2, -1, -1, 2, 0, 2, -1, -1, 2, 0, 1, -1, -1],
+            upperOrdinals: [[0, 2]], upperAdjacency: [[1, 2, -1, 1, 0, -1]],
+            inverseNorms: normalised ? null : [1f, 0.5f, 0.25f]);
+        string path = Write(graph, $"golden_{normalised}.vgr");
+
+        Assert.Equal(expectedHex, Convert.ToHexString(File.ReadAllBytes(path)));
+        using var read = VectorGraphReader.Read(new IndexInput(path),
+            new VectorGraphReader.Expectation(2, normalised, 4, docId => docId != 1));
+        Assert.Equal([0, 2, 3], read.DocIds.ToArray());
+        Assert.Equal(1, read.MaxLevel);
+    }
+
     [Fact(DisplayName = "Roundtrip: Empty Graph")]
     public void Roundtrip_EmptyGraph()
     {
