@@ -91,9 +91,14 @@ internal sealed class SegmentMergeVectorWriter
             string vecPath = Codecs.Vectors.VectorFilePaths.VectorFile(basePath, fieldName);
             var mergedSource = new MergedDocumentVectorSource(documentOrder, fieldName, dimension);
             VectorWriter.WriteField(vecPath, ctx.TotalDocs, dimension, mergedSource, vectorDocIds);
-            bool hasGraph = graphs is not null && vectorDocIds.Count >= 2
-                && Codecs.Hnsw.VectorGraphBuilder.CanBuild(vectorDocIds.Count, graphs.Config)
-                && BuildGraph(vecPath, Codecs.Vectors.VectorFilePaths.GraphFile(basePath, fieldName), vectorDocIds, normalised, graphs);
+            bool hasGraph = false;
+            if (graphs is not null && vectorDocIds.Count >= 2)
+            {
+                if (!Codecs.Hnsw.VectorGraphBuilder.CanBuild(vectorDocIds.Count, graphs.Config))
+                    graphs.Metrics.RecordVectorGraphBuildSkipped(Diagnostics.VectorGraphBuildSkipReason.TooLarge);
+                else
+                    hasGraph = BuildGraph(vecPath, Codecs.Vectors.VectorFilePaths.GraphFile(basePath, fieldName), vectorDocIds, normalised, graphs);
+            }
             merged.Add(new VectorFieldInfo
             {
                 FieldName = fieldName,
@@ -123,7 +128,10 @@ internal sealed class SegmentMergeVectorWriter
             new VectorReaderSource(vectors), docIds, graphs.Config, graphs.Seed, normalised, graphs.CancellationToken);
         // A graph that repair could not make fully reachable is not published; the field is searched exactly.
         if (graph is null)
+        {
+            graphs.Metrics.RecordVectorGraphBuildSkipped(Diagnostics.VectorGraphBuildSkipReason.Unreachable);
             return false;
+        }
         Codecs.Hnsw.VectorGraphWriter.Write(graphPath, graph);
         stopwatch.Stop();
         graphs.Metrics.RecordHnswBuild(stopwatch.Elapsed, docIds.Length);

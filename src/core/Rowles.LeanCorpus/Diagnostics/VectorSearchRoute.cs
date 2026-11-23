@@ -17,7 +17,10 @@ public enum VectorSearchRoute
     /// <summary>The filter left too few eligible documents for a traversal to pay off, or none.</summary>
     ExactSelectiveFilter = 2,
 
-    /// <summary>The traversal reached its distance-evaluation budget before converging.</summary>
+    /// <summary>
+    /// The traversal reached its distance-evaluation budget before converging; its work is reported
+    /// through <see cref="IMetricsCollector.RecordVectorGraphWastedTraversal"/>.
+    /// </summary>
     ExactBudgetExceeded = 3,
 
     /// <summary>The traversal returned fewer candidates than the query requested.</summary>
@@ -31,4 +34,10 @@ public enum VectorSearchRoute
     /// per-document field boosts.
     /// </summary>
     ExactScoreTransform = 6,
+
+    /// <summary>
+    /// The traversal was not started because even an optimistic estimate of its distance
+    /// evaluations exceeded the budget, so the exact scan ran without wasted graph work.
+    /// </summary>
+    ExactBudgetPredicted = 7,
 }

@@ -123,13 +123,13 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
     }
 
     // Selectivity 0%, 0.1% and 1% leave fewer than 64 eligible documents and scan exactly; an empty
-    // filter still records its route. At 10%, an exact scan of 400 vectors can cost less than a
-    // beam that needs about ef / 0.1 visits, so the budget may send it exact. 100% must use the graph.
+    // filter still records its route. At 10%, a beam needs about ef / 0.1 visits, more than the
+    // budget for 400 eligible vectors, so the traversal is not started. 100% must use the graph.
     [Theory(DisplayName = "Graph: Filter Selectivity Picks The Route And Stays Correct")]
     [InlineData(0, new[] { VectorSearchRoute.ExactSelectiveFilter })]
     [InlineData(1, new[] { VectorSearchRoute.ExactSelectiveFilter })]
     [InlineData(10, new[] { VectorSearchRoute.ExactSelectiveFilter })]
-    [InlineData(100, new[] { VectorSearchRoute.Graph, VectorSearchRoute.ExactBudgetExceeded })]
+    [InlineData(100, new[] { VectorSearchRoute.ExactBudgetPredicted })]
     [InlineData(1000, new[] { VectorSearchRoute.Graph })]
     public void FilterSelectivity_PicksRouteAndStaysCorrect(int perThousand, VectorSearchRoute[] allowedRoutes)
     {
@@ -180,6 +180,27 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
         Assert.Equal(0, searcher.Search(zero, 10).TotalHits);
         Assert.Equal(0, searcher.Search(filtered, 10).TotalHits);
         Assert.Empty(metrics.Routes);
+    }
+
+    [Fact(DisplayName = "Graph: A Traversal Certain To Exhaust Its Budget Is Not Started")]
+    public void PredictedBudget_SkipsTraversalWithoutWastedWork()
+    {
+        var vectors = Clustered(4_000, 16, clusters: 20, spread: 0.1f, seed: 201);
+        bool Eligible(int ordinal) => ordinal % 10 == 0;
+        using var directory = new MMapDirectory(SubDir("predicted"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length, keep: Eligible);
+
+        var metrics = new DefaultMetricsCollector();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        var query = Normalise(vectors[3]);
+        var hits = searcher.Search(new VectorQuery(Field, query, topK: 10, filter: new TermQuery("bucket", "keep")), 10);
+
+        var ordinals = hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray();
+        Assert.Equal(1.0, TieAwareRecall(vectors, query, ordinals, 10, Eligible));
+        var snapshot = metrics.GetSnapshot();
+        Assert.Equal(1, snapshot.VectorGraphFallbackCount);
+        Assert.Equal(0, snapshot.HnswSearchCount);
+        Assert.Equal(0, snapshot.VectorGraphWastedTraversalCount);
     }
 
     [Fact(DisplayName = "Graph: An Empty Filter Records One Exact Route Per Segment")]
@@ -392,11 +413,12 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
     [Fact(DisplayName = "Graph: Compound Segments And Concurrent Readers Search The Graph")]
     public void CompoundSegmentsAndConcurrentReaders_SearchTheGraph()
     {
-        var vectors = Clustered(1_500, 16, clusters: 12, spread: 0.1f, seed: 211);
+        // Segments large enough that a traversal is cheaper than scanning them (smaller ones scan exactly).
+        var vectors = Clustered(4_000, 16, clusters: 12, spread: 0.1f, seed: 211);
         using var directory = new MMapDirectory(SubDir("compound"));
         var config = GraphConfig(normalise: true);
         config.UseCompoundFile = true;
-        Write(directory, vectors, config, commitEvery: 750);
+        Write(directory, vectors, config, commitEvery: 2_000);
 
         var metrics = new RouteMetrics();
         using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));

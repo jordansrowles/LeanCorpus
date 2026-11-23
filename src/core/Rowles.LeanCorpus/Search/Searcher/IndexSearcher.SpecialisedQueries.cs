@@ -1466,11 +1466,26 @@ public sealed partial class IndexSearcher
 
         int ef = query.GetEffectiveEfSearch(graph.NodeCount);
         // A graph evaluation costs about 1.2-1.4x one vector of the exact scan (random access, heap
-        // and visited-set work), so a traversal is stopped at half the eligible count: it can then
-        // cost at most about 0.7x the exact scan it replaces. The ef floor lets small segments
-        // converge and the slack covers the upper-level descent.
+        // and visited-set work). Stopping at a third of the eligible count means a traversal that
+        // completes costs at most about 0.45x the exact scan, the 2x speed-up ADR052 qualifies
+        // against, while one that exhausts the budget and falls back costs at most about 1.45x
+        // exact. A traversal that would almost certainly exhaust it is not started (below). The ef
+        // floor lets small segments converge and the slack covers the upper-level descent.
         long budget = Math.Max(GraphBudgetEfMultiplier * (long)ef, eligibleUpperBound / GraphBudgetEligibleDivisor)
             + 64L * (graph.MaxLevel + 1);
+
+        // A beam that must hold ef eligible results evaluates at least ef / selectivity nodes, and
+        // measured traversals evaluated 9-34 times that. Below the observed minimum, the estimate
+        // is optimistic: it only skips traversals that would almost certainly exhaust the budget.
+        // Level zero never evaluates a node twice, so the estimate is capped at the node count.
+        double selectivity = Math.Max(eligibleUpperBound, 1) / (double)graph.NodeCount;
+        double predicted = Math.Min(GraphPredictedEvaluationsPerEf * ef / selectivity, graph.NodeCount);
+        if (predicted > budget)
+        {
+            RecordVectorRoute(query, reader, Diagnostics.VectorSearchRoute.ExactBudgetPredicted);
+            return false;
+        }
+
         var hits = new List<Codecs.Hnsw.VectorGraphHit>(shortlist);
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var stats = graph.Search(unitQuery, new VectorReaderSource(vectors), shortlist, ef, eligibleMask, budget, hits);
@@ -1484,6 +1499,7 @@ public sealed partial class IndexSearcher
         VectorMetrics?.RecordHnswSearch(stopwatch.Elapsed, stats.NodesVisited, scannedVectors: 0, fallback is not null);
         if (fallback is { } route)
         {
+            VectorMetrics?.RecordVectorGraphWastedTraversal(stopwatch.Elapsed, stats.DistanceEvaluations);
             RecordVectorRoute(query, reader, route);
             return false;
         }
@@ -1509,7 +1525,8 @@ public sealed partial class IndexSearcher
     private const int SelectiveFilterMinimum = 64;
     private const double SelectiveFilterFraction = 0.005;
     private const long GraphBudgetEfMultiplier = 4;
-    private const long GraphBudgetEligibleDivisor = 2;
+    private const long GraphBudgetEligibleDivisor = 3;
+    private const double GraphPredictedEvaluationsPerEf = 8;
 
     // Captures per-segment routes of the query being explained while Explain prepares its set.
     // Vector queries nested in its filter record their own routes elsewhere and are not captured.

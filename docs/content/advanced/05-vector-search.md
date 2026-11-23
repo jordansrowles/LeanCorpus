@@ -78,9 +78,13 @@ The search falls back to an exact scan of the segment, and reports why, when:
 - the filter leaves few documents (fewer than `max(64, 0.5% of MaxDoc)`, or no
   more than the shortlist, `topK * oversamplingFactor`), because scanning them
   is cheaper;
-- the traversal exhausts its work budget, about `max(4 * efSearch, eligible
-  documents / 2)` distance evaluations, so it never costs more than the scan it
-  replaces;
+- the traversal would almost certainly exceed its work budget of about
+  `max(4 * efSearch, eligible documents / 3)` distance evaluations, so it is
+  not started (`ExactBudgetPredicted`);
+- the traversal exhausts that budget (`ExactBudgetExceeded`). A traversal that
+  completes costs at most about half the exact scan; one that exhausts the
+  budget and then scans costs up to about 1.45 times exact search, and its work
+  is reported through `IMetricsCollector.RecordVectorGraphWastedTraversal`;
 - the traversal returns fewer candidates than requested;
 - the graph file cannot be opened or fails validation;
 - the score is not monotonic in cosine: per-document field boosts, or a zero
@@ -93,7 +97,9 @@ Graph distances use the same cosine as the exact scorer for every finite
 vector, including very large, very small and subnormal magnitudes on fields
 with `NormaliseVectors = false`. Every published graph reaches all of its
 vectors; if construction cannot guarantee that, the segment is written without
-a graph and searched exactly.
+a graph and searched exactly, and `IMetricsCollector.RecordVectorGraphBuildSkipped`
+reports it. Small segments, of a few hundred vectors at the default `efSearch`,
+are always scanned exactly because the scan is as cheap as a traversal.
 
 `IMetricsCollector.RecordVectorSearchRoute` receives one `VectorSearchRoute`
 per segment, and `Explain(VectorQuery, docId)` names the route. A fallback is

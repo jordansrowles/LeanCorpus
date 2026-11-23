@@ -225,9 +225,11 @@ internal static class SegmentFlusher
                 // Float32 vector graph (ADR052): opt-in, built over the stored (normalised when
                 // configured) vectors and written before segment publication like every other file.
                 bool hasGraph = false;
-                if (config.BuildHnswOnFlush && quantisation == VectorQuantisation.None
-                    && perField.Count >= 2 && perField.Count >= minDocsForHnsw
-                    && Codecs.Hnsw.VectorGraphBuilder.CanBuild(perField.Count, config.HnswBuildConfig))
+                bool wantsGraph = config.BuildHnswOnFlush && quantisation == VectorQuantisation.None
+                    && perField.Count >= 2 && perField.Count >= minDocsForHnsw;
+                if (wantsGraph && !Codecs.Hnsw.VectorGraphBuilder.CanBuild(perField.Count, config.HnswBuildConfig))
+                    config.Metrics.RecordVectorGraphBuildSkipped(Diagnostics.VectorGraphBuildSkipReason.TooLarge);
+                else if (wantsGraph)
                 {
                     var docIds = perField.Keys.ToArray();
                     Array.Sort(docIds);
@@ -244,6 +246,10 @@ internal static class SegmentFlusher
                         graphSw.Stop();
                         config.Metrics.RecordHnswBuild(graphSw.Elapsed, docIds.Length);
                         hasGraph = true;
+                    }
+                    else
+                    {
+                        config.Metrics.RecordVectorGraphBuildSkipped(Diagnostics.VectorGraphBuildSkipReason.Unreachable);
                     }
                 }
 

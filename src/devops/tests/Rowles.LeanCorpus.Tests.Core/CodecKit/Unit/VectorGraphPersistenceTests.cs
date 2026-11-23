@@ -177,6 +177,22 @@ public sealed class VectorGraphPersistenceTests : IClassFixture<TestDirectoryFix
         (unsorted[3], unsorted[4]) = (unsorted[4], unsorted[3]);
         AssertInvalid(Write(With(graph, docIds: unsorted), "unsorted.vgr"), expectation, "strictly ascending");
 
+        // A duplicate neighbour in a correctly framed body (the writer checksums what it is given).
+        int[] duplicate = graph.CopyLevel0();
+        int full = Enumerable.Range(0, graph.NodeCount).First(o => duplicate[o * stride0] >= 2);
+        duplicate[full * stride0 + 2] = duplicate[full * stride0 + 1];
+        AssertInvalid(Write(With(graph, level0: duplicate), "duplicate.vgr"), expectation, "twice");
+
+        if (graph.MaxLevel >= 1)
+        {
+            int level = 1;
+            int[] upper = graph.UpperAdjacency(level).ToArray();
+            int stride = 1 + graph.M;
+            int record = Enumerable.Range(0, upper.Length / stride).First(r => upper[r * stride] >= 2);
+            upper[record * stride + 2] = upper[record * stride + 1];
+            AssertInvalid(Write(With(graph, upperLevel1: upper), "duplicate-upper.vgr"), expectation, "twice");
+        }
+
         // Remove every in-edge of one node: each record stays valid, but the node is unreachable.
         int stranded = Enumerable.Range(0, graph.NodeCount).First(o => o != graph.EntryOrdinal);
         int[] unreachable = graph.CopyLevel0();
@@ -247,7 +263,8 @@ public sealed class VectorGraphPersistenceTests : IClassFixture<TestDirectoryFix
     }
 
     private static VectorGraph With(
-        VectorGraph graph, int[]? level0 = null, int[]? docIds = null, int? entry = null, float[]? inverseNorms = null)
+        VectorGraph graph, int[]? level0 = null, int[]? docIds = null, int? entry = null, float[]? inverseNorms = null,
+        int[]? upperLevel1 = null)
     {
         var upperOrdinals = new int[graph.MaxLevel][];
         var upperAdjacency = new int[graph.MaxLevel][];
@@ -256,6 +273,8 @@ public sealed class VectorGraphPersistenceTests : IClassFixture<TestDirectoryFix
             upperOrdinals[level - 1] = graph.LevelOrdinals(level).ToArray();
             upperAdjacency[level - 1] = graph.UpperAdjacency(level).ToArray();
         }
+        if (upperLevel1 is not null)
+            upperAdjacency[0] = upperLevel1;
 
         return VectorGraph.FromArrays(graph.Dimension, graph.Normalised, graph.M, graph.M0, graph.EfConstruction,
             graph.Seed, graph.MaxLevel, entry ?? graph.EntryOrdinal, docIds ?? graph.DocIds.ToArray(),

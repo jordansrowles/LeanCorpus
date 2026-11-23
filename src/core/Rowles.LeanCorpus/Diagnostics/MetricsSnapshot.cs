@@ -107,6 +107,18 @@ public sealed class MetricsSnapshot
     /// </summary>
     public long VectorGraphFallbackCount { get; init; }
 
+    /// <summary>Vector graph traversals discarded for an exact fallback (budget exceeded or underfilled).</summary>
+    public long VectorGraphWastedTraversalCount { get; init; }
+
+    /// <summary>Query distance evaluations spent in vector graph traversals that were discarded.</summary>
+    public long VectorGraphWastedEvaluations { get; init; }
+
+    /// <summary>Cumulative time spent in vector graph traversals that were discarded, in milliseconds.</summary>
+    public double VectorGraphWastedTotalMs { get; init; }
+
+    /// <summary>Flushes and merges that wrote a vector field without its requested vector graph.</summary>
+    public long VectorGraphBuildSkippedCount { get; init; }
+
     /// <summary>Total number of HNSW graphs built (flush + merge).</summary>
     public long HnswBuildCount { get; init; }
 

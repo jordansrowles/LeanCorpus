@@ -110,7 +110,10 @@ internal static class VectorGraphReader
         if (!mapLevelZero && (long)nodeCount * stride0 > Array.MaxLength)
             throw Invalid($"level zero of {nodeCount} nodes is too large to materialise on this host");
         int[]? level0 = mapLevelZero ? null : new int[nodeCount * stride0];
-        ValidateLevelZero(body, nodeCount, m0, level0, ref position);
+        // Stamped per record, so each record's neighbours are checked for duplicates in O(degree).
+        var marks = new int[nodeCount];
+        int stamp = 0;
+        ValidateLevelZero(body, nodeCount, m0, level0, marks, ref stamp, ref position);
 
         var upperOrdinals = new int[Math.Max(0, maxLevel)][];
         var upperAdjacency = new int[Math.Max(0, maxLevel)][];
@@ -139,7 +142,7 @@ internal static class VectorGraphReader
             for (int i = 0; i < levelCount; i++)
             {
                 ReadOnlySpan<int> record = adjacency.AsSpan(i * stride, stride);
-                ValidateRecord(record, m, ordinals[i], nodeCount, level, ordinals);
+                ValidateRecord(record, m, ordinals[i], nodeCount, level, ordinals, marks, ref stamp);
             }
 
             upperOrdinals[level - 1] = ordinals;
@@ -190,7 +193,8 @@ internal static class VectorGraphReader
         return new ReadResult(graph, HasMappedBody: level0 is null);
     }
 
-    private static void ValidateLevelZero(IndexInput body, int nodeCount, int m0, int[]? destination, ref long position)
+    private static void ValidateLevelZero(
+        IndexInput body, int nodeCount, int m0, int[]? destination, int[] marks, ref int stamp, ref long position)
     {
         int stride = 1 + m0;
         const int ChunkRecords = 1024;
@@ -203,7 +207,8 @@ internal static class VectorGraphReader
                 Span<int> chunk = buffer.AsSpan(0, records * stride);
                 body.ReadInt32Array(chunk, chunk.Length, ref position);
                 for (int i = 0; i < records; i++)
-                    ValidateRecord(chunk.Slice(i * stride, stride), m0, start + i, nodeCount, level: 0, levelMembers: default);
+                    ValidateRecord(chunk.Slice(i * stride, stride), m0, start + i, nodeCount, level: 0, levelMembers: default,
+                        marks, ref stamp);
                 if (destination is not null)
                     chunk.CopyTo(destination.AsSpan(start * stride));
             }
@@ -215,16 +220,25 @@ internal static class VectorGraphReader
     }
 
     private static void ValidateRecord(
-        ReadOnlySpan<int> record, int degree, int self, int nodeCount, int level, ReadOnlySpan<int> levelMembers)
+        ReadOnlySpan<int> record, int degree, int self, int nodeCount, int level, ReadOnlySpan<int> levelMembers,
+        int[] marks, ref int stamp)
     {
         int count = record[0];
         if (count < 0 || count > degree)
             throw Invalid($"level {level} node {self} has neighbour count {count} outside 0..{degree}");
+        if (++stamp == int.MaxValue)
+        {
+            Array.Clear(marks);
+            stamp = 1;
+        }
         for (int i = 1; i <= count; i++)
         {
             int neighbour = record[i];
             if ((uint)neighbour >= (uint)nodeCount || neighbour == self)
                 throw Invalid($"level {level} node {self} has an invalid neighbour ordinal {neighbour}");
+            if (marks[neighbour] == stamp)
+                throw Invalid($"level {level} node {self} lists neighbour {neighbour} twice");
+            marks[neighbour] = stamp;
             if (level > 0 && levelMembers.BinarySearch(neighbour) < 0)
                 throw Invalid($"level {level} node {self} links to {neighbour}, which is not on that level");
         }

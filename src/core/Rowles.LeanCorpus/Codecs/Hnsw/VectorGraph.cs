@@ -174,9 +174,11 @@ internal sealed class VectorGraph : IDisposable
 
     /// <summary>
     /// Searches for the nearest eligible nodes to a unit-length <paramref name="query"/>.
-    /// Ineligible nodes still route the traversal; only eligible nodes become results. Traversal
-    /// stops early, reporting <see cref="VectorGraphSearchStats.BudgetExceeded"/>, when the query
-    /// distance evaluations would exceed <paramref name="evaluationBudget"/>.
+    /// Ineligible nodes still route the traversal; only eligible nodes become results. Every query
+    /// distance evaluation, the entry point and the upper-level descent included, counts against
+    /// <paramref name="evaluationBudget"/>: traversal never evaluates more, and stops reporting
+    /// <see cref="VectorGraphSearchStats.BudgetExceeded"/> when it would need to. A budget
+    /// exhausted before level zero returns no results.
     /// </summary>
     /// <param name="query">Unit-length query vector of the graph's dimension.</param>
     /// <param name="vectors">The segment field's stored vectors, addressed by document ID.</param>
@@ -208,20 +210,29 @@ internal sealed class VectorGraph : IDisposable
         int layers = 0;
         bool exceeded = false;
 
+        if (evaluationBudget < 1)
+            return new VectorGraphSearchStats(0, 0, 0, BudgetExceeded: true);
+
         using var scratch = VectorGraphSearchScratch.Borrow(NodeCount, _scratchPool);
         int entry = EntryOrdinal;
         float entryDistance = QueryDistance(query, vectors, entry);
         evaluations++;
 
-        for (int level = MaxLevel; level >= 1; level--)
+        for (int level = MaxLevel; level >= 1 && !exceeded; level--)
         {
             layers++;
             bool improved = true;
-            while (improved)
+            while (improved && !exceeded)
             {
                 improved = false;
                 foreach (int neighbour in Neighbours(entry, level))
                 {
+                    if (evaluations >= evaluationBudget)
+                    {
+                        exceeded = true;
+                        break;
+                    }
+
                     float distance = QueryDistance(query, vectors, neighbour);
                     evaluations++;
                     if (VectorGraphHeap.Less(distance, neighbour, entryDistance, entry))
@@ -233,6 +244,9 @@ internal sealed class VectorGraph : IDisposable
                 }
             }
         }
+
+        if (exceeded)
+            return new VectorGraphSearchStats(0, evaluations, layers, BudgetExceeded: true);
 
         var candidates = scratch.Candidates;
         var best = scratch.Results;
@@ -341,23 +355,32 @@ internal sealed class VectorGraph : IDisposable
     {
         if (NodeCount == 0)
             return 0;
+        // Each node is pushed once, so a node-sized array is the whole stack.
         var reached = new bool[NodeCount];
-        var stack = new Stack<int>();
-        reached[EntryOrdinal] = true;
-        stack.Push(EntryOrdinal);
-        int count = 1;
-        while (stack.Count > 0)
+        int[] stack = System.Buffers.ArrayPool<int>.Shared.Rent(NodeCount);
+        try
         {
-            foreach (int neighbour in Neighbours(stack.Pop(), 0))
+            int top = 0;
+            reached[EntryOrdinal] = true;
+            stack[top++] = EntryOrdinal;
+            int count = 1;
+            while (top > 0)
             {
-                if (reached[neighbour])
-                    continue;
-                reached[neighbour] = true;
-                count++;
-                stack.Push(neighbour);
+                foreach (int neighbour in Neighbours(stack[--top], 0))
+                {
+                    if (reached[neighbour])
+                        continue;
+                    reached[neighbour] = true;
+                    count++;
+                    stack[top++] = neighbour;
+                }
             }
+            return count;
         }
-        return count;
+        finally
+        {
+            System.Buffers.ArrayPool<int>.Shared.Return(stack);
+        }
     }
 
     /// <summary>Maps a non-finite distance to the farthest value so ordering stays total.</summary>

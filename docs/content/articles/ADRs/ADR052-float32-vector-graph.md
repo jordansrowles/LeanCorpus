@@ -91,7 +91,8 @@ norms when present (`0` for a zero vector, `-1` for a vector outside the
 conditioned range). Unused slots are `-1`. The reader validates every structural
 rule before exposing a graph: field dimension and normalisation, parameter
 ranges, strictly ascending document IDs that are exactly the field's present
-vectors (ADR039), neighbour counts and ordinals in range without self-edges,
+vectors (ADR039), neighbour counts and ordinals in range without self-edges or
+duplicates,
 upper levels nested in the level below, the entry point on the top level, every
 level-zero node reachable from the entry point, inverse norms that are `0`, `-1`
 or inside the conditioned range, empty unused slots and no trailing bytes.
@@ -127,12 +128,24 @@ one route, chosen in order:
    matches nothing;
 4. otherwise one greedy descent and a level-zero beam of width
    `VectorQuery.GetEffectiveEfSearch`. Filters and deletions restrict results, not
-   routing. Traversal stops at `max(4 * ef, eligible upper bound / 2)` distance
-   evaluations plus a small descent allowance. A graph evaluation was measured at
-   about 1.2 to 1.4 times the cost of one vector of the optimised exact scan, so
-   an unfiltered traversal can cost at most about 0.7 of the scan it replaces.
-   An exhausted budget (`ExactBudgetExceeded`) or fewer
-   candidates than the shortlist (`ExactUnderfilled`) runs the exact route instead.
+   routing. The budget is `max(4 * ef, eligible upper bound / 3)` distance
+   evaluations plus `64 * (maxLevel + 1)` for the descent, and it is a hard limit:
+   every evaluation, the entry point and the upper-level descent included, counts
+   against it. A graph evaluation was measured at about 1.2 to 1.4 times the cost
+   of one vector of the optimised exact scan, so a traversal that completes costs
+   at most about 0.45 of the scan it replaces (the 2x speed-up the qualification
+   contract requires), and one that exhausts the budget and then scans costs at
+   most about 1.45 times exact search alone. Before starting, a traversal whose
+   optimistic estimate, `8 * ef / selectivity` capped at the node count, exceeds
+   the budget is skipped (`ExactBudgetPredicted`), without wasted work; measured
+   traversals evaluated 9 to 34 times `ef / selectivity`. An exhausted budget
+   (`ExactBudgetExceeded`) or fewer candidates than the shortlist
+   (`ExactUnderfilled`) runs the exact route instead, and the discarded traversal's
+   time and evaluations are reported through
+   `IMetricsCollector.RecordVectorGraphWastedTraversal`. Routing stays a pure
+   function of the query and segment: an adaptive policy that learned from earlier
+   queries would make one query's candidates depend on the query history, so it is
+   left to qualification to show whether one is needed.
 
 The ADR049 global TopK selection is unchanged: each segment contributes its
 rescored shortlist to the one prepared candidate set. Routes are reported through
@@ -151,7 +164,13 @@ exhaustion) falls back for that query only and is retried.
 
 **Resources.** A segment whose level-zero adjacency would exceed the maximum
 array length is written without a graph and searched exactly. Merge-time builds
-observe the writer's merge cancellation and are recorded in build metrics.
+observe the writer's merge cancellation, between insertions and between repaired
+nodes, and are recorded in build metrics. Every build that the option requested
+but did not write, too large or unreachable, is reported through
+`IMetricsCollector.RecordVectorGraphBuildSkipped`. The reachability check costs
+one level-zero traversal at open: about 15 ms of a 28 ms open for 100,000 nodes
+and 185 ms of a 380 ms open for 1,000,000 nodes (M0 = 32, Linux x64, page cache
+warm; a cold-storage measurement is part of qualification).
 Traversal scratch for graphs of up to about one million nodes is cached per
 thread; larger graphs lend scratch from a bounded pool they own, released with
 the graph.
@@ -191,7 +210,12 @@ unchanged historical gates and the real-data gates keep the published bar.
   3.x binaries do not know the role.
 - Public API additions: `VectorFieldInfo.HasGraph`, `VectorSearchRoute`,
   `IMetricsCollector.RecordVectorSearchRoute`,
+  `IMetricsCollector.RecordVectorGraphWastedTraversal`,
+  `IMetricsCollector.RecordVectorGraphBuildSkipped`, `VectorGraphBuildSkipReason`,
   `MetricsSnapshot.VectorGraphRouteCount`, `MetricsSnapshot.VectorGraphFallbackCount`,
+  `MetricsSnapshot.VectorGraphWastedTraversalCount`,
+  `MetricsSnapshot.VectorGraphWastedEvaluations`, `MetricsSnapshot.VectorGraphWastedTotalMs`,
+  `MetricsSnapshot.VectorGraphBuildSkippedCount`,
   `IndexInspectionOverview.HasVectorGraph`,
   `IndexInspectionField.HasVectorGraph`, `IndexInspectionField.VectorGraphNodeCount`,
   and issue codes `LLIDX053` and `LLIDX054`.
@@ -212,3 +236,4 @@ unchanged historical gates and the real-data gates keep the published bar.
 | 2026-11-22 | Proposed | Original proposal recorded with the implementation. | `4.0/vector-rebound` |
 | 2026-11-22 | Accepted | Owner accepted; checksum validation at open, transient-failure retry, oversized-segment, cancellation and scratch-pooling rules recorded. | `4.0/vector-rebound` |
 | 2026-11-23 | Clarified | PR #132 review: conditioned inverse norms with a scaled-cosine marker, spanning-tree repair with a verified reachability postcondition enforced by writer and reader, zero-query and empty-filter route rules, and a measured `eligible / 2` traversal budget. | `4.0/vector-rebound` |
+| 2026-11-23 | Clarified | PR #132 second review: a hard budget covering the descent, an `eligible / 3` budget with measured fallback cost, `ExactBudgetPredicted`, wasted-traversal and skipped-build metrics, duplicate-neighbour rejection, cancellation during repair, and measured open cost. | `4.0/vector-rebound` |

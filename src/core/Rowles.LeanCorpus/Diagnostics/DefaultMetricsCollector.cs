@@ -53,6 +53,10 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
     private long _vectorRetiredHnswExactScanCount;
     private long _vectorGraphRouteCount;
     private long _vectorGraphFallbackCount;
+    private long _vectorGraphWastedTraversalCount;
+    private long _vectorGraphWastedEvaluations;
+    private long _vectorGraphWastedTicks;
+    private long _vectorGraphBuildSkippedCount;
     private long _pad6_0, _pad6_1;
 
 #pragma warning restore CS0169
@@ -151,6 +155,19 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
     }
 
     /// <inheritdoc/>
+    public void RecordVectorGraphWastedTraversal(TimeSpan elapsed, int distanceEvaluations)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(distanceEvaluations);
+        Interlocked.Increment(ref _vectorGraphWastedTraversalCount);
+        Interlocked.Add(ref _vectorGraphWastedEvaluations, distanceEvaluations);
+        Interlocked.Add(ref _vectorGraphWastedTicks, elapsed.Ticks);
+    }
+
+    /// <inheritdoc/>
+    public void RecordVectorGraphBuildSkipped(VectorGraphBuildSkipReason reason)
+        => Interlocked.Increment(ref _vectorGraphBuildSkippedCount);
+
+    /// <inheritdoc/>
     public void RecordVectorExactScan(int vectorsScanned, bool retiredHnswGraphIgnored)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(vectorsScanned);
@@ -215,7 +232,11 @@ public sealed class DefaultMetricsCollector : IMetricsCollector
             VectorExactVectorsScanned = Interlocked.Read(ref _vectorExactVectorsScanned),
             VectorRetiredHnswExactScanCount = Interlocked.Read(ref _vectorRetiredHnswExactScanCount),
             VectorGraphRouteCount = Interlocked.Read(ref _vectorGraphRouteCount),
-            VectorGraphFallbackCount = Interlocked.Read(ref _vectorGraphFallbackCount)
+            VectorGraphFallbackCount = Interlocked.Read(ref _vectorGraphFallbackCount),
+            VectorGraphWastedTraversalCount = Interlocked.Read(ref _vectorGraphWastedTraversalCount),
+            VectorGraphWastedEvaluations = Interlocked.Read(ref _vectorGraphWastedEvaluations),
+            VectorGraphWastedTotalMs = TimeSpan.FromTicks(Interlocked.Read(ref _vectorGraphWastedTicks)).TotalMilliseconds,
+            VectorGraphBuildSkippedCount = Interlocked.Read(ref _vectorGraphBuildSkippedCount)
         };
     }
 

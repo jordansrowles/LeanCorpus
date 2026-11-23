@@ -144,6 +144,49 @@ public sealed class VectorGraphRobustnessTests
         Assert.True(refused > 0, "No seed produced a disconnected unrepaired graph; the fixture no longer exercises refusal.");
     }
 
+    [Fact(DisplayName = "Budget: A Zero Budget Evaluates Nothing, Even On A Single Node")]
+    public void Budget_ZeroBudgetEvaluatesNothing()
+    {
+        float[][] one = [[1f, 0f]];
+        using var single = Build(one, Default, seed: 1, normalised: true);
+        var results = new List<VectorGraphHit>();
+
+        var zero = single.Search([1f, 0f], new ArrayVectorSource(one), k: 1, ef: 1, null, evaluationBudget: 0, results);
+        Assert.True(zero.BudgetExceeded);
+        Assert.Equal(0, zero.DistanceEvaluations);
+        Assert.Empty(results);
+
+        var once = single.Search([1f, 0f], new ArrayVectorSource(one), k: 1, ef: 1, null, evaluationBudget: 1, results);
+        Assert.False(once.BudgetExceeded);
+        Assert.Equal(1, once.DistanceEvaluations);
+        Assert.Single(results);
+    }
+
+    [Fact(DisplayName = "Budget: Every Evaluation, Descent Included, Counts Against The Budget")]
+    public void Budget_EveryEvaluationCountsAgainstTheBudget()
+    {
+        var vectors = NormaliseAll(Clustered(3_000, 16, clusters: 12, spread: 0.2f, seed: 81));
+        using var graph = Build(vectors, new HnswBuildConfig { M = 4, EfConstruction = 40 }, seed: 8, normalised: true);
+        Assert.True(graph.MaxLevel >= 3, "The fixture needs several upper levels.");
+        var source = new ArrayVectorSource(vectors);
+        float[] query = Normalise(vectors[17]);
+        var results = new List<VectorGraphHit>();
+        var unlimited = graph.Search(query, source, k: 10, ef: 32, null, long.MaxValue, results);
+        Assert.False(unlimited.BudgetExceeded);
+
+        // Small budgets end inside the upper-level descent; the rest end at level zero.
+        for (long budget = 0; budget <= unlimited.DistanceEvaluations + 2; budget++)
+        {
+            var stats = graph.Search(query, source, k: 10, ef: 32, null, budget, results);
+            Assert.True(stats.DistanceEvaluations <= budget, $"Budget {budget} allowed {stats.DistanceEvaluations} evaluations.");
+            Assert.Equal(budget < unlimited.DistanceEvaluations, stats.BudgetExceeded);
+            if (stats.BudgetExceeded && stats.LayersDescended < graph.MaxLevel)
+                Assert.Empty(results);
+            if (!stats.BudgetExceeded)
+                Assert.Equal(unlimited.DistanceEvaluations, stats.DistanceEvaluations);
+        }
+    }
+
     private static float[][] Topology(string topology, int seed)
     {
         var random = new Random(1_000 + seed); // NOSONAR S2245: deterministic test data

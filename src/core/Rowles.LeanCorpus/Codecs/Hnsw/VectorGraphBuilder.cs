@@ -106,7 +106,7 @@ internal sealed class VectorGraphBuilder
     /// <param name="config">Degree and beam parameters.</param>
     /// <param name="seed">Seed for insertion order and level assignment.</param>
     /// <param name="normalised">Whether the stored vectors are unit length (no inverse norms persisted).</param>
-    /// <param name="cancellationToken">Observed between insertions.</param>
+    /// <param name="cancellationToken">Observed between insertions and between repaired nodes.</param>
     /// <param name="repairPasses">Reachability repair passes; tests lower it to exercise refusal.</param>
     internal static VectorGraph? TryBuild(
         IVectorSource vectors,
@@ -163,7 +163,7 @@ internal sealed class VectorGraphBuilder
         }
 
         if (n > 0)
-            RepairLevelZeroReachability();
+            RepairLevelZeroReachability(cancellationToken);
 
         // Postcondition: every node is reachable from the entry point, or no graph is published.
         var graph = Freeze();
@@ -370,7 +370,7 @@ internal sealed class VectorGraphBuilder
     /// the <c>reached - 1</c> tree edges. One pass therefore connects the graph; the caller still
     /// verifies the postcondition.
     /// </summary>
-    private void RepairLevelZeroReachability()
+    private void RepairLevelZeroReachability(CancellationToken cancellationToken)
     {
         int n = _docIds.Length;
         var parent = new int[n];
@@ -387,6 +387,8 @@ internal sealed class VectorGraphBuilder
                 if (parent[ordinal] >= 0)
                     continue;
 
+                // Each repair runs a beam search, so a badly fragmented graph is cancellable here too.
+                cancellationToken.ThrowIfCancellationRequested();
                 _beam.Clear();
                 _beam.Add((Distance(ordinal, _entry), _entry));
                 SearchLayer(ordinal, 0);
