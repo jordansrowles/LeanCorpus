@@ -56,6 +56,25 @@ public interface IMetricsCollector
     void RecordVectorExactScan(int vectorsScanned, bool retiredHnswGraphIgnored) { }
 
     /// <summary>
+    /// Records the route one segment of a Float32 vector field took for a vector query (ADR052).
+    /// Default implementation is a no-op for backwards compatibility.
+    /// </summary>
+    void RecordVectorSearchRoute(VectorSearchRoute route) { }
+
+    /// <summary>
+    /// Records a vector graph traversal whose candidates were discarded because the segment fell
+    /// back to an exact scan (ADR052): the time and query distance evaluations spent before the
+    /// fallback. Default implementation is a no-op for backwards compatibility.
+    /// </summary>
+    void RecordVectorGraphWastedTraversal(TimeSpan elapsed, int distanceEvaluations) { }
+
+    /// <summary>
+    /// Records a flush or merge that wrote a Float32 vector field without its requested vector graph
+    /// (ADR052). Default implementation is a no-op for backwards compatibility.
+    /// </summary>
+    void RecordVectorGraphBuildSkipped(VectorGraphBuildSkipReason reason) { }
+
+    /// <summary>
     /// Records a single HNSW graph build (flush or merge). <paramref name="nodes"/> is the number
     /// of vectors inserted. Default implementation is a no-op for backwards compatibility.
     /// </summary>

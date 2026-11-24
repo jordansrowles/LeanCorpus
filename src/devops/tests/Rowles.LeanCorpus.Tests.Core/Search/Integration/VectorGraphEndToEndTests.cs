@@ -1,0 +1,815 @@
+using System.Collections.Concurrent;
+using System.Globalization;
+using Rowles.LeanCorpus.Tests.Core.Foundation.Unit;
+using static Rowles.LeanCorpus.Tests.Core.Codecs.VectorGraphTestData;
+
+namespace Rowles.LeanCorpus.Tests.Core.Search;
+
+/// <summary>
+/// End-to-end tests for the opt-in Float32 vector graph (ADR052) through public writer, searcher
+/// and merge APIs: route selection, exact rescoring, filters, deletes, merges and fallback.
+/// </summary>
+[Category(TestCategory.Integration)]
+[Area(TestArea.Search)]
+[Collection(LeanCorpusDefaultsCollection.Name)]
+public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : IClassFixture<TestDirectoryFixture>
+{
+    private const string Field = "embedding";
+
+    [Theory(DisplayName = "Graph: Flush Builds A Graph And Queries Use It With Recall")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Flush_BuildsGraph_AndQueriesUseIt(bool normalise)
+    {
+        var vectors = Clustered(3_000, 32, clusters: 30, spread: 0.1f, seed: 101);
+        using var directory = new MMapDirectory(SubDir($"flush-{normalise}"));
+        Write(directory, vectors, GraphConfig(normalise), commitEvery: vectors.Length);
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        var info = Assert.Single(reader.Info.VectorFields);
+        Assert.True(info.HasGraph);
+        Assert.False(info.HasHnsw);
+
+        double recall = 0;
+        var queries = QueriesNear(vectors, 50, seed: 102);
+        foreach (var query in queries)
+        {
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+            recall += TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10);
+        }
+
+        Assert.True(recall / queries.Length >= 0.95, $"Tie-aware recall@10 was {recall / queries.Length:F3}.");
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
+        Assert.Equal(queries.Length, metrics.Routes.Count);
+        Assert.Equal(0, metrics.FallbackSearches);
+    }
+
+    [Theory(DisplayName = "Graph: Scores Equal The Exact Route For The Same Documents")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void GraphScores_EqualExactRouteScores(bool normalise)
+    {
+        var vectors = Clustered(1_200, 16, clusters: 12, spread: 0.15f, seed: 111);
+        using var graphDirectory = new MMapDirectory(SubDir($"parity-graph-{normalise}"));
+        using var exactDirectory = new MMapDirectory(SubDir($"parity-exact-{normalise}"));
+        Write(graphDirectory, vectors, GraphConfig(normalise), commitEvery: vectors.Length);
+        var exactConfig = GraphConfig(normalise);
+        exactConfig.BuildHnswOnFlush = false;
+        Write(exactDirectory, vectors, exactConfig, commitEvery: vectors.Length);
+
+        using var graphSearcher = new IndexSearcher(graphDirectory, SearcherConfig());
+        using var exactSearcher = new IndexSearcher(exactDirectory, SearcherConfig());
+        foreach (var query in QueriesNear(vectors, 20, seed: 112))
+        {
+            var exact = exactSearcher.Search(new VectorQuery(Field, query, topK: 50), 50)
+                .ScoreDocs.ToDictionary(hit => Ordinal(exactSearcher, hit.DocId), hit => hit.Score);
+            foreach (var hit in graphSearcher.Search(new VectorQuery(Field, query, topK: 10), 10).ScoreDocs)
+            {
+                int ordinal = Ordinal(graphSearcher, hit.DocId);
+                if (exact.TryGetValue(ordinal, out float score))
+                    Assert.Equal(score, hit.Score);
+            }
+        }
+    }
+
+    [Fact(DisplayName = "Graph: Multiple Segments Select One Global TopK")]
+    public void MultipleSegments_SelectOneGlobalTopK()
+    {
+        var vectors = Clustered(2_400, 24, clusters: 20, spread: 0.1f, seed: 121);
+        using var directory = new MMapDirectory(SubDir("segments"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: 600);
+
+        using var searcher = new IndexSearcher(directory, SearcherConfig());
+        Assert.Equal(4, searcher.GetSegmentReaders().Count);
+        Assert.All(searcher.GetSegmentReaders(), reader => Assert.True(reader.Info.VectorFields.Single().HasGraph));
+        double recall = 0;
+        var queries = QueriesNear(vectors, 30, seed: 122);
+        foreach (var query in queries)
+        {
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 100);
+            Assert.Equal(10, hits.ScoreDocs.Length);
+            Assert.Equal(10, hits.ScoreDocs.Select(static hit => hit.DocId).Distinct().Count());
+            recall += TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10);
+        }
+        Assert.True(recall / queries.Length >= 0.95, $"Tie-aware recall@10 was {recall / queries.Length:F3}.");
+    }
+
+    [Fact(DisplayName = "Graph: Deleted Documents Are Never Returned")]
+    public void DeletedDocuments_AreNeverReturned()
+    {
+        var vectors = Clustered(1_500, 16, clusters: 10, spread: 0.1f, seed: 131);
+        using var directory = new MMapDirectory(SubDir("deletes"));
+        using (var writer = new IndexWriter(directory, GraphConfig(normalise: true)))
+        {
+            AddAll(writer, vectors);
+            writer.Commit();
+            for (int ordinal = 0; ordinal < vectors.Length; ordinal += 3)
+                writer.DeleteDocuments(new TermQuery("id", $"doc-{ordinal}"));
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory, SearcherConfig());
+        foreach (var query in QueriesNear(vectors, 20, seed: 132))
+        {
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+            Assert.Equal(10, hits.ScoreDocs.Length);
+            Assert.All(hits.ScoreDocs, hit => Assert.NotEqual(0, Ordinal(searcher, hit.DocId) % 3));
+            double recall = TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(),
+                10, ordinal => ordinal % 3 != 0);
+            Assert.True(recall >= 0.8, $"Tie-aware recall@10 with deletes was {recall:F3}.");
+        }
+    }
+
+    // Selectivity 0%, 0.1% and 1% leave fewer than 64 eligible documents and scan exactly; an empty
+    // filter still records its route. At 10%, a beam needs about ef / 0.1 visits, more than the
+    // budget for 400 eligible vectors, so the traversal is not started. 100% must use the graph.
+    [Theory(DisplayName = "Graph: Filter Selectivity Picks The Route And Stays Correct")]
+    [InlineData(0, new[] { VectorSearchRoute.ExactSelectiveFilter })]
+    [InlineData(1, new[] { VectorSearchRoute.ExactSelectiveFilter })]
+    [InlineData(10, new[] { VectorSearchRoute.ExactSelectiveFilter })]
+    [InlineData(100, new[] { VectorSearchRoute.ExactBudgetPredicted })]
+    [InlineData(1000, new[] { VectorSearchRoute.Graph })]
+    public void FilterSelectivity_PicksRouteAndStaysCorrect(int perThousand, VectorSearchRoute[] allowedRoutes)
+    {
+        var vectors = Clustered(4_000, 16, clusters: 20, spread: 0.1f, seed: 141);
+        bool Eligible(int ordinal) => ordinal % 1000 < perThousand;
+        using var directory = new MMapDirectory(SubDir($"filter-{perThousand}"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length, keep: Eligible);
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        var filter = new TermQuery("bucket", "keep");
+        var queries = QueriesNear(vectors, 10, seed: 142);
+        foreach (var query in queries)
+        {
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10, filter: filter), 10);
+            var ordinals = hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray();
+            Assert.All(ordinals, ordinal => Assert.True(Eligible(ordinal)));
+            Assert.Equal(Math.Min(10, Enumerable.Range(0, vectors.Length).Count(Eligible)), ordinals.Length);
+            double recall = TieAwareRecall(vectors, query, ordinals, 10, Eligible);
+            Assert.True(recall >= 0.9, $"Filtered tie-aware recall@10 at {perThousand} per thousand was {recall:F3}.");
+        }
+
+        // One segment: exactly one route per query, never an empty record set.
+        Assert.Equal(queries.Length, metrics.Routes.Count);
+        Assert.All(metrics.Routes, route => Assert.Contains(route, allowedRoutes));
+    }
+
+    [Theory(DisplayName = "Graph: A Zero Query Returns No Hits And Records No Route")]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public void ZeroQuery_ReturnsNoHitsAndRecordsNoRoute(bool normalise, bool graph)
+    {
+        var vectors = Clustered(300, 8, clusters: 4, spread: 0.2f, seed: 171);
+        vectors[5] = new float[8];
+        using var directory = new MMapDirectory(SubDir($"zero-{normalise}-{graph}"));
+        var config = GraphConfig(normalise);
+        config.BuildHnswOnFlush = graph;
+        Write(directory, vectors, config, commitEvery: vectors.Length);
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        Assert.Equal(graph, Assert.Single(searcher.GetSegmentReaders()).Info.VectorFields.Single().HasGraph);
+        var zero = new VectorQuery(Field, new float[8], topK: 10);
+        var filtered = new VectorQuery(Field, new float[8], topK: 10, filter: new TermQuery("bucket", "keep"));
+
+        Assert.Equal(0, searcher.Search(zero, 10).TotalHits);
+        Assert.Equal(0, searcher.Search(filtered, 10).TotalHits);
+        Assert.Empty(metrics.Routes);
+    }
+
+    [Fact(DisplayName = "Graph: A Traversal Certain To Exhaust Its Budget Is Not Started")]
+    public void PredictedBudget_SkipsTraversalWithoutWastedWork()
+    {
+        var vectors = Clustered(4_000, 16, clusters: 20, spread: 0.1f, seed: 201);
+        bool Eligible(int ordinal) => ordinal % 10 == 0;
+        using var directory = new MMapDirectory(SubDir("predicted"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length, keep: Eligible);
+
+        var metrics = new DefaultMetricsCollector();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        var query = Normalise(vectors[3]);
+        var hits = searcher.Search(new VectorQuery(Field, query, topK: 10, filter: new TermQuery("bucket", "keep")), 10);
+
+        var ordinals = hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray();
+        Assert.Equal(1.0, TieAwareRecall(vectors, query, ordinals, 10, Eligible));
+        var snapshot = metrics.GetSnapshot();
+        Assert.Equal(1, snapshot.VectorGraphFallbackCount);
+        Assert.Equal(0, snapshot.HnswSearchCount);
+        Assert.Equal(0, snapshot.VectorGraphWastedTraversalCount);
+    }
+
+    [Fact(DisplayName = "Graph: An Empty Filter Records One Exact Route Per Segment")]
+    public void EmptyFilter_RecordsOneExactRoutePerSegment()
+    {
+        var vectors = Clustered(900, 8, clusters: 6, spread: 0.2f, seed: 181);
+        using var directory = new MMapDirectory(SubDir("empty-filter"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: 300, keep: static _ => false);
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        int segments = searcher.GetSegmentReaders().Count;
+        Assert.True(segments >= 2, "The fixture needs several segments.");
+        var hits = searcher.Search(new VectorQuery(Field, vectors[0], topK: 10, filter: new TermQuery("bucket", "keep")), 10);
+
+        Assert.Equal(0, hits.TotalHits);
+        Assert.Equal(segments, metrics.Routes.Count);
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.ExactSelectiveFilter, route));
+    }
+
+    [Fact(DisplayName = "Graph: Extreme Magnitudes On A Non-Normalised Field Use The Graph With Recall")]
+    public void ExtremeMagnitudes_UseGraphWithRecall()
+    {
+        var random = new Random(191); // NOSONAR S2245: deterministic test data
+        // One magnitude per vector, from 1e-35 to 1e35, so directions keep their cluster structure.
+        var vectors = Clustered(2_000, 16, clusters: 20, spread: 0.1f, seed: 192)
+            .Select(v => Scale(v, (float)Math.Pow(10, random.NextDouble() * 70 - 35)))
+            .ToArray();
+        using var directory = new MMapDirectory(SubDir("extreme"));
+        Write(directory, vectors, GraphConfig(normalise: false), commitEvery: vectors.Length);
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        double recall = 0;
+        var queries = QueriesNear(vectors.Select(Normalise).ToArray(), 30, seed: 193);
+        foreach (var query in queries)
+        {
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+            var ordinals = hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray();
+            recall += TieAwareRecall(vectors, query, ordinals, 10);
+            foreach (var hit in hits.ScoreDocs)
+                Assert.Equal(Cosine(query, vectors[Ordinal(searcher, hit.DocId)]), hit.Score, 1e-5);
+        }
+
+        Assert.True(recall / queries.Length >= 0.95, $"Tie-aware recall@10 was {recall / queries.Length:F3}.");
+        Assert.Equal(queries.Length, metrics.Routes.Count);
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
+    }
+
+    [Fact(DisplayName = "Graph: A Filter Disconnected In The Graph Stays Exact Or Correct")]
+    public void DisconnectedFilter_StaysCorrect()
+    {
+        // The filter keeps one far cluster only; traversal from the query's cluster must not
+        // invent results, and any fallback is exact.
+        var vectors = Clustered(3_000, 16, clusters: 30, spread: 0.05f, seed: 151);
+        using var directory = new MMapDirectory(SubDir("disconnected"));
+        using (var writer = new IndexWriter(directory, GraphConfig(normalise: true)))
+        {
+            for (int ordinal = 0; ordinal < vectors.Length; ordinal++)
+                writer.AddDocument(Document(ordinal, vectors[ordinal], keep: Cosine(vectors[ordinal], vectors[0]) > 0.95));
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory, SearcherConfig());
+        bool Eligible(int ordinal) => Cosine(vectors[ordinal], vectors[0]) > 0.95;
+        var query = Normalise(vectors.First(v => Cosine(v, vectors[0]) < 0));
+        var hits = searcher.Search(new VectorQuery(Field, query, topK: 10, filter: new TermQuery("bucket", "keep")), 10);
+        var ordinals = hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray();
+        Assert.All(ordinals, ordinal => Assert.True(Eligible(ordinal)));
+        Assert.True(TieAwareRecall(vectors, query, ordinals, 10, Eligible) >= 0.9);
+    }
+
+    [Fact(DisplayName = "Graph: Field Boosts And Non-Positive Query Boosts Use The Exact Route")]
+    public void ScoreTransforms_UseExactRoute()
+    {
+        var vectors = Clustered(800, 8, clusters: 8, spread: 0.2f, seed: 161);
+        using var directory = new MMapDirectory(SubDir("transforms"));
+        using (var writer = new IndexWriter(directory, GraphConfig(normalise: true)))
+        {
+            for (int ordinal = 0; ordinal < vectors.Length; ordinal++)
+                writer.AddDocument(Document(ordinal, vectors[ordinal], keep: true, boost: ordinal % 2 == 0 ? 1f : 3f));
+            writer.Commit();
+        }
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        searcher.Search(new VectorQuery(Field, vectors[1], topK: 10), 10);
+        Assert.Equal(VectorSearchRoute.ExactScoreTransform, Assert.Single(metrics.Routes));
+    }
+
+    [Fact(DisplayName = "Graph: Merge Rebuilds The Graph And Preserves Stored Vectors")]
+    public void Merge_RebuildsGraphAndPreservesStoredVectors()
+    {
+        var vectors = Clustered(2_000, 16, clusters: 16, spread: 0.1f, seed: 171);
+        using var directory = new MMapDirectory(SubDir("merge"));
+        using (var writer = new IndexWriter(directory, GraphConfig(normalise: false)))
+        {
+            for (int start = 0; start < vectors.Length; start += 500)
+            {
+                for (int ordinal = start; ordinal < start + 500; ordinal++)
+                    writer.AddDocument(Document(ordinal, vectors[ordinal], keep: true));
+                writer.Commit();
+            }
+            writer.DeleteDocuments(new TermQuery("id", "doc-7"));
+            writer.ForceMerge(1);
+            writer.Commit();
+        }
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        Assert.True(reader.Info.VectorFields.Single().HasGraph);
+        Assert.Equal(vectors.Length - 1, Enumerable.Range(0, reader.MaxDoc).Count(reader.IsLive));
+        for (int local = 0; local < reader.MaxDoc; local++)
+        {
+            if (!reader.IsLive(local)) continue;
+            int ordinal = Ordinal(searcher, reader.DocBase + local);
+            Assert.Equal(vectors[ordinal], reader.GetVector(Field, local));
+        }
+
+        double recall = 0;
+        var queries = QueriesNear(vectors, 30, seed: 172);
+        foreach (var query in queries)
+        {
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+            var ordinals = hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray();
+            Assert.DoesNotContain(7, ordinals);
+            recall += TieAwareRecall(vectors, query, ordinals, 10, ordinal => ordinal != 7);
+        }
+        Assert.True(recall / queries.Length >= 0.95, $"Post-merge tie-aware recall@10 was {recall / queries.Length:F3}.");
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
+    }
+
+    [Fact(DisplayName = "Graph: Repeated Merges Keep Recall Within The Stability Gate")]
+    public void RepeatedMerges_KeepRecallWithinStabilityGate()
+    {
+        var vectors = Clustered(1_600, 16, clusters: 16, spread: 0.1f, seed: 181);
+        var queries = QueriesNear(vectors, 40, seed: 182);
+        using var directory = new MMapDirectory(SubDir("generations"));
+        var recalls = new List<double>();
+        using (var writer = new IndexWriter(directory, GraphConfig(normalise: true)))
+        {
+            AddAll(writer, vectors);
+            writer.Commit();
+            for (int generation = 0; generation < 4; generation++)
+            {
+                // Rewrite one document so each generation merges the same corpus again.
+                writer.UpdateDocument("id", $"doc-{generation}", Document(generation, vectors[generation], keep: true));
+                writer.Commit();
+                writer.ForceMerge(1);
+                writer.Commit();
+                using var searcher = new IndexSearcher(directory, SearcherConfig());
+                double total = 0;
+                foreach (var query in queries)
+                {
+                    var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+                    total += TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10);
+                }
+                recalls.Add(total / queries.Length);
+            }
+        }
+
+        Assert.All(recalls, recall => Assert.True(recall >= 0.95, $"Generation recalls: {string.Join(", ", recalls)}"));
+        for (int i = 1; i < recalls.Count; i++)
+            Assert.True(recalls[i - 1] - recalls[i] <= 0.02, $"Generation recalls: {string.Join(", ", recalls)}");
+    }
+
+    [Fact(DisplayName = "Graph: A Corrupt Graph Falls Back To The Exact Route")]
+    public void CorruptGraph_FallsBackToExactRoute()
+    {
+        var vectors = Clustered(600, 8, clusters: 6, spread: 0.2f, seed: 191);
+        string path = SubDir("corrupt");
+        using (var directory = new MMapDirectory(path))
+            Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        string graphFile = Directory.EnumerateFiles(path, "*.vgr").Single();
+        byte[] bytes = File.ReadAllBytes(graphFile);
+        bytes[bytes.Length / 2] ^= 0x33;
+        File.WriteAllBytes(graphFile, bytes);
+
+        using var reopened = new MMapDirectory(path);
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(reopened, SearcherConfig(metrics));
+        var query = Normalise(vectors[5]);
+        var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+        Assert.Equal(1.0, TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10));
+        Assert.Equal(VectorSearchRoute.ExactGraphUnavailable, Assert.Single(metrics.Routes));
+
+        var check = IndexValidator.Check(reopened, new IndexCheckOptions { Deep = true });
+        Assert.Contains(check.DetailedIssues, issue => issue.Code == IndexCheckIssueCodes.VectorGraphReadFailure);
+    }
+
+    [Fact(DisplayName = "Graph: An Uncacheable Segment Reopens Its Graph On Every Query And Keeps The Graph Route")]
+    public void EvictedReaderState_ReopensValidatedGraphAndKeepsResults()
+    {
+        var vectors = Clustered(1_500, 16, clusters: 15, spread: 0.12f, seed: 193);
+        using var directory = new MMapDirectory(SubDir("evicted-state"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        var cachedMetrics = new RouteMetrics();
+        var evictedMetrics = new RouteMetrics();
+        using var cached = new IndexSearcher(directory, SearcherConfig(cachedMetrics));
+        var evictedConfig = SearcherConfig(evictedMetrics);
+        evictedConfig.MaxCachedSegmentReaderBytes = 1; // No state can be retained between queries.
+        using var evicted = new IndexSearcher(directory, evictedConfig);
+
+        var queries = QueriesNear(vectors, 20, seed: 194);
+        for (int pass = 0; pass < 2; pass++)
+        {
+            foreach (var query in queries)
+            {
+                var expected = cached.Search(new VectorQuery(Field, query, topK: 10), 10).ScoreDocs;
+                var actual = evicted.Search(new VectorQuery(Field, query, topK: 10), 10).ScoreDocs;
+                Assert.Equal(expected.Select(hit => (hit.DocId, hit.Score)), actual.Select(hit => (hit.DocId, hit.Score)));
+            }
+        }
+
+        Assert.Equal(2 * queries.Length, evictedMetrics.Routes.Count);
+        Assert.All(evictedMetrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
+    }
+
+    [Fact(DisplayName = "Graph: A Corrupt Graph Stays Unavailable When The Reader State Is Evicted")]
+    public void CorruptGraph_StaysUnavailableAcrossEvictedStates()
+    {
+        var vectors = Clustered(600, 8, clusters: 6, spread: 0.2f, seed: 195);
+        string path = SubDir("corrupt-evicted");
+        using (var directory = new MMapDirectory(path))
+            Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        string graphFile = Directory.EnumerateFiles(path, "*.vgr").Single();
+        byte[] bytes = File.ReadAllBytes(graphFile);
+        bytes[bytes.Length / 2] ^= 0x33;
+        File.WriteAllBytes(graphFile, bytes);
+
+        using var reopened = new MMapDirectory(path);
+        var metrics = new RouteMetrics();
+        var config = SearcherConfig(metrics);
+        config.MaxCachedSegmentReaderBytes = 1;
+        using var searcher = new IndexSearcher(reopened, config);
+        for (int i = 0; i < 3; i++)
+        {
+            var query = Normalise(vectors[i * 7]);
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+            Assert.Equal(1.0, TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10));
+        }
+
+        Assert.Equal(3, metrics.Routes.Count);
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.ExactGraphUnavailable, route));
+    }
+
+    [Fact(DisplayName = "Graph: Recovery Removes Interrupted And Orphaned Graph Files But Keeps The Live Graph")]
+    public void Recovery_RemovesTemporaryAndOrphanedGraphFiles()
+    {
+        var vectors = Clustered(3_000, 16, clusters: 30, spread: 0.1f, seed: 197);
+        string path = SubDir("recovery");
+        using (var directory = new MMapDirectory(path))
+            Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        string live = Directory.EnumerateFiles(path, "*.vgr").Single();
+        byte[] liveBytes = File.ReadAllBytes(live);
+        string interrupted = live + ".tmp";
+        File.WriteAllBytes(interrupted, liveBytes[..64]);
+        // An unreferenced segment, as a crash between writing a merge's files and its commit leaves.
+        string orphanSegment = Path.Combine(path, "seg_9999.seg");
+        File.Copy(Directory.EnumerateFiles(path, "*.seg").Single(), orphanSegment);
+        string orphanGraph = Path.Combine(path, "seg_9999_v_" + Field + ".vgr");
+        File.WriteAllBytes(orphanGraph, liveBytes);
+
+        Assert.NotNull(IndexRecovery.RecoverLatestCommit(path, cleanupOrphans: true));
+
+        Assert.False(File.Exists(interrupted));
+        Assert.False(File.Exists(orphanGraph));
+        Assert.False(File.Exists(orphanSegment));
+        Assert.Equal(liveBytes, File.ReadAllBytes(live));
+
+        using var reopened = new MMapDirectory(path);
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(reopened, SearcherConfig(metrics));
+        var query = Normalise(vectors[11]);
+        var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+        Assert.Equal(1.0, TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10));
+        Assert.Equal(VectorSearchRoute.Graph, Assert.Single(metrics.Routes));
+        Assert.True(IndexValidator.Check(reopened, new IndexCheckOptions { Deep = true }).IsHealthy);
+    }
+
+    [Fact(DisplayName = "Graph: A Malformed Checksummed Graph Is Remembered As Failed Across Evicted Reader States")]
+    public void MalformedGraphBody_IsRememberedAcrossEvictedStates()
+    {
+        var vectors = Clustered(3_000, 16, clusters: 30, spread: 0.1f, seed: 199);
+        string path = SubDir("malformed-body");
+        using (var directory = new MMapDirectory(path))
+            Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        string graphFile = Directory.EnumerateFiles(path, "*.vgr").Single();
+        byte[] valid = File.ReadAllBytes(graphFile);
+        string malformed = Path.Combine(path, "malformed.tmp-copy");
+        Rowles.LeanCorpus.Tests.Core.Codecs.VectorGraphPersistenceTests.WriteTruncatedBody(graphFile, malformed, keep: 200);
+        File.Copy(malformed, graphFile, overwrite: true);
+        File.Delete(malformed);
+
+        using var directoryAfter = new MMapDirectory(path);
+        var metrics = new RouteMetrics();
+        var config = SearcherConfig(metrics);
+        config.MaxCachedSegmentReaderBytes = 1; // Every query reopens the reader state.
+        using var searcher = new IndexSearcher(directoryAfter, config);
+        var query = Normalise(vectors[17]);
+        Assert.Equal(1.0, TieAwareRecall(vectors, query,
+            searcher.Search(new VectorQuery(Field, query, topK: 10), 10).ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10));
+
+        // Put the valid bytes back. A reader that re-parsed the graph on its next state would now
+        // use it; one that remembered the permanent failure keeps scanning exactly.
+        File.WriteAllBytes(graphFile, valid);
+        for (int i = 0; i < 3; i++)
+            searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+        Assert.Equal(4, metrics.Routes.Count);
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.ExactGraphUnavailable, route));
+
+        // A new searcher has new segment readers, so it validates the restored file afresh.
+        var freshMetrics = new RouteMetrics();
+        using var fresh = new IndexSearcher(directoryAfter, SearcherConfig(freshMetrics));
+        fresh.Search(new VectorQuery(Field, query, topK: 10), 10);
+        Assert.Equal(VectorSearchRoute.Graph, Assert.Single(freshMetrics.Routes));
+    }
+
+    [Fact(DisplayName = "Graph: Mapped Vector Bytes Do Not Count Against The Reader Cache Budget")]
+    public void MappedVectorBytes_DoNotEvictTheReaderState()
+    {
+        // 3,000 vectors of 128 dimensions map 1.5 MB of values, far above a 512 KiB budget, while
+        // the state's held arrays (presence, graph document IDs, upper levels, norms) stay below it.
+        var vectors = Clustered(3_000, 128, clusters: 30, spread: 0.1f, seed: 201);
+        using var directory = new MMapDirectory(SubDir("mapped-budget"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        var metrics = new RouteMetrics();
+        var config = SearcherConfig(metrics);
+        config.MaxCachedSegmentReaderBytes = 512 * 1024;
+        using var searcher = new IndexSearcher(directory, config);
+        foreach (var query in QueriesNear(vectors, 10, seed: 202))
+            searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+
+        var cache = searcher.SegmentReaderCacheMetrics;
+        Assert.Equal(0, cache.EvictionCount);
+        Assert.Equal(1, cache.EntryCount);
+        Assert.True(cache.MappedVectorBytes >= 3_000L * 128 * sizeof(float),
+            $"mapped vector bytes {cache.MappedVectorBytes} should include the vector values");
+        Assert.True(cache.RetainedBytes <= cache.MaximumRetainedBytes,
+            $"retained {cache.RetainedBytes} exceeds the {cache.MaximumRetainedBytes} budget");
+        Assert.True(cache.VectorsBytes > 0 && cache.VectorsBytes < 3_000L * 128 * sizeof(float),
+            $"held vector bytes {cache.VectorsBytes} should exclude the mapped values");
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
+    }
+
+    [Fact(DisplayName = "Graph: Explain Reports The Route")]
+    public void Explain_ReportsTheRoute()
+    {
+        var vectors = Clustered(1_000, 8, clusters: 8, spread: 0.1f, seed: 201);
+        using var directory = new MMapDirectory(SubDir("explain"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        using var searcher = new IndexSearcher(directory, SearcherConfig());
+        var query = new VectorQuery(Field, vectors[3], topK: 5);
+        var top = searcher.Search(query, 5).ScoreDocs[0];
+        var explanation = searcher.Explain(query, top.DocId);
+        Assert.NotNull(explanation);
+        Assert.Contains("Float32 vector graph", explanation!.Description, StringComparison.Ordinal);
+        Assert.Contains(explanation.Details, detail => detail.Description == "vectorSearchRoute=Graph");
+        Assert.Equal(top.Score, explanation.Score);
+    }
+
+    [Fact(DisplayName = "Graph: Compound Segments And Concurrent Readers Search The Graph")]
+    public void CompoundSegmentsAndConcurrentReaders_SearchTheGraph()
+    {
+        // Segments large enough that a traversal is cheaper than scanning them (smaller ones scan exactly).
+        var vectors = Clustered(4_000, 16, clusters: 12, spread: 0.1f, seed: 211);
+        using var directory = new MMapDirectory(SubDir("compound"));
+        var config = GraphConfig(normalise: true);
+        config.UseCompoundFile = true;
+        Write(directory, vectors, config, commitEvery: 2_000);
+
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        Assert.All(searcher.GetSegmentReaders(), reader => Assert.True(reader.Info.IsCompoundFile));
+        var queries = QueriesNear(vectors, 32, seed: 212);
+        var recalls = new ConcurrentBag<double>();
+        Parallel.ForEach(queries, new ParallelOptions { MaxDegreeOfParallelism = 4 }, query =>
+        {
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+            recalls.Add(TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10));
+        });
+
+        Assert.True(recalls.Average() >= 0.95, $"Tie-aware recall@10 was {recalls.Average():F3}.");
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
+    }
+
+    [Fact(DisplayName = "Graph: Compound Merge, Backup And Restore Keep A Usable Graph")]
+    public void CompoundMergeBackupAndRestore_KeepAUsableGraph()
+    {
+        var vectors = Clustered(1_200, 16, clusters: 12, spread: 0.1f, seed: 231);
+        string source = SubDir("backup-source");
+        var config = GraphConfig(normalise: true);
+        config.UseCompoundFile = true;
+        using (var directory = new MMapDirectory(source))
+        using (var writer = new IndexWriter(directory, config))
+        {
+            for (int start = 0; start < vectors.Length; start += 400)
+            {
+                for (int ordinal = start; ordinal < start + 400; ordinal++)
+                    writer.AddDocument(Document(ordinal, vectors[ordinal], keep: true));
+                writer.Commit();
+            }
+            writer.ForceMerge(1);
+            writer.Commit();
+        }
+
+        string backup = Path.Combine(fixture.Path, "vector-graph-backup-copy");
+        string restored = Path.Combine(fixture.Path, "vector-graph-backup-restored");
+        IndexBackup.Backup(source, backup);
+        IndexBackup.Restore(backup, restored);
+
+        using var restoredDirectory = new MMapDirectory(restored);
+        Assert.True(IndexValidator.Check(restoredDirectory, new IndexCheckOptions { Deep = true }).IsHealthy);
+        var metrics = new RouteMetrics();
+        using var searcher = new IndexSearcher(restoredDirectory, SearcherConfig(metrics));
+        var reader = Assert.Single(searcher.GetSegmentReaders());
+        Assert.True(reader.Info.IsCompoundFile);
+        Assert.True(reader.Info.VectorFields.Single().HasGraph);
+
+        double recall = 0;
+        var queries = QueriesNear(vectors, 20, seed: 232);
+        foreach (var query in queries)
+        {
+            var hits = searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+            recall += TieAwareRecall(vectors, query, hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10);
+        }
+        Assert.True(recall / queries.Length >= 0.95, $"Tie-aware recall@10 was {recall / queries.Length:F3}.");
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
+    }
+
+    [Fact(DisplayName = "Graph: A Missing Declared Graph Is Reported Once As Missing")]
+    public void MissingDeclaredGraph_IsReportedOnceAsMissing()
+    {
+        var vectors = Clustered(300, 8, clusters: 4, spread: 0.2f, seed: 241);
+        string path = SubDir("missing");
+        using (var directory = new MMapDirectory(path))
+            Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+        File.Delete(Directory.EnumerateFiles(path, "*.vgr").Single());
+
+        using var reopened = new MMapDirectory(path);
+        var check = IndexValidator.Check(reopened, new IndexCheckOptions { Deep = true });
+        Assert.Single(check.DetailedIssues, issue => issue.Code == IndexCheckIssueCodes.VectorGraphFileMissing);
+        Assert.DoesNotContain(check.DetailedIssues, issue => issue.Code == IndexCheckIssueCodes.VectorGraphReadFailure);
+        Assert.NotEmpty(IndexRepairRecommendations.ForIssue(IndexCheckIssueCodes.VectorGraphFileMissing));
+    }
+
+    [Fact(DisplayName = "Graph: A Null Build Config Is Rejected Before Side Effects")]
+    public void NullBuildConfig_IsRejectedBeforeSideEffects()
+    {
+        string path = SubDir("null-config");
+        using var directory = new MMapDirectory(path);
+        Assert.Throws<ArgumentException>(() => new IndexWriter(directory,
+            new IndexWriterConfig { BuildHnswOnFlush = true, HnswBuildConfig = null! }));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(path));
+    }
+
+    [Fact(DisplayName = "Graph: Built-In Metrics Count Graph Routes And Builds")]
+    public void BuiltInMetrics_CountGraphRoutesAndBuilds()
+    {
+        var vectors = Clustered(1_000, 8, clusters: 8, spread: 0.1f, seed: 251);
+        var metrics = new DefaultMetricsCollector();
+        using var directory = new MMapDirectory(SubDir("default-metrics"));
+        var config = GraphConfig(normalise: true);
+        config.Metrics = metrics;
+        using (var writer = new IndexWriter(directory, config))
+        {
+            for (int start = 0; start < vectors.Length; start += 500)
+            {
+                for (int ordinal = start; ordinal < start + 500; ordinal++)
+                    writer.AddDocument(Document(ordinal, vectors[ordinal], keep: true));
+                writer.Commit();
+            }
+            writer.ForceMerge(1);
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory, SearcherConfig(metrics));
+        searcher.Search(new VectorQuery(Field, vectors[0], topK: 5), 5);
+        var snapshot = metrics.GetSnapshot();
+        Assert.Equal(1, snapshot.VectorGraphRouteCount);
+        Assert.Equal(0, snapshot.VectorGraphFallbackCount);
+        Assert.Equal(0, snapshot.HnswVectorsScanned);
+        Assert.Equal(3, snapshot.HnswBuildCount);
+    }
+
+    [Fact(DisplayName = "Graph: Sparse Presence And Tiny Segments Stay Correct")]
+    public void SparsePresenceAndTinySegments_StayCorrect()
+    {
+        var vectors = Clustered(900, 8, clusters: 6, spread: 0.2f, seed: 221);
+        using var directory = new MMapDirectory(SubDir("sparse"));
+        using (var writer = new IndexWriter(directory, GraphConfig(normalise: true)))
+        {
+            for (int ordinal = 0; ordinal < vectors.Length; ordinal++)
+                writer.AddDocument(Document(ordinal, ordinal % 5 == 0 ? null : vectors[ordinal], keep: true));
+            writer.Commit();
+            writer.AddDocument(Document(vectors.Length, vectors[1], keep: true));
+            writer.Commit();
+        }
+
+        using var searcher = new IndexSearcher(directory, SearcherConfig());
+        Assert.False(searcher.GetSegmentReaders()[1].Info.VectorFields.Single().HasGraph);
+        var hits = searcher.Search(new VectorQuery(Field, vectors[1], topK: 5), 5);
+        var ordinals = hits.ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray();
+        Assert.Contains(vectors.Length, ordinals);
+        Assert.DoesNotContain(ordinals, ordinal => ordinal < vectors.Length && ordinal % 5 == 0);
+    }
+
+    private static float[] Scale(float[] vector, float scale) => vector.Select(x => x * scale).ToArray();
+
+    private static IndexWriterConfig GraphConfig(bool normalise)
+        => new()
+        {
+            BuildHnswOnFlush = true,
+            NormaliseVectors = normalise,
+            HnswSeed = 42,
+            MergeThreshold = 100,
+            MergeThrottleSegments = 100,
+            MaxBufferedDocs = 100_000,
+        };
+
+    private static IndexSearcherConfig SearcherConfig(IMetricsCollector? metrics = null)
+        => new()
+        {
+            ParallelSearch = false,
+            EnableQueryCache = false,
+            Metrics = metrics ?? NullMetricsCollector.Instance,
+        };
+
+    private static void Write(
+        MMapDirectory directory, float[][] vectors, IndexWriterConfig config, int commitEvery, Func<int, bool>? keep = null)
+    {
+        using var writer = new IndexWriter(directory, config);
+        for (int ordinal = 0; ordinal < vectors.Length; ordinal++)
+        {
+            writer.AddDocument(Document(ordinal, vectors[ordinal], keep: keep?.Invoke(ordinal) ?? true));
+            if ((ordinal + 1) % commitEvery == 0)
+                writer.Commit();
+        }
+        writer.Commit();
+    }
+
+    private static void AddAll(IndexWriter writer, float[][] vectors)
+    {
+        for (int ordinal = 0; ordinal < vectors.Length; ordinal++)
+            writer.AddDocument(Document(ordinal, vectors[ordinal], keep: true));
+    }
+
+    private static LeanDocument Document(int ordinal, float[]? vector, bool keep, float boost = 1f)
+    {
+        var document = new LeanDocument();
+        document.Add(new StringField("id", $"doc-{ordinal}"));
+        document.Add(new StoredField("ordinal", ordinal));
+        document.Add(new StringField("bucket", keep ? "keep" : "drop"));
+        if (vector is not null)
+            document.Add(new VectorField(Field, vector, boost));
+        return document;
+    }
+
+    private static int Ordinal(IndexSearcher searcher, int docId)
+        => int.Parse(searcher.GetStoredFields(docId)["ordinal"].Single(), CultureInfo.InvariantCulture);
+
+    private static float[][] QueriesNear(float[][] vectors, int count, int seed)
+    {
+        var random = new Random(seed); // NOSONAR S2245: deterministic test data
+        return Enumerable.Range(0, count).Select(i =>
+        {
+            float[] anchor = vectors[random.Next(vectors.Length)];
+            float[] noise = Gaussian(random, anchor.Length, 0.05f);
+            return anchor.Zip(noise, static (a, n) => a + n).ToArray();
+        }).ToArray();
+    }
+
+    private string SubDir(string name)
+    {
+        string path = Path.Combine(fixture.Path, "vector-graph-" + name);
+        Directory.CreateDirectory(path);
+        return path;
+    }
+
+    private sealed class RouteMetrics : IMetricsCollector
+    {
+        private readonly ConcurrentQueue<VectorSearchRoute> _routes = new();
+        private int _fallbackSearches;
+
+        public IReadOnlyCollection<VectorSearchRoute> Routes => _routes.ToArray();
+        public int FallbackSearches => Volatile.Read(ref _fallbackSearches);
+
+        public void RecordSearchLatency(TimeSpan elapsed) { }
+        public void RecordCacheHit() { }
+        public void RecordCacheMiss() { }
+        public void RecordFlush(TimeSpan elapsed) { }
+        public void RecordMerge(TimeSpan elapsed, int segmentsMerged) { }
+        public void RecordCommit(TimeSpan elapsed) { }
+        public void RecordVectorSearchRoute(VectorSearchRoute route) => _routes.Enqueue(route);
+
+        public void RecordHnswSearch(TimeSpan elapsed, int nodesVisited, int scannedVectors, bool usedExhaustiveFallback)
+        {
+            if (usedExhaustiveFallback)
+                Interlocked.Increment(ref _fallbackSearches);
+        }
+
+        public MetricsSnapshot GetSnapshot() => MetricsSnapshot.Empty;
+    }
+}

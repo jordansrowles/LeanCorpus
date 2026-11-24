@@ -370,17 +370,22 @@ public sealed class IndexWriterConfig
     public VectorQuantisation VectorQuantisation { get; set; } = VectorQuantisation.None;
 
     /// <summary>
-    /// Requests HNSW graph creation for every vector field at flush time. HNSW graph creation
-    /// is retired for 4.0; setting this property to <c>true</c> is rejected during writer
-    /// validation. Historical graph files remain readable. Default: <c>false</c>.
+    /// Builds a Float32 vector graph (<c>.vgr</c>) for every unquantised vector field with at least two
+    /// vectors at flush time, and rebuilds it on every merge. Vector queries then traverse the graph
+    /// and rescore candidates exactly, falling back to exact search for selective filters, an
+    /// exhausted work budget or an unavailable graph. Building costs time at flush and on every
+    /// merge, and roughly <c>(1 + M0) * 4</c> bytes per vector. Historical <c>.hnsw</c> graphs stay
+    /// ignored. Default: <c>false</c>.
     /// </summary>
     public bool BuildHnswOnFlush { get; set; }
 
-    /// <summary>Retained for source compatibility; new HNSW graph creation is retired.</summary>
+    /// <summary>Vector graph build parameters used when <see cref="BuildHnswOnFlush"/> is enabled.</summary>
     public Codecs.Hnsw.HnswBuildConfig HnswBuildConfig { get; set; } = new();
 
     /// <summary>
-    /// Retained for source compatibility; new HNSW graph creation is retired and this value is ignored.
+    /// Seed for vector graph insertion order and level assignment. The same seed, vectors and
+    /// parameters produce a byte-identical graph. When null, a fixed default seed is used so builds
+    /// stay reproducible. Default: <c>null</c>.
     /// </summary>
     public long? HnswSeed { get; set; }
 
@@ -414,10 +419,8 @@ public sealed class IndexWriterConfig
     /// <exception cref="ArgumentException">Thrown when a property is invalid.</exception>
     internal void Validate()
     {
-        if (BuildHnswOnFlush)
-            throw new ArgumentException(
-                "HnswGraphCreationRetired: new HNSW graph writes are not supported for 4.0; use exact Float32 vector search.",
-                nameof(BuildHnswOnFlush));
+        if (BuildHnswOnFlush && HnswBuildConfig is null)
+            throw new ArgumentException("HnswBuildConfig must not be null when BuildHnswOnFlush is enabled.", nameof(HnswBuildConfig));
 
         var vectorDecision = VectorCodecFiles.CanCreate(VectorQuantisation);
         if (!vectorDecision.IsAllowed)

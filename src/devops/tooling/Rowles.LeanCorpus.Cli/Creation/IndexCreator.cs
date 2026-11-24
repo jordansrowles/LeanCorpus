@@ -66,7 +66,7 @@ internal static partial class IndexCreator
         string normalisedPreset = preset.Trim().ToLowerInvariant();
         if (normalisedPreset is "vector-hnsw" or "vector-int8")
             throw new ArgumentException(
-                $"The '{normalisedPreset}' preset is retired. New vector indexes support Float32 exact search only; historical Int8 and HNSW data remain readable.",
+                $"The '{normalisedPreset}' preset is retired. New vector indexes store Float32 values, searched exactly or through an opt-in Float32 vector graph (a custom schema with HNSW); historical Int8 and HNSW data remain readable.",
                 nameof(preset));
         if (normalisedPreset == "vector-bbq")
             throw new ArgumentException(
@@ -115,10 +115,8 @@ internal static partial class IndexCreator
         if (quantisation == VectorQuantisation.BBQ)
             throw new InvalidOperationException(
                 "CodecReadOnly: new BBQ vector writes are not supported for 4.0; create a Float32 index from original embeddings.");
-        if (buildHnsw && containsVectors)
-            throw new InvalidOperationException(
-                "HnswGraphCreationRetired: new HNSW graph writes are not supported for 4.0; use exact Float32 vector search.");
-        buildHnsw = false;
+        // Float32 vector graphs (ADR052) are opt-in; recipes without vectors build no graph.
+        buildHnsw &= containsVectors;
         bool manySmallSegments = recipe?.ManySmallSegments ?? normalisedPreset == "many-small-segments";
         bool deleteHeavy = recipe?.DeleteHeavy ?? normalisedPreset == "delete-heavy";
         IDataForgeProfileSelection selection;
@@ -183,7 +181,7 @@ internal static partial class IndexCreator
             throw new InvalidDataException($"Unsupported recipe schema version {recipe.SchemaVersion}.");
         if (recipe.Preset is "vector-hnsw" or "vector-int8")
             throw new InvalidDataException(
-                $"Recipe preset '{recipe.Preset}' is retired. New vector indexes support Float32 exact search only; historical Int8 and HNSW data remain readable.");
+                $"Recipe preset '{recipe.Preset}' is retired. New vector indexes store Float32 values, searched exactly or through an opt-in Float32 vector graph (a custom schema with HNSW); historical Int8 and HNSW data remain readable.");
         if (recipe.Preset == "vector-bbq")
             throw new InvalidDataException(
                 "Recipe preset 'vector-bbq' is retired. Rebuild from the original documents and embeddings into a separate Float32 index.");

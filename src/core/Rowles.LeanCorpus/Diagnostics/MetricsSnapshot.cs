@@ -97,6 +97,28 @@ public sealed class MetricsSnapshot
     /// <summary>Exact vector scans that ignored an existing retired HNSW graph.</summary>
     public long VectorRetiredHnswExactScanCount { get; init; }
 
+    /// <summary>Float32 vector query segments whose candidates came from a vector graph (ADR052).</summary>
+    public long VectorGraphRouteCount { get; init; }
+
+    /// <summary>
+    /// Float32 vector query segments that declared or could use a vector graph but scanned exactly:
+    /// every <see cref="VectorSearchRoute"/> other than <see cref="VectorSearchRoute.Graph"/> and
+    /// <see cref="VectorSearchRoute.ExactNoGraph"/>.
+    /// </summary>
+    public long VectorGraphFallbackCount { get; init; }
+
+    /// <summary>Vector graph traversals discarded for an exact fallback (budget exceeded or underfilled).</summary>
+    public long VectorGraphWastedTraversalCount { get; init; }
+
+    /// <summary>Query distance evaluations spent in vector graph traversals that were discarded.</summary>
+    public long VectorGraphWastedEvaluations { get; init; }
+
+    /// <summary>Cumulative time spent in vector graph traversals that were discarded, in milliseconds.</summary>
+    public double VectorGraphWastedTotalMs { get; init; }
+
+    /// <summary>Flushes and merges that wrote a vector field without its requested vector graph.</summary>
+    public long VectorGraphBuildSkippedCount { get; init; }
+
     /// <summary>Total number of HNSW graphs built (flush + merge).</summary>
     public long HnswBuildCount { get; init; }
 

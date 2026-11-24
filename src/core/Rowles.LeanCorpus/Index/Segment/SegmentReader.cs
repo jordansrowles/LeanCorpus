@@ -21,6 +21,7 @@ internal sealed partial class SegmentReaderState : IDisposable
     private readonly MMapDirectory _directory;
     private readonly SegmentDescriptor _info;
     private readonly CodecCatalog _codecCatalog;
+    private readonly Codecs.Hnsw.VectorGraphValidationMemo? _graphValidation;
     private readonly SegmentFileAccess _files;
     private TermDictionaryReader? _dictionaryReader;
     private IndexInput? _postingsInput;
@@ -103,14 +104,17 @@ internal sealed partial class SegmentReaderState : IDisposable
     /// </summary>
     /// <param name="directory">The directory containing the segment files.</param>
     /// <param name="info">The segment metadata.</param>
+    /// <param name="graphValidation">The owning reader's graph validation outcomes, which outlive this state.</param>
     /// <param name="codecCatalog">The immutable codec catalogue for stored-field compression.</param>
     /// <exception cref="FileNotFoundException">Thrown if required segment files are missing.</exception>
     /// <exception cref="InvalidDataException">Thrown if segment files contain corrupted or incompatible data.</exception>
     internal SegmentReaderState(
         MMapDirectory directory,
         SegmentDescriptor info,
-        CodecCatalog? codecCatalog = null)
+        CodecCatalog? codecCatalog = null,
+        Codecs.Hnsw.VectorGraphValidationMemo? graphValidation = null)
     {
+        _graphValidation = graphValidation;
         _directory = directory;
         _info = info;
         _codecCatalog = codecCatalog ?? CodecCatalog.Default;
@@ -535,6 +539,7 @@ internal sealed partial class SegmentReaderState : IDisposable
         long numericIndexesBytes = 0;
         long spatialIndexesBytes = 0;
         long vectorsBytes = 0;
+        long mappedVectorBytes = 0;
         long liveDocsAndParentsBytes = 0;
         const long readerShellEstimateBytes = 2_048;
 
@@ -591,13 +596,29 @@ internal sealed partial class SegmentReaderState : IDisposable
         {
             lock (fieldState.LoadLock)
             {
-                if (fieldState.Vector is not null || fieldState.QuantisedVector is not null)
+                // Float32 vector values are read through the mapped file: evicting the state frees
+                // no memory the page cache would not keep anyway, but reopening it costs every
+                // query, so the mapped length is reported separately and not weighed (ADR011, ADR052).
+                if (fieldState.Vector is { } vectorReader)
+                {
+                    vectorsBytes += vectorReader.MaterialisedBytes;
+                    mappedVectorBytes += Math.Max(0, FileBytes(_vectorPaths[fieldName]) - vectorReader.MaterialisedBytes);
+                }
+                else if (fieldState.QuantisedVector is not null)
+                {
                     vectorsBytes += FileBytes(_vectorPaths[fieldName]);
+                }
                 if (fieldState.Graph is not null)
                 {
                     string path = VectorFilePaths.HnswFile(_basePath, fieldName);
                     string extension = Path.GetFileName(path)[_info.SegmentId.Length..];
                     vectorsBytes += FileBytes(extension) * 2;
+                }
+                if (fieldState.VectorGraph is { } vectorGraph)
+                {
+                    // Document IDs, upper levels and inverse norms are held; level zero is mapped.
+                    vectorsBytes += vectorGraph.MaterialisedBytes;
+                    mappedVectorBytes += vectorGraph.MappedBytes;
                 }
             }
         }
@@ -612,7 +633,8 @@ internal sealed partial class SegmentReaderState : IDisposable
             spatialIndexesBytes,
             vectorsBytes,
             liveDocsAndParentsBytes,
-            readerShellEstimateBytes);
+            readerShellEstimateBytes,
+            mappedVectorBytes);
     }
 
     private long FileBytes(string extension)
@@ -758,12 +780,25 @@ internal sealed partial class SegmentReaderState : IDisposable
         private QuantisedVectorReader? _quantisedVector;
         private HnswGraph? _graph;
         private int _graphLoaded;
+        private VectorGraph? _vectorGraph;
+        private string? _vectorGraphFailure;
+        private int _vectorGraphLoaded;
 
         internal object LoadLock { get; } = new();
         internal VectorReader? Vector => Volatile.Read(ref _vector);
         internal QuantisedVectorReader? QuantisedVector => Volatile.Read(ref _quantisedVector);
         internal HnswGraph? Graph => Volatile.Read(ref _graph);
         internal bool GraphLoaded => Volatile.Read(ref _graphLoaded) != 0;
+        internal VectorGraph? VectorGraph => Volatile.Read(ref _vectorGraph);
+        internal string? VectorGraphFailure => Volatile.Read(ref _vectorGraphFailure);
+        internal bool VectorGraphLoaded => Volatile.Read(ref _vectorGraphLoaded) != 0;
+
+        internal void SetVectorGraph(VectorGraph? graph, string? failure)
+        {
+            Volatile.Write(ref _vectorGraph, graph);
+            Volatile.Write(ref _vectorGraphFailure, failure);
+            Volatile.Write(ref _vectorGraphLoaded, 1);
+        }
 
         internal void SetVector(VectorReader vector) => Volatile.Write(ref _vector, vector);
 
@@ -781,6 +816,8 @@ internal sealed partial class SegmentReaderState : IDisposable
             lock (LoadLock)
             {
                 Graph?.Dispose();
+                VectorGraph?.Dispose();
+                Volatile.Write(ref _vectorGraph, null);
                 Vector?.Dispose();
                 QuantisedVector?.Dispose();
                 SetGraph(null);

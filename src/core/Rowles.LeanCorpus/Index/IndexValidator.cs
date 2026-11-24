@@ -467,6 +467,21 @@ public static class IndexValidator
 
                 CheckHnswHeader(hnswPath, segmentId, vectorField, result);
             }
+
+            if (vectorField.HasGraph)
+            {
+                var graphPath = VectorFilePaths.GraphFile(basePath, vectorField.FieldName);
+                if (!FileOpenRetry.FileExists(graphPath))
+                {
+                    result.AddIssue(
+                        IndexCheckSeverity.Error,
+                        IndexCheckIssueCodes.VectorGraphFileMissing,
+                        $"Vector field '{vectorField.FieldName}' declares missing vector graph file '{Path.GetFileName(graphPath)}'.",
+                        Path.GetFileName(graphPath),
+                        segmentId,
+                        true);
+                }
+            }
         }
     }
 
@@ -580,7 +595,10 @@ public static class IndexValidator
         if (options.Deep || options.VerifyVectors)
             ValidateVectorsDeep(basePath, info, result);
         if (options.Deep || options.VerifyHnsw)
+        {
             ValidateHnswDeep(basePath, info, result);
+            ValidateVectorGraphsDeep(Path.GetDirectoryName(basePath)!, info, info.SegmentId + "_v_*.vgr", result);
+        }
         if (options.Deep)
             ValidateTermVectorsDeep(directoryPath, info, result);
     }
@@ -600,7 +618,10 @@ public static class IndexValidator
         if (options.Deep || options.VerifyVectors)
             ValidateCompoundVectorsDeep(directoryPath, info, result);
         if (options.Deep || options.VerifyHnsw)
+        {
             ValidateCompoundHnswDeep(directoryPath, info, result);
+            ValidateVectorGraphsDeep(directoryPath, info, info.SegmentId + ".cfs", result);
+        }
         if (options.Deep)
             ValidateTermVectorsDeep(directoryPath, info, result);
     }
@@ -706,6 +727,73 @@ public static class IndexValidator
                 IndexCheckIssueCodes.HnswReadFailure,
                 $"Cannot read compound HNSW data for segment '{info.SegmentId}': {ex.Message}",
                 info.SegmentId + ".cfs",
+                info.SegmentId,
+                false);
+        }
+    }
+
+    /// <summary>
+    /// Opens every declared Float32 vector graph through the segment reader, which applies the full
+    /// structural validation (ADR052). A failure is an error even though queries fall back to exact
+    /// search, so operators learn that the accelerator needs rebuilding.
+    /// </summary>
+    private static void ValidateVectorGraphsDeep(string directoryPath, SegmentInfo info, string location, IndexCheckResult result)
+    {
+        if (!info.VectorFields.Any(static field => field.HasGraph))
+            return;
+
+        try
+        {
+            using var directory = new MMapDirectory(directoryPath);
+
+            // A declared graph that is absent stops the segment opening at all, so report it as
+            // missing (loose segments already were, by the shallow check) instead of as unusable.
+            bool missing = false;
+            using (ISegmentFileSource source = info.IsCompoundFile
+                ? new CompoundSegmentFileSource(directory, info.SegmentId)
+                : new LooseSegmentFileSource(directory, info.SegmentId))
+            {
+                foreach (var vectorField in info.VectorFields)
+                {
+                    string graphFileName = Path.GetFileName(VectorFilePaths.GraphFile(info.SegmentId, vectorField.FieldName));
+                    if (!vectorField.HasGraph || source.FileExists(graphFileName))
+                        continue;
+                    missing = true;
+                    if (info.IsCompoundFile)
+                        result.AddIssue(
+                            IndexCheckSeverity.Error,
+                            IndexCheckIssueCodes.VectorGraphFileMissing,
+                            $"Vector field '{vectorField.FieldName}' declares missing vector graph file '{graphFileName}'.",
+                            location,
+                            info.SegmentId,
+                            true);
+                }
+            }
+            if (missing)
+                return;
+
+            using var reader = new SegmentReader(directory, info);
+            foreach (var vectorField in info.VectorFields)
+            {
+                if (!vectorField.HasGraph || reader.TryValidateVectorGraph(vectorField.FieldName, out _, out string? reason))
+                    continue;
+                string fileName = Path.GetFileName(VectorFilePaths.GraphFile(info.SegmentId, vectorField.FieldName));
+                result.AddIssue(
+                    IndexCheckSeverity.Error,
+                    IndexCheckIssueCodes.VectorGraphReadFailure,
+                    $"Cannot use vector graph '{fileName}' for field '{vectorField.FieldName}': {reason ?? "the graph is unavailable"}",
+                    info.IsCompoundFile ? location : fileName,
+                    info.SegmentId,
+                    false);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or EndOfStreamException or InvalidOperationException)
+        {
+            result.AddIssue(
+                IndexCheckSeverity.Error,
+                IndexCheckIssueCodes.VectorGraphReadFailure,
+                $"Cannot read vector graphs for segment '{info.SegmentId}': {ex.Message}",
+                location,
                 info.SegmentId,
                 false);
         }

@@ -22,6 +22,10 @@ internal static class VectorFilePaths
     public static string HnswFile(string basePath, string fieldName)
         => $"{basePath}_v_{Sanitise(fieldName)}.hnsw";
 
+    /// <summary>Returns the per-field <c>.vgr</c> (Float32 vector graph) file path.</summary>
+    public static string GraphFile(string basePath, string fieldName)
+        => $"{basePath}_v_{Sanitise(fieldName)}.vgr";
+
     /// <summary>
     /// Returns a filesystem-safe representation of <paramref name="fieldName"/>.
     /// Unsafe names receive a hash suffix so different names cannot collapse to the same path.

@@ -1241,6 +1241,7 @@ public sealed partial class IndexSearcher
         VectorQuery query,
         SegmentReader reader,
         Dictionary<(string Field, string Term), int> globalDFs,
+        VectorPreparationScratch scratch,
         ref TopNCollector collector)
     {
         if (!reader.HasVectors) return;
@@ -1249,6 +1250,11 @@ public sealed partial class IndexSearcher
         if (fieldInfo is null) return;
         ValidateVectorQueryDimension(query, fieldInfo.Dimension);
 
+        // A zero query has no direction, so cosine is undefined and it matches nothing on any field.
+        // No segment is searched and no route is recorded.
+        if (scratch.UnitQuery.Length == 0)
+            return;
+
         int docBase = reader.DocBase;
 
         // Resolve filter (if any) to a docId bitmap and choose a strategy.
@@ -1256,7 +1262,16 @@ public sealed partial class IndexSearcher
         if (query.Filter is not null)
         {
             filterBitmap = ExecuteFilterToBitmap(query.Filter, reader, globalDFs);
-            if (filterBitmap.Cardinality == 0) return;
+            if (filterBitmap.Cardinality == 0)
+            {
+                // Every segment of a Float32 field records exactly one route; an empty filter is the
+                // most selective filter, answered without reading a vector.
+                if (fieldInfo is { HasGraph: true, Quantisation: VectorQuantisation.None })
+                    RecordVectorRoute(query, reader, Diagnostics.VectorSearchRoute.ExactSelectiveFilter);
+                else
+                    RecordExactRouteWithoutGraph(query, reader, fieldInfo);
+                return;
+            }
         }
 
         Util.IBitSet? queryFilterMask = filterBitmap is null
@@ -1275,16 +1290,14 @@ public sealed partial class IndexSearcher
         int shortlistSize = query.GetShortlistSize(availableCandidates, isBbqV3);
         int efSearch = hasGraph ? query.GetEffectiveEfSearch(graph!.NodeCount, isBbqV3) : query.EfSearch;
 
-        // Pre-compute query vector (and normalised variant for normalised fields).
+        // The query vector, and its unit form for normalised fields, computed once per query.
         var queryVec = query.QueryVector;
-        bool normalised = fieldInfo.Normalised;
-        float[]? normalisedQuery = null;
-        if (normalised)
-        {
-            normalisedQuery = (float[])queryVec.Clone();
-            if (!Rowles.LeanCorpus.Search.Simd.SimdVectorOps.NormaliseInPlace(normalisedQuery))
-                return;
-        }
+        float[]? normalisedQuery = fieldInfo.Normalised ? scratch.UnitQuery : null;
+
+        // Float32 vector graph (ADR052). Any fallback continues to the exact route below.
+        if (fieldInfo is { HasGraph: true, Quantisation: VectorQuantisation.None }
+            && TryCollectFromVectorGraph(query, reader, fieldInfo, filterBitmap, liveAwareMask, docBase, scratch, ref collector))
+            return;
 
         // Filter strategy selection.
         if (filterBitmap is not null && hasGraph)
@@ -1296,7 +1309,7 @@ public sealed partial class IndexSearcher
             // Highly selective: brute-force scan only matched docs (cheaper than graph traversal).
             if (matched < 64 || selectivity < 0.005)
             {
-                int scannedVectors = BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
+                int scannedVectors = BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, scratch, ref collector);
                 VectorMetrics?.RecordHnswSelectiveFilterScan(scannedVectors);
                 return;
             }
@@ -1375,8 +1388,9 @@ public sealed partial class IndexSearcher
         // Flat-scan fallback (with optional filter).
         if (filterBitmap is not null)
         {
-            int scannedVectors = BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, ref collector);
+            int scannedVectors = BruteForceFilter(query, reader, filterBitmap, queryVec, docBase, scratch, ref collector);
             VectorMetrics?.RecordVectorExactScan(scannedVectors, retiredGraphIgnored);
+            RecordExactRouteWithoutGraph(query, reader, fieldInfo);
             return;
         }
 
@@ -1384,11 +1398,11 @@ public sealed partial class IndexSearcher
         // The pin (nested under the caller's segment query lease when there is one) keeps each
         // borrowed vector span mapped until it has been scored. No span outlives this method.
         using var vectorPin = reader.AcquireQueryLease();
-        Span<float> scratch = new float[fieldInfo.Dimension];
+        Span<float> buffer = scratch.Buffer(fieldInfo.Dimension);
         for (int docId = 0; docId < reader.MaxDoc; docId++)
         {
             if (!reader.IsLive(docId)) continue;
-            var docVector = reader.BorrowPinnedVector(query.Field, docId, scratch);
+            var docVector = reader.BorrowPinnedVector(query.Field, docId, buffer);
             if (docVector.IsEmpty) continue;
             float similarity = VectorQuery.CosineSimilarity(queryVec, docVector);
             similarity = ApplyVectorQueryBoost(query, similarity);
@@ -1397,6 +1411,167 @@ public sealed partial class IndexSearcher
             exactScannedVectors++;
         }
         VectorMetrics?.RecordVectorExactScan(exactScannedVectors, retiredGraphIgnored);
+        RecordExactRouteWithoutGraph(query, reader, fieldInfo);
+    }
+
+    /// <summary>Records <see cref="Diagnostics.VectorSearchRoute.ExactNoGraph"/> for a Float32 field without a graph.</summary>
+    private void RecordExactRouteWithoutGraph(VectorQuery query, SegmentReader reader, VectorFieldInfo fieldInfo)
+    {
+        if (fieldInfo is { HasGraph: false, Quantisation: VectorQuantisation.None })
+            RecordVectorRoute(query, reader, Diagnostics.VectorSearchRoute.ExactNoGraph);
+    }
+
+    /// <summary>
+    /// Selects this segment's candidates through its Float32 vector graph and rescores them with the
+    /// exact scorer over the stored vectors, so graph and exact routes return identical scores for a
+    /// document. Returns false, having recorded the reason, when the exact route must run instead.
+    /// </summary>
+    private bool TryCollectFromVectorGraph(
+        VectorQuery query,
+        SegmentReader reader,
+        VectorFieldInfo fieldInfo,
+        Util.RoaringBitmap? filterBitmap,
+        Util.IBitSet? eligibleMask,
+        int docBase,
+        VectorPreparationScratch scratch,
+        ref TopNCollector collector)
+    {
+        // The graph ranks by cosine alone; a score that is not monotonic in cosine needs every vector.
+        if (query.Boost <= 0f || reader.TryGetFieldBoosts(query.Field, out _))
+        {
+            RecordVectorRoute(query, reader, Diagnostics.VectorSearchRoute.ExactScoreTransform);
+            return false;
+        }
+
+        var graph = reader.GetPinnedVectorGraph(query.Field, out var vectors, out string? unavailableReason);
+        if (graph is null || vectors is null || graph.NodeCount == 0)
+        {
+            RecordVectorRoute(query, reader, unavailableReason is null
+                ? Diagnostics.VectorSearchRoute.ExactNoGraph
+                : Diagnostics.VectorSearchRoute.ExactGraphUnavailable);
+            return false;
+        }
+
+        int shortlist = query.GetShortlistSize(graph.NodeCount);
+        int eligibleUpperBound = filterBitmap is null ? graph.NodeCount : Math.Min(filterBitmap.Cardinality, graph.NodeCount);
+        int selectiveThreshold = Math.Max(SelectiveFilterMinimum, (int)(SelectiveFilterFraction * reader.MaxDoc));
+        if (filterBitmap is not null && (eligibleUpperBound < selectiveThreshold || eligibleUpperBound <= shortlist))
+        {
+            RecordVectorRoute(query, reader, Diagnostics.VectorSearchRoute.ExactSelectiveFilter);
+            return false;
+        }
+
+        // Never empty here: the caller returns early for a zero query.
+        float[] unitQuery = scratch.UnitQuery;
+
+        int ef = query.GetEffectiveEfSearch(graph.NodeCount);
+        // A graph evaluation costs about 1.2-1.4x one vector of the exact scan (random access, heap
+        // and visited-set work). Stopping at a third of the eligible count means a traversal that
+        // completes costs at most about 0.45x the exact scan, the 2x speed-up ADR052 qualifies
+        // against, while one that exhausts the budget and falls back costs at most about 1.45x
+        // exact. A traversal that would almost certainly exhaust it is not started (below). The ef
+        // floor lets small segments converge and the slack covers the upper-level descent.
+        long budget = Math.Max(GraphBudgetEfMultiplier * (long)ef, eligibleUpperBound / GraphBudgetEligibleDivisor)
+            + 64L * (graph.MaxLevel + 1);
+
+        // A beam that must hold ef eligible results evaluates at least ef / selectivity nodes, and
+        // measured traversals evaluated 9-34 times that. Below the observed minimum, the estimate
+        // is optimistic: it only skips traversals that would almost certainly exhaust the budget.
+        // Level zero never evaluates a node twice, so the estimate is capped at the node count.
+        double selectivity = Math.Max(eligibleUpperBound, 1) / (double)graph.NodeCount;
+        double predicted = Math.Min(GraphPredictedEvaluationsPerEf * ef / selectivity, graph.NodeCount);
+        if (predicted > budget)
+        {
+            RecordVectorRoute(query, reader, Diagnostics.VectorSearchRoute.ExactBudgetPredicted);
+            return false;
+        }
+
+        var hits = new List<Codecs.Hnsw.VectorGraphHit>(shortlist);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var stats = graph.Search(unitQuery, new VectorReaderSource(vectors), shortlist, ef, eligibleMask, budget, hits);
+        stopwatch.Stop();
+
+        Diagnostics.VectorSearchRoute? fallback = stats.BudgetExceeded
+            ? Diagnostics.VectorSearchRoute.ExactBudgetExceeded
+            : hits.Count < shortlist ? Diagnostics.VectorSearchRoute.ExactUnderfilled : null;
+        // scannedVectors counts exhaustive vectors only; a fallback's exact scan is recorded by the
+        // exact route itself, so the traversal reports none.
+        VectorMetrics?.RecordHnswSearch(stopwatch.Elapsed, stats.NodesVisited, scannedVectors: 0, fallback is not null);
+        if (fallback is { } route)
+        {
+            VectorMetrics?.RecordVectorGraphWastedTraversal(stopwatch.Elapsed, stats.DistanceEvaluations);
+            RecordVectorRoute(query, reader, route);
+            return false;
+        }
+
+        Span<float> buffer = scratch.Buffer(fieldInfo.Dimension);
+        var queryVector = query.QueryVector;
+        foreach (var hit in hits)
+        {
+            if (!reader.IsLive(hit.DocId)) continue;
+            var docVector = reader.BorrowPinnedVector(query.Field, hit.DocId, buffer);
+            if (docVector.IsEmpty) continue;
+            float similarity = VectorQuery.CosineSimilarity(queryVector, docVector);
+            similarity = ApplyVectorQueryBoost(query, similarity);
+            similarity = ApplyFieldBoost(reader, hit.DocId, query.Field, similarity);
+            collector.Collect(docBase + hit.DocId, similarity);
+        }
+
+        RecordVectorRoute(query, reader, Diagnostics.VectorSearchRoute.Graph);
+        return true;
+    }
+
+    // Filters that leave fewer eligible documents than this go straight to an exact scan.
+    private const int SelectiveFilterMinimum = 64;
+    private const double SelectiveFilterFraction = 0.005;
+    private const long GraphBudgetEfMultiplier = 4;
+    private const long GraphBudgetEligibleDivisor = 3;
+    private const double GraphPredictedEvaluationsPerEf = 8;
+
+    // Captures per-segment routes of the query being explained while Explain prepares its set.
+    // Vector queries nested in its filter record their own routes elsewhere and are not captured.
+    [ThreadStatic] private static VectorRouteCapture? t_vectorRouteCapture;
+
+    internal sealed class VectorRouteCapture(VectorQuery query)
+    {
+        internal VectorQuery Query { get; } = query;
+        internal Dictionary<SegmentReader, Diagnostics.VectorSearchRoute> Routes { get; } = new(ReferenceEqualityComparer.Instance);
+    }
+
+    private void RecordVectorRoute(VectorQuery query, SegmentReader reader, Diagnostics.VectorSearchRoute route)
+    {
+        VectorMetrics?.RecordVectorSearchRoute(route);
+        if (t_vectorRouteCapture is { } capture && ReferenceEquals(capture.Query, query))
+            capture.Routes[reader] = route;
+    }
+
+    /// <summary>
+    /// Per-preparation state shared by every segment of one vector query (ADR049 preparation): the
+    /// unit query vector, normalised once, and a dimension-sized scoring buffer. Preparation visits
+    /// segments sequentially, so this is single-threaded.
+    /// </summary>
+    internal sealed class VectorPreparationScratch(VectorQuery query)
+    {
+        private float[]? _unitQuery;
+        private float[]? _buffer;
+
+        /// <summary>The unit-length query vector, or an empty array for a zero query.</summary>
+        internal float[] UnitQuery
+        {
+            get
+            {
+                if (_unitQuery is null)
+                {
+                    var unit = (float[])query.QueryVector.Clone();
+                    _unitQuery = Rowles.LeanCorpus.Search.Simd.SimdVectorOps.NormaliseInPlace(unit) ? unit : [];
+                }
+                return _unitQuery;
+            }
+        }
+
+        /// <summary>A reusable buffer for vectors that cannot be borrowed.</summary>
+        internal float[] Buffer(int dimension)
+            => _buffer is { } buffer && buffer.Length == dimension ? buffer : _buffer = new float[dimension];
     }
 
     /// <summary>Search metrics, or null while <see cref="Explain(VectorQuery, int)"/> prepares a selected set.</summary>
@@ -1408,17 +1583,20 @@ public sealed partial class IndexSearcher
         Util.RoaringBitmap filterBitmap,
         float[] queryVec,
         int docBase,
+        VectorPreparationScratch scratch,
         ref TopNCollector collector)
     {
         int scannedVectors = 0;
         // See the unfiltered flat scan: borrowed spans never outlive this pin.
         using var vectorPin = reader.AcquireQueryLease();
-        Span<float> scratch = new float[query.QueryVector.Length];
-        for (int docId = 0; docId < reader.MaxDoc; docId++)
+        Span<float> buffer = scratch.Buffer(query.QueryVector.Length);
+        // Visit only the filter's members, in ascending document order so tie ordering is unchanged.
+        int maxDoc = reader.MaxDoc;
+        foreach (int docId in filterBitmap)
         {
-            if (!filterBitmap.Contains(docId)) continue;
+            if ((uint)docId >= (uint)maxDoc) break;
             if (!reader.IsLive(docId)) continue;
-            var docVector = reader.BorrowPinnedVector(query.Field, docId, scratch);
+            var docVector = reader.BorrowPinnedVector(query.Field, docId, buffer);
             if (docVector.IsEmpty) continue;
             float similarity = VectorQuery.CosineSimilarity(queryVec, docVector);
             similarity = ApplyVectorQueryBoost(query, similarity);

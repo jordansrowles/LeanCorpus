@@ -152,7 +152,7 @@ public sealed class WorkbenchCommandsTests : IClassFixture<TestDirectoryFixture>
         int exitCode = IndexCheckerCli.Run(["create", "preset", preset, path, "--json"], output, error);
 
         Assert.Equal(CliExitCodes.InvalidArguments, exitCode);
-        Assert.Contains($"The '{preset}' preset is retired. New vector indexes support Float32 exact search only", error.ToString());
+        Assert.Contains($"The '{preset}' preset is retired. New vector indexes store Float32 values, searched exactly or through an opt-in Float32 vector graph", error.ToString());
         Assert.Empty(output.ToString());
         Assert.False(Directory.Exists(path));
     }

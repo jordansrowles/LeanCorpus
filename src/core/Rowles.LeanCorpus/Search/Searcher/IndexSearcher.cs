@@ -162,6 +162,7 @@ public sealed partial class IndexSearcher : IDisposable
                 VectorsBytes = resources.VectorsBytes,
                 LiveDocsAndParentsBytes = resources.LiveDocsAndParentsBytes,
                 OtherBytes = resources.OtherBytes,
+                MappedVectorBytes = resources.MappedVectorBytes,
             };
         }
     }

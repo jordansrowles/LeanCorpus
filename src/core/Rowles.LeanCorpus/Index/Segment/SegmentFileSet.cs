@@ -36,6 +36,7 @@ internal sealed class SegmentFileSet
             [LiveDocsFormatId] = "live-docs",
             ["leancorpus.vectors.float32"] = "vector",
             ["leancorpus.vectors.hnsw"] = "hnsw",
+            ["leancorpus.vectors.graph"] = "vector-graph",
             [SegmentMetadataFormatId] = "segment-metadata",
             [CompoundSegmentFormatId] = "compound-segment",
             [SegmentStatisticsFormatId] = "segment-stats",

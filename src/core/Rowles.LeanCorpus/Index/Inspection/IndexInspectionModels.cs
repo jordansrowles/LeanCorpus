@@ -44,6 +44,9 @@ public sealed record IndexInspectionOverview(
 {
     /// <summary>Gets the number of deleted documents in the committed snapshot.</summary>
     public int DeletedDocumentCount => DocumentCount - LiveDocumentCount;
+
+    /// <summary>Gets whether one or more vector fields have a Float32 vector graph (<c>.vgr</c>).</summary>
+    public bool HasVectorGraph { get; init; }
 }
 
 /// <summary>Stable summary of one committed segment and its inspected files.</summary>
@@ -108,7 +111,14 @@ public sealed record IndexInspectionField(
     bool? HasHnsw,
     int? HnswNodeCount,
     VectorQuantisation? VectorQuantisation,
-    SpatialFieldKind? SpatialKind);
+    SpatialFieldKind? SpatialKind)
+{
+    /// <summary>Gets whether a Float32 vector graph (<c>.vgr</c>) exists for this field, when this is a vector field.</summary>
+    public bool? HasVectorGraph { get; init; }
+
+    /// <summary>Gets the total node count of the field's usable vector graphs, when this is a vector field.</summary>
+    public int? VectorGraphNodeCount { get; init; }
+}
 
 /// <summary>A term and its aggregate live-document statistics.</summary>
 /// <param name="Term">The unqualified term text.</param>

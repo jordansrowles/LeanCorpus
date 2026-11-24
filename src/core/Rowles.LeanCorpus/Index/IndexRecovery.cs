@@ -218,8 +218,8 @@ public static class IndexRecovery
                     continue;
                 }
 
-                // BKD files are query accelerators backed by authoritative numeric indexes.
-                // Their readers validate them and fall back to those indexes when corrupt.
+                // BKD files and vector graphs are query accelerators backed by authoritative data.
+                // Their readers validate them and fall back to exact routes when corrupt.
                 if (IsRecoverableQueryAccelerator(descriptor))
                     continue;
 
@@ -235,9 +235,11 @@ public static class IndexRecovery
         }
     }
 
+    // A Float32 vector graph (ADR052) is rebuildable: a corrupt one falls back to exact search.
     private static bool IsRecoverableQueryAccelerator(CodecFileDescriptor descriptor)
         => descriptor.FormatId is "leancorpus.numeric-structures.bkd"
-            or "leancorpus.numeric-structures.int64-bkd";
+            or "leancorpus.numeric-structures.int64-bkd"
+            or "leancorpus.vectors.graph";
 
     private static void ValidateCodecFile(IndexInput input, CodecFileDescriptor descriptor, int maxDoc)
     {

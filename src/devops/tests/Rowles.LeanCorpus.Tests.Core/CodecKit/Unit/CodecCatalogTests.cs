@@ -243,6 +243,7 @@ public sealed class CodecCatalogTests
             ("seg_1_v_title.vec", CodecConstants.VectorVersion),
             ("seg_1_v_title.vq", CodecConstants.QuantisedVectorVersion),
             ("seg_1_v_title.hnsw", CodecConstants.HnswVersion),
+            ("seg_1_v_title.vgr", CodecConstants.VectorGraphVersion),
             ("seg_1_gen_2.del", CodecConstants.RoaringBitmapVersion),
             ("seg_1.pbs", 1),
             ("seg_1.seg", null),
@@ -277,7 +278,7 @@ public sealed class CodecCatalogTests
             Assert.Equal(CodecFramingPolicy.Canonical, file.CurrentFraming);
             Assert.Equal(CodecChecksumPolicy.XxHash64, file.ChecksumPolicy);
             Assert.NotEqual(CodecAccessKind.External, file.AccessKind);
-            if (file.FormatId is not ("leancorpus.numeric-structures.packed-bkd" or "leancorpus.doc-values.shape"))
+            if (file.FormatId is not ("leancorpus.numeric-structures.packed-bkd" or "leancorpus.doc-values.shape" or "leancorpus.vectors.graph"))
                 Assert.NotEqual(CodecMigrationBehaviour.None, file.MigrationBehaviour);
             Assert.Equal(file.MigrationBehaviour, current.MigrationBehaviour);
             Assert.NotEmpty(file.TemporaryFileMatchers);
@@ -307,7 +308,7 @@ public sealed class CodecCatalogTests
 
             foreach (var version in file.SupportedVersions)
             {
-                if (file.FormatId is not ("leancorpus.numeric-structures.packed-bkd" or "leancorpus.doc-values.shape"))
+                if (file.FormatId is not ("leancorpus.numeric-structures.packed-bkd" or "leancorpus.doc-values.shape" or "leancorpus.vectors.graph"))
                 {
                     Assert.NotEqual(CodecLegacyFraming.None, version.LegacyFraming);
                     Assert.NotEqual(CodecMigrationBehaviour.None, version.MigrationBehaviour);
@@ -339,6 +340,29 @@ public sealed class CodecCatalogTests
         Assert.Equal(CodecMigrationBehaviour.None, version.MigrationBehaviour);
         Assert.Single(file.TemporaryFileMatchers);
         Assert.True(file.TemporaryFileMatchers[0].IsMatch("seg_1.dvg.tmp"));
+    }
+
+    [Fact(DisplayName = "Vector graph descriptor is a rebuildable random-access role")]
+    public void Default_VectorGraphDescriptorIsExact()
+    {
+        var file = CodecCatalog.Default.GetFile("leancorpus.vectors.graph");
+
+        Assert.Equal("leancorpus.vectors", file.FamilyId);
+        Assert.Equal("Vector graph", file.DisplayName);
+        Assert.Equal(CodecConstants.VectorGraphVersion, file.CurrentFormatVersion);
+        Assert.True(file.FileMatcher.IsMatch("seg_1_v_embedding.vgr"));
+        Assert.Equal(CodecAccessKind.RandomAccess, file.AccessKind);
+        Assert.Equal(CodecFramingPolicy.Canonical, file.CurrentFraming);
+        Assert.Equal(CodecChecksumPolicy.XxHash64, file.ChecksumPolicy);
+        Assert.Equal(CodecMigrationBehaviour.None, file.MigrationBehaviour);
+
+        var version = Assert.Single(file.SupportedVersions);
+        Assert.Equal(1, version.Version);
+        Assert.True(version.IsReadable);
+        Assert.True(version.IsWritable);
+        Assert.Equal(CodecLegacyFraming.None, version.LegacyFraming);
+        Assert.Equal(CodecMigrationBehaviour.None, version.MigrationBehaviour);
+        Assert.True(Assert.Single(file.TemporaryFileMatchers).IsMatch("seg_1_v_embedding.vgr.tmp"));
     }
 
     [Theory(DisplayName = "Headerless legacy sidecars declare their framing explicitly")]

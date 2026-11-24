@@ -2,13 +2,13 @@
 adr: ADR042
 title: "Vector codec retirement and exact Float32 support"
 date: 2026-10-31
-last-updated: 2026-11-05
+last-updated: 2026-11-22
 status: Accepted
 version-added: 4.0.0
 summary: "Support exact Float32 writes and search; retire new HNSW and Int8 writes while preserving compatible historical reads."
 areas: [vectors, codecs, hnsw, indexing, search, migration]
 supersedes: [ADR016, ADR017, ADR018, ADR019, ADR020]
-relates-to: [ADR025, ADR026, ADR039]
+relates-to: [ADR025, ADR026, ADR039, ADR052]
 ---
 
 # ADR042: Vector codec retirement and exact Float32 support
@@ -285,3 +285,4 @@ negative controls and per-group reporting. At minimum:
 | 2026-11-03 | Proposed | Record zero-centred Int8 calibration under the existing v3 body and the owner decision to keep v3. | Vector reliability execution evidence |
 | 2026-11-04 | Accepted | Retire new HNSW and Int8 writes after frozen gates failed; retain exact Float32 and historical compatibility routes. | `LeanCorpus_4_Vector_Closeout_Luna_Implementation_Pack` |
 | 2026-11-05 | Accepted | Record measured qualification outcomes, clarify historical Int8 structural migration and merge-to-Float32, and define deferred research and reintroduction criteria. | 4.0 vector closeout follow-up |
+| 2026-11-22 | Clarified | ADR052 reintroduces opt-in Float32 graphs through a new `.vgr` role under criterion 7, with reference parity superseding criterion 1 for the Uniform matrix. Int8 and BBQ creation stay retired. The findings above are unchanged. | [ADR052](ADR052-float32-vector-graph.md) |

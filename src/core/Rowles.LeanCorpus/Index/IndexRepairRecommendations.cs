@@ -74,6 +74,12 @@ internal static class IndexRepairRecommendations
             IndexCheckIssueCodes.HnswReadFailure =>
                 ["Restore or rebuild the HNSW graph for the affected vector field."],
 
+            IndexCheckIssueCodes.VectorGraphFileMissing =>
+                ["The segment cannot be opened while its declared vector graph file is missing. Restore the file from a backup of the same commit, or restore an earlier backup or rebuild the index from source documents."],
+
+            IndexCheckIssueCodes.VectorGraphReadFailure =>
+                ["Queries scan this segment exactly until its vector graph is rebuilt; merge the segment with BuildHnswOnFlush enabled to rebuild it."],
+
             IndexCheckIssueCodes.DocValuesReadFailure or
             IndexCheckIssueCodes.DocValuesDocCountMismatch =>
                 ["Restore DocValues files from backup, rebuild DocValues for the affected segment, or run codec migration when the format is older and supported."],

@@ -5,11 +5,11 @@ choose an embedding model or send document text to an external service.
 
 ## Supported mode in 4.0
 
-New vector indexes store Float32 values in `.vec` v2 files and search them with
-an exact cosine scan. The scan scores every live, present vector in each
-matching segment. Its work grows with the number of vectors and dimensions, so
-measure the cost on the corpus you expect to run. This is the supported mode
-for new 4.0 indexes.
+New vector indexes store Float32 values in `.vec` v2 files and, by default,
+search them with an exact cosine scan. The scan scores every live, present
+vector in each matching segment. Its work grows with the number of vectors and
+dimensions, so measure the cost on the corpus you expect to run. An optional
+[vector graph](#optional-vector-graph) can select candidates instead.
 
 ```csharp
 var document = new LeanDocument();
@@ -51,13 +51,85 @@ An existing `.hnsw` v1 graph does not change Float32 query routing: the stored
 Float32 values are scanned exactly and the graph is reported as ignored.
 `Explain(VectorQuery, docId)` describes this as an exact Float32 scan.
 
-## Retired graph creation
+## Optional vector graph
 
-New HNSW graph writes are retired for 4.0. `BuildHnswOnFlush` now defaults to
-`false`; setting it to `true` is rejected before the writer creates index
-files. `HnswBuildConfig` and `HnswSeed` remain on `IndexWriterConfig` for source
-compatibility, but they do not create graphs. Historical `.hnsw` v1 data
-remains readable.
+Set `BuildHnswOnFlush = true` to build a Float32 vector graph (`.vgr`) for each
+unquantised vector field. Flush builds it and every merge rebuilds it from the
+merged vectors. The option defaults to `false`.
+
+```csharp
+var config = new IndexWriterConfig
+{
+    BuildHnswOnFlush = true,
+    HnswBuildConfig = new HnswBuildConfig { M = 16, EfConstruction = 100 },
+    HnswSeed = 42, // optional; a fixed default seed is used otherwise
+};
+```
+
+A query traverses each segment's graph to choose candidates, then rescores them
+with the exact cosine scorer over the stored Float32 values. Scores are the
+same as exact search; only the set of candidates can differ, as with any
+approximate search. `efSearch` sets the traversal breadth: higher values
+improve recall and cost more. The same seed, vectors and parameters always
+produce the same graph.
+
+The search falls back to an exact scan of the segment, and reports why, when:
+
+- the filter leaves few documents (fewer than `max(64, 0.5% of MaxDoc)`, or no
+  more than the shortlist, `topK * oversamplingFactor`), because scanning them
+  is cheaper;
+- the traversal would almost certainly exceed its work budget of about
+  `max(4 * efSearch, eligible documents / 3)` distance evaluations, so it is
+  not started (`ExactBudgetPredicted`);
+- the traversal exhausts that budget (`ExactBudgetExceeded`). A traversal that
+  completes costs at most about half the exact scan; one that exhausts the
+  budget and then scans costs up to about 1.45 times exact search, and its work
+  is reported through `IMetricsCollector.RecordVectorGraphWastedTraversal`;
+- the traversal returns fewer candidates than requested;
+- the graph file cannot be opened or fails validation;
+- the score is not monotonic in cosine: per-document field boosts, or a zero
+  or negative query boost.
+
+A zero query vector has no direction, so it returns no hits on any field and
+records no route. A filter that matches nothing records `ExactSelectiveFilter`.
+
+Graph distances use the same cosine as the exact scorer for every finite
+vector, including very large, very small and subnormal magnitudes on fields
+with `NormaliseVectors = false`. Every published graph reaches all of its
+vectors; if construction cannot guarantee that, the segment is written without
+a graph and searched exactly, and `IMetricsCollector.RecordVectorGraphBuildSkipped`
+reports it. Small segments, of a few hundred vectors at the default `efSearch`,
+are always scanned exactly because the scan is as cheap as a traversal.
+
+`IMetricsCollector.RecordVectorSearchRoute` receives one `VectorSearchRoute`
+per segment, and `Explain(VectorQuery, docId)` names the route. A fallback is
+always reported as an exact scan.
+
+Costs and limits:
+
+- Building takes time at flush and on every merge; at level zero the graph
+  stores about `(1 + M0) * 4` bytes per vector (`M0` defaults to `2 * M`).
+- The graph helps most on embeddings with real neighbourhood structure.
+  Uniform random high-dimensional data has none, so any graph visits most of
+  the index there and gains little over the exact scan.
+- An index with `.vgr` files needs LeanCorpus 4.0 or later. No migration is
+  needed: an index without graphs is unchanged, and graphs are added as
+  segments are flushed or merged with the option enabled.
+- A corrupt graph is never used. Index checks report it as LLIDX054, and
+  queries scan that segment exactly until a merge rebuilds it.
+- Float32 vector values and graph level zero are read through mapped files and
+  do not count against `IndexSearcherConfig.MaxCachedSegmentReaderBytes`;
+  `IndexSearcher.SegmentReaderCacheMetrics.MappedVectorBytes` reports them. A
+  segment of 90,000 1536-dimensional vectors (553 MB of values) retains about
+  5 MB of reader state, so it stays cached under the 256 MiB default. The
+  number of cached states (`MaxCachedSegmentReaders`) still bounds mappings.
+  The operating system page cache decides how much of the mapped data stays in
+  memory; for graph search, keep at least the graph and the vectors it visits
+  resident.
+
+The option is implemented and tested, but its release qualification against
+real embedding corpora and a reference implementation is still open; see
+[ADR052](../articles/ADRs/ADR052-float32-vector-graph.md).
 
 ## Historical Int8 and BBQ indexes
 
@@ -100,8 +172,10 @@ var postfiltered = new BooleanQuery.Builder()
 ```
 
 Float32 and historical Int8 queries apply the filter first, then scan only the
-matching live documents with vectors. Historical BBQ keeps its existing
-graph-based search behaviour. See [Filtered vector search](08-filtered-vector-search.md)
+matching live documents with vectors. With a vector graph, a broad filter
+restricts the graph's results while traversal still routes through
+non-matching nodes, and a selective one scans exactly. Historical BBQ keeps its
+existing graph-based search behaviour. See [Filtered vector search](08-filtered-vector-search.md)
 for the strategy details.
 
 Vector queries can be combined with text queries through reciprocal rank
@@ -113,13 +187,14 @@ var rrf = new RrfQuery()
     .Add(new VectorQuery("embedding", queryVector, topK: 50));
 ```
 
-`efSearch` and `oversamplingFactor` remain available for compatibility with
-historical BBQ graph queries. They govern candidate discovery, not the final
-`topK` cap, and do not affect exact Float32 or decoded-Int8 scans.
+`efSearch` and `oversamplingFactor` govern candidate discovery for vector
+graphs and historical BBQ graph queries, not the final `topK` cap. They do not
+affect exact Float32 or decoded-Int8 scans.
 
 See [ADR049](../articles/ADRs/ADR049-query-composition-and-vector-result-bounds.md)
 for the composition and result-bound rules.
 
 See [Score explanations](../searching/11-score-explanations.md), [storage
 formats](../contributors/storage-formats.md), and
-[ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md).
+[ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md) and
+[ADR052](../articles/ADRs/ADR052-float32-vector-graph.md).

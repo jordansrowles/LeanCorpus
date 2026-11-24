@@ -156,6 +156,7 @@ public sealed class SegmentInfo
             Dimension = field.Dimension,
             Normalised = field.Normalised,
             HasHnsw = field.HasHnsw,
+            HasGraph = field.HasGraph,
             Quantisation = field.Quantisation
         }).ToList(),
         SpatialFields = SpatialFields.Select(static field => new SpatialFieldInfo

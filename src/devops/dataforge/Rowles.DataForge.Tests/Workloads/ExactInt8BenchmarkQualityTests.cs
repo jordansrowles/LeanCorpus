@@ -28,17 +28,17 @@ public sealed class ExactInt8BenchmarkQualityTests
     }
 
     [Fact]
-    public void ExplicitHnswWriteModeIsRetiredBeforeIndexSideEffects()
+    public void Int8GraphWriteModeIsRetiredBeforeIndexSideEffects()
     {
+        // Float32 vector graphs are opt-in again (ADR052); a graph never makes Int8 creation valid.
         string path = RepositoryTemporaryStorage.NewPath("dataforge", "lc-hnsw-retired-");
         Directory.CreateDirectory(path);
         try
         {
             using var directory = new MMapDirectory(path);
-            var exception = Assert.Throws<ArgumentException>(() => new IndexWriter(directory,
-                new IndexWriterConfig { BuildHnswOnFlush = true }));
+            Assert.Throws<ArgumentException>(() => new IndexWriter(directory,
+                new IndexWriterConfig { BuildHnswOnFlush = true, VectorQuantisation = VectorQuantisation.Int8 }));
 
-            Assert.Contains("HnswGraphCreationRetired", exception.Message, StringComparison.Ordinal);
             Assert.Empty(Directory.EnumerateFileSystemEntries(path));
         }
         finally

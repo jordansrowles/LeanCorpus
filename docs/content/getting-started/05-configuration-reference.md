@@ -52,9 +52,9 @@ Index-time and query-time analysis must agree for exact term matching. A schema 
 | `StoreTermVectors` | `false` | Persists per-document term vectors. |
 | `NormaliseVectors` | `true` | Normalises vectors at index time for cosine search. |
 | `VectorQuantisation` | `None` | New vector indexes use Float32. `Int8` and `BBQ` writer choices are rejected; historical files remain readable. |
-| `BuildHnswOnFlush` | `false` | New graph writes are retired. Setting `true` is rejected before writer side effects. |
-| `HnswBuildConfig` | library default | Retained for source compatibility; no new graphs are built. |
-| `HnswSeed` | `null` | Retained for source compatibility; no new graphs are built. |
+| `BuildHnswOnFlush` | `false` | Builds a Float32 vector graph (`.vgr`) for unquantised vector fields at flush and on every merge. |
+| `HnswBuildConfig` | library default | Vector graph degree (`M`, `M0`) and construction beam (`EfConstruction`). |
+| `HnswSeed` | `null` | Vector graph seed; `null` uses a fixed default so builds stay reproducible. |
 
 Term vectors, payloads, vectors, and DocValues increase index size. Enable them only for features that consume them.
 
@@ -131,7 +131,7 @@ The default groups are deliberately scoped:
 | `JsonMapping` | New JSON mapping options | Field-name separator and mapping limits |
 | `Scoring` | New writer and searcher configurations | Default and per-field similarity factories |
 | `Diagnostics` | New writer and searcher configurations | Metrics, slow-query log, and analytics factories |
-| `Search` | New query options | Result-byte budget, timeout, and HNSW settings for historical BBQ search; exact Float32 and Int8 scans ignore graphs |
+| `Search` | New query options | Result-byte budget, timeout, and the HNSW `ef` default for vector graphs and historical BBQ search; exact Float32 and Int8 scans ignore it |
 
 `Schema`, `IndexSort`, deletion or migration choices, destructive maintenance
 flags, `CancellationToken`, `TopK`, allow-lists, post-filters, and streamed

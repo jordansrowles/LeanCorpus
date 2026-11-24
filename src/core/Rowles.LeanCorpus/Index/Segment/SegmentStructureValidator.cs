@@ -31,6 +31,12 @@ internal static class SegmentStructureValidator
                 string hnswFileName = Path.GetFileName(VectorFilePaths.HnswFile(info.SegmentId, vector.FieldName));
                 RequirePresentFile(source, hnswFileName, $"Segment '{info.SegmentId}' is missing HNSW file '{hnswFileName}'.");
             }
+
+            if (vector.HasGraph)
+            {
+                string graphFileName = Path.GetFileName(VectorFilePaths.GraphFile(info.SegmentId, vector.FieldName));
+                RequirePresentFile(source, graphFileName, $"Segment '{info.SegmentId}' is missing vector graph file '{graphFileName}'.");
+            }
         }
 
         DeletionStateValidator.RequireFileIfSelected(info, source.EnumerateFiles());

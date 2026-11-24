@@ -36,8 +36,20 @@ public readonly record struct SegmentReaderCacheMetricsSnapshot
     /// <summary>Gets estimated bytes retained by BKD and shape readers.</summary>
     public long SpatialIndexesBytes { get; init; }
 
-    /// <summary>Gets estimated bytes retained by vector readers and HNSW graphs.</summary>
+    /// <summary>
+    /// Gets estimated bytes held in memory by vector readers and graphs: presence bitmaps, graph
+    /// document IDs, upper levels and inverse norms, and historical quantised vectors and HNSW graphs.
+    /// </summary>
     public long VectorsBytes { get; init; }
+
+    /// <summary>
+    /// Gets the bytes of Float32 vector values and vector-graph level zero read through mapped
+    /// files. They are reported for capacity planning but are not counted in
+    /// <see cref="RetainedBytes"/> or against <see cref="MaximumRetainedBytes"/>: evicting a state
+    /// frees no memory the operating system page cache would not keep, while reopening it costs
+    /// every query. The number of cached states still bounds them.
+    /// </summary>
+    public long MappedVectorBytes { get; init; }
 
     /// <summary>Gets estimated bytes retained by live-document and parent bitsets.</summary>
     public long LiveDocsAndParentsBytes { get; init; }

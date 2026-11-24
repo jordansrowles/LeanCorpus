@@ -21,6 +21,8 @@ internal static class CodecConstants
     public const byte VectorVersion = 2;
     public const byte QuantisedVectorVersion = 3;
     public const byte HnswVersion = 1;
+    // Float32 vector graph (.vgr): ordinal adjacency for the opt-in 4.0 graph route (ADR052).
+    public const byte VectorGraphVersion = 1;
     public const byte StoredFieldsVersion = 5;
     public const byte TermVectorsVersion = 3;
     public const byte NumericDocValuesVersion = 2;

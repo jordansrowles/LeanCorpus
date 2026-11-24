@@ -167,11 +167,14 @@ public sealed partial class IndexSearcher
         // Explain the same selected set that search returns (ADR049). Explanation is diagnostic,
         // so its preparation does not record search metrics.
         bool selected;
+        var capture = new VectorRouteCapture(query);
         using (PushFuzzyQueryExecutionContext())
         {
             ValidateQueryComposition(query);
             bool previous = t_suppressVectorSearchMetrics;
+            var previousCapture = t_vectorRouteCapture;
             t_suppressVectorSearchMetrics = true;
+            t_vectorRouteCapture = capture;
             try
             {
                 selected = GetPreparedVectorQuery(query).TryGetScore(globalDocId, out _);
@@ -179,8 +182,10 @@ public sealed partial class IndexSearcher
             finally
             {
                 t_suppressVectorSearchMetrics = previous;
+                t_vectorRouteCapture = previousCapture;
             }
         }
+        Diagnostics.VectorSearchRoute? route = capture.Routes.TryGetValue(reader, out var captured) ? captured : null;
 
         float similarity = VectorQuery.CosineSimilarity(query.QueryVector, docVector);
         similarity = ApplyVectorQueryBoost(query, similarity);
@@ -207,7 +212,9 @@ public sealed partial class IndexSearcher
             int liveCount = reader.MaxDoc;
             double selectivity = liveCount > 0 ? (double)matched / liveCount : 1.0;
 
-            if (!hasGraph)
+            if (route is { } filteredRoute && fieldInfo?.HasGraph == true)
+                strategy = VectorGraphStrategy(filteredRoute, withFilter: true);
+            else if (!hasGraph)
                 strategy = ExactVectorStrategy(quantisation, retiredGraphIgnored, withFilter: true);
             else if (matched < 64 || selectivity < 0.005)
                 strategy = "brute-force on filter (highly selective)";
@@ -224,10 +231,15 @@ public sealed partial class IndexSearcher
         }
         else
         {
-            strategy = hasGraph
-                ? "HNSW two-phase"
-                : ExactVectorStrategy(quantisation, retiredGraphIgnored, withFilter: false);
+            strategy = route is { } unfilteredRoute && fieldInfo?.HasGraph == true
+                ? VectorGraphStrategy(unfilteredRoute, withFilter: false)
+                : hasGraph
+                    ? "HNSW two-phase"
+                    : ExactVectorStrategy(quantisation, retiredGraphIgnored, withFilter: false);
         }
+
+        if (route is { } recordedRoute)
+            details.Add(new Explanation { Score = 0f, Description = $"vectorSearchRoute={recordedRoute}" });
 
         details.Add(new Explanation { Score = query.EfSearch, Description = $"efSearch={query.EfSearch}" });
         details.Add(new Explanation { Score = shortlistSize, Description = $"shortlistSize={shortlistSize} (topK*oversampling)" });
@@ -260,6 +272,14 @@ public sealed partial class IndexSearcher
             Description = $"cosine similarity for field '{query.Field}'; strategy: {strategy}",
             Details = details.ToArray()
         };
+    }
+
+    private static string VectorGraphStrategy(Diagnostics.VectorSearchRoute route, bool withFilter)
+    {
+        string strategy = route == Diagnostics.VectorSearchRoute.Graph
+            ? "Float32 vector graph with exact rescoring"
+            : $"exact Float32 scan (vector graph not used: {route})";
+        return withFilter ? strategy + " + filter" : strategy;
     }
 
     private static string ExactVectorStrategy(

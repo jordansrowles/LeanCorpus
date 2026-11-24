@@ -2,7 +2,7 @@
 adr: ADR011
 title: "Lazy segment readers use bounded leases and process-wide file lifetimes"
 date: 2026-07-21
-last-updated: 2026-10-08
+last-updated: 2026-11-24
 status: Accepted
 version-added: 2.1.0
 summary: "Use bounded lazy segment readers with shared file lifetimes."
@@ -39,6 +39,14 @@ The byte limit weights each cached state by logical mapped-file lengths and
 estimated materialised arrays, grouped by reader component and exposed through
 `IndexSearcher.SegmentReaderCacheMetrics`. These figures estimate retained
 reader resources; they do not represent process working set or RSS.
+Float32 vector values and Float32 vector-graph level zero
+([ADR052](ADR052-float32-vector-graph.md)) are the exception: they are reported
+as `MappedVectorBytes` and not weighed. They grow by kilobytes per document, so
+weighing them evicted any vector segment above about 40,000 1536-dimensional
+documents on every query, freeing no memory the page cache would not keep while
+reloading the state's held arrays each time. Their held parts (presence
+bitmaps, graph document IDs, upper levels and inverse norms) are still weighed
+exactly, and `MaxCachedSegmentReaders` still bounds the number of mapped states.
 
 Cache hits return value-type leases. An entry with an active lease cannot be
 evicted. Concurrent operations and cursors may temporarily take the cache over
@@ -115,3 +123,4 @@ workaround that was introduced to avoid a merge deletion race.
 | 2026-07-21 | Accepted | Original decision accepted. | `14c971ccf` |
 | 2026-10-03 | Amended | Added a byte-weighted segment-reader cache bound and exposed retained-resource estimates. | `f03538876` |
 | 2026-10-08 | Clarified | Required bounded structural validation of field-length sidecars before publishing a reader facade. | `af6aacfa7`, `53b537956` |
+| 2026-11-24 | Amended | Float32 vector values and vector-graph level zero are reported as `MappedVectorBytes` and no longer weighed against the byte limit; their held arrays are weighed exactly. Measured under the default 256 MiB on a 553 MB segment: no evictions, graph p95 0.93 ms against 11.0 ms, allocation about 15 KB against 3.6 MB per query. | PR #132 |

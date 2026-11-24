@@ -13,6 +13,10 @@ internal static class VectorCodecFiles
     internal static CodecFileDescriptor Hnsw { get; } =
         CodecCatalog.Default.GetFile("leancorpus.vectors.hnsw");
 
+    /// <summary>The Float32 vector graph role (<c>.vgr</c>, ADR052). Rebuildable; it has no migration route.</summary>
+    internal static CodecFileDescriptor Graph { get; } =
+        CodecCatalog.Default.GetFile("leancorpus.vectors.graph");
+
     internal static CodecRepresentationIdentity QuantisedIdentity(QuantisedVectorStorageKind storageKind)
         => QuantisedVectorLifecyclePolicy.Identity(Quantised.CurrentFormatVersion!.Value, storageKind);
 

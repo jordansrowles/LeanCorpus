@@ -170,7 +170,7 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 | Tiered merge policy | ✔   `TieredMergePolicy` | ✔ | ✔ | Count threshold per size tier |
 | Async indexing API | ✔   `AddDocumentAsync` / `AddDocumentsAsync` | ❌ | ❌ | LeanCorpus-native `ValueTask` indexing API; Lucene writers are synchronous. |
 | `IAsyncEnumerable` bulk ingestion | ✔   `AddDocumentsAsync(IAsyncEnumerable<>, batchSize)` | ❌ | ❌ | LeanCorpus-native streamed, bounded-batch ingestion. |
-| HNSW graph build config | ◐   `IndexWriterConfig.HnswBuildConfig` / `HnswSeed` / `BuildHnswOnFlush` | ❌ | ◐ | Members remain for source compatibility; new graph writes are retired. |
+| HNSW graph build config | ◐   `IndexWriterConfig.HnswBuildConfig` / `HnswSeed` / `BuildHnswOnFlush` | ❌ | ◐ | Build the opt-in Float32 vector graph (`.vgr`); release qualification is open (ADR052). |
 | Vector normalisation at index time | ✔   `IndexWriterConfig.NormaliseVectors` | ❌ | ❌ | L2-normalises vectors so dot product equals cosine similarity. |
 | Soft deletes | ✔   `IndexWriter.SoftDeleteDocuments(TermQuery)` | ❌ | ✔ | Query form is currently term-query based; Lucene.NET 4.8 predates soft deletes. |
 | Sequence numbers / update-by-query | ✔   `NextSequenceNumber` / `TrackSequenceNumbers` / `UpdateDocuments(Query, LeanDocument)` | ◐ | ✔ | Sequence metadata is persisted and merged; update-by-query replaces matching documents atomically. |

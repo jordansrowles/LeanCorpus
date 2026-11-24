@@ -129,6 +129,10 @@ public sealed partial class SegmentReader : IDisposable
     private readonly CodecCatalog _codecCatalog;
     private readonly BoundedLruCache<string, SegmentReaderState> _cache;
     private readonly Func<SegmentReaderState> _stateFactory;
+
+    // Graph validation outcomes outlive evicted reader states, so a segment whose state the cache
+    // cannot retain does not re-validate its graph on every query.
+    private readonly Codecs.Hnsw.VectorGraphValidationMemo _graphValidation = new();
     private readonly bool _ownsCache;
     private readonly OperationDrain _operations = new();
     private FileSnapshotLease? _snapshot;
@@ -181,7 +185,7 @@ public sealed partial class SegmentReader : IDisposable
         _info = descriptor;
         _codecCatalog = codecCatalog;
         _cache = new BoundedLruCache<string, SegmentReaderState>(1, StringComparer.Ordinal);
-        _stateFactory = () => new SegmentReaderState(directory, descriptor, _codecCatalog);
+        _stateFactory = () => new SegmentReaderState(directory, descriptor, _codecCatalog, _graphValidation);
         _ownsCache = true;
     }
 
@@ -211,7 +215,7 @@ public sealed partial class SegmentReader : IDisposable
         _info = info;
         _codecCatalog = codecCatalog;
         _cache = cache;
-        _stateFactory = () => new SegmentReaderState(directory, info, _codecCatalog);
+        _stateFactory = () => new SegmentReaderState(directory, info, _codecCatalog, _graphValidation);
     }
 
     private static CodecCatalog CaptureDefaultCodecCatalog(MMapDirectory directory, object segmentInfo)
@@ -720,6 +724,29 @@ public sealed partial class SegmentReader : IDisposable
     { using var lease = AcquireReadLease(); return lease.State.GetVectorScoringGeneration(fieldName); }
     public IReadOnlyCollection<string> VectorFieldNames { get { using var lease = AcquireReadLease(); return lease.State.VectorFieldNames.ToArray(); } }
     internal HnswGraph? GetHnswGraph(string fieldName) { using var lease = AcquireReadLease(); return lease.State.GetHnswGraph(fieldName); }
+
+    /// <summary>
+    /// Returns the field's Float32 vector graph and its stored vectors for a traversal (ADR052).
+    /// Requires an active query pin for this reader on the current thread; neither object, nor
+    /// any span borrowed from them, may be used after that pin is released.
+    /// </summary>
+    internal VectorGraph? GetPinnedVectorGraph(string fieldName, out Codecs.Vectors.VectorReader? vectors, out string? unavailableReason)
+    {
+        if (!TryGetFastState(out var state))
+            throw new InvalidOperationException("Traversing a vector graph requires a query pin for this segment reader.");
+        var graph = state.GetVectorGraph(fieldName, out unavailableReason);
+        vectors = graph is null ? null : state.GetFloat32VectorReader(fieldName);
+        return vectors is null ? null : graph;
+    }
+
+    /// <summary>Opens the field's vector graph for validation or inspection, reporting why it is unavailable.</summary>
+    internal bool TryValidateVectorGraph(string fieldName, out int nodeCount, out string? unavailableReason)
+    {
+        using var lease = AcquireReadLease();
+        var graph = lease.State.GetVectorGraph(fieldName, out unavailableReason);
+        nodeCount = graph?.NodeCount ?? 0;
+        return graph is not null;
+    }
 
     /// <inheritdoc/>
     public void Dispose()

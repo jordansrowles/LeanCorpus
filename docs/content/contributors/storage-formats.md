@@ -16,7 +16,8 @@ The exact files depend on enabled fields and features.
 | DocValues | `.dvn`, `.dvs`, `.dss`, `.dsn`, `.dvb`, `.dvnl`, `.dsnl` | sequential columns |
 | Numeric structures | `.bkd`, `.bkdl`, `.num`, `.numl` | direct traversal and sparse sidecars |
 | Vectors | `.vec`, `.vq` | retained random access |
-| HNSW graph | `.hnsw` | retained random-access adjacency |
+| HNSW graph | `.hnsw` | retained random-access adjacency (historical) |
+| Float32 vector graph | `.vgr` | mapped level zero, materialised upper levels |
 | Deletions and joins | `.del`, `.pbs` | bitmap payloads |
 | Segment infrastructure | `.seg`, `.stats.json`, `.cfs` | JSON metadata or container |
 
@@ -51,6 +52,7 @@ Normal opens validate framing and bounds but do not scan a large body checksum. 
 | `leancorpus.vectors.float32` | `.vec` | v1, v2 | v2 | Rewrite |
 | `leancorpus.vectors.quantised` | `.vq` | v1, v2, v3 | None | Int8 v1/v2 structural wrap into v3; BBQ unsupported |
 | `leancorpus.vectors.hnsw` | `.hnsw` | v1 | None | Historical reads only |
+| `leancorpus.vectors.graph` | `.vgr` | v1 | v1 | None: no older body exists; a merge rebuilds it |
 
 The `.vq` migration rule is representation-specific. Historical Int8 v1/v2
 bodies may be structurally wrapped into v3/tag 1 without requantising their
@@ -87,6 +89,35 @@ live documents and index sort order, but do not create HNSW graphs. A merge
 reads historical Int8 vectors as decoded Float32 values and writes `.vec` v2;
 it does not requantise into `.vq`. An index containing any BBQ representation
 is rejected before merge mutation.
+
+## Float32 vector graph body
+
+`.vgr` v1 ([ADR052](../articles/ADRs/ADR052-float32-vector-graph.md)) is the
+opt-in HNSW graph over one Float32 field, written at flush and rebuilt on every
+merge when `IndexWriterConfig.BuildHnswOnFlush` is set. Segment metadata
+declares it through `VectorFieldInfo.HasGraph`. All values are little-endian:
+
+```text
+dimension:int32  scorer:byte (1 = Float32 cosine)  flags:byte (1 = normalised, 2 = inverse norms)
+M:int32  M0:int32  efConstruction:int32  seed:int64
+nodeCount:int32  maxLevel:int32  entryOrdinal:int32
+docIds:int32[nodeCount]                      ascending vector-bearing document IDs
+level0:int32[nodeCount * (1 + M0)]           per node: count, then neighbours padded with -1
+per upper level 1..maxLevel:
+  count:int32  ordinals:int32[count]  adjacency:int32[count * (1 + M)]
+inverseNorms:float32[nodeCount]              only when the field is not normalised
+```
+
+Neighbours are node ordinals, not document IDs. The reader checks the frame
+checksum, every bound, duplicate and self links, level membership, the field
+contract (dimension, normalisation, document count and vector presence) and
+that every node is reachable from the entry point; a graph failing any check is
+never used, and queries scan that segment exactly. Level zero stays mapped on
+little-endian hosts. A segment reader fully validates each graph once; a
+reopened reader state repeats only the header, document ID, upper-level and
+inverse-norm checks. The `.vgr` role has no migration: a codec migration
+carries it with its segment unchanged, and the
+`VectorGraphPersistenceTests` golden test locks the v1 bytes.
 
 ## Supported historical framing
 

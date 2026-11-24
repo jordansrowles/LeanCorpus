@@ -39,8 +39,9 @@ writer opening, mutation, import, merge and migration are rejected before
 persistent changes, including a no-op migration. This applies to mixed indexes
 and BBQ fields whose documents have all been deleted.
 
-New vector output is Float32, searched exactly. New Int8 and HNSW graph writes
-are retired. Historical Int8 vectors remain readable and use exact scoring on
+New vector output is Float32, searched exactly unless the opt-in Float32 vector
+graph (`BuildHnswOnFlush`) is enabled; an index with `.vgr` graph files needs
+4.0 or later. New Int8 and `.hnsw` graph writes are retired. Historical Int8 vectors remain readable and use exact scoring on
 their decoded stored values; this does not recover the source Float32 ranking.
 Historical Int8 `.vq` v1/v2 can still be structurally migrated to v3/tag 1
 without requantisation. Merging historical Int8 decodes the stored values and

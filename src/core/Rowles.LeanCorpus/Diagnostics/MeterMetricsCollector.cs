@@ -38,6 +38,10 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private readonly Counter<long> _vectorExactScans;
     private readonly Histogram<long> _vectorExactVectorsScanned;
     private readonly Counter<long> _vectorRetiredHnswExactScans;
+    private readonly Counter<long> _vectorSearchRoutes;
+    private readonly Counter<long> _vectorGraphWastedEvaluations;
+    private readonly Histogram<double> _vectorGraphWastedDuration;
+    private readonly Counter<long> _vectorGraphBuildsSkipped;
     private readonly Histogram<double> _hnswBuildDuration;
     private readonly Histogram<long> _hnswBuildSize;
 
@@ -84,6 +88,12 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     private long _snVectorExactScanCount;
     private long _snVectorExactVectorsScanned;
     private long _snVectorRetiredHnswExactScanCount;
+    private long _snVectorGraphRouteCount;
+    private long _snVectorGraphFallbackCount;
+    private long _snVectorGraphWastedTraversalCount;
+    private long _snVectorGraphWastedEvaluations;
+    private long _snVectorGraphWastedTicks;
+    private long _snVectorGraphBuildSkippedCount;
     private long _snHnswBuildCount;
     private long _snHnswBuildTotalMs;
     private long _snHnswNodesBuilt;
@@ -188,6 +198,18 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
         _vectorRetiredHnswExactScans = _meter.CreateCounter<long>(
             "leancorpus.vector.search.retired_hnsw_exact_scans", unit: "{query}",
             description: "Exact vector scans that ignored an existing retired HNSW graph.");
+        _vectorSearchRoutes = _meter.CreateCounter<long>(
+            "leancorpus.vector.search.routes", unit: "{segment}",
+            description: "Float32 vector query segments by candidate route (tag: route); every route except Graph is an exact scan.");
+        _vectorGraphWastedEvaluations = _meter.CreateCounter<long>(
+            "leancorpus.vector.graph.wasted_evaluations", unit: "{evaluation}",
+            description: "Distance evaluations spent in vector graph traversals discarded for an exact fallback.");
+        _vectorGraphWastedDuration = _meter.CreateHistogram<double>(
+            "leancorpus.vector.graph.wasted_duration", unit: "ms",
+            description: "Elapsed time of each vector graph traversal discarded for an exact fallback.");
+        _vectorGraphBuildsSkipped = _meter.CreateCounter<long>(
+            "leancorpus.vector.graph.builds_skipped", unit: "{field}",
+            description: "Flushes and merges that wrote a vector field without its requested graph (tag: reason).");
 
         _hnswBuildDuration = _meter.CreateHistogram<double>(
             "leancorpus.hnsw.build.duration", unit: "ms",
@@ -314,6 +336,53 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
     }
 
     /// <inheritdoc/>
+    public void RecordVectorSearchRoute(VectorSearchRoute route)
+    {
+        _vectorSearchRoutes.Add(1, new KeyValuePair<string, object?>("route", RouteName(route)));
+        if (route == VectorSearchRoute.Graph)
+            Interlocked.Increment(ref _snVectorGraphRouteCount);
+        else if (route != VectorSearchRoute.ExactNoGraph)
+            Interlocked.Increment(ref _snVectorGraphFallbackCount);
+    }
+
+    // Constant tag values, so recording a route never formats or boxes an enum.
+    private static string RouteName(VectorSearchRoute route) => route switch
+    {
+        VectorSearchRoute.Graph => "graph",
+        VectorSearchRoute.ExactNoGraph => "exact_no_graph",
+        VectorSearchRoute.ExactSelectiveFilter => "exact_selective_filter",
+        VectorSearchRoute.ExactBudgetExceeded => "exact_budget_exceeded",
+        VectorSearchRoute.ExactUnderfilled => "exact_underfilled",
+        VectorSearchRoute.ExactGraphUnavailable => "exact_graph_unavailable",
+        VectorSearchRoute.ExactScoreTransform => "exact_score_transform",
+        VectorSearchRoute.ExactBudgetPredicted => "exact_budget_predicted",
+        _ => "unknown",
+    };
+
+    /// <inheritdoc/>
+    public void RecordVectorGraphWastedTraversal(TimeSpan elapsed, int distanceEvaluations)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(distanceEvaluations);
+        _vectorGraphWastedEvaluations.Add(distanceEvaluations);
+        _vectorGraphWastedDuration.Record(elapsed.TotalMilliseconds);
+        Interlocked.Increment(ref _snVectorGraphWastedTraversalCount);
+        Interlocked.Add(ref _snVectorGraphWastedEvaluations, distanceEvaluations);
+        Interlocked.Add(ref _snVectorGraphWastedTicks, elapsed.Ticks);
+    }
+
+    /// <inheritdoc/>
+    public void RecordVectorGraphBuildSkipped(VectorGraphBuildSkipReason reason)
+    {
+        _vectorGraphBuildsSkipped.Add(1, new KeyValuePair<string, object?>("reason", reason switch
+        {
+            VectorGraphBuildSkipReason.TooLarge => "too_large",
+            VectorGraphBuildSkipReason.Unreachable => "unreachable",
+            _ => "unknown",
+        }));
+        Interlocked.Increment(ref _snVectorGraphBuildSkippedCount);
+    }
+
+    /// <inheritdoc/>
     public void RecordVectorExactScan(int vectorsScanned, bool retiredHnswGraphIgnored)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(vectorsScanned);
@@ -385,7 +454,13 @@ public sealed class MeterMetricsCollector : IMetricsCollector, IDisposable
             HnswNodesBuilt = Interlocked.Read(ref _snHnswNodesBuilt),
             VectorExactScanCount = Interlocked.Read(ref _snVectorExactScanCount),
             VectorExactVectorsScanned = Interlocked.Read(ref _snVectorExactVectorsScanned),
-            VectorRetiredHnswExactScanCount = Interlocked.Read(ref _snVectorRetiredHnswExactScanCount)
+            VectorRetiredHnswExactScanCount = Interlocked.Read(ref _snVectorRetiredHnswExactScanCount),
+            VectorGraphRouteCount = Interlocked.Read(ref _snVectorGraphRouteCount),
+            VectorGraphFallbackCount = Interlocked.Read(ref _snVectorGraphFallbackCount),
+            VectorGraphWastedTraversalCount = Interlocked.Read(ref _snVectorGraphWastedTraversalCount),
+            VectorGraphWastedEvaluations = Interlocked.Read(ref _snVectorGraphWastedEvaluations),
+            VectorGraphWastedTotalMs = TimeSpan.FromTicks(Interlocked.Read(ref _snVectorGraphWastedTicks)).TotalMilliseconds,
+            VectorGraphBuildSkippedCount = Interlocked.Read(ref _snVectorGraphBuildSkippedCount)
         };
     }
 

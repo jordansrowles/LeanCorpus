@@ -1,6 +1,7 @@
 ﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Rowles.LeanCorpus.Index.Inspection;
 
 namespace Rowles.LeanCorpus.Tests.Core.Index.Migration;
 
@@ -80,6 +81,83 @@ public sealed class Release311MigrationAcceptanceTests : IDisposable
         AssertCurrentFormats(target, manifest, expectHistoricalGraphs: false);
         AssertLegacyPositions(target, migrated: true, merged: true);
         Release311Fixture.VerifyFiles(manifest, source);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MigratedPackageCorpusGainsAVectorGraphThatLaterMigrationsKeep(bool compound)
+    {
+        // A 3.1.1 index migrates, then a merge with BuildHnswOnFlush builds a Float32 vector graph
+        // (ADR052). The graph role has no older bodies, so a later migration plan must not touch
+        // the graph segment, and its bytes, metadata and inspection results stay as they were.
+        string path = Path.Combine(_root, "graph");
+        JsonElement manifest = Release311Fixture.Extract(compound, path);
+        using (var directory = new MMapDirectory(path))
+        {
+            var migration = IndexCodecMigrator.Migrate(directory, new IndexCodecMigrationOptions { DryRun = false });
+            Assert.True(migration.Succeeded, Issues(migration));
+        }
+        using (var directory = new MMapDirectory(path))
+        using (var writer = new IndexWriter(directory, new IndexWriterConfig
+        {
+            IndexSort = new IndexSort(SortField.String("sort:id")),
+            UseCompoundFile = compound,
+            BuildHnswOnFlush = true,
+            HnswSeed = 311401,
+            NormaliseVectors = false,
+            MergePolicy = NoMergePolicy.Instance,
+        }))
+        {
+            writer.ForceMerge(1);
+            writer.Commit();
+        }
+
+        CorpusSnapshot merged = AssertCorpus(path, manifest, merged: true, expectHistoricalGraphs: false);
+        byte[] graph = ReadGraph(path, compound);
+        int vectorDocuments = manifest.GetProperty("Documents").EnumerateArray()
+            .Count(doc => doc.GetProperty("IsLive").GetBoolean() && doc.GetProperty("Vector").ValueKind != JsonValueKind.Null);
+        AssertGraphInspection(path, vectorDocuments);
+
+        using (var directory = new MMapDirectory(path))
+        {
+            // Files of the pre-migration generation stay on disk after an in-place migration and
+            // are planned as orphans; nothing may be planned for the live graph segment.
+            using var searcher = new IndexSearcher(directory);
+            string live = Assert.Single(searcher.GetSegmentReaders()).Info.SegmentId;
+            Assert.DoesNotContain(IndexCodecMigrator.Plan(directory).Actions, action =>
+                action.SegmentId == live || action.FormatId == "leancorpus.vectors.graph"
+                || (action.FileName ?? "").StartsWith(live + "_", StringComparison.Ordinal)
+                || (action.FileName ?? "").StartsWith(live + ".", StringComparison.Ordinal));
+        }
+
+        Assert.Equal(graph, ReadGraph(path, compound));
+        AssertSnapshotEqual(merged, AssertCorpus(path, manifest, merged: true, expectHistoricalGraphs: false), merged: true);
+        AssertGraphInspection(path, vectorDocuments);
+    }
+
+    private static byte[] ReadGraph(string path, bool compound)
+    {
+        using var directory = new MMapDirectory(path);
+        using var searcher = new IndexSearcher(directory);
+        var segment = Assert.Single(searcher.GetSegmentReaders());
+        Assert.True(segment.Info.VectorFields.Single(field => field.FieldName == "embedding").HasGraph);
+        Assert.Equal(compound, segment.Info.IsCompoundFile);
+        string name = Path.GetFileName(VectorFilePaths.GraphFile(Path.Combine(path, segment.Info.SegmentId), "embedding"));
+        using ISegmentFileSource files = compound
+            ? new CompoundSegmentFileSource(directory, segment.Info.SegmentId)
+            : new LooseSegmentFileSource(directory, segment.Info.SegmentId);
+        using var input = files.OpenInput(name);
+        return input.ReadBytes(checked((int)input.Length));
+    }
+
+    private static void AssertGraphInspection(string path, int vectorDocuments)
+    {
+        using var inspector = new IndexInspector(path);
+        Assert.True(inspector.Overview.HasVectorGraph);
+        var field = Assert.Single(inspector.GetFields(), field => field.Name == "embedding");
+        Assert.True(field.HasVectorGraph);
+        Assert.Equal(vectorDocuments, field.VectorGraphNodeCount);
     }
 
     [Theory]

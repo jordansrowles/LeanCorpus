@@ -31,7 +31,7 @@ public static partial class IndexCheckerCli
         var storedFields = BoolOption("--stored-fields", "Deep-check stored fields.");
         var docValues = BoolOption("--doc-values", "Deep-check DocValues.");
         var vectors = BoolOption("--vectors", "Deep-check vector files.");
-        var hnsw = BoolOption("--hnsw", "Deep-check HNSW graph files.");
+        var hnsw = BoolOption("--hnsw", "Deep-check historical HNSW and Float32 vector graph (.vgr) files.");
         var liveDocs = BoolOption("--live-docs", "Deep-check live-doc bitsets.");
         var summaryOnly = BoolOption("--summary-only", "Print only the check summary.");
         var failOnWarnings = BoolOption("--fail-on-warnings", "Return exit code 1 when warnings are found.");
