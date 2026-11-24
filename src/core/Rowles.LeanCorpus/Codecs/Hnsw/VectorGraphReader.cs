@@ -44,7 +44,17 @@ internal static class VectorGraphReader
                 body = frame.OpenBodyInput();
             }
 
-            var result = ReadBody(body, expected, mapLevelZero: BitConverter.IsLittleEndian, fullValidation);
+            ReadResult result;
+            try
+            {
+                result = ReadBody(body, expected, mapLevelZero: BitConverter.IsLittleEndian, fullValidation);
+            }
+            catch (Exception ex) when (ex is EndOfStreamException or ArgumentOutOfRangeException or OverflowException)
+            {
+                // The frame opened, so these come from the immutable body (a count or length
+                // that runs past its end), not from the filesystem: the file is permanently bad.
+                throw Invalid($"the body is malformed ({ex.Message})", ex);
+            }
             if (!result.HasMappedBody)
                 body.Dispose();
             body = null;
@@ -264,6 +274,6 @@ internal static class VectorGraphReader
         }
     }
 
-    private static InvalidDataException Invalid(string detail)
-        => new($"Vector graph (.vgr) is invalid: {detail}.");
+    private static InvalidDataException Invalid(string detail, Exception? inner = null)
+        => new($"Vector graph (.vgr) is invalid: {detail}.", inner);
 }

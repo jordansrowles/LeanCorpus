@@ -21,6 +21,9 @@ internal sealed class VectorReader : IDisposable
     private bool _disposed;
     private byte[]? _presence;
     internal bool HasPersistedPresence => _presence is not null;
+
+    /// <summary>Bytes of the materialised presence bitmap; vector values stay in the mapped file.</summary>
+    internal long MaterialisedBytes => _presence?.LongLength ?? 0;
     internal bool HasVector(int docId)
         => (uint)docId < (uint)_vectorCount && (_presence is null || (_presence[docId >> 3] & (1 << (docId & 7))) != 0);
 

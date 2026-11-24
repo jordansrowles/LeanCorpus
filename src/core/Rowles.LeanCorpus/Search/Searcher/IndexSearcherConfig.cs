@@ -152,7 +152,9 @@ public sealed class IndexSearcherConfig
     /// <summary>
     /// Maximum estimated bytes retained by this searcher's heavy segment-reader states.
     /// Active states are protected from eviction until their operation or cursor leases end.
-    /// The estimate includes logical mapped-file lengths and materialised arrays where available.
+    /// The estimate includes logical mapped-file lengths and materialised arrays where available,
+    /// except Float32 vector values and vector-graph level zero, which are mapped and reported
+    /// separately as <see cref="Diagnostics.SegmentReaderCacheMetricsSnapshot.MappedVectorBytes"/>.
     /// Default: 268,435,456 (256 MiB).
     /// </summary>
     public long MaxCachedSegmentReaderBytes { get; set; } = 256L * 1024 * 1024;

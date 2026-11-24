@@ -539,6 +539,7 @@ internal sealed partial class SegmentReaderState : IDisposable
         long numericIndexesBytes = 0;
         long spatialIndexesBytes = 0;
         long vectorsBytes = 0;
+        long mappedVectorBytes = 0;
         long liveDocsAndParentsBytes = 0;
         const long readerShellEstimateBytes = 2_048;
 
@@ -595,20 +596,29 @@ internal sealed partial class SegmentReaderState : IDisposable
         {
             lock (fieldState.LoadLock)
             {
-                if (fieldState.Vector is not null || fieldState.QuantisedVector is not null)
+                // Float32 vector values are read through the mapped file: evicting the state frees
+                // no memory the page cache would not keep anyway, but reopening it costs every
+                // query, so the mapped length is reported separately and not weighed (ADR011, ADR052).
+                if (fieldState.Vector is { } vectorReader)
+                {
+                    vectorsBytes += vectorReader.MaterialisedBytes;
+                    mappedVectorBytes += Math.Max(0, FileBytes(_vectorPaths[fieldName]) - vectorReader.MaterialisedBytes);
+                }
+                else if (fieldState.QuantisedVector is not null)
+                {
                     vectorsBytes += FileBytes(_vectorPaths[fieldName]);
+                }
                 if (fieldState.Graph is not null)
                 {
                     string path = VectorFilePaths.HnswFile(_basePath, fieldName);
                     string extension = Path.GetFileName(path)[_info.SegmentId.Length..];
                     vectorsBytes += FileBytes(extension) * 2;
                 }
-                if (fieldState.VectorGraph is not null)
+                if (fieldState.VectorGraph is { } vectorGraph)
                 {
-                    // Mapped level zero plus the materialised document IDs, inverse norms and upper
-                    // levels, which together stay below a second copy of the file.
-                    string path = VectorFilePaths.GraphFile(_basePath, fieldName);
-                    vectorsBytes += FileBytes(Path.GetFileName(path)[_info.SegmentId.Length..]) * 2;
+                    // Document IDs, upper levels and inverse norms are held; level zero is mapped.
+                    vectorsBytes += vectorGraph.MaterialisedBytes;
+                    mappedVectorBytes += vectorGraph.MappedBytes;
                 }
             }
         }
@@ -623,7 +633,8 @@ internal sealed partial class SegmentReaderState : IDisposable
             spatialIndexesBytes,
             vectorsBytes,
             liveDocsAndParentsBytes,
-            readerShellEstimateBytes);
+            readerShellEstimateBytes,
+            mappedVectorBytes);
     }
 
     private long FileBytes(string extension)

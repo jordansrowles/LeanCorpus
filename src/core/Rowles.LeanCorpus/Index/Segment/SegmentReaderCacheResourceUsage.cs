@@ -10,8 +10,10 @@ internal readonly record struct SegmentReaderCacheResourceUsage(
     long SpatialIndexesBytes,
     long VectorsBytes,
     long LiveDocsAndParentsBytes,
-    long OtherBytes)
+    long OtherBytes,
+    long MappedVectorBytes = 0)
 {
+    // MappedVectorBytes is reported but deliberately not part of TotalBytes, the weighed budget.
     internal long TotalBytes => PostingsAndTermsBytes + NormsAndLengthsBytes + StoredFieldsBytes
         + TermVectorsBytes + DocValuesBytes + NumericIndexesBytes + SpatialIndexesBytes
         + VectorsBytes + LiveDocsAndParentsBytes + OtherBytes;
@@ -29,7 +31,8 @@ internal readonly record struct SegmentReaderCacheResourceUsage(
             left.SpatialIndexesBytes + right.SpatialIndexesBytes,
             left.VectorsBytes + right.VectorsBytes,
             left.LiveDocsAndParentsBytes + right.LiveDocsAndParentsBytes,
-            left.OtherBytes + right.OtherBytes);
+            left.OtherBytes + right.OtherBytes,
+            left.MappedVectorBytes + right.MappedVectorBytes);
 
     public static SegmentReaderCacheResourceUsage operator -(
         SegmentReaderCacheResourceUsage left,
@@ -44,7 +47,8 @@ internal readonly record struct SegmentReaderCacheResourceUsage(
             left.SpatialIndexesBytes - right.SpatialIndexesBytes,
             left.VectorsBytes - right.VectorsBytes,
             left.LiveDocsAndParentsBytes - right.LiveDocsAndParentsBytes,
-            left.OtherBytes - right.OtherBytes);
+            left.OtherBytes - right.OtherBytes,
+            left.MappedVectorBytes - right.MappedVectorBytes);
 }
 
 internal readonly record struct SegmentReaderCacheResourceMetrics(

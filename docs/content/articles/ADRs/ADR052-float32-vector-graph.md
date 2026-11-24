@@ -3,7 +3,7 @@ adr: ADR052
 title: "Opt-in Float32 vector graph"
 date: 2026-11-22
 status: Accepted
-last-updated: 2026-11-23
+last-updated: 2026-11-24
 version-added: v4.0.0
 summary: "Restore opt-in approximate search for Float32 vectors through a new rebuildable .vgr graph role that selects candidates for exact rescoring, with explicit exact fallbacks and a reference-parity qualification gate."
 areas: [vectors, codecs, hnsw, indexing, search]
@@ -228,8 +228,13 @@ unchanged historical gates and the real-data gates keep the published bar.
   `IndexInspectionField.HasVectorGraph`, `IndexInspectionField.VectorGraphNodeCount`,
   and issue codes `LLIDX053` and `LLIDX054`.
 - Enabling the option costs build time at flush and on every merge, and roughly
-  `(1 + M0) * 4` bytes per vector at level zero. Parallel build and seeding merges
-  from an input graph are later optimisations.
+  `(1 + M0) * 4` bytes per vector at level zero. Qualification measured 329 s
+  against 20 s for DBpedia 90K (five flushes and a merge) and 178 s against 15 s
+  for arXiv 100K. Parallel build and seeding merges from an input graph are later
+  optimisations, as is a policy that builds at merge only (or flush only) with the
+  Boolean kept as the both-sides shortcut, so graphs for small flushed segments
+  that a merge soon replaces are not built. Flush builds are not yet cancellable;
+  merge builds are.
 - Uniform high-dimensional data gains little from any graph; the documentation
   states this operating envelope.
 - Until the qualification contract above has been executed and published, the
@@ -246,3 +251,4 @@ unchanged historical gates and the real-data gates keep the published bar.
 | 2026-11-23 | Clarified | PR #132 review: conditioned inverse norms with a scaled-cosine marker, spanning-tree repair with a verified reachability postcondition enforced by writer and reader, zero-query and empty-filter route rules, and a measured `eligible / 2` traversal budget. | `4.0/vector-rebound` |
 | 2026-11-23 | Clarified | PR #132 second review: a hard budget covering the descent, an `eligible / 3` budget with measured fallback cost, `ExactBudgetPredicted`, wasted-traversal and skipped-build metrics, duplicate-neighbour rejection, cancellation during repair, and measured open cost. | `4.0/vector-rebound` |
 | 2026-11-23 | Clarified | Release qualification: ties are not diverse (Lucene parity on near-duplicate data), the descent scores a node once per level, and full graph validation is remembered per segment reader so an uncacheable segment does not re-validate on every query. | `4.0/vector-rebound` |
+| 2026-11-24 | Clarified | PR #132 third review: mapped vector bytes leave the reader-cache budget (ADR011), so qualification holds under the default configuration; a malformed body with a valid checksum is a permanent failure remembered across evicted states; build-policy and flush-cancellation follow-ups recorded. | `4.0/vector-rebound` |

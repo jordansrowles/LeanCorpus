@@ -117,14 +117,15 @@ Costs and limits:
   segments are flushed or merged with the option enabled.
 - A corrupt graph is never used. Index checks report it as LLIDX054, and
   queries scan that segment exactly until a merge rebuilds it.
-- Keep `IndexSearcherConfig.MaxCachedSegmentReaderBytes` above the size of
-  your largest vector segment. The budget counts mapped vector files, so with
-  the 256 MiB default a segment of, for example, 90,000 1536-dimensional
-  vectors (553 MB) cannot stay cached: every query reopens its reader state,
-  reloading norms and the graph's document IDs and upper levels. A graph is
-  fully validated once per segment reader, but in that measurement the
-  reopening still raised a graph query from about 4.5 ms to about 16.5 ms,
-  and slowed the exact scan too.
+- Float32 vector values and graph level zero are read through mapped files and
+  do not count against `IndexSearcherConfig.MaxCachedSegmentReaderBytes`;
+  `IndexSearcher.SegmentReaderCacheMetrics.MappedVectorBytes` reports them. A
+  segment of 90,000 1536-dimensional vectors (553 MB of values) retains about
+  5 MB of reader state, so it stays cached under the 256 MiB default. The
+  number of cached states (`MaxCachedSegmentReaders`) still bounds mappings.
+  The operating system page cache decides how much of the mapped data stays in
+  memory; for graph search, keep at least the graph and the vectors it visits
+  resident.
 
 The option is implemented and tested, but its release qualification against
 real embedding corpora and a reference implementation is still open; see

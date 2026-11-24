@@ -98,6 +98,24 @@ internal sealed class VectorGraph : IDisposable
     internal int MaxLevel { get; }
     internal int EntryOrdinal { get; }
     internal int NodeCount => _docIds.Length;
+
+    /// <summary>Bytes of managed arrays the graph holds: document IDs, upper levels, inverse norms, and level zero when it is not mapped.</summary>
+    internal long MaterialisedBytes
+    {
+        get
+        {
+            long bytes = (long)_docIds.Length * sizeof(int) + (_level0?.LongLength ?? 0) * sizeof(int)
+                + (_inverseNorms?.LongLength ?? 0) * sizeof(float);
+            foreach (int[] ordinals in _upperOrdinals)
+                bytes += ordinals.LongLength * sizeof(int);
+            foreach (int[] adjacency in _upperAdjacency)
+                bytes += adjacency.LongLength * sizeof(int);
+            return bytes;
+        }
+    }
+
+    /// <summary>Bytes of level zero read through the mapped file rather than held in memory.</summary>
+    internal long MappedBytes => _body is null ? 0 : (long)_docIds.Length * (1 + M0) * sizeof(int);
     internal bool HasInverseNorms => _inverseNorms is not null;
 
     /// <summary>Document IDs by ordinal, strictly ascending.</summary>

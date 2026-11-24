@@ -1141,10 +1141,11 @@ internal sealed partial class SegmentReaderState
                         _graphValidation?.RecordValidated(fieldName);
                     }
                 }
-                catch (Exception ex) when (ex is InvalidDataException or CodecFileException)
+                catch (Exception ex) when (ex is InvalidDataException or CodecFileException or EndOfStreamException)
                 {
-                    // Structural or checksum failure: the file itself is bad, so remember it for
-                    // this state and for every later state of the same reader.
+                    // Structural, checksum or truncated-body failure: the file itself is bad, so
+                    // remember it for this state and for every later state of the same reader.
+                    // EndOfStreamException is an IOException but never transient here.
                     failure = ex.Message;
                     _graphValidation?.RecordFailure(fieldName, failure);
                 }

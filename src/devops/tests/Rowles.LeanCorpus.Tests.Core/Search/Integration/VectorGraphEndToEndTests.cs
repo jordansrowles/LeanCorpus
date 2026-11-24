@@ -486,6 +486,73 @@ public sealed class VectorGraphEndToEndTests(TestDirectoryFixture fixture) : ICl
         Assert.True(IndexValidator.Check(reopened, new IndexCheckOptions { Deep = true }).IsHealthy);
     }
 
+    [Fact(DisplayName = "Graph: A Malformed Checksummed Graph Is Remembered As Failed Across Evicted Reader States")]
+    public void MalformedGraphBody_IsRememberedAcrossEvictedStates()
+    {
+        var vectors = Clustered(3_000, 16, clusters: 30, spread: 0.1f, seed: 199);
+        string path = SubDir("malformed-body");
+        using (var directory = new MMapDirectory(path))
+            Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        string graphFile = Directory.EnumerateFiles(path, "*.vgr").Single();
+        byte[] valid = File.ReadAllBytes(graphFile);
+        string malformed = Path.Combine(path, "malformed.tmp-copy");
+        Rowles.LeanCorpus.Tests.Core.Codecs.VectorGraphPersistenceTests.WriteTruncatedBody(graphFile, malformed, keep: 200);
+        File.Copy(malformed, graphFile, overwrite: true);
+        File.Delete(malformed);
+
+        using var directoryAfter = new MMapDirectory(path);
+        var metrics = new RouteMetrics();
+        var config = SearcherConfig(metrics);
+        config.MaxCachedSegmentReaderBytes = 1; // Every query reopens the reader state.
+        using var searcher = new IndexSearcher(directoryAfter, config);
+        var query = Normalise(vectors[17]);
+        Assert.Equal(1.0, TieAwareRecall(vectors, query,
+            searcher.Search(new VectorQuery(Field, query, topK: 10), 10).ScoreDocs.Select(hit => Ordinal(searcher, hit.DocId)).ToArray(), 10));
+
+        // Put the valid bytes back. A reader that re-parsed the graph on its next state would now
+        // use it; one that remembered the permanent failure keeps scanning exactly.
+        File.WriteAllBytes(graphFile, valid);
+        for (int i = 0; i < 3; i++)
+            searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+        Assert.Equal(4, metrics.Routes.Count);
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.ExactGraphUnavailable, route));
+
+        // A new searcher has new segment readers, so it validates the restored file afresh.
+        var freshMetrics = new RouteMetrics();
+        using var fresh = new IndexSearcher(directoryAfter, SearcherConfig(freshMetrics));
+        fresh.Search(new VectorQuery(Field, query, topK: 10), 10);
+        Assert.Equal(VectorSearchRoute.Graph, Assert.Single(freshMetrics.Routes));
+    }
+
+    [Fact(DisplayName = "Graph: Mapped Vector Bytes Do Not Count Against The Reader Cache Budget")]
+    public void MappedVectorBytes_DoNotEvictTheReaderState()
+    {
+        // 3,000 vectors of 128 dimensions map 1.5 MB of values, far above a 512 KiB budget, while
+        // the state's held arrays (presence, graph document IDs, upper levels, norms) stay below it.
+        var vectors = Clustered(3_000, 128, clusters: 30, spread: 0.1f, seed: 201);
+        using var directory = new MMapDirectory(SubDir("mapped-budget"));
+        Write(directory, vectors, GraphConfig(normalise: true), commitEvery: vectors.Length);
+
+        var metrics = new RouteMetrics();
+        var config = SearcherConfig(metrics);
+        config.MaxCachedSegmentReaderBytes = 512 * 1024;
+        using var searcher = new IndexSearcher(directory, config);
+        foreach (var query in QueriesNear(vectors, 10, seed: 202))
+            searcher.Search(new VectorQuery(Field, query, topK: 10), 10);
+
+        var cache = searcher.SegmentReaderCacheMetrics;
+        Assert.Equal(0, cache.EvictionCount);
+        Assert.Equal(1, cache.EntryCount);
+        Assert.True(cache.MappedVectorBytes >= 3_000L * 128 * sizeof(float),
+            $"mapped vector bytes {cache.MappedVectorBytes} should include the vector values");
+        Assert.True(cache.RetainedBytes <= cache.MaximumRetainedBytes,
+            $"retained {cache.RetainedBytes} exceeds the {cache.MaximumRetainedBytes} budget");
+        Assert.True(cache.VectorsBytes > 0 && cache.VectorsBytes < 3_000L * 128 * sizeof(float),
+            $"held vector bytes {cache.VectorsBytes} should exclude the mapped values");
+        Assert.All(metrics.Routes, route => Assert.Equal(VectorSearchRoute.Graph, route));
+    }
+
     [Fact(DisplayName = "Graph: Explain Reports The Route")]
     public void Explain_ReportsTheRoute()
     {

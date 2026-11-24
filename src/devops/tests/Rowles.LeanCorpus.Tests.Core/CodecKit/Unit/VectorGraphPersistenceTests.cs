@@ -143,6 +143,35 @@ public sealed class VectorGraphPersistenceTests : IClassFixture<TestDirectoryFix
         pool.Clear();
     }
 
+    [Theory(DisplayName = "Corruption: A Checksummed Body That Ends Early Is Invalid Data, Not An IO Failure")]
+    [InlineData(48)]
+    [InlineData(200)]
+    [InlineData(-4)]
+    public void Corruption_ChecksummedTruncatedBody_IsInvalidData(int keep)
+    {
+        var vectors = NormaliseAll(Clustered(200, 8, clusters: 4, spread: 0.2f, seed: 4));
+        using var graph = Build(vectors, Config, seed: 1, normalised: true);
+        string path = Write(graph, "truncated_body_source.vgr");
+        string malformed = Path.Combine(_fixture.Path, $"truncated_body_{keep}.vgr");
+        WriteTruncatedBody(path, malformed, keep);
+
+        // The frame and its checksum are valid, so only the body's own counts run past its end.
+        var error = Assert.Throws<InvalidDataException>(() => Open(malformed, vectors, normalised: true).Dispose());
+        Assert.Contains("Vector graph (.vgr) is invalid", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>Rewrites a graph with a valid frame and checksum around a body cut to <paramref name="keep"/> bytes (negative: drop that many).</summary>
+    internal static void WriteTruncatedBody(string source, string target, int keep)
+    {
+        byte[] body;
+        using (var input = new IndexInput(source))
+        using (var frame = CodecFileReader.OpenSupported(input, VectorCodecFiles.Graph))
+        using (var bodyInput = frame.OpenBodyInput())
+            body = bodyInput.ReadBytes(checked((int)bodyInput.Length));
+        int length = keep >= 0 ? keep : body.Length + keep;
+        CodecFileWriter.WriteAtomically(target, VectorCodecFiles.Graph, durable: false, output => output.WriteBytes(body.AsSpan(0, length)));
+    }
+
     [Fact(DisplayName = "Corruption: Truncated File Is Rejected")]
     public void Corruption_TruncatedFile_IsRejected()
     {
