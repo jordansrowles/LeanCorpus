@@ -218,6 +218,11 @@ public static class IndexRecovery
                     continue;
                 }
 
+                // Only the deletion generation this commit selects belongs to it. Superseded generations
+                // are pruned after each commit, possibly while this validation runs, and are never read.
+                if (Segment.SegmentFileSet.IsUnselectedGenerationFile(segId, fileName, segInfo.DelGeneration, catalog))
+                    continue;
+
                 // BKD files and vector graphs are query accelerators backed by authoritative data.
                 // Their readers validate them and fall back to exact routes when corrupt.
                 if (IsRecoverableQueryAccelerator(descriptor))
