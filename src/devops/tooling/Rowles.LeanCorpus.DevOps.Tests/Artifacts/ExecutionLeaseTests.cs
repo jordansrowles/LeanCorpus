@@ -35,6 +35,33 @@ public sealed class ExecutionLeaseTests
     }
 
     [Fact]
+    public async Task ReportsTheExclusiveHolderOnceWhileWaiting()
+    {
+        using var root = TemporaryRoot.Create();
+        await using var holder = await ExecutionLease.AcquireExclusiveAsync(root.Path, TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken);
+        var messages = new List<string>();
+
+        await Assert.ThrowsAsync<TimeoutException>(() => ExecutionLease.AcquireExclusiveAsync(
+            root.Path, TimeSpan.FromMilliseconds(200), TestContext.Current.CancellationToken, messages.Add));
+
+        var message = Assert.Single(messages);
+        Assert.Contains("exclusive DevOps execution lease", message, StringComparison.Ordinal);
+        Assert.Contains($"process {Environment.ProcessId}", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DoesNotReportWhenTheLeaseIsFree()
+    {
+        using var root = TemporaryRoot.Create();
+        var messages = new List<string>();
+
+        await using var lease = await ExecutionLease.AcquireExclusiveAsync(
+            root.Path, TimeSpan.FromSeconds(1), TestContext.Current.CancellationToken, messages.Add);
+
+        Assert.Empty(messages);
+    }
+
+    [Fact]
     public async Task RemovesExclusiveGateAfterTimeoutAndHonoursCancellation()
     {
         using var root = TemporaryRoot.Create();

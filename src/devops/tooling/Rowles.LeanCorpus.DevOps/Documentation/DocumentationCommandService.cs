@@ -82,7 +82,7 @@ internal sealed class DocumentationCommandService(
         try
         {
             await using var lease = await ExecutionLease.AcquireExclusiveAsync(artifactPaths.RepositoryRoot,
-                TimeSpan.FromMinutes(10), cancellationToken).ConfigureAwait(false);
+                TimeSpan.FromMinutes(10), cancellationToken, WriteProgress).ConfigureAwait(false);
             var provenance = await provenanceReader.ReadAsync(request.Checkout, runDirectory, cancellationToken).ConfigureAwait(false);
             if (provenance.Outcome != OutcomeKind.Success || string.IsNullOrWhiteSpace(provenance.Commit))
             {
