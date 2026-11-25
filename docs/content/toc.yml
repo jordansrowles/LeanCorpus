@@ -10,20 +10,54 @@
           href: getting-started/02-fields.md
         - name: Writer configuration
           href: getting-started/03-configuration.md
+        - name: Configuration reference
+          href: getting-started/05-configuration-reference.md
     - name: Concepts
       href: concepts/index.md
       items:
         - name: Documents and fields
           href: concepts/documents-and-fields.md
+        - name: Analysis and Rowles.Text
+          href: concepts/analysis.md
+        - name: Index lifecycle
+          href: concepts/index-lifecycle.md
         - name: Queries and ranking
           href: concepts/queries-and-ranking.md
         - name: Vector search
           href: concepts/vector-search.md
+    - name: Guides
+      href: guides/index.md
+      items:
+        - name: Tips and how-to
+          href: tips/index.md
+        - name: Production deployment
+          href: tips/04-production-deployment.md
+        - name: Performance tuning
+          href: tips/performance-tuning.md
+        - name: Query cache
+          href: tips/02-query-cache.md
+        - name: Troubleshooting
+          href: tips/troubleshooting.md
     - name: Examples
       href: examples/index.md
       items:
         - name: Linux kernel code search
           href: examples/linux-kernel-code-search.md
+    - name: Migrating from Lucene.NET
+      href: migration.md
+      items:
+        - name: Lucene feature parity
+          href: articles/vs-lucene.md
+        - name: Feature comparison
+          href: articles/features/index.md
+        - name: Core search and indexing
+          href: articles/features/core.md
+        - name: Analysis and language support
+          href: articles/features/analysis.md
+        - name: Advanced and operational features
+          href: articles/features/advanced.md
+        - name: LeanCorpus-only capabilities
+          href: articles/features/leancorpus-only.md
 - name: Engine
   href: searching/index.md
   items:
@@ -32,15 +66,53 @@
       items:
         - name: Update and delete documents
           href: index-management/01-update-and-delete.md
+        - name: Schema validation
+          href: index-management/02-schema.md
+        - name: Validation and recovery
+          href: index-management/03-validation-recovery.md
+        - name: Index checker CLI
+          href: index-management/04-cli-checker.md
+        - name: Stored round-tripping
+          href: index-management/05-stored-round-tripping.md
+        - name: Async indexing
+          href: index-management/06-async-indexing.md
+        - name: DocValues
+          href: index-management/07-docvalues.md
         - name: Backup and restore
           href: index-management/08-backup-and-restore.md
+        - name: Term vectors and payloads
+          href: index-management/09-term-vectors-and-payloads.md
+        - name: Store and file I/O
+          href: index-management/10-store-and-file-io.md
+        - name: Migrating indexes to 3.0
+          href: index-management/11-codec-migration-3-0.md
     - name: Searching
       href: searching/index.md
       items:
         - name: Query types
           href: searching/01-query-types.md
+        - name: Boolean queries
+          href: searching/02-boolean-queries.md
+        - name: Phrase and proximity
+          href: searching/03-phrase-and-proximity.md
         - name: The query parser
           href: searching/04-query-parser.md
+        - name: Boosting and scoring
+          href: searching/05-boosting-and-scoring.md
+        - name: Sorting
+          href: searching/06-sorting.md
+        - name: LINQ queries
+          href: searching/07-linq-queries.md
+        - name: Disjunction max queries
+          href: searching/08-disjunction-max.md
+        - name: Per-query resource controls
+          href: searching/09-resource-controls.md
+        - name: Intervals
+          href: searching/10-intervals.md
+        - name: Score explanations
+          href: searching/11-score-explanations.md
+        - name: Pagination and rescoring
+          href: searching/12-pagination-and-rescoring.md
         - name: Ranking profiles and query rules
           href: searching/12-ranking.md
         - name: Search sessions and cursor pagination
@@ -52,17 +124,41 @@
           href: analysis/01-analysers.md
         - name: Tokenisers
           href: analysis/02-tokenisers.md
+        - name: Token filters
+          href: analysis/03-token-filters.md
+        - name: Stemmers
+          href: analysis/04-stemmers.md
+        - name: Stop words and the token budget
+          href: analysis/05-stop-words-and-token-budget.md
         - name: Lexicons
           href: analysis/06-lexicons.md
+        - name: Hunspell
+          href: analysis/07-hunspell.md
     - name: Advanced search
       href: advanced/index.md
       items:
         - name: Vector search
           href: advanced/05-vector-search.md
+        - name: Filtered vector search
+          href: advanced/08-filtered-vector-search.md
+        - name: Reciprocal rank fusion
+          href: advanced/04-rrf.md
         - name: Geo search
           href: advanced/10-geo-search.md
         - name: Aggregations
           href: advanced/01-aggregations.md
+        - name: Faceting
+          href: advanced/11-faceting.md
+        - name: Highlighting
+          href: advanced/03-highlighting.md
+        - name: Spelling suggestions
+          href: advanced/02-spell-check.md
+        - name: Block join (nested documents)
+          href: advanced/06-block-join.md
+        - name: More like this
+          href: advanced/07-more-like-this.md
+        - name: Field collapsing
+          href: advanced/09-field-collapsing.md
     - name: Concurrency
       href: concurrency/index.md
       items:
@@ -70,13 +166,25 @@
           href: concurrency/01-searcher-manager.md
         - name: Concurrent indexing
           href: concurrency/02-concurrent-indexing.md
+        - name: Snapshots and deletion policies
+          href: concurrency/03-snapshots-and-policies.md
+        - name: Refresh failures
+          href: concurrency/04-refresh-failures.md
     - name: Observability
       href: observability/index.md
       items:
         - name: Metrics
           href: observability/01-metrics.md
+        - name: Slow query log
+          href: observability/02-slow-query-log.md
+        - name: Search analytics
+          href: observability/03-search-analytics.md
         - name: OpenTelemetry
           href: observability/04-opentelemetry.md
+        - name: Aspire dashboard
+          href: observability/05-aspire-dashboard.md
+        - name: Index size and statistics
+          href: observability/06-index-size-and-statistics.md
 - name: Integrations
   href: server/index.md
   items:
@@ -99,10 +207,24 @@
     - name: Community Server
       href: server/index.md
       items:
+        - name: Overview and quick start
+          href: server/community-server.md
         - name: Running and health
           href: server/01-running.md
+        - name: Embedding
+          href: server/02-embedding.md
+        - name: Schemas and writes
+          href: server/03-schemas-and-writes.md
+        - name: Search and explain
+          href: server/04-search-and-explain.md
         - name: REST and gRPC
           href: server/05-rest-and-grpc.md
+        - name: Studio
+          href: server/06-studio.md
+        - name: Persistence and security
+          href: server/07-persistence-and-security.md
+        - name: Operational limits
+          href: server/08-operational-limits.md
         - name: Orchard Core search provider
           href: server/orchard-core-search-provider.md
 - name: Reference
@@ -110,11 +232,35 @@
   items:
     - name: API
       href: api/index.md
+      items:
+        - name: API map
+          href: reference/api-map.md
+    - name: Reference guides
+      href: reference/index.md
+      items:
+        - name: Compatibility
+          href: reference/compatibility.md
+        - name: Upgrade guide
+          href: reference/upgrades.md
+        - name: Native AOT and trimming
+          href: reference/native-aot.md
+        - name: Errors and recovery
+          href: reference/errors-and-recovery.md
+        - name: Security and data handling
+          href: reference/security.md
+        - name: Glossary
+          href: reference/glossary.md
     - name: Architecture
       href: architecture.md
       items:
         - name: Physical index lifetimes
           href: articles/physical-index-lifetimes.md
+        - name: Storage formats
+          href: contributors/storage-formats.md
+        - name: Architecture internals
+          href: contributors/architecture-internals.md
+        - name: Search internals
+          href: contributors/search-internals.md
     - name: Architecture decisions
       href: articles/ADRs/index.md
       items:
@@ -125,10 +271,16 @@
     - name: Performance
       href: performance.md
       items:
+        - name: Benchmark results
+          href: benchmarks/overview.md
+        - name: Benchmark qualification audit
+          href: benchmarks/qualification-audit.md
         - name: Benchmarking guide
           href: tips/03-benchmarking.md
-    - name: Benchmark results
-      href: benchmarks/overview.md
+        - name: Backup and restore measurements
+          href: articles/testing/backup-restore-measurement.md
+        - name: Backup and restore results
+          href: articles/testing/backup-restore-results.md
 - name: Project
   href: about/index.md
   items:
@@ -152,8 +304,27 @@
           href: contributors/contributing.md
         - name: Documentation
           href: contributors/documentation.md
-        - name: DevOps projects
+        - name: Benchmarking changes
+          href: contributors/benchmarking.md
+        - name: DataForge datasets
+          href: tips/dataforge.md
+        - name: CodecKit
+          href: contributors/codeckit/index.md
+        - name: Creating codecs
+          href: contributors/codeckit/01-creating-codecs.md
+        - name: Adding persistent formats
+          href: contributors/codeckit/02-adding-formats.md
+        - name: Codec migrations
+          href: contributors/codeckit/03-migrations.md
+    - name: DevOps entry point
+      href: contributors/devops-entry-point.md
+      items:
+        - name: DevOps projects and tooling
           href: contributors/devops-projects.md
+        - name: DevOps and tests
+          href: contributors/devops-and-tests.md
+        - name: Managed DevOps workbench
+          href: contributors/devops-ui.md
     - name: About LeanCorpus
       href: about/index.md
       items:
