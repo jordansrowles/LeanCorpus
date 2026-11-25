@@ -19,8 +19,6 @@ public sealed class MetaphoneFilter : ISpanTokenFilter
     }
 
     /// <inheritdoc/>
-
-    /// <inheritdoc/>
     public void Apply(
         ReadOnlySpan<char> text,
         int startOffset,

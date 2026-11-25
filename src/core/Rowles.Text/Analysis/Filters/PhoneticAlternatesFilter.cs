@@ -23,8 +23,6 @@ public sealed class PhoneticAlternatesFilter : ISpanTokenFilter
     }
 
     /// <inheritdoc/>
-
-    /// <inheritdoc/>
     public void Apply(
         ReadOnlySpan<char> text,
         int startOffset,

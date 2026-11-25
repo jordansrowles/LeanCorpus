@@ -22,8 +22,6 @@ public sealed class HunspellStemFilter : ISpanTokenFilter
     }
 
     /// <inheritdoc/>
-
-    /// <inheritdoc/>
     public void Apply(
         ReadOnlySpan<char> text,
         int startOffset,
