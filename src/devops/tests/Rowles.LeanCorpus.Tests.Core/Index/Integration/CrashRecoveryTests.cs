@@ -141,30 +141,7 @@ public class CrashRecoveryTests : IDisposable
     [Fact(DisplayName = "Recovery: missing selected deletion file rejects latest commit")]
     public void RecoverLatestCommit_MissingSelectedDeletionFile_FallsBackToPriorValidCommit()
     {
-        var config = new IndexWriterConfig
-        {
-            DeletionPolicy = new KeepLastNCommitsPolicy(3),
-            MergePolicy = NoMergePolicy.Instance,
-            MaxBufferedDocs = 1,
-            MergeThreshold = 100,
-        };
-        using (var writer = new IndexWriter(new MMapDirectory(_dir), config))
-        {
-            writer.AddDocument(CreateDocument("first generation"));
-            writer.Commit();
-
-            writer.AddDocument(CreateDocument("later victim"));
-            writer.Commit();
-
-            writer.DeleteDocuments(new TermQuery("body", "victim"));
-            writer.Commit();
-        }
-
-        SegmentInfo deletedSegment = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false)!
-            .SegmentInfos
-            .Single(static segment => segment.LiveDocCount < segment.DocCount);
-        int deletionGeneration = deletedSegment.DelGeneration
-            ?? throw new InvalidOperationException("The latest commit did not select a deletion generation.");
+        var (deletedSegment, deletionGeneration) = WriteThreeCommitsDeletingVictim();
         string selectedDeletionPath = Path.Combine(
             _dir,
             $"{deletedSegment.SegmentId}_gen_{deletionGeneration}.del");
@@ -187,6 +164,25 @@ public class CrashRecoveryTests : IDisposable
     {
         // A superseded generation can be pruned, or a pending one torn, while a reader validates the
         // commit. Neither belongs to the commit, so neither may make recovery reject it.
+        var (deletedSegment, deletionGeneration) = WriteThreeCommitsDeletingVictim();
+        File.WriteAllBytes(
+            Path.Combine(_dir, $"{deletedSegment.SegmentId}_gen_{deletionGeneration + 1}.del"),
+            [0x4c, 0x43, 0x01, 0x02, 0x03]);
+
+        IndexRecovery.RecoveryResult recovery = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false)
+            ?? throw new InvalidOperationException("Expected the latest commit to remain recoverable.");
+
+        Assert.False(recovery.WasFallback);
+        Assert.Equal(3, recovery.Generation);
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "victim"), 10, TestContext.Current.CancellationToken).TotalHits);
+    }
+
+    // Commits one document, then a second, then deletes the second, and returns the segment whose
+    // deletion generation the latest commit selects.
+    private (SegmentInfo Segment, int DeletionGeneration) WriteThreeCommitsDeletingVictim()
+    {
         var config = new IndexWriterConfig
         {
             DeletionPolicy = new KeepLastNCommitsPolicy(3),
@@ -211,18 +207,7 @@ public class CrashRecoveryTests : IDisposable
             .Single(static segment => segment.LiveDocCount < segment.DocCount);
         int deletionGeneration = deletedSegment.DelGeneration
             ?? throw new InvalidOperationException("The latest commit did not select a deletion generation.");
-        File.WriteAllBytes(
-            Path.Combine(_dir, $"{deletedSegment.SegmentId}_gen_{deletionGeneration + 1}.del"),
-            [0x4c, 0x43, 0x01, 0x02, 0x03]);
-
-        IndexRecovery.RecoveryResult recovery = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false)
-            ?? throw new InvalidOperationException("Expected the latest commit to remain recoverable.");
-
-        Assert.False(recovery.WasFallback);
-        Assert.Equal(3, recovery.Generation);
-
-        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
-        Assert.Equal(0, searcher.Search(new TermQuery("body", "victim"), 10, TestContext.Current.CancellationToken).TotalHits);
+        return (deletedSegment, deletionGeneration);
     }
 
     [Fact(DisplayName = "Recovery: corrupt optional codec file falls back and reports fallback")]
