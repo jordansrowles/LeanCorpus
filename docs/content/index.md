@@ -77,7 +77,7 @@ Choose LeanCorpus when you need embedded, local .NET search with control over in
 <section class="lc-feature-card" markdown="1">
 
 ### Analysis
-Span-based analysis pipeline with tokenisers, 28 token filters, 11 language stemmers, synonym graphs, Hunspell dictionary stemming, ICU, CJK tokenisation, pattern tokenisers and phonetic filters (Metaphone, Beider-Morse style).
+Span-based analysis pipeline with tokenisers, 27 token filters, 3 character filters, stemmers for 10 languages (nine from Snowball 3.2.0), synonym graphs, Hunspell dictionary stemming, ICU, CJK tokenisation, pattern tokenisers and phonetic filters (Metaphone, Beider-Morse style).
 [Browse analysis docs](analysis/index.md)
 
 </section>
@@ -85,7 +85,7 @@ Span-based analysis pipeline with tokenisers, 28 token filters, 11 language stem
 <section class="lc-feature-card" markdown="1">
 
 ### Search
-25 query types including term, boolean, phrase, fuzzy (Myers bit-parallel), regexp (FST automaton), span, intervals, block-join, geo, and vector.
+More than 50 query types, including term, boolean, phrase, fuzzy (Myers bit-parallel), regexp (FST automaton), span, intervals, block-join, geo, and vector.
 [Browse search docs](searching/01-query-types.md)
 
 </section>

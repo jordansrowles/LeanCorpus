@@ -47,7 +47,7 @@ The repository includes benchmark cases against Lucene.Net 4.8 as an external ba
 | **Scoring** | BM25+, BM25L, WAND, SIMD cosine | Classic + LM, expression-based scoring |
 | **Modern queries** | Intervals, RRF, CombinedFields, FunctionScore | Not available |
 | **Observability** | OpenTelemetry, metrics, slow-query log | Not available |
-| **Language analysis** | 11 language stemmers, Hunspell, Chinese lexicon segmentation and Japanese Viterbi tokenisation | 15+ Snowball + SmartCN + Kuromoji |
+| **Language analysis** | Stemmers for 10 languages (nine from Snowball 3.2.0), Hunspell, Chinese lexicon segmentation and Japanese Viterbi tokenisation | 15+ Snowball + SmartCN + Kuromoji |
 
 The [feature comparison](articles/features/index.md) summarises the capabilities that matter when evaluating or migrating to LeanCorpus.
 

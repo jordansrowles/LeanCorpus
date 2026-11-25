@@ -10,14 +10,14 @@ It also pins the pre-v3 BBQ branch snapshot generated from the exact
 List available scenarios with:
 
 ```bash
-./devops data fixtures --list
+./devops fixtures list
 ```
 
 Generate a scenario into a new output directory:
 
 ```bash
-./devops data fixtures --version 3.1.1 --scenario sparse-hnsw
-./devops data fixtures --version 3.1.1 --scenario migration
+./devops fixtures generate --version 3.1.1 --scenario sparse-hnsw
+./devops fixtures generate --version 3.1.1 --scenario migration
 ```
 
 Use `--package-source` to supply a local package directory or an HTTPS NuGet
@@ -44,6 +44,6 @@ generation scenario. Its one-purpose generator lives in
 only to a new directory outside the repository. Ordinary tests use the
 committed archive and manifest; they never rerun this generator.
 
-`data migration-fixtures-311` remains as a deprecated alias for the migration
-scenario while automation moves to `data fixtures --version 3.1.1 --scenario
-migration`.
+The deprecated `data fixtures` route and the `data migration-fixtures-311`
+alias for the migration scenario remain while automation moves to
+`fixtures generate`.

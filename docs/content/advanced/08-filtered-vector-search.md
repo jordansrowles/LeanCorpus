@@ -19,12 +19,21 @@ var query = new VectorQuery(
 var hits = searcher.Search(query, topN: 20);
 ```
 
-## Current Float32 and historical Int8 strategy
+## Float32 and historical Int8 strategy
 
-New Float32 indexes and historical Int8 indexes use an exact scan. The filter
-is applied before vector scoring, so unmatched documents are not scored. If a
-matching segment contains an old HNSW graph, that graph is ignored and the scan
-is reported as intentional exact work.
+Float32 fields without a vector graph, and historical Int8 values, use an exact
+scan. The filter is applied before vector scoring, so unmatched documents are
+not scored. If a matching segment contains an old `.hnsw` graph, that graph is
+ignored and the scan is reported as intentional exact work.
+
+When a segment has an opt-in Float32 vector graph (`BuildHnswOnFlush`), the
+traversal accepts only documents that pass the filter, and its candidates are
+rescored exactly. A selective filter skips the graph: when it leaves fewer than
+`max(64, 0.5% of MaxDoc)` documents, or no more than `topK *
+oversamplingFactor`, the segment scans those documents exactly and records the
+`ExactSelectiveFilter` route. A filter that matches nothing records the same
+route. See [Optional vector graph](05-vector-search.md#optional-vector-graph)
+for the other fallbacks.
 
 ```mermaid
 flowchart TD
@@ -56,11 +65,11 @@ historical graph route and its stored-representation scorer. BBQ-containing
 indexes remain read-only to writers. New BBQ writes and migrations are not
 supported.
 
-`efSearch` and `oversamplingFactor` apply to that historical BBQ graph route.
-They do not affect Float32 exact scans or exact scans over decoded historical
-Int8 values. `Explain(VectorQuery, docId)` reports the selected strategy, and
-search metrics separate intentional exact scans from historical HNSW underfill
-fallbacks.
+`efSearch` and `oversamplingFactor` apply to that historical BBQ graph route
+and to the Float32 vector graph. They do not affect exact scans, including
+scans over decoded historical Int8 values. `Explain(VectorQuery, docId)` reports the selected strategy, and
+search metrics record the route each segment took and separate intentional
+exact scans from graph fallbacks.
 
 See [Vector search](05-vector-search.md), [Score explanations](../searching/11-score-explanations.md),
 and [Reciprocal rank fusion](04-rrf.md).

@@ -10,9 +10,9 @@ Analysis turns raw text into the terms LeanCorpus stores and queries. Use the sa
 |---|---|---|
 | `IAnalyser` | End-to-end pipeline | `StandardAnalyser`, `StemmedAnalyser`, `LanguageAnalyser`, `IcuAnalyser` |
 | `ISpanTokeniser` | Splits input into tokens | `Tokeniser`, `UrlEmailTokeniser`, `IcuTokeniser` |
-| `ITokenFilter` | Rewrites or drops tokens | `LowercaseFilter`, `StopWordFilter`, `SynonymGraphFilter` |
+| `ISpanTokenFilter` | Rewrites or drops tokens | `LowercaseFilter`, `StopWordFilter`, `SynonymGraphFilter` |
 | `ICharFilter` | Rewrites input text and maps UTF-16 offsets back to source before tokenisation | `HtmlStripCharFilter`, `MappingCharFilter`, `PatternReplaceCharFilter` |
-| `IStemmer` | Reduces tokens to root forms | `EnglishStemmer`, `FrenchStemmer`, `GermanStemmer` |
+| `ISpanStemmer` | Reduces tokens to root forms | `EnglishStemmer`, `FrenchStemmer`, `GermanStemmer` |
 
 ## What to start with
 
