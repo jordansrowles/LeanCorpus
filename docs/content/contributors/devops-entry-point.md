@@ -294,7 +294,7 @@ When adding an alias, keep its name short and stable. Point it at an existing be
 
 ## Documentation workflow
 
-The `docs` command has `prepare`, `build`, `metadata`, and `serve` paths.
+The `docs` command has `prepare`, `build`, `metadata`, `test` and `serve` paths. `test` runs the static documentation checks (Markdown pages, TOCs, HTML pages, local references and fragments) over the built site, then the browser-based `docs-site` test suite.
 
 `prepare` recreates `artifacts/docs/content/` from canonical `docs/content/`,
 imports repository-owned guides from `docs/site-config/imports.json`, copies
@@ -317,6 +317,13 @@ DocFX warnings are grouped by code in the console. Complete metadata and build
 diagnostics are written as JSON lines under `artifacts/docs/diagnostics/`. A
 status line is printed every 30 seconds while DocFX is running so a slow API
 pass does not appear stuck.
+
+Every `docs` path takes the exclusive DevOps execution lease
+(`artifacts/devops/leases/promotion.lock`), so a documentation build cannot run
+beside a benchmark or another exclusive command. `serve` keeps the lease until
+the server stops. A `docs` command waits up to ten minutes for the lease and,
+when it is already held, prints once which process holds it (or how many shared
+readers are active) before waiting.
 
 Generated repository copies, API, site, benchmark, and coverage output must remain generated. Change their canonical source or generator instead of patching the output.
 

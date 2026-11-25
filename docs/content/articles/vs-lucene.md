@@ -165,7 +165,7 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 | Block-join indexing (nested docs) | ✔   `writer.AddDocumentBlock()` | ✔ | ✔ | |
 | Index sort at write time | ✔   `IndexSort` / `IndexWriterConfig.IndexSort` | ❌ | ✔ | Supports numeric and string DocValues field sorts; Lucene.NET 4.8 has no native index sorting. |
 | Schema validation | ✔   `IndexSchema` / `SchemaValidationException` | ❌ | ❌ | Enforces field types and required fields during `AddDocument`. |
-| Concurrent indexing | ✔   `IndexWriter.Concurrent.*` | ✔ | ✔ | Multi-threaded doc processing |
+| Concurrent indexing | ✔   `IndexWriterConfig.IndexingConcurrency` / `AddDocumentsConcurrent` / `AddDocumentsConcurrentAsync` | ✔ | ✔ | Multi-threaded doc processing |
 | Segment merges (background) | ✔   `SegmentMerger` | ✔ | ✔ | |
 | Tiered merge policy | ✔   `TieredMergePolicy` | ✔ | ✔ | Count threshold per size tier |
 | Async indexing API | ✔   `AddDocumentAsync` / `AddDocumentsAsync` | ❌ | ❌ | LeanCorpus-native `ValueTask` indexing API; Lucene writers are synchronous. |
@@ -304,7 +304,7 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 |---|---|---|---|---|
 | FST term dictionary | ✔   `FSTBuilder` / `FSTReader` | ✔ | ✔ | |
 | BKD tree (numeric + geo) | ✔   `BKDTree` / `BKDReader` | ✔ | ✔ | |
-| HNSW vector graph | ◐   `HnswGraph` / `HnswGraphBuilder` / `HnswWriter` / `HnswReader` | ❌ | ✔ | Historical graphs remain readable; new index graph writes are retired. |
+| HNSW vector graph | ◐   `VectorGraphBuilder` / `VectorGraphWriter` / `VectorGraphReader` (historical `HnswReader`) | ❌ | ✔ | Opt-in Float32 `.vgr` graph with exact rescoring (ADR052); historical `.hnsw` graphs are read but no longer written. |
 | Block postings | ✔   `BlockPostingsWriter` / `PostingsReader` / `BlockPostingsEnum` | ✔ | ✔ | |
 | Stored fields | ✔   `StoredFieldsWriter` / `StoredFieldsReader` | ✔ | ✔ | |
 | Term vectors | ✔   `TermVectorsWriter` / `TermVectorsReader` | ✔ | ✔ | |
@@ -342,7 +342,7 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 | Background refresh loop | ✔   `SearcherManager` | ✔ | ✔ | |
 | Refresh failure tracking | ✔   `LastRefreshError` / `ConsecutiveRefreshFailures` | ❌ | ❌ | Structured refresh-error tracking and a failure event. |
 | Index deletion policies | ✔   `IIndexDeletionPolicy` / `KeepLatestCommitPolicy` / `KeepLastNCommitsPolicy` | ✔ | ✔ | |
-| Snapshot deletion policy | ✔   `IndexWriter.AcquireSnapshot()` / `ReleaseSnapshot()` | ✔ | ✔ | |
+| Snapshot deletion policy | ✔   `IndexWriter.CreateSnapshot()` / `ReleaseSnapshot()` | ✔ | ✔ | |
 | Index recovery | ✔   `IndexRecovery` | ✔ | ✔ | |
 | Live docs (deletion bitmap) | ✔   `LiveDocs` | ✔ | ✔ | |
 | Format inspection API | ✔   `IndexFormatInspector.Inspect()` | ❌ | ❌ | Structured inventory of codec versions, sidecars, and orphan files. |

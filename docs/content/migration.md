@@ -85,10 +85,11 @@ var analyser = new StandardAnalyser();
 | `StandardAnalyzer` | `StandardAnalyser` |
 | `WhitespaceAnalyzer` | Custom: `new Analyser(new WhitespaceTokenizer())` |
 | `StopAnalyzer` | Custom: `new Analyser(new Tokeniser(), new StopWordFilter(StopWords.English))` |
-| `EnglishAnalyzer` (Porter) | `StemmedAnalyser` |
+| `EnglishAnalyzer` (Porter) | `StemmerAnalyser.Porter()` (original Porter; `StemmedAnalyser` uses Porter2) |
 | `KeywordAnalyzer` | `new Analyser(new KeywordTokenizer())` |
 | `LowerCaseFilter` | `LowercaseFilter` |
 | `PorterStemFilter` | `PorterStemmerFilter` |
+| `SnowballFilter` | `StemTokenFilter` with `EnglishStemmer`, `FrenchStemmer`, `GermanStemmer` and the other official Snowball 3.2.0 stemmers |
 | `SynonymFilter` | `SynonymGraphFilter` |
 | `ShingleFilter` | `ShingleFilter` |
 
@@ -176,5 +177,4 @@ These Lucene.Net features have no LeanCorpus equivalent and no migration path:
 - `Lucene.Net.QueryParser.Flexible` (framework-based query parser)
 - `Lucene.Net.Analysis.Phonetic` (separate package; LeanCorpus has built-in Metaphone and accent folding)
 - `RAMDirectory` and `NRTCachingDirectory`
-- Snowball stemmers (LeanCorpus uses custom Snowball-inspired stemmers instead)
 - Completion, analysing, and FreeText suggesters
