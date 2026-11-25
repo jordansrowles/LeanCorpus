@@ -44,6 +44,9 @@
       }
     ],
     "output": "../../artifacts/docs/site",
+    "markdownEngineProperties": {
+      "markdigExtensions": [ "DefinitionLists" ]
+    },
     "template": [ "default", "modern", "template" ],
     "resource": [
       {

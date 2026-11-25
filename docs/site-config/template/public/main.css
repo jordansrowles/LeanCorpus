@@ -304,6 +304,30 @@ article > dl {
   max-width: 82ch;
 }
 
+body:not([data-yaml-mime="ManagedReference"]) article > dl {
+  margin: 1rem 0 2rem;
+}
+
+body:not([data-yaml-mime="ManagedReference"]) article > dl > dt {
+  margin-top: 1.15rem;
+  color: var(--bs-emphasis-color);
+  font-weight: 700;
+}
+
+body:not([data-yaml-mime="ManagedReference"]) article > dl > dt:first-child {
+  margin-top: 0;
+}
+
+body:not([data-yaml-mime="ManagedReference"]) article > dl > dd {
+  margin: .2rem 0 0;
+  padding-left: 1rem;
+  border-left: 2px solid var(--bs-border-color);
+}
+
+body:not([data-yaml-mime="ManagedReference"]) article > dl > dd > p {
+  margin: 0;
+}
+
 article h1,
 article h2,
 article h3,
