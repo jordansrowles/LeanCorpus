@@ -4,8 +4,8 @@
 
 `LeanCorpus.SourceGen` generates typed, reflection-free document maps, schemas and materialisers at build time.
 
-> [!IMPORTANT]
-> This repository preview targets `LeanCorpus` 4.0.0 and `LeanCorpus.SourceGen` 1.1.0. Core 4.0.0 is unreleased, so the installation commands cannot resolve from public NuGet until it is published. The badge above shows the latest published SourceGen version; its version is independent of Core.
+> [!NOTE]
+> `LeanCorpus.SourceGen` 1.1.0 works with `LeanCorpus` 4.0.0. Its version is independent of Core.
 
 ## Generate your first document map
 

@@ -16,8 +16,6 @@ Install the package:
 dotnet add package Rowles.Text --version 2.0.0
 ```
 
-This repository branch targets Rowles.Text 2.0.0. Check the NuGet badge above for the published package version; this documentation preview may describe APIs that are not in that package yet.
-
 Create an analyser and receive its tokens:
 
 ```csharp
@@ -94,5 +92,5 @@ Performance-sensitive changes should be checked with the registered analysis ben
 
 - Browse the [analysis guides](../../../docs/content/analysis/index.md).
 - Learn how lexicon files are used in the [lexicons README](../../../lexicons/README.md).
-- Read the Rowles.Text release notes in [changelog/text](../../../changelog/text/unreleased.md).
+- Read the Rowles.Text release notes in [changelog/text](<../../../changelog/text/2.0.0 - 2026-11-26.md>).
 - Contribute an analyser, filter, stemmer or tokeniser using [CONTRIBUTING.md](CONTRIBUTING.md).

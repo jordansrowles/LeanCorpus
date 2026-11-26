@@ -128,12 +128,12 @@ CodecKit for custom storage formats. Pluggable compression (LZ4, Snappy, Zstanda
 
 | Package | Repository version | NuGet | Description |
 |---|---|---|---|
-| **LeanCorpus** | 4.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus?style=flat)](https://www.nuget.org/packages/LeanCorpus/) | Core library. Zero dependencies. |
-| **Rowles.Text** | 2.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/Rowles.Text?style=flat)](https://www.nuget.org/packages/Rowles.Text/) | Standalone tokenisers, filters, stemmers and analysers. |
+| **LeanCorpus** | 4.0.0 | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus?style=flat)](https://www.nuget.org/packages/LeanCorpus/) | Core library. Zero dependencies. |
+| **Rowles.Text** | 2.0.0 | [![NuGet](https://img.shields.io/nuget/v/Rowles.Text?style=flat)](https://www.nuget.org/packages/Rowles.Text/) | Standalone tokenisers, filters, stemmers and analysers. |
 | **LeanCorpus.SourceGen** | 1.1.0 | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.SourceGen?style=flat)](https://www.nuget.org/packages/LeanCorpus.SourceGen/) | Roslyn source generator for typed document mapping |
-| **LeanCorpus.Compression.LZ4** | 2.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.LZ4?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.LZ4/) | LZ4 stored-field compression |
-| **LeanCorpus.Compression.Snappy** | 2.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Snappy?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Snappy/) | Snappy stored-field compression |
-| **LeanCorpus.Compression.Zstandard** | 2.0.0 (unreleased) | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Zstandard?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Zstandard/) | Zstandard stored-field compression |
+| **LeanCorpus.Compression.LZ4** | 2.0.0 | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.LZ4?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.LZ4/) | LZ4 stored-field compression |
+| **LeanCorpus.Compression.Snappy** | 2.0.0 | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Snappy?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Snappy/) | Snappy stored-field compression |
+| **LeanCorpus.Compression.Zstandard** | 2.0.0 | [![NuGet](https://img.shields.io/nuget/v/LeanCorpus.Compression.Zstandard?style=flat)](https://www.nuget.org/packages/LeanCorpus.Compression.Zstandard/) | Zstandard stored-field compression |
 
 All packages target `net10.0` and `net11.0`.
 

@@ -8,7 +8,7 @@ Read the release changelog before upgrading a deployed index.
 4. Test opening, searching and writing a copy of production data.
 5. Deploy application and package changes together, then monitor recovery and merge diagnostics.
 
-Use [CodecKit migrations](../contributors/codeckit/03-migrations.md) for binary-format work and [Changelog](../changelog/index.md) for release notes: [LeanCorpus 4.0.0](../changelog/engine/unreleased.md) and, for standalone analysis, [Rowles.Text 2.0.0](../changelog/text/unreleased.md).
+Use [CodecKit migrations](../contributors/codeckit/03-migrations.md) for binary-format work and [Changelog](../changelog/index.md) for release notes: [LeanCorpus 4.0.0](<../changelog/engine/4.0.0 - 2026-11-26.md>) and, for standalone analysis, [Rowles.Text 2.0.0](<../changelog/text/2.0.0 - 2026-11-26.md>).
 
 ## Upgrading 3.1.1 indexes to 4.0
 
@@ -132,4 +132,4 @@ wildcard, regexp and fuzzy expansions score with global document frequency,
 Boolean clause boosts apply on every path, span clauses score with their own
 term frequencies, regexp queries match whole terms, and wildcard `?` matches
 one Unicode character on every route. Compare relevance-sensitive results
-after upgrading. See the [LeanCorpus 4.0.0 release notes](../changelog/engine/unreleased.md).
+after upgrading. See the [LeanCorpus 4.0.0 release notes](<../changelog/engine/4.0.0 - 2026-11-26.md>).

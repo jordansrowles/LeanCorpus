@@ -138,6 +138,8 @@ Update the current release entry in the stream that owns the change:
 | Community Server, Orchard Search and Studio packages | `changelog/server/` |
 | Managed DevOps tooling | `changelog/devops/unreleased.md` |
 
+If a stream has no `unreleased.md` after a release, create it from that stream's `_template.md`.
+
 Analysis source is compiled into both `Rowles.Text` and LeanCorpus (ADR021), so a shared analysis change gets a complete, separately worded entry in both the engine and Text changelogs.
 
 Add an entry for:
