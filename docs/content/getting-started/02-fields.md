@@ -18,12 +18,13 @@ Built-in field types implement `IField`.
 
 ## StoreDocValues
 
-DocValues support is field-specific. Shape fields do not write DocValues in
-3.2. For fields that expose a `StoreDocValues` option, set it to `false` to
+DocValues support is field-specific. `StringField`, `NumericField`, `Int64Field`
+and the shape fields write DocValues by default; `TextField` does not. For
+fields that expose a `storeDocValues` constructor option, set it to `false` to
 skip DocValues population when the field is used only for matching:
 
 ```csharp
-doc.Add(new TextField("body", "Full text goes here", stored: false, boost: 1, storeDocValues: false));
+doc.Add(new StringField("tenant", "acme", stored: false, boost: 1, storeDocValues: false));
 ```
 Turn it off for fields you never sort, facet, collapse, or aggregate on. The inverted index still serves queries; only column-store operations are affected.
 
@@ -68,8 +69,9 @@ to index multiple points for one document. Use `XYBoundingBoxQuery`,
 `XYDistanceQuery` or `SortField.XYDistance`.
 
 `LatLonShapeField` and `XYShapeField` index built-in points, rectangles, line
-strings, polygons and geometry collections in Packed BKD. They are not stored
-and do not write DocValues in 3.2. Use `GeoShapeQuery` or `XYShapeQuery` with
+strings, polygons and geometry collections in Packed BKD. They are not stored.
+They write Shape DocValues (`.dvg`) by default for spatial metadata
+aggregations; pass `storeDocValues: false` to omit them. Use `GeoShapeQuery` or `XYShapeQuery` with
 `SpatialRelation.Intersects`, `Within`, `Contains` or `Disjoint`. Query circles
 are supported, but cannot be indexed. Shape relation rules, polygon holes,
 boundary contact and multiple-value semantics are described in the [Geo search

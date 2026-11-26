@@ -151,7 +151,7 @@ BM25 uses collection-wide statistics so scores remain comparable across segments
 | Index-sort scratch | One-term pooled document, position, payload and offset remapping buffers |
 | Packed integers | Block encoding for postings and related integer streams |
 | BKD tree | Recursive numeric-space partitioning |
-| HNSW | Historical approximate-neighbour graph; new graph creation is retired |
+| HNSW | Opt-in Float32 vector graph (`.vgr`, ADR052) that selects candidates for exact rescoring; historical `.hnsw` graphs are no longer written |
 | Roaring bitmap | Sparse and dense document-ID sets for deletions and filters |
 | DocValues | Column-oriented values for sorting, faceting, collapsing, and aggregation |
 

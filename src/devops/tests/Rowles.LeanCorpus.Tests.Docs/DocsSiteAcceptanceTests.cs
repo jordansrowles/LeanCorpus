@@ -704,6 +704,8 @@ public sealed class DocsSiteAcceptanceTests
             (Name: "api-dark", Route: "api/Rowles.LeanCorpus.Index.Indexer.IndexWriter.html", Width: DocsSiteViewports.Laptop, Height: DocsSiteViewports.Height, Dark: true)
         };
 
+        // Check every layout before failing, so one run captures each actual screenshot for baseline review.
+        var failures = new List<string>();
         foreach (var layout in layouts)
         {
             var page = await site.NewPageAsync(layout.Width, layout.Height);
@@ -727,15 +729,19 @@ public sealed class DocsSiteAcceptanceTests
                     await page.EvaluateAsync("window.scrollTo(0, 0)");
                 }
 
+                // The search box stays disabled, with a grey background, until the search index loads.
+                await page.WaitForFunctionAsync("() => { const search = document.getElementById('search-query'); return !search || !search.disabled; }");
                 await page.WaitForTimeoutAsync(100);
                 await AssertVisualBaselineAsync(site, page, layout.Name);
             }
-            catch
+            catch (Exception ex)
             {
                 await site.CaptureFailureAsync(page, $"VisualBaseline_{layout.Name}");
-                throw;
+                failures.Add($"{layout.Name}: {ex.Message}");
             }
         }
+
+        Assert.True(failures.Count == 0, string.Join(Environment.NewLine, failures));
     }
 
     private static async Task AssertVisualBaselineAsync(BrowserSite site, IPage page, string name)

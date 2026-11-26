@@ -46,7 +46,7 @@ Required fields throw regardless of mode. Type mismatches always throw.
 A `FieldMapping` can override the writer's default analyser:
 
 ```csharp
-new FieldMapping("title", FieldType.Text) { Analyser = new EnglishStemmerAnalyser() }
+new FieldMapping("title", FieldType.Text) { Analyser = new StemmedAnalyser() }
 ```
 
 ## See also

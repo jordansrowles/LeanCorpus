@@ -141,6 +141,48 @@ public class CrashRecoveryTests : IDisposable
     [Fact(DisplayName = "Recovery: missing selected deletion file rejects latest commit")]
     public void RecoverLatestCommit_MissingSelectedDeletionFile_FallsBackToPriorValidCommit()
     {
+        var (deletedSegment, deletionGeneration) = WriteThreeCommitsDeletingVictim();
+        string selectedDeletionPath = Path.Combine(
+            _dir,
+            $"{deletedSegment.SegmentId}_gen_{deletionGeneration}.del");
+        Assert.True(File.Exists(selectedDeletionPath));
+        File.Delete(selectedDeletionPath);
+
+        IndexRecovery.RecoveryResult recovery = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false)
+            ?? throw new InvalidOperationException("Expected the earlier valid commit to remain recoverable.");
+
+        Assert.True(recovery.WasFallback);
+        Assert.Equal(2, recovery.Generation);
+        Assert.Equal(2, recovery.SegmentIds.Count);
+
+        using var fallbackSearcher = new IndexSearcher(new MMapDirectory(_dir));
+        Assert.Equal(1, fallbackSearcher.Search(new TermQuery("body", "victim"), 10, TestContext.Current.CancellationToken).TotalHits);
+    }
+
+    [Fact(DisplayName = "Recovery: unselected deletion generation does not reject latest commit")]
+    public void RecoverLatestCommit_UnreadableUnselectedDeletionGeneration_KeepsLatestCommit()
+    {
+        // A superseded generation can be pruned, or a pending one torn, while a reader validates the
+        // commit. Neither belongs to the commit, so neither may make recovery reject it.
+        var (deletedSegment, deletionGeneration) = WriteThreeCommitsDeletingVictim();
+        File.WriteAllBytes(
+            Path.Combine(_dir, $"{deletedSegment.SegmentId}_gen_{deletionGeneration + 1}.del"),
+            [0x4c, 0x43, 0x01, 0x02, 0x03]);
+
+        IndexRecovery.RecoveryResult recovery = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false)
+            ?? throw new InvalidOperationException("Expected the latest commit to remain recoverable.");
+
+        Assert.False(recovery.WasFallback);
+        Assert.Equal(3, recovery.Generation);
+
+        using var searcher = new IndexSearcher(new MMapDirectory(_dir));
+        Assert.Equal(0, searcher.Search(new TermQuery("body", "victim"), 10, TestContext.Current.CancellationToken).TotalHits);
+    }
+
+    // Commits one document, then a second, then deletes the second, and returns the segment whose
+    // deletion generation the latest commit selects.
+    private (SegmentInfo Segment, int DeletionGeneration) WriteThreeCommitsDeletingVictim()
+    {
         var config = new IndexWriterConfig
         {
             DeletionPolicy = new KeepLastNCommitsPolicy(3),
@@ -165,21 +207,7 @@ public class CrashRecoveryTests : IDisposable
             .Single(static segment => segment.LiveDocCount < segment.DocCount);
         int deletionGeneration = deletedSegment.DelGeneration
             ?? throw new InvalidOperationException("The latest commit did not select a deletion generation.");
-        string selectedDeletionPath = Path.Combine(
-            _dir,
-            $"{deletedSegment.SegmentId}_gen_{deletionGeneration}.del");
-        Assert.True(File.Exists(selectedDeletionPath));
-        File.Delete(selectedDeletionPath);
-
-        IndexRecovery.RecoveryResult recovery = IndexRecovery.RecoverLatestCommit(_dir, cleanupOrphans: false)
-            ?? throw new InvalidOperationException("Expected the earlier valid commit to remain recoverable.");
-
-        Assert.True(recovery.WasFallback);
-        Assert.Equal(2, recovery.Generation);
-        Assert.Equal(2, recovery.SegmentIds.Count);
-
-        using var fallbackSearcher = new IndexSearcher(new MMapDirectory(_dir));
-        Assert.Equal(1, fallbackSearcher.Search(new TermQuery("body", "victim"), 10, TestContext.Current.CancellationToken).TotalHits);
+        return (deletedSegment, deletionGeneration);
     }
 
     [Fact(DisplayName = "Recovery: corrupt optional codec file falls back and reports fallback")]

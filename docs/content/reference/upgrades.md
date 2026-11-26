@@ -92,6 +92,38 @@ Inspection records observed legacy segments in
 Term score explanations also include the warning for an unmarked segment,
 without changing the score. See [ADR043](../articles/ADRs/ADR043-position-increments-survive-token-removal.md).
 
+## Stemmers and analysis identities
+
+LeanCorpus 4.0 and Rowles.Text 2.0 run the official Snowball 3.2.0 algorithms
+for the English (Porter2), French, German, Spanish, Italian, Portuguese, Dutch,
+Russian and Arabic stemmers. The 3.x stemmers differed from Snowball on between
+2,251 (English) and 21,120 (Dutch) words of the published word lists, so many
+stems change. `StemmedAnalyser` moves from the original Porter algorithm to
+Porter2; `StemmerAnalyser.Porter()` and `PorterStemmerFilter` keep the original
+algorithm. The German stop words also gained `ans`, `aufs`, `ins` and `vom`.
+Fields analysed with any of these must be reindexed from source for queries to
+match old and new documents consistently. Stemming for these languages is also
+slower than in 3.x, which is the cost of matching Snowball exactly. See
+[ADR050](../articles/ADRs/ADR050-snowball-stemmers-and-analysis-identities.md).
+
+Each 4.0 commit records the analysis identity of every analysed field, and
+`IndexWriter` refuses to analyse a field whose identity would change, with
+`AnalysisIdentityMismatchException`. An index written before 4.0 has no
+recorded identities, and codec migration carries them over unchanged, so a
+migrated 3.1.1 index has none either. The writer therefore refuses to analyse
+any field into it. Either:
+
+- reindex from the original text into a new 4.0 index (recommended, and
+  required anyway for corrected stems and stop-word positions); or
+- set `IndexWriterConfig.AcceptAnalysisIdentityChanges = true` to record the
+  current identities and keep writing. Existing terms are not reanalysed, so
+  old and new documents keep their different stems and positions.
+
+Check a query analyser against an index with
+`IndexAnalysisIdentities.EnsureCompatible(directory, field, analyser)`. See
+[Analysis identities and reindexing](../analysis/01-analysers.md#analysis-identities-and-reindexing)
+and [ADR051](../articles/ADRs/ADR051-index-analysis-identity-enforcement.md).
+
 ## Score and result changes without reindexing
 
 Some 4.0 query changes alter scores, rankings or matches on existing indexes

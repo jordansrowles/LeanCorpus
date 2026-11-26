@@ -20,7 +20,7 @@ Use this section after ordinary indexing and searching work. Read the result-sha
 | [Vector search](05-vector-search.md) | Exact cosine search over new Float32 indexes and decoded historical Int8 data | Semantic search, embeddings, similarity |
 | [Filtered vector search](08-filtered-vector-search.md) | Exact vector scoring over matching live documents | Scoped semantic search |
 
-New Int8 and HNSW graph writes are retired for 4.0. Historical Int8 remains readable; historical BBQ remains readable with its existing scorer, but any index containing BBQ is read-only. See the [vector search guide](05-vector-search.md) and [ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md).
+New Int8 and `.hnsw` graph writes are retired for 4.0. An opt-in Float32 vector graph (`.vgr`) can select candidates for exact rescoring instead; see [Optional vector graph](05-vector-search.md#optional-vector-graph) and [ADR052](../articles/ADRs/ADR052-float32-vector-graph.md). Historical Int8 remains readable; historical BBQ remains readable with its existing scorer, but any index containing BBQ is read-only. See the [vector search guide](05-vector-search.md) and [ADR042](../articles/ADRs/ADR042-bbq-v3-osq-canonical-int8.md).
 
 ## Specialised queries
 

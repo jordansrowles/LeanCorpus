@@ -19,8 +19,8 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 | Whitespace analyser | ✔   `WhitespaceAnalyser` | ✔ | ✔ | Lucene: `WhitespaceAnalyzer` |
 | Simple analyser | ✔   `SimpleAnalyser` | ✔ | ✔ | Lucene: `SimpleAnalyzer`; letter-only and lowercase |
 | Keyword analyser | ✔   `KeywordAnalyser` | ✔ | ✔ | Lucene: `KeywordAnalyzer`; single-token passthrough |
-| Stemmed analyser | ✔   `StemmedAnalyser` | ◐ | ◐ | Wraps any `IStemmer`; Lucene composes an `Analyzer` with stemming filters. |
-| Language analyser (per-language pipelines) | ✔   `LanguageAnalyser` | ✔ | ✔ | Lucene language-specific `Analyzer` implementations; EN, FR, DE, ES, IT, PT, NL, RU, AR, ZH, JA, KO |
+| Stemmed analyser | ✔   `StemmerAnalyser` / `StemmedAnalyser` | ◐ | ◐ | `StemmerAnalyser` wraps any `ISpanStemmer`; `StemmedAnalyser` is the English Porter2 pipeline. Lucene composes an `Analyzer` with stemming filters. |
+| Language analyser (per-language pipelines) | ✔   `LanguageAnalyser` | ✔ | ✔ | Lucene language-specific `Analyzer` implementations; EN, FR, DE, ES, IT, PT, NL, RU, AR, SK, ZH, JA, KO |
 | ICU analyser (ICU tokenisation) | ✔   `IcuAnalyser` / `IcuTokeniser` | ✔ | ✔ | Unicode segmenter-backed |
 | Custom analyser composition | ✔   `Analyser` / `AnalyserFactory` | ✔ | ✔ | |
 | Per-field analyser overrides | ✔   `IndexWriterConfig.FieldAnalysers` | ✔ | ✔ | |
@@ -165,7 +165,7 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 | Block-join indexing (nested docs) | ✔   `writer.AddDocumentBlock()` | ✔ | ✔ | |
 | Index sort at write time | ✔   `IndexSort` / `IndexWriterConfig.IndexSort` | ❌ | ✔ | Supports numeric and string DocValues field sorts; Lucene.NET 4.8 has no native index sorting. |
 | Schema validation | ✔   `IndexSchema` / `SchemaValidationException` | ❌ | ❌ | Enforces field types and required fields during `AddDocument`. |
-| Concurrent indexing | ✔   `IndexWriter.Concurrent.*` | ✔ | ✔ | Multi-threaded doc processing |
+| Concurrent indexing | ✔   `IndexWriterConfig.IndexingConcurrency` / `AddDocumentsConcurrent` / `AddDocumentsConcurrentAsync` | ✔ | ✔ | Multi-threaded doc processing |
 | Segment merges (background) | ✔   `SegmentMerger` | ✔ | ✔ | |
 | Tiered merge policy | ✔   `TieredMergePolicy` | ✔ | ✔ | Count threshold per size tier |
 | Async indexing API | ✔   `AddDocumentAsync` / `AddDocumentsAsync` | ❌ | ❌ | LeanCorpus-native `ValueTask` indexing API; Lucene writers are synchronous. |
@@ -302,9 +302,9 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 
 | Feature | In LeanCorpus | In Lucene.NET | In Lucene (Java) | Notes |
 |---|---|---|---|---|
-| FST term dictionary | ✔   `FSTBuilder` / `FSTReader` | ✔ | ✔ | |
-| BKD tree (numeric + geo) | ✔   `BKDTree` / `BKDReader` | ✔ | ✔ | |
-| HNSW vector graph | ◐   `HnswGraph` / `HnswGraphBuilder` / `HnswWriter` / `HnswReader` | ❌ | ✔ | Historical graphs remain readable; new index graph writes are retired. |
+| FST term dictionary | ✔   `FstBuilder` / `FstReader` | ✔ | ✔ | |
+| BKD tree (numeric + geo) | ✔   `BKDWriter` / `BKDReader` | ✔ | ✔ | |
+| HNSW vector graph | ◐   `VectorGraphBuilder` / `VectorGraphWriter` / `VectorGraphReader` (historical `HnswReader`) | ❌ | ✔ | Opt-in Float32 `.vgr` graph with exact rescoring (ADR052); historical `.hnsw` graphs are read but no longer written. |
 | Block postings | ✔   `BlockPostingsWriter` / `PostingsReader` / `BlockPostingsEnum` | ✔ | ✔ | |
 | Stored fields | ✔   `StoredFieldsWriter` / `StoredFieldsReader` | ✔ | ✔ | |
 | Term vectors | ✔   `TermVectorsWriter` / `TermVectorsReader` | ✔ | ✔ | |
@@ -316,7 +316,7 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 | Snappy codec (optional package) | ✔   `Rowles.LeanCorpus.Compression.Snappy` | ❌ | ❌ | Optional extension package with zero-change registration. |
 | Zstandard codec (optional package) | ✔   `Rowles.LeanCorpus.Compression.Zstandard` | ❌ | ❌ | Optional extension package with zero-change registration. |
 | Compound file (.cfs/.cfe) | ✔   `IndexWriterConfig.UseCompoundFile` | ✔ | ✔ | Immutable codec members are packed into `.cfs` and opened through memory-mapped slices; deletion and segment-statistics files remain separate. |
-| SIMD vector ops (AVX-512) | ✔   `SimdIntrinsicsVectorOps` | ❌ | ◐ | Hand-written AVX-512 cosine and dot-product paths through .NET intrinsics; Java Lucene has platform-vectorised implementations but not this .NET API. |
+| SIMD vector ops (AVX-512) | ✔   `SimdVectorOps` | ❌ | ◐ | Hand-written AVX-512 cosine and dot-product paths through .NET intrinsics; Java Lucene has platform-vectorised implementations but not this .NET API. |
 | Roaring bitmap | ✔   `RoaringBitmap` | ❌ | ◐ | Java Lucene exposes `RoaringDocIdSet`, not the same public bitmap abstraction. |
 | Per-field stored-field compression selection | ✔   `FieldCompressionPolicy` | ❌ | ❌ | Compression policy is selected per stored field; Lucene stored-field compression is selected at codec or segment level. |
 | Postings format variants (Direct, BlockTree) | ❌ | ✔ | ✔ | Backlog |
@@ -342,7 +342,7 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 | Background refresh loop | ✔   `SearcherManager` | ✔ | ✔ | |
 | Refresh failure tracking | ✔   `LastRefreshError` / `ConsecutiveRefreshFailures` | ❌ | ❌ | Structured refresh-error tracking and a failure event. |
 | Index deletion policies | ✔   `IIndexDeletionPolicy` / `KeepLatestCommitPolicy` / `KeepLastNCommitsPolicy` | ✔ | ✔ | |
-| Snapshot deletion policy | ✔   `IndexWriter.AcquireSnapshot()` / `ReleaseSnapshot()` | ✔ | ✔ | |
+| Snapshot deletion policy | ✔   `IndexWriter.CreateSnapshot()` / `ReleaseSnapshot()` | ✔ | ✔ | |
 | Index recovery | ✔   `IndexRecovery` | ✔ | ✔ | |
 | Live docs (deletion bitmap) | ✔   `LiveDocs` | ✔ | ✔ | |
 | Format inspection API | ✔   `IndexFormatInspector.Inspect()` | ❌ | ❌ | Structured inventory of codec versions, sidecars, and orphan files. |
@@ -423,7 +423,7 @@ Lucene (Java) refers to Lucene 10.6.0. Last audited on 18 November 2026.
 | Geo bounding box query | ✔   `GeoBoundingBoxQuery` | ✔ | ✔ | |
 | Geo distance query | ✔   `GeoDistanceQuery` | ✔ | ✔ | |
 | Geo encoding utilities | ✔   `GeoEncodingUtils` | ✔ | ✔ | |
-| LatLonPoint (BKD-backed lat/lon) | ◐   `GeoPointField` + `BKDTree` | ❌ | ✔ | LeanCorpus provides equivalent point indexing under a different field API; Lucene.NET 4.8 predates `LatLonPoint`. |
+| LatLonPoint (BKD-backed lat/lon) | ◐   `GeoPointField` + BKD tree | ❌ | ✔ | LeanCorpus provides equivalent point indexing under a different field API; Lucene.NET 4.8 predates `LatLonPoint`. |
 | Lat/lon shape field and queries | ◐   Geo shape fields | ❌ | ✔ | Constant-score shape relations over Packed BKD; Lucene (Java): `LatLonShape`. |
 | Cartesian shapes | ◐   XY shape fields | ❌ | ✔ | Lucene (Java): `XYShape`. |
 | Polygon / line string spatial | ✔ | ◐ | ✔ | Lucene.NET offers comparable Spatial4n strategies rather than Java Lucene's BKD shape API. |

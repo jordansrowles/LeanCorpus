@@ -65,7 +65,7 @@ An indexing call does not imply a commit. On exception:
 1. record the source checkpoint or failed document;
 2. decide whether to retry that unit;
 3. commit only the accepted work the application wants to retain;
-4. use `Rollback()` when the whole uncommitted writer session must be abandoned.
+4. to abandon everything since the last commit, dispose the writer without committing. `Rollback()` discards only a commit staged by `PrepareCommit()`.
 
 Do not blindly retry a batch unless the source operation is idempotent or documents have stable update keys.
 

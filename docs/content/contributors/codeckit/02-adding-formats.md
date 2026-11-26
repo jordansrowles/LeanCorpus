@@ -122,7 +122,7 @@ A persistent format is complete only when all applicable surfaces agree:
 
 ## Built-in Shape DocValues format
 
-LeanCorpus 3.2 adds `leancorpus.doc-values.shape` to the existing
+LeanCorpus 4.0 adds `leancorpus.doc-values.shape` to the existing
 `leancorpus.doc-values` family. It uses the `.dvg` extension, format version 1,
 random access, canonical LCCF v1 framing and xxHash64. It has no legacy framing
 or migration because no released Shape DocValues format predates it. The

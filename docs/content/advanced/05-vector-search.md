@@ -115,8 +115,9 @@ Costs and limits:
 - An index with `.vgr` files needs LeanCorpus 4.0 or later. No migration is
   needed: an index without graphs is unchanged, and graphs are added as
   segments are flushed or merged with the option enabled.
-- A corrupt graph is never used. Index checks report it as LLIDX054, and
-  queries scan that segment exactly until a merge rebuilds it.
+- A corrupt graph is never used. Index checks report a missing declared graph
+  as LLIDX053 and an unreadable or invalid one as LLIDX054, and queries scan
+  that segment exactly until a merge rebuilds it.
 - Float32 vector values and graph level zero are read through mapped files and
   do not count against `IndexSearcherConfig.MaxCachedSegmentReaderBytes`;
   `IndexSearcher.SegmentReaderCacheMetrics.MappedVectorBytes` reports them. A

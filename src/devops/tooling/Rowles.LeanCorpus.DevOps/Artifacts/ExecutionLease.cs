@@ -26,14 +26,21 @@ internal sealed class ExecutionLease : IAsyncDisposable, IDisposable
     public static Task<ExecutionLease> AcquireSharedAsync(
         string repositoryRoot,
         TimeSpan waitTimeout,
-        CancellationToken cancellationToken = default)
-        => AcquireAsync(repositoryRoot, ExecutionLeaseKind.Shared, waitTimeout, cancellationToken);
+        CancellationToken cancellationToken = default,
+        Action<string>? onWaiting = null)
+        => AcquireAsync(repositoryRoot, ExecutionLeaseKind.Shared, waitTimeout, onWaiting, cancellationToken);
 
+    /// <summary>Acquires the exclusive lease, waiting up to <paramref name="waitTimeout"/>.</summary>
+    /// <param name="onWaiting">
+    /// Called once, with a message naming the holder, the first time the lease is found to be held,
+    /// so a caller can say why it is waiting instead of appearing to hang.
+    /// </param>
     public static Task<ExecutionLease> AcquireExclusiveAsync(
         string repositoryRoot,
         TimeSpan waitTimeout,
-        CancellationToken cancellationToken = default)
-        => AcquireAsync(repositoryRoot, ExecutionLeaseKind.Exclusive, waitTimeout, cancellationToken);
+        CancellationToken cancellationToken = default,
+        Action<string>? onWaiting = null)
+        => AcquireAsync(repositoryRoot, ExecutionLeaseKind.Exclusive, waitTimeout, onWaiting, cancellationToken);
 
     public void Dispose()
     {
@@ -53,6 +60,7 @@ internal sealed class ExecutionLease : IAsyncDisposable, IDisposable
         string repositoryRoot,
         ExecutionLeaseKind kind,
         TimeSpan waitTimeout,
+        Action<string>? onWaiting,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
@@ -67,6 +75,15 @@ internal sealed class ExecutionLease : IAsyncDisposable, IDisposable
         var deadline = Stopwatch.StartNew();
         string? acquiredPath = null;
         var ownsPromotionGate = false;
+        var waitReported = false;
+        void ReportWait()
+        {
+            if (waitReported || onWaiting is null)
+                return;
+            waitReported = true;
+            onWaiting(DescribeWait(kind, waitTimeout, leaseDirectory, promotionPath, ownsPromotionGate));
+        }
+
         try
         {
             while (deadline.Elapsed < waitTimeout)
@@ -78,6 +95,7 @@ internal sealed class ExecutionLease : IAsyncDisposable, IDisposable
                 {
                     if (File.Exists(promotionPath))
                     {
+                        ReportWait();
                         await DelayOrTimeoutAsync(deadline, waitTimeout, cancellationToken).ConfigureAwait(false);
                         continue;
                     }
@@ -101,6 +119,7 @@ internal sealed class ExecutionLease : IAsyncDisposable, IDisposable
                     }
                     catch (IOException) when (File.Exists(promotionPath))
                     {
+                        ReportWait();
                         await DelayOrTimeoutAsync(deadline, waitTimeout, cancellationToken).ConfigureAwait(false);
                         continue;
                     }
@@ -111,6 +130,7 @@ internal sealed class ExecutionLease : IAsyncDisposable, IDisposable
                     return new ExecutionLease(promotionPath, kind);
                 }
 
+                ReportWait();
                 await DelayOrTimeoutAsync(deadline, waitTimeout, cancellationToken).ConfigureAwait(false);
             }
 
@@ -129,6 +149,42 @@ internal sealed class ExecutionLease : IAsyncDisposable, IDisposable
             }
 
             throw;
+        }
+    }
+
+    /// <summary>Describes who holds the lease a caller is about to wait for.</summary>
+    internal static string DescribeWait(
+        ExecutionLeaseKind kind, TimeSpan waitTimeout, string leaseDirectory, string promotionPath, bool ownsPromotionGate)
+    {
+        string holder;
+        if (!ownsPromotionGate && TryReadMarker(promotionPath, out var marker))
+        {
+            holder = $"held exclusively by process {marker.ProcessId} (started {marker.ProcessStartedUtc:u})";
+        }
+        else
+        {
+            int readers = Directory.EnumerateFiles(leaseDirectory, "reader-*.json").Count();
+            holder = readers == 1 ? "held by 1 shared reader" : $"held by {readers} shared readers";
+        }
+
+        return $"Waiting up to {waitTimeout:g} for the {kind.ToString().ToLowerInvariant()} DevOps execution lease, {holder} ({promotionPath}).";
+    }
+
+    private static bool TryReadMarker(string path, out LeaseMarker marker)
+    {
+        marker = null!;
+        try
+        {
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+            var read = JsonSerializer.Deserialize<LeaseMarker>(stream);
+            if (read is null)
+                return false;
+            marker = read;
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return false;
         }
     }
 

@@ -22,12 +22,18 @@ Activities are only allocated when a listener is attached.
 
 ## Metrics
 
-`leancorpus.search.duration`, `leancorpus.search.count`, `leancorpus.cache.hits`, `leancorpus.cache.misses`, `leancorpus.index.flush.duration`, `leancorpus.index.merge.duration`, `leancorpus.index.merge.segments`, `leancorpus.index.commit.duration`, `leancorpus.vector.search.exact_scans`, `leancorpus.vector.search.exact_scanned_vectors`, `leancorpus.vector.search.retired_hnsw_exact_scans`, `leancorpus.hnsw.search.duration`, `leancorpus.hnsw.search.nodes_visited`, `leancorpus.hnsw.build.duration`, `leancorpus.hnsw.build.nodes`.
+`leancorpus.search.duration`, `leancorpus.search.count`, `leancorpus.cache.hits`, `leancorpus.cache.misses`, `leancorpus.index.flush.duration`, `leancorpus.index.merge.duration`, `leancorpus.index.merge.segments`, `leancorpus.index.commit.duration`, `leancorpus.store.sync.duration`, `leancorpus.store.sync.bytes`, `leancorpus.store.sync.files`, `leancorpus.vector.search.exact_scans`, `leancorpus.vector.search.exact_scanned_vectors`, `leancorpus.vector.search.retired_hnsw_exact_scans`, `leancorpus.vector.search.routes`, `leancorpus.vector.graph.wasted_evaluations`, `leancorpus.vector.graph.wasted_duration`, `leancorpus.vector.graph.builds_skipped`, `leancorpus.hnsw.search.duration`, `leancorpus.hnsw.search.nodes_visited`, `leancorpus.hnsw.search.scanned_vectors`, `leancorpus.hnsw.search.exhaustive_fallbacks`, `leancorpus.hnsw.search.selective_filter_scans`, `leancorpus.hnsw.search.selective_filter_vectors_scanned`, `leancorpus.hnsw.build.duration`, `leancorpus.hnsw.build.nodes`.
 
-The vector counters report intentional exact scans. The retired-HNSW counter
-identifies exact scans where a historical graph was present and ignored.
-HNSW instruments remain for historical BBQ query execution and diagnostic
-compatibility.
+The `store.sync` instruments time and count durable file synchronisation. The
+vector counters report intentional exact scans. The retired-HNSW counter
+identifies exact scans where a historical `.hnsw` graph was present and ignored.
+`leancorpus.vector.search.routes` counts Float32 vector query segments by the
+`route` tag; every route except `Graph` is an exact scan. The
+`vector.graph` instruments report traversals discarded for an exact fallback
+and flushes or merges that wrote a field without its requested graph (tag
+`reason`). The `hnsw` instruments record traversals and builds of the opt-in
+Float32 vector graph (`.vgr`, ADR052) as well as historical BBQ query
+execution.
 
 ## Wire it up
 

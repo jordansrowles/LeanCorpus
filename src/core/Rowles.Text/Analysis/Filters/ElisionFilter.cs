@@ -27,8 +27,6 @@ public sealed class ElisionFilter : ISpanTokenFilter
     }
 
     /// <inheritdoc/>
-
-    /// <inheritdoc/>
     public void Apply(
         ReadOnlySpan<char> text,
         int startOffset,

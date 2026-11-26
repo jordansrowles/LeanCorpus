@@ -119,11 +119,14 @@ Geo queries compose with text queries via `BooleanQuery`:
 ```csharp
 var bq = new BooleanQuery.Builder()
     .Add(new TermQuery("category", "restaurant"), Occur.Must)
-    .Add(new GeoDistanceQuery("location", 51.5, -0.12, 1000), Occur.Filter)
+    .Add(new ConstantScoreQuery(new GeoDistanceQuery("location", 51.5, -0.12, 1000), score: 0f), Occur.Must)
     .Build();
 ```
 
-Use `Occur.Filter` for geo clauses that should restrict results without affecting the BM25 score.
+A geo query scores every match with its boost (1.0 by default), so as a plain
+`Must` clause it adds the same amount to every result. Wrap it in
+`ConstantScoreQuery` with a score of 0, as above, to restrict results without
+changing the BM25 score.
 
 ## Encoding
 

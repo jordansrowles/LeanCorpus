@@ -19,8 +19,6 @@ public sealed class LimitTokenCountFilter : ISpanTokenFilter
     }
 
     /// <inheritdoc/>
-
-    /// <inheritdoc/>
     public void Apply(
         ReadOnlySpan<char> text,
         int startOffset,

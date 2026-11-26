@@ -169,8 +169,11 @@ public sealed partial class SegmentReader : IDisposable
         CompressionCodecRegistry.MarkIndexOpened();
         var descriptor = new SegmentDescriptor(info);
         var segmentId = descriptor.SegmentId;
+        int? selectedGeneration = descriptor.DelGeneration;
         var snapshot = directory.AcquireSnapshot(
-            name => IsSegmentFile(segmentId, name), out _);
+            name => IsSegmentFile(segmentId, name)
+                && !SegmentFileSet.IsUnselectedGenerationFile(segmentId, name, selectedGeneration, codecCatalog),
+            out _);
         try
         {
             ValidateRequiredFiles(directory, descriptor);

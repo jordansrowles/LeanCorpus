@@ -347,9 +347,10 @@ public sealed partial class IndexSearcher : IDisposable
             try
             {
                 _readers.Clear();
-                var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
+                var selectedGenerations = SelectedGenerations(
+                    segmentInfos.Select(static info => (info.SegmentId, info.DelGeneration)));
                 attemptSnapshot = directory.AcquireSnapshot(
-                    name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out _);
+                    name => SegmentFileSet.IsSnapshotFile(name, selectedGenerations, config.CodecCatalog), out _);
                 foreach (var info in segmentInfos)
                     _readers.Add(new SegmentReader(
                         directory, info, _segmentReaderCache, config.CodecCatalog));
@@ -471,10 +472,10 @@ public sealed partial class IndexSearcher : IDisposable
             config.CodecCatalog);
         try
         {
-            var segmentIds = segments.Select(static segment => segment.SegmentId).ToList();
-            var idSet = new HashSet<string>(segmentIds, StringComparer.Ordinal);
+            var selectedGenerations = SelectedGenerations(
+                segments.Select(static segment => (segment.SegmentId, segment.DelGeneration)));
             _snapshotLease = directory.AcquireSnapshot(
-                name => SegmentFileSet.IsSnapshotFile(name, idSet, config.CodecCatalog), out _);
+                name => SegmentFileSet.IsSnapshotFile(name, selectedGenerations, config.CodecCatalog), out _);
             foreach (var descriptor in segments)
                 _readers.Add(new SegmentReader(
                     directory, descriptor, _segmentReaderCache, config.CodecCatalog));
@@ -508,6 +509,17 @@ public sealed partial class IndexSearcher : IDisposable
     {
         ArgumentNullException.ThrowIfNull(segments);
         return segments.ToArray();
+    }
+
+    // The snapshot leases each segment's files at its selected deletion generation only: superseded
+    // generations can be pruned at any moment and are never read through this searcher.
+    private static Dictionary<string, int?> SelectedGenerations(
+        IEnumerable<(string SegmentId, int? DelGeneration)> segments)
+    {
+        var selected = new Dictionary<string, int?>(StringComparer.Ordinal);
+        foreach (var (segmentId, delGeneration) in segments)
+            selected[segmentId] = delGeneration;
+        return selected;
     }
 
     private int[] AssignDocBases()

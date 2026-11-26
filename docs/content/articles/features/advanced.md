@@ -13,7 +13,7 @@ Return to the [feature comparison overview](index.md) for status definitions and
 | --- | :---: | :---: | :---: | --- |
 | Float-vector fields and k-nearest-neighbour queries | ✔ | ❌ | ✔ | Exact cosine search over stored Float32 vectors. |
 | Filtered vector kNN | ✔ | ❌ | ✔ | Exact scan of documents matching the filter. |
-| HNSW build configuration | ◐ | ❌ | ◐ | Historical graph readers remain; new graph writes are retired. |
+| HNSW build configuration | ◐ | ❌ | ◐ | Drives the opt-in Float32 vector graph (`BuildHnswOnFlush`, `.vgr`); historical `.hnsw` graphs are read but no longer written. |
 | Vector normalisation | ✔ | ❌ | ◐ | Optional index-time L2 normalisation. |
 | Int8 vector quantisation; historical BBQ read support | ◐ | ❌ | ✔ | Historical Int8 and BBQ data can be read; new Int8 writes are retired and BBQ-containing indexes are read-only. |
 | Four-bit and product quantisation | ❌ | ❌ | ✔ | Not currently available. |

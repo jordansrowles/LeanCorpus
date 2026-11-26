@@ -149,11 +149,11 @@ Focused vector tests additionally cover Int8 structural migration and BBQ
 migration denials. The resulting `.vec` v2 and `.vq` v3 formats are one-way
 persisted-format boundaries; a 3.1.1 reader is not expected to open them.
 
-Regenerate deliberately with `./devops data fixtures --version 3.1.1
+Regenerate deliberately with `./devops fixtures generate --version 3.1.1
 --scenario migration` using the pinned SDK and the isolated package source.
-`./devops data fixtures --list` also lists the sparse HNSW migration scenario.
-The deprecated `data migration-fixtures-311` alias remains during migration to
-the catalog command. Ordinary tests never invoke a generator or download the
+`./devops fixtures list` also lists the sparse HNSW migration scenario.
+The deprecated `data fixtures` and `data migration-fixtures-311` routes remain
+as aliases. Ordinary tests never invoke a generator or download the
 historical package. See `src/devops/tests/fixtures/historical/README.md` for both scenarios,
 package and assembly pins, and archive generation details.
 

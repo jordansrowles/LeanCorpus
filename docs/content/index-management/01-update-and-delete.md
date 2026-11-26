@@ -107,7 +107,7 @@ Reduce the number of segments in the index:
 writer.ForceMerge(maxSegments: 1);
 ```
 
-`ForceMerge` consolidates segments down to `maxSegments`. A single-segment merge eliminates all deleted documents and produces the smallest possible index. Merges are I/O-intensive — call during maintenance windows, not on every commit.
+`ForceMerge` consolidates segments down to `maxSegments`. A single-segment merge eliminates all deleted documents and produces the smallest possible index. Merges are I/O-intensive, so call it during maintenance windows, not on every commit.
 
 
 ## See also

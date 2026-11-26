@@ -9,14 +9,14 @@ using Rowles.LeanCorpus.Search.Scoring;
 
 var sort = new[]
 {
-    new SortField("price", SortFieldType.Double, descending: false),
-    new SortField("id",    SortFieldType.String, descending: false),
+    SortField.Numeric("price"),
+    SortField.String("id"),
 };
 
 var hits = searcher.Search(new TermQuery("category", "books"), 10, sort);
 ```
 
-Sort field types: `Score`, `String`, `Long`, `Int`, `Double`, `Float`.
+Sort field types (`SortFieldType`): `Score`, `DocId`, `Numeric`, `Int64`, `String`, `GeoDistance` and `XYDistance`. Use the `SortField.Numeric`, `Int64`, `String`, `SortedNumeric`, `SortedInt64`, `GeoDistance` and `XYDistance` factories; the distance sorts take an origin.
 
 ## Index-time sort
 
@@ -26,7 +26,7 @@ Sort field types: `Score`, `String`, `Long`, `Int`, `Double`, `Float`.
 var config = new IndexWriterConfig
 {
     IndexSort = new IndexSort(
-        new SortField("publishedAt", SortFieldType.Long, descending: true))
+        SortField.Int64("publishedAt", descending: true))
 };
 ```
 

@@ -4,120 +4,137 @@ Every codec implements `ICodec<T>` through two methods, encode and decode. Codec
 
 ## Primitives
 
-Leaf codecs for individual values. All in `Rowles.LeanCorpus.Codecs.CodecKit.Primitives`.
+Leaf codecs for individual values. The primitive types themselves are internal; use them through the static members of `Codec` (namespace `Rowles.LeanCorpus.Codecs.CodecKit`).
 
 ```csharp
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Primitives;
 
 // Encode a single int
-byte[] bytes = Codec.EncodeToArray(Int32LECodec.Instance, 42);
+byte[] bytes = Codec.EncodeToArray(Codec.Int32LE, 42);
 
 // Decode it back
-int value = Codec.Decode<int>(Int32LECodec.Instance, bytes);
+int value = Codec.Decode(Codec.Int32LE, bytes);
 ```
 
 Available primitives:
 
-| Codec | Wire format |
+| Member | Wire format |
 |---|---|
-| `Int8Codec`, `UInt8Codec` | Single byte |
-| `Int16LECodec`, `UInt16LECodec` | 2 bytes, little-endian |
-| `Int32LECodec`, `UInt32LECodec` | 4 bytes, little-endian |
-| `Int64LECodec`, `UInt64LECodec` | 8 bytes, little-endian |
-| `Float32LECodec`, `Float64LECodec` | IEEE 754, little-endian |
-| `VarInt32Codec`, `VarUInt32Codec` | Variable-length integer |
-| `VarInt64Codec`, `VarUInt64Codec` | Variable-length long |
-| `BoolCodec` | Single byte (`0x00` / `0x01`) |
-| `Utf8StringCodec` | `[VarUInt32 length][UTF-8 bytes]` |
-| `BytesOwnedCodec` | `[VarUInt32 length][bytes]` (allocates `byte[]`) |
-| `BytesBorrowedCodec` | Like `BytesOwnedCodec` but returns a `ReadOnlySequence<byte>` slice |
-| `MagicCodec` | Fixed magic bytes, validated on decode |
+| `Codec.Int8`, `Codec.UInt8` | Single byte |
+| `Codec.Int16LE`, `Codec.UInt16LE` (and `BE`) | 2 bytes |
+| `Codec.Int32LE`, `Codec.UInt32LE` (and `BE`) | 4 bytes |
+| `Codec.Int64LE`, `Codec.UInt64LE` (and `BE`) | 8 bytes |
+| `Codec.Float32LE`, `Codec.Float64LE` (and `BE`) | IEEE 754 |
+| `Codec.VarInt32`, `Codec.VarUInt32` | Variable-length integer |
+| `Codec.VarInt64`, `Codec.VarUInt64` | Variable-length long |
+| `Codec.Bool` | Single byte (`0x00` / `0x01`) |
+| `Codec.GuidRfc4122`, `Codec.GuidDotNet` | 16 bytes |
+| `Codec.Utf8String(n)`, `Codec.Utf8StringRemaining()` | UTF-8 bytes of a fixed length, or the rest of the frame |
+| `Codec.BytesOwned(n)`, `Codec.BytesOwnedRemaining()` | Bytes copied into a `byte[]` |
+| `Codec.BytesBorrowed(n)`, `Codec.BytesBorrowedRemaining()` | Like `BytesOwned` but returns a `ReadOnlySequence<byte>` slice |
+| `Codec.Magic(...)`, `Codec.Padding(n)`, `Codec.Skip(n)` | Fixed bytes, validated (magic) or skipped on decode |
+
+Variable-length strings and byte arrays are framed explicitly with a length prefix:
+
+```csharp
+using Rowles.LeanCorpus.Codecs.CodecKit.Enums;
+
+// [VarInt32 byte length][UTF-8 bytes]
+ICodec<string> name = Codec.LengthPrefixed(
+    Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow);
+```
+
+`TrailingDataPolicy.Reject`, the default, rejects unread bytes inside the frame and any bytes after it, so it suits only a frame that ends the input. Use `Allow` for a length-prefixed value inside a record, a list or anything else that is followed by more data.
 
 ## Building a record codec
 
-`RecordBuilder<T>` composes multiple fields into a single codec:
+`Codec.Record<T>()` returns a `RecordBuilder<T>` that composes fields, in registration order, into a single codec:
 
 ```csharp
 using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Codecs;
-using Rowles.LeanCorpus.Codecs.CodecKit.Primitives;
+using Rowles.LeanCorpus.Codecs.CodecKit.Enums;
 
 // Define a data type
 public sealed record SegmentHeader(int DocCount, long MaxDoc, string Name);
 
 // Build a codec for it
-var headerCodec = new RecordBuilder<SegmentHeader>()
-    .Field("docCount", h => h.DocCount, VarInt32Codec.Instance)
-    .Field("maxDoc",   h => h.MaxDoc,   VarInt64Codec.Instance)
-    .Field("name",     h => h.Name,     Utf8StringCodec.Instance)
-    .Build((docCount, maxDoc, name) => new SegmentHeader(docCount, maxDoc, name));
+ICodec<string> name = Codec.LengthPrefixed(
+    Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow);
+var headerCodec = Codec.Record<SegmentHeader>()
+    .Field("docCount", h => h.DocCount, Codec.VarInt32)
+    .Field("maxDoc",   h => h.MaxDoc,   Codec.VarInt64)
+    .Field("name",     h => h.Name,     name)
+    .Build<int, long, string>((docCount, maxDoc, name) => new SegmentHeader(docCount, maxDoc, name));
 
 // Use it
 var header = new SegmentHeader(100, 99, "seg_0");
 byte[] bytes = Codec.EncodeToArray(headerCodec, header);
-var decoded = Codec.Decode<SegmentHeader>(headerCodec, bytes);
+var decoded = Codec.Decode(headerCodec, bytes);
 ```
 
-`Build` accepts up to 16 typed parameters. For more fields use `Build(Func<FieldValues, T>)`.
+`Build` accepts up to 16 typed parameters, given as explicit type arguments. For more fields use `Build(Func<FieldValues, T>)`.
 
 ## Constant fields
 
-Fields that don't vary between instances (magic bytes, padding) use `Constant`:
+Fields that don't vary between instances (magic bytes, padding) use `Constant` with an `ICodec<Unit>`:
 
 ```csharp
-var codec = new RecordBuilder<MyType>()
-    .Constant("magic", new MagicCodec("LC"u8))
-    .Field("version", t => t.Version, Int32LECodec.Instance)
-    .Build(version => new MyType(version));
+var codec = Codec.Record<MyType>()
+    .Constant("magic", Codec.Magic((byte)'L', (byte)'C'))
+    .Field("version", t => t.Version, Codec.Int32LE)
+    .Build<int>(version => new MyType(version));
 ```
 
 Constants are validated on decode but not passed to the factory.
 
 ## Dependent fields
 
-When a field's codec depends on a previously-read field:
+When a field's codec depends on a previously read field, pass a `DependentFieldFactory` from `Codec.From` or `RepeatFrom`:
 
 ```csharp
-var codec = new RecordBuilder<MyType>()
-    .Field("count", t => t.Count, VarInt32Codec.Instance)
-    .Field<int, string[]>("items", t => t.Items,
-        count => Codec.Repeat(Utf8StringCodec.Instance, count))
-    .Build((count, items) => new MyType(count, items));
+ICodec<string> item = Codec.LengthPrefixed(
+    Codec.VarInt32, Codec.Utf8StringRemaining(), TrailingDataPolicy.Allow);
+var codec = Codec.Record<MyType>()
+    .Field("count", t => t.Count, Codec.VarInt32)
+    .Field("items", t => t.Items, item.RepeatFrom("count"))
+    .Build<int, IReadOnlyList<string>>((count, items) => new MyType(count, items));
 ```
+
+`Codec.From<TDep, TOut>("field", value => codec)` builds any other dependent codec.
 
 ## Optional fields
 
-```csharp
-using Rowles.LeanCorpus.Codecs.CodecKit;
-using Rowles.LeanCorpus.Codecs.CodecKit.Primitives;
+Optional values are reference types. With a flag:
 
-var optionalString = Utf8StringCodec.Instance.Optional(BoolCodec.Instance);
+```csharp
+var optionalString = name.Optional(Codec.Bool);
 // Wire format: [bool hasValue][value?]
 ```
 
-Or with a sentinel value:
+Or with sentinel values that mark absence and presence:
 
 ```csharp
-var optionalInt = Int32LECodec.Instance.Optional(sentinel: -1);
-// Wire format: [int32 value]; -1 means absent
+var optionalTagged = name.Optional(Codec.UInt8, absentValue: (byte)0x00, presentValue: (byte)0xFF);
+// Wire format: [0x00] when absent, [0xFF][value] when present
 ```
 
 ## Version envelopes
 
-Wraps a codec with `[version:byte][VarInt64 bodyLen][body]`. Known versions dispatch to version cases. Unknown versions pass raw bytes to a forward-compat delegate:
+Wraps a codec with `[version][VarInt64 bodyLen][body]`. Known versions dispatch to version cases, whose version values must have the version codec's type. Unknown versions pass raw bytes to a forward-compatibility delegate:
 
 ```csharp
-var envelope = Codec.VersionEnvelope<byte[], int>(
-    versionCodec: UInt8Codec.Instance,
-    bodyLengthCodec: VarInt64Codec.Instance,
+var envelope = Codec.VersionEnvelope<byte[], byte>(
+    versionCodec: Codec.UInt8,
+    bodyLengthCodec: Codec.VarInt64,
     unknown: (version, bytes) => bytes,
     cases:
     [
-        Codec.VersionCase<byte[], byte[]>(1, "v1-body", BytesOwnedCodec.Instance),
-        Codec.VersionCase<byte[], byte[]>(2, "v2-body", BytesOwnedCodec.Instance),
+        Codec.VersionCase<byte[], byte[]>((byte)1, "v1-body", Codec.BytesOwnedRemaining()),
+        Codec.VersionCase<byte[], byte[]>((byte)2, "v2-body", Codec.BytesOwnedRemaining()),
     ]);
 ```
+
+`Codec.Versioned` is the same discriminated union without the body-length frame.
 
 ## Adding checksums
 
@@ -129,7 +146,7 @@ var withChecksum = innerCodec.WithChecksum(
     ChecksumPlacement.Trailer);
 ```
 
-Wire format with `Trailer`: `[body][checksum]`. With `Header`: `[checksum][body]`. Decode verifies and throws `ChecksumMismatchException` on mismatch.
+Wire format with `Trailer`: `[body][checksum]`. With `Header`: `[checksum][body]`. `ChecksumAlgorithms` (CRC32, xxHash32, xxHash64) is internal; their providers are registered in `CodecRegistry.Default`. Decode verifies the checksum and throws on mismatch.
 
 ## Adding compression
 
@@ -138,7 +155,7 @@ var withCompression = innerCodec.WithCompression();
 // Wire format: [VarUInt32 compressedLen][deflate(body)]
 ```
 
-Compresses the encoded body with deflate. Decode decompresses and passes to the inner codec.
+Compresses the encoded body with deflate at `CodecCompressionLevel.Optimal` by default. Decode decompresses and passes the result to the inner codec.
 
 ## See also
 

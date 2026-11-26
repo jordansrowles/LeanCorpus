@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Rowles.LeanCorpus.Codecs.CodecKit;
 using Rowles.LeanCorpus.Store;
@@ -115,21 +116,9 @@ internal sealed class SegmentFileSet
         ArgumentNullException.ThrowIfNull(fileName);
         ArgumentNullException.ThrowIfNull(segmentIds);
 
-        int boundary = fileName.Length;
-        int dot = fileName.IndexOf('.');
-        int vectorMarker = fileName.IndexOf("_v_", StringComparison.Ordinal);
-        int deletionMarker = fileName.IndexOf("_gen_", StringComparison.Ordinal);
-        if (dot >= 0)
-            boundary = Math.Min(boundary, dot);
-        if (vectorMarker >= 0)
-            boundary = Math.Min(boundary, vectorMarker);
-        if (deletionMarker >= 0)
-            boundary = Math.Min(boundary, deletionMarker);
-        if (boundary <= 0)
-            return false;
-
-        string candidate = fileName[..boundary];
-        return segmentIds.Contains(candidate) && IsOwnedFileName(candidate, fileName);
+        return TryGetOwnerCandidate(fileName, out string? candidate)
+            && segmentIds.Contains(candidate)
+            && IsOwnedFileName(candidate, fileName);
     }
 
     internal static bool IsSnapshotFile(string segmentId, string fileName, CodecCatalog? catalog = null)
@@ -143,6 +132,66 @@ internal sealed class SegmentFileSet
 
     private static bool IsSnapshotFile(string fileName, bool isOwned, CodecCatalog? catalog)
         => isOwned && !IsTemporaryFileName(fileName, catalog);
+
+    /// <summary>
+    /// Returns whether a snapshot of the given segments, at their selected deletion generations, should
+    /// lease a file. Deletion and statistics generations the selection does not use are excluded.
+    /// </summary>
+    internal static bool IsSnapshotFile(
+        string fileName,
+        IReadOnlyDictionary<string, int?> selectedGenerations,
+        CodecCatalog? catalog = null)
+    {
+        ArgumentNullException.ThrowIfNull(fileName);
+        ArgumentNullException.ThrowIfNull(selectedGenerations);
+        return TryGetOwnerCandidate(fileName, out string? segmentId)
+            && selectedGenerations.TryGetValue(segmentId, out int? selectedGeneration)
+            && IsSnapshotFile(segmentId, fileName, catalog)
+            && !IsUnselectedGenerationFile(segmentId, fileName, selectedGeneration, catalog);
+    }
+
+    /// <summary>
+    /// Returns whether a file is a deletion generation or statistics cache that the segment's selected
+    /// deletion generation does not use: exactly the files <see cref="PruneDeletionFiles"/> may delete
+    /// once no commit or held snapshot selects them. Readers of the selection never open such a file.
+    /// </summary>
+    internal static bool IsUnselectedGenerationFile(
+        string segmentId,
+        string fileName,
+        int? selectedGeneration,
+        CodecCatalog? catalog = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(segmentId);
+        ArgumentNullException.ThrowIfNull(fileName);
+        fileName = Path.GetFileName(fileName);
+        if (!fileName.EndsWith(".del", StringComparison.OrdinalIgnoreCase)
+            && !fileName.EndsWith(".stats.json", StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!IsOwnedFileName(segmentId, fileName))
+            return false;
+
+        SegmentFileEntry file = Classify(segmentId, fileName, catalog ?? CodecCatalog.Default);
+        return file.Kind is SegmentFileKind.DeletionGeneration
+                or SegmentFileKind.LegacyDeletionFile
+                or SegmentFileKind.Statistics
+            && file.DeletionGeneration != selectedGeneration;
+    }
+
+    private static bool TryGetOwnerCandidate(string fileName, [NotNullWhen(true)] out string? segmentId)
+    {
+        int boundary = fileName.Length;
+        int dot = fileName.IndexOf('.');
+        int vectorMarker = fileName.IndexOf("_v_", StringComparison.Ordinal);
+        int deletionMarker = fileName.IndexOf("_gen_", StringComparison.Ordinal);
+        if (dot >= 0)
+            boundary = Math.Min(boundary, dot);
+        if (vectorMarker >= 0)
+            boundary = Math.Min(boundary, vectorMarker);
+        if (deletionMarker >= 0)
+            boundary = Math.Min(boundary, deletionMarker);
+        segmentId = boundary > 0 ? fileName[..boundary] : null;
+        return segmentId is not null;
+    }
 
     internal static bool IsTemporaryFileName(string fileName, CodecCatalog? catalog = null)
     {

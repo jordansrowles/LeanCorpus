@@ -32,7 +32,7 @@ var writer = new IndexWriter(dir, config);
 // LeanCorpus
 var config = new IndexWriterConfig
 {
-    Analyser = analyser,
+    DefaultAnalyser = analyser,
     RamBufferSizeMB = 256,
     MergePolicy = new TieredMergePolicy(),
 };
@@ -41,8 +41,8 @@ using var writer = new IndexWriter(dir, config);
 
 Key differences:
 - `IndexWriterConfig` is a mutable POCO with sensible defaults, not a constructor-based config.
-- `Commit()` commits all pending changes. `PrepareCommit()` stages a commit that can be rolled back with `Rollback()` — use for atomic multi-document operations.
-- `Dispose()` commits and closes by default. Use `Rollback()` to discard uncommitted changes.
+- `Commit()` commits all pending changes. `PrepareCommit()` stages a commit that `Commit()` publishes or `Rollback()` discards, for atomic multi-document operations. `Rollback()` affects only a prepared commit.
+- `Dispose()` does not commit. Call `Commit()` before disposing the writer, or the changes since the last commit are not visible to readers. To abandon them, dispose without committing.
 - Merges never block commits in LeanCorpus.
 
 ## Documents and fields
@@ -65,7 +65,7 @@ doc.Add(new TextField("body", "hello world"));
 | `TextField` | `TextField` | Analysed. Stored is opt-in. |
 | `Int32Field` / `Int64Field` / `SingleField` / `DoubleField` | `NumericField` | Single numeric field type for all numeric types. |
 | `StoredField` | `StoredField` | Identical. |
-| `BinaryDocValuesField` / `SortedDocValuesField` / etc. | DocValues are implicit | DocValues are populated automatically for indexed fields. Set `StoreDocValues = false` to opt out. |
+| `BinaryDocValuesField` / `SortedDocValuesField` / etc. | DocValues are implicit | String, numeric and shape fields populate DocValues by default; `TextField` does not. Pass `storeDocValues: false` to the field constructor to opt out. |
 | -- | `VectorField` | Dense float vectors. No Lucene.Net 4.8 equivalent. |
 | -- | `GeoPointField` | Latitude/longitude. No Lucene.Net 4.8 equivalent (requires `Lucene.Net.Spatial`). |
 | -- | `BinaryField` | Raw byte arrays. |
@@ -85,10 +85,11 @@ var analyser = new StandardAnalyser();
 | `StandardAnalyzer` | `StandardAnalyser` |
 | `WhitespaceAnalyzer` | Custom: `new Analyser(new WhitespaceTokenizer())` |
 | `StopAnalyzer` | Custom: `new Analyser(new Tokeniser(), new StopWordFilter(StopWords.English))` |
-| `EnglishAnalyzer` (Porter) | `StemmedAnalyser` |
+| `EnglishAnalyzer` (Porter) | `StemmerAnalyser.Porter()` (original Porter; `StemmedAnalyser` uses Porter2) |
 | `KeywordAnalyzer` | `new Analyser(new KeywordTokenizer())` |
 | `LowerCaseFilter` | `LowercaseFilter` |
 | `PorterStemFilter` | `PorterStemmerFilter` |
+| `SnowballFilter` | `StemTokenFilter` with `EnglishStemmer`, `FrenchStemmer`, `GermanStemmer` and the other official Snowball 3.2.0 stemmers |
 | `SynonymFilter` | `SynonymGraphFilter` |
 | `ShingleFilter` | `ShingleFilter` |
 
@@ -176,5 +177,4 @@ These Lucene.Net features have no LeanCorpus equivalent and no migration path:
 - `Lucene.Net.QueryParser.Flexible` (framework-based query parser)
 - `Lucene.Net.Analysis.Phonetic` (separate package; LeanCorpus has built-in Metaphone and accent folding)
 - `RAMDirectory` and `NRTCachingDirectory`
-- Snowball stemmers (LeanCorpus uses custom Snowball-inspired stemmers instead)
 - Completion, analysing, and FreeText suggesters

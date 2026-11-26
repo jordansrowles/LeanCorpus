@@ -44,6 +44,9 @@
       }
     ],
     "output": "../../artifacts/docs/site",
+    "markdownEngineProperties": {
+      "markdigExtensions": [ "DefinitionLists" ]
+    },
     "template": [ "default", "modern", "template" ],
     "resource": [
       {
@@ -68,6 +71,7 @@
     "globalMetadataFiles": [ "../../artifacts/docs/generated/site-metadata.json" ],
     "globalMetadata": {
       "_appFooter": "LeanCorpus: a fast, embeddable full-text search engine for .NET",
+      "_appLogoPath": "public/assets/brand/logo.png",
       "_enableSearch": true,
       "categoryLayout": "nested"
     }

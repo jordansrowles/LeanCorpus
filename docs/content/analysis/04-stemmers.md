@@ -10,21 +10,25 @@ Stemmers reduce related word forms to a shared root. Improves recall; can reduce
 | `PorterStemmer` | Original Porter (1980) | The pre-4.0 `StemmedAnalyser` behaviour. Also `PorterStemmerFilter` and `StemmerAnalyser.Porter()` |
 | `LightEnglishStemmer` | Lighter suffix stripping | Less aggressive than Porter |
 | `KStemmer` | Lexicon-validated (Krovetz-inspired) | Needs `KStemLexicon.FromFile` |
-| `HunspellStemmer` | Hunspell dictionary-based | Needs `.aff`/`.dic` files. Handles irregular forms |
+| `StemmerAnalyser.Hunspell` / `HunspellStemFilter` | Hunspell dictionary-based | Needs `.aff`/`.dic` files loaded with `HunspellDictionary.FromFile`. Handles irregular forms |
 
 `StemmedAnalyser` applies Porter2 via `EnglishStemmer`. Before 4.0 it used the original Porter algorithm; use `PorterStemmerFilter` for that behaviour.
 
 ## Hunspell stemming
 
 ```csharp
-using Rowles.LeanCorpus.Analysis.Stemmers;
+using Rowles.LeanCorpus.Analysis.Analysers;
+using Rowles.LeanCorpus.Analysis.Filters;
 
-var dict = HunspellDictionary.FromFiles(new MMapDirectory("/dictionaries/en_US"));
-var stemmer = new HunspellStemmer(dict);
+var dict = HunspellDictionary.FromFile(
+    "/dictionaries/en_US/en_US.aff",
+    "/dictionaries/en_US/en_US.dic");
 
-var analyser = new StemmerAnalyser(
-    tokeniser: new Tokeniser(),
-    stemmer: stemmer);
+// A complete analyser that stems with the dictionary.
+var analyser = StemmerAnalyser.Hunspell(dict);
+
+// Or a filter to place in your own pipeline.
+var filter = new HunspellStemFilter(dict);
 ```
 
 ## Other languages

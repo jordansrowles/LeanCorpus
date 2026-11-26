@@ -4,21 +4,43 @@ _layout: landing
 
 <section class="lc-hero" markdown="1">
 
-<p class="lc-eyebrow">Segment-centric full-text search for .NET</p>
+<div class="lc-hero-text" markdown="1">
 
 # LeanCorpus
 
-**Embedded search with control over your index, query execution and deployment.**
+LeanCorpus is a full-text search library for .NET. It runs inside your application, keeps its index in immutable segment files on local disk, and has no runtime dependencies. It targets `net10.0` and `net11.0` and supports Native AOT.
 
-Built for modern .NET, Native AOT and large local search workloads.
-
-<p class="lc-hero-install"><code>dotnet add package LeanCorpus --version 4.0.0</code></p>
+```bash
+dotnet add package LeanCorpus --version 4.0.0
+```
 
 <p class="lc-hero-actions">
 <a class="lc-button lc-button-primary" href="getting-started/01-installation.md">Build your first search</a>
-<a class="lc-button" href="api/index.md">Browse the API</a>
-<a class="lc-button" href="https://github.com/jordansrowles/LeanCorpus">View on GitHub</a>
+<a class="lc-button" href="api/index.md">API reference</a>
+<a class="lc-button" href="https://github.com/jordansrowles/LeanCorpus">Source on GitHub</a>
 </p>
+
+</div>
+
+<div class="lc-hero-code" markdown="1">
+
+```csharp
+using var dir = new MMapDirectory("./index");
+
+using (var writer = new IndexWriter(dir, new IndexWriterConfig()))
+{
+    var doc = new LeanDocument();
+    doc.Add(new StringField("id", "1"));
+    doc.Add(new TextField("title", "The quick brown fox"));
+    writer.AddDocument(doc);
+    writer.Commit();
+}
+
+using var searcher = new IndexSearcher(dir);
+var hits = searcher.Search(new TermQuery("title", "fox"), topN: 10);
+```
+
+</div>
 
 </section>
 
@@ -26,11 +48,11 @@ Built for modern .NET, Native AOT and large local search workloads.
 
 ## Why LeanCorpus
 
-| | |
+| Area | What you get |
 |---|---|
 | **Span-based analysis** | Ref-struct token pipeline designed to avoid per-token heap allocation during analysis. |
 | **Modern scoring** | BM25 (default), BM25+, BM25L, TF-IDF, Dirichlet, Jelinek-Mercer, and SIMD-accelerated cosine. Block-Max WAND for sublinear top-k. |
-| **Vector search built in** | Exact Float32 search for new vectors, exact search over historical decoded Int8 values, and read/search compatibility for historical BBQ. New HNSW, Int8 and BBQ writes are retired. Not a plugin. |
+| **Vector search built in** | Exact Float32 search for new vectors, with an opt-in Float32 vector graph for approximate candidate selection, exact search over historical decoded Int8 values, and read/search compatibility for historical BBQ. New Int8, BBQ and `.hnsw` writes are retired. Not a plugin. |
 | **Native AOT** | Trim-safe, publish-ready with `PublishAot`. Validated by a dedicated smoke-test suite. |
 | **LINQ queries** | `IQueryable<T>` provider translates expression trees to LeanCorpus queries. |
 | **Observability built in** | OpenTelemetry tracing and metrics, slow-query log, Aspire dashboard integration. |
@@ -55,7 +77,7 @@ Choose LeanCorpus when you need embedded, local .NET search with control over in
 <section class="lc-feature-card" markdown="1">
 
 ### Analysis
-Span-based analysis pipeline with tokenisers, 28 token filters, 11 language stemmers, synonym graphs, Hunspell dictionary stemming, ICU, CJK tokenisation, pattern tokenisers and phonetic filters (Metaphone, Beider-Morse style).
+Span-based analysis pipeline with tokenisers, 27 token filters, 3 character filters, stemmers for 10 languages (nine from Snowball 3.2.0), synonym graphs, Hunspell dictionary stemming, ICU, CJK tokenisation, pattern tokenisers and phonetic filters (Metaphone, Beider-Morse style).
 [Browse analysis docs](analysis/index.md)
 
 </section>
@@ -63,7 +85,7 @@ Span-based analysis pipeline with tokenisers, 28 token filters, 11 language stem
 <section class="lc-feature-card" markdown="1">
 
 ### Search
-25 query types including term, boolean, phrase, fuzzy (Myers bit-parallel), regexp (FST automaton), span, intervals, block-join, geo, and vector.
+More than 50 query types, including term, boolean, phrase, fuzzy (Myers bit-parallel), regexp (FST automaton), span, intervals, block-join, geo, and vector.
 [Browse search docs](searching/01-query-types.md)
 
 </section>

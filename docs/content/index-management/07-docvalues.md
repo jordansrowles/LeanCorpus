@@ -29,10 +29,10 @@ DocValues are per-document column stores that enable sorting, faceting, aggregat
 
 ```csharp
 // Skip DocValues for a field you never sort or facet on
-doc.Add(new NumericField("internal-id", id, stored: false) { StoreDocValues = false });
+doc.Add(new NumericField("internal-id", id, stored: false, boost: 1f, storeDocValues: false));
 ```
 
-Turning off DocValues cuts per-document buffer overhead during indexing and reduces the flush I/O footprint. Only column-store operations are affected — the inverted index still serves all query types.
+Turning off DocValues cuts per-document buffer overhead during indexing and reduces the flush I/O footprint. Only column-store operations are affected; the inverted index still serves all query types.
 
 For `TextField`, DocValues are off by default. If you need to sort or facet on a text field, use a separate `StringField` with the same value.
 
@@ -54,7 +54,7 @@ component delimiters as identity.
 | Field collapsing | `SortedDocValues` |
 | Numeric aggregations | `NumericDocValues` or `SortedNumericDocValues` |
 
-If a field lacks the required DocValues, the operation fails with an error — there is no fallback to the inverted index for sorting, faceting, or aggregations.
+If a field lacks the required DocValues, the operation fails with an error. There is no fallback to the inverted index for sorting, faceting, or aggregations.
 
 ## Reading DocValues
 
@@ -70,7 +70,7 @@ int ordinal = sortedValues.GetOrdinal(docId);
 string category = sortedValues.LookupOrdinal(ordinal);
 ```
 
-Most applications don't read DocValues directly — they go through `IndexSearcher` methods that use DocValues internally (sorting, faceting, aggregations).
+Most applications don't read DocValues directly; they go through `IndexSearcher` methods that use DocValues internally (sorting, faceting, aggregations).
 
 ## See also
 
