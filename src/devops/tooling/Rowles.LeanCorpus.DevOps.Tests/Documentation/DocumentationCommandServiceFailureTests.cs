@@ -194,9 +194,10 @@ public sealed class DocumentationCommandServiceFailureTests
                 "articles/ADRs/ADR041-physical-index-runtime-lifecycle.md",
                 "articles/ADRs/Server/ADR-S005-aot-and-framework-compatibility-boundary.md",
                 "changelog/index.md",
-                "changelog/engine/unreleased.md",
+                // A released stream has only dated version pages; an open stream has unreleased.md.
+                "changelog/engine/4.0.0 - 2026-11-26.md",
                 "changelog/text/unreleased.md",
-                "changelog/devops/unreleased.md",
+                "changelog/devops/1.0.0 - 2026-11-26.md",
                 "benchmarks/overview.md",
                 "benchmarks/qualification-audit.md"
             };

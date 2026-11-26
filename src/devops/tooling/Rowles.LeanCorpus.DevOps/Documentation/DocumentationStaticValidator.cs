@@ -65,6 +65,10 @@ internal sealed class DocumentationStaticValidator
         {
             RequireFile(Path.Combine(contentRoot, relative.Replace('/', Path.DirectorySeparatorChar)), $"Required staged document is missing: {relative}");
         }
+        foreach (var stream in RequiredChangelogStreams)
+        {
+            RequireReleasePage(Path.Combine(contentRoot, "changelog", stream), $"changelog/{stream}");
+        }
         var changelogIndex = File.ReadAllText(Path.Combine(contentRoot, "changelog", "index.md"));
         var changelogToc = File.ReadAllText(Path.Combine(contentRoot, "changelog", "toc.yml"));
         if (!changelogIndex.Contains("## LeanCorpus DevOps", StringComparison.Ordinal) ||
@@ -165,8 +169,7 @@ internal sealed class DocumentationStaticValidator
         "index.md", "toc.yml", "articles/ADRs/index.md", "articles/ADRs/toc.yml",
         "articles/ADRs/ADR040-bounded-field-length-bodies.md", "articles/ADRs/ADR041-physical-index-runtime-lifecycle.md",
         "articles/ADRs/Server/ADR-S005-aot-and-framework-compatibility-boundary.md", "changelog/index.md", "changelog/toc.yml",
-        "changelog/engine/unreleased.md", "changelog/text/unreleased.md",
-        "changelog/devops/unreleased.md", "benchmarks/overview.md", "benchmarks/qualification-audit.md", "benchmarks/toc.yml"
+        "benchmarks/overview.md", "benchmarks/qualification-audit.md", "benchmarks/toc.yml"
     ];
 
     private static IEnumerable<string> ReadTocTargets(string path)
@@ -200,6 +203,19 @@ internal sealed class DocumentationStaticValidator
     private static void RequireFile(string path, string message)
     {
         if (!File.Exists(path)) throw new FileNotFoundException(message, path);
+    }
+
+    // A release moves a stream's unreleased.md to a dated version file, so a stream needs either.
+    private static readonly string[] RequiredChangelogStreams = ["engine", "text", "devops"];
+
+    private static void RequireReleasePage(string directory, string relative)
+    {
+        bool hasReleasePage = Directory.Exists(directory) && Directory.EnumerateFiles(directory, "*.md")
+            .Select(Path.GetFileName)
+            .Any(static name => string.Equals(name, "unreleased.md", StringComparison.OrdinalIgnoreCase)
+                || (name is not null && name.Length > 0 && char.IsAsciiDigit(name[0])));
+        if (!hasReleasePage)
+            throw new FileNotFoundException($"Required staged changelog stream has no release page: {relative}", directory);
     }
 
     private static void RequireContainedFile(string root, string path, string message)
