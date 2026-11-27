@@ -44,8 +44,6 @@ var hits = searcher.Search(new TermQuery("title", "fox"), topN: 10);
 
 </section>
 
-> **Documentation preview:** This branch describes the unreleased LeanCorpus 4.0.0 and Rowles.Text 2.0.0 package set. The NuGet badges below show published versions, which can differ from this source. Community Server is a separate alpha track.
-
 ## Why LeanCorpus
 
 | Area | What you get |

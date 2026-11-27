@@ -364,10 +364,32 @@ article pre {
   border-radius: .7rem;
 }
 
-article td,
-article th,
 article a {
   overflow-wrap: anywhere;
+}
+
+/* `anywhere` would let a table column shrink to one character, so plain words in cells
+   wrap only between words. Long identifiers and links may still break anywhere. */
+article td,
+article th {
+  overflow-wrap: break-word;
+}
+
+article td code,
+article td a,
+article th code {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767.98px) {
+  /* On phones, keep columns readable and let a wide table scroll inside its own box. */
+  article td {
+    min-width: 6.5rem;
+  }
+
+  article th {
+    white-space: nowrap;
+  }
 }
 
 article .mermaid,
