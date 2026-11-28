@@ -2,7 +2,7 @@
 
 ## Added
 
-- Explicit `browser` tests publish a trimmed Blazor client and validate Core in Chromium and Firefox on .NET 10 and .NET 11, in interpreted and WASM AOT modes. Probes load prebuilt index payloads and record memory, blocking and capability limits. The suite has separate CI jobs that build the client before running, affected-file routing and external timeouts, and stays out of generic `test all` selection. ([1a0e52695](https://github.com/jordansrowles/LeanCorpus/commit/1a0e52695a3250aa79c6536ccd405a0894d37b55), [f32c87da5](https://github.com/jordansrowles/LeanCorpus/commit/f32c87da52a3f02843e0b7364726582f68fb2823))
+- Explicit `browser` tests publish a trimmed Blazor client and validate Core in Chromium and Firefox on .NET 10 and .NET 11, in interpreted and WASM AOT modes. Probes load prebuilt index payloads and record memory, blocking and capability limits. The suite has separate CI jobs that build the client before running, affected-file routing and external timeouts, and stays out of generic `test all` selection. ([d4e06a97d](https://github.com/jordansrowles/LeanCorpus/commit/d4e06a97d0c41c5cc76143d464e712ba2dabc5c0))
 
 ## Fixed
 
