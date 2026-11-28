@@ -1,0 +1,29 @@
+@namespace Rowles.LeanCorpus.Tests.BrowserApp
+@using Microsoft.AspNetCore.Components
+@inject NavigationManager Navigation
+@inject Microsoft.JSInterop.IJSRuntime JS
+<pre id="result" data-state="@state" data-case="@testCase" data-runtime="@Environment.Version.Major">@result</pre>
+@code {
+    private string state = "running";
+    private string result = "Starting browser contract test";
+    private string testCase = "";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        testCase = new Uri(Navigation.Uri).Query.TrimStart('?');
+        try
+        {
+            if (!OperatingSystem.IsBrowser()) throw new InvalidOperationException("The client is not executing in browser WASM.");
+            BrowserCases.WasmBytes = () =>
+            {
+                try { return ((Microsoft.JSInterop.IJSInProcessRuntime)JS).Invoke<double>("leanCorpusWasmBytes"); }
+                catch (Microsoft.JSInterop.JSException) { return -1; }
+            };
+            result = await BrowserCases.RunAsync(testCase, new Uri(Navigation.BaseUri));
+            state = "passed";
+        }
+        catch (Exception error) { result = error.ToString(); state = "failed"; }
+        StateHasChanged();
+    }
+}

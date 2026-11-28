@@ -51,7 +51,20 @@ internal static class MergeScheduler
                     long pendingBytes = sources.Sum(static segment => segment.TotalBytes);
                     writer.Config.Metrics.RecordMergeBacklog(pendingBytes, TimeSpan.Zero);
                     // RunMerge must release the snapshot even when cancellation precedes execution.
-                    var task = Task.Run(() => RunMerge(writer, sources, sourceFiles, outputOrdinal, commitGeneration));
+                    Task task;
+                    if (OperatingSystem.IsBrowser())
+                    {
+                        try
+                        {
+                            RunMerge(writer, sources, sourceFiles, outputOrdinal, commitGeneration);
+                            task = Task.CompletedTask;
+                        }
+                        catch (Exception error) { task = Task.FromException(error); }
+                    }
+                    else
+                    {
+                        task = Task.Run(() => RunMerge(writer, sources, sourceFiles, outputOrdinal, commitGeneration));
+                    }
                     writer.MergeTasks.Add(task);
                 }
                 catch

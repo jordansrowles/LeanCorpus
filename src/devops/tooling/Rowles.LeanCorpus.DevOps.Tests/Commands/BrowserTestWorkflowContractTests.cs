@@ -29,7 +29,7 @@ public sealed class BrowserTestWorkflowContractTests
         });
 
         string[] expected = configuration.TestSuites.Keys
-            .Except(["docs-site", "server-orchard-functional"], StringComparer.OrdinalIgnoreCase)
+            .Where(suite => configuration.TestSuites[suite].IncludeInAll != false)
             .Where(suite => configuration.TestSuites[suite].Frameworks.Contains(framework, StringComparer.OrdinalIgnoreCase))
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -164,9 +164,17 @@ public sealed class BrowserTestWorkflowContractTests
 
         var assignments = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
+            ["browser"] = ["engine-browser-linux"],
             ["server-orchard-functional"] = ["orchard-browser-linux", "orchard-browser-windows"],
             ["docs-site"] = ["docs-site"]
         };
+        string engineBrowser = GetJobBlock(workflow, "engine-browser-linux");
+        Assert.Equal(["net10.0", "net11.0"], GetFrameworkMatrix(engineBrowser));
+        Assert.Contains("engine: [chromium, firefox]", engineBrowser, StringComparison.Ordinal);
+        Assert.Contains("LEANCORPUS_BROWSER_ENGINE", engineBrowser, StringComparison.Ordinal);
+        Assert.Contains("compilation: [interpreted, aot]", engineBrowser, StringComparison.Ordinal);
+        Assert.Contains("LEANCORPUS_BROWSER_AOT", engineBrowser, StringComparison.Ordinal);
+        Assert.Contains("dotnet workload install wasm-tools wasm-tools-net10", engineBrowser, StringComparison.Ordinal);
         foreach (string suiteKey in configuration.TestSuites.Where(static pair => pair.Value.RequiresBrowser).Select(static pair => pair.Key))
         {
             Assert.True(assignments.TryGetValue(suiteKey, out string[]? jobNames),

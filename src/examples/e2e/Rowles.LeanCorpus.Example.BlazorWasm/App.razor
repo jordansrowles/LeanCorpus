@@ -1,0 +1,58 @@
+@namespace Rowles.LeanCorpus.Example.BlazorWasm
+@using Rowles.LeanCorpus.Document
+@using Rowles.LeanCorpus.Document.Fields
+@using Rowles.LeanCorpus.Index.Indexer
+@using Rowles.LeanCorpus.Search.Queries
+@using Rowles.LeanCorpus.Search.Searcher
+@using Rowles.LeanCorpus.Store
+@implements IDisposable
+
+<h1>Search a browser catalogue</h1>
+<p>This small index lives in this page's memory. Reloading the page rebuilds it.</p>
+<label>Search one word <input @bind="term" /></label>
+<button @onclick="Search" disabled="@(searcher is null)">Search</button>
+<p role="status">@status</p>
+<ul>@foreach (string title in titles) { <li>@title</li> }</ul>
+
+@code {
+    private MMapDirectory? directory;
+    private IndexWriter? writer;
+    private IndexSearcher? searcher;
+    private string term = "browser";
+    private string status = "Building catalogue";
+    private readonly List<string> titles = [];
+    private readonly string path = "/catalogue-" + Guid.NewGuid().ToString("N");
+
+    protected override async Task OnInitializedAsync()
+    {
+        directory = new MMapDirectory(path);
+        writer = new IndexWriter(directory, new IndexWriterConfig());
+        foreach (string title in new[] { "Browser search guide", "Browser indexing guide", "Desktop search guide" })
+        {
+            var document = new LeanDocument();
+            document.Add(new TextField("body", title));
+            await writer.AddDocumentAsync(document);
+        }
+        await writer.CommitAsync();
+        searcher = new IndexSearcher(directory);
+        Search();
+    }
+
+    private void Search()
+    {
+        if (searcher is null) return;
+        titles.Clear();
+        if (string.IsNullOrWhiteSpace(term)) { status = "Enter one search word"; return; }
+        var results = searcher.Search(new TermQuery("body", term.Trim().ToLowerInvariant()), 10);
+        foreach (var hit in results.ScoreDocs) titles.Add(searcher.GetStoredFields(hit.DocId)["body"][0]);
+        status = $"{results.TotalHits} matches";
+    }
+
+    public void Dispose()
+    {
+        searcher?.Dispose();
+        writer?.Dispose();
+        directory?.Dispose();
+        if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+    }
+}

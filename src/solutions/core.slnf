@@ -7,7 +7,9 @@
       "core/Rowles.LeanCorpus.Compression.Snappy/Rowles.LeanCorpus.Compression.Snappy.csproj",
       "core/Rowles.LeanCorpus.Compression.Zstandard/Rowles.LeanCorpus.Compression.Zstandard.csproj",
       "devops/tests/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj",
-      "devops/tests/Rowles.LeanCorpus.Tests.Shared/Rowles.LeanCorpus.Tests.Shared.csproj"
+      "devops/tests/Rowles.LeanCorpus.Tests.Shared/Rowles.LeanCorpus.Tests.Shared.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.Browser/Rowles.LeanCorpus.Tests.Browser.csproj",
+      "devops/tests/Rowles.LeanCorpus.Tests.BrowserApp/Rowles.LeanCorpus.Tests.BrowserApp.csproj"
     ]
   }
 }

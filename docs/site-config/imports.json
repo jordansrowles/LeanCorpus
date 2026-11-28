@@ -56,6 +56,10 @@
     {
       "source": "src/server/README.md",
       "destination": "server/community-server.md"
+    },
+    {
+      "source": "src/examples/e2e/Rowles.LeanCorpus.Example.BlazorWasm/README.md",
+      "destination": "examples/browser-wasm.md"
     }
   ]
 }

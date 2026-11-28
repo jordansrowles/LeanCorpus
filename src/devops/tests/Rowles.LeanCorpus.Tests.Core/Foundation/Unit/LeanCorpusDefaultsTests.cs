@@ -26,6 +26,25 @@ public sealed class LeanCorpusDefaultsTests
         });
     }
 
+    [Fact(DisplayName = "LeanCorpus Defaults: Desktop Resource Defaults Remain Unchanged")]
+    public void Reset_UsesDesktopResourceDefaults()
+    {
+        RunWithRestoredTestPolicy(() =>
+        {
+            LeanCorpusDefaults.Reset();
+            var writer = new IndexWriterConfig();
+            Assert.Equal(0, writer.IndexingConcurrency);
+            Assert.Equal(512, writer.RamBufferSizeMB);
+            Assert.Equal(256, writer.RamPerThreadHardLimitMB);
+            Assert.Equal(10_000, writer.MaxBufferedDocs);
+            Assert.Equal(20_000, writer.MaxQueuedDocs);
+            Assert.Equal(512L * 1024 * 1024, writer.MaxQueuedBytes);
+            var reader = new Rowles.LeanCorpus.Search.Searcher.IndexSearcherConfig();
+            Assert.Equal(256, reader.MaxCachedSegmentReaders);
+            Assert.Equal(256L * 1024 * 1024, reader.MaxCachedSegmentReaderBytes);
+        });
+    }
+
     [Fact(DisplayName = "LeanCorpus Defaults: Global Override Applies To New Configurations")]
     public void Configure_AppliesOverrideToNewConfigurations()
     {

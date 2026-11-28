@@ -2,7 +2,7 @@
 adr: ADR041
 title: "Physical indexes have one composed runtime owner"
 date: 2026-10-17
-last-updated: 2026-10-20
+last-updated: 2026-11-26
 status: Accepted
 version-added: 4.0.0
 summary: "Compose engine resources under one policy-neutral owner with a terminal close contract."
@@ -86,12 +86,24 @@ for logical owners, and the existing writer lock remains the exclusion backstop
 for independent owners and processes. Low-level embedded callers can continue
 to compose engine primitives directly and own their complete lifetimes.
 
+## Browser close boundary (ADR053)
+
+In a browser, start the composed asynchronous close directly and await its owned
+operation and searcher drains. Do not depend on a worker thread. A synchronous
+`Dispose` adapter must reject an incomplete close with `InvalidOperationException`;
+the shared asynchronous close continues and retains ownership until leases drain.
+The caller releases its leases and awaits close before reopening. Low-level
+synchronous owners similarly close admission and preserve resources for a later
+disposal retry rather than waiting on the browser event loop. Desktop close and
+terminal-failure semantics are unchanged.
+
 ## Changes
 
 | Date | Type | Change | Reference |
 | --- | --- | --- | --- |
 | 2026-10-17 | Accepted | Original decision accepted. | `0b84efc64` |
 | 2026-10-20 | Amended | Kept one runtime lease through each physical operation; made Server receipts monotonic under the writer lock, completed waiters before release and ran observers outside it; bounded directory retention to active owners and queued cleanup; scoped Orchard sharing to root-host identity and tenant path, rejecting a second active root host. | `7e5bf521d` |
+| 2026-11-26 | Amended | Defined the browser execution and ownership boundary. | ADR053 |
 
 ## Consequences
 

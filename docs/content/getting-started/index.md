@@ -7,3 +7,4 @@ New to LeanCorpus? Follow the first three pages in order to create an index, add
 - [Writer configuration](03-configuration.md)
 - [Source-generated mapping](04-source-generated-mapping.md)
 - [Configuration reference](05-configuration-reference.md)
+- [Browser WebAssembly](browser-wasm.md)

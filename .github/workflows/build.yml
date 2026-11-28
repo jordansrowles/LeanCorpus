@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main, '[0-9]*', 'stabilise/**', 'issue-97', 'fix/bbq-retrieval-quality']
+    branches: [main, '[0-9]*', '5.0/**', 'stabilise/**', 'issue-97', 'fix/bbq-retrieval-quality']
   pull_request: {}
   workflow_dispatch:
 
@@ -154,6 +154,56 @@ jobs:
         with:
           name: linux-${{ matrix.framework }}-test-results
           path: artifacts/test/runs
+          if-no-files-found: warn
+
+  engine-browser-linux:
+    runs-on: ubuntu-24.04
+    container:
+      image: mcr.microsoft.com/playwright/dotnet:v1.63.0-noble
+      options: --ipc=host --init
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        framework: [net10.0, net11.0]
+        engine: [chromium, firefox]
+        compilation: [interpreted, aot]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '10.0.x' }
+      - uses: actions/setup-dotnet@v5
+        with: { dotnet-version: '11.0.x' }
+      - name: Configure container checkout ownership
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Install WASM AOT workloads
+        if: matrix.compilation == 'aot'
+        shell: pwsh
+        run: dotnet workload install wasm-tools wasm-tools-net10 --skip-manifest-update --disable-parallel
+      - name: Bootstrap managed DevOps host
+        shell: pwsh
+        run: pwsh -NoProfile -File ./devops.ps1 bootstrap
+      # The browser client is published as part of this build, so the compilation mode is a build input.
+      - name: Build and publish engine browser test target
+        shell: pwsh
+        env:
+          LEANCORPUS_BROWSER_AOT: ${{ matrix.compilation == 'aot' && 'true' || 'false' }}
+        run: ./devops build --project src/devops/tests/Rowles.LeanCorpus.Tests.Browser/Rowles.LeanCorpus.Tests.Browser.csproj --framework '${{ matrix.framework }}'
+      - name: Run published engine browser contracts
+        shell: pwsh
+        env:
+          LEANCORPUS_BROWSER_ENGINE: ${{ matrix.engine }}
+          LEANCORPUS_BROWSER_AOT: ${{ matrix.compilation == 'aot' && 'true' || 'false' }}
+        run: ./devops test browser --ci --framework '${{ matrix.framework }}' --timeout 1800s --hang-timeout 600s
+      - name: Upload engine browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-${{ matrix.engine }}-${{ matrix.framework }}-${{ matrix.compilation }}
+          path: |
+            artifacts/test/runs
+            artifacts/browser/site
           if-no-files-found: warn
 
   orchard-browser-linux:

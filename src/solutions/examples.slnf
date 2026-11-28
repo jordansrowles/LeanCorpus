@@ -2,6 +2,7 @@
   "solution": {
     "path": "../Rowles.LeanCorpus.slnx",
     "projects": [
+      "examples/e2e/Rowles.LeanCorpus.Example.BlazorWasm/Rowles.LeanCorpus.Example.BlazorWasm.csproj",
       "examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch.csproj"
     ]
   }

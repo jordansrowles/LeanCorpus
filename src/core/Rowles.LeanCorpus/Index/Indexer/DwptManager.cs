@@ -221,6 +221,13 @@ internal static class DwptManager
         ArgumentNullException.ThrowIfNull(documents);
         if (documents.Count == 0) return;
 
+        if (OperatingSystem.IsBrowser())
+        {
+            foreach (var document in documents)
+                AddDocumentCore(writer, document, abortOnFatalFailure: true, out _);
+            return;
+        }
+
         var failureLock = new Lock();
         (int Index, Exception Error)? fatalFailure = null;
         (int Index, Exception Error)? rejection = null;

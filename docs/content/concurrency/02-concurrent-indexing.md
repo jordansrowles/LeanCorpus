@@ -1,5 +1,7 @@
 ﻿# Concurrent indexing
 
+This page describes desktop execution. In [browser WebAssembly](../getting-started/browser-wasm.md), producers, flushes and merges execute serially and async writes run inline; they do not start a dedicated consumer or offload CPU work.
+
 `IndexWriter` is thread-safe for `AddDocument`. For high-throughput ingest, use the concurrent path.
 
 ## Multi-threaded add

@@ -32,6 +32,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Shared" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.Core" />
+    <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.BrowserApp" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Profiling" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Tests.AOTSmoke" />
     <InternalsVisibleTo Include="Rowles.LeanCorpus.Benchmarks" />

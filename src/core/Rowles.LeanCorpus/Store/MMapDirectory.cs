@@ -4,7 +4,8 @@ namespace Rowles.LeanCorpus.Store;
 
 /// <summary>
 /// Primary directory implementation using memory-mapped files for reads
-/// and buffered file streams for writes.
+/// and buffered file streams for writes. In browser WebAssembly the runtime filesystem
+/// is volatile and does not persist across page reloads.
 /// </summary>
 public sealed class MMapDirectory : LeanDirectory, IDisposable
 {

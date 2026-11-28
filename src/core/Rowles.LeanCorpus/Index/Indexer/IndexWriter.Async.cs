@@ -4,6 +4,8 @@ namespace Rowles.LeanCorpus.Index.Indexer;
 
 public sealed partial class IndexWriter
 {
+    // Browser commands and commits execute inline. Async signatures preserve admission,
+    // cancellation and source-await semantics, and do not offload CPU work to another thread.
     /// <summary>Adds one document asynchronously.</summary>
     /// <remarks>A token-budget rejection affects only this document and does not poison the writer.</remarks>
     public async ValueTask AddDocumentAsync(LeanDocument doc, CancellationToken cancellationToken = default)
@@ -249,6 +251,8 @@ public sealed partial class IndexWriter
         }
     }
 
+    /// <summary>Commits accepted work. Browser commits execute synchronously on the calling thread.</summary>
+    /// <remarks>Cancellation prevents commit admission; it does not roll back an accepted commit.</remarks>
     public Task CommitAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfIndexingFailedWithCause();
@@ -256,6 +260,13 @@ public sealed partial class IndexWriter
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (OperatingSystem.IsBrowser())
+            {
+                CommitManager.CommitWithLocks(this);
+                ExitIndexingOperation();
+                return Task.CompletedTask;
+            }
 
             return Task.Run(() =>
             {

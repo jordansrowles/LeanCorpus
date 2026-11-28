@@ -16,6 +16,8 @@
   <Project Path="devops/dataforge/Rowles.DataForge/Rowles.DataForge.csproj" />
   <Project Path="devops/tests/Rowles.LeanCorpus.Tests.AOTSmoke/Rowles.LeanCorpus.Tests.AOTSmoke.csproj" />
   <Project Path="devops/tests/Rowles.LeanCorpus.Tests.Architecture/Rowles.LeanCorpus.Tests.Architecture.csproj" />
+  <Project Path="devops/tests/Rowles.LeanCorpus.Tests.Browser/Rowles.LeanCorpus.Tests.Browser.csproj" />
+  <Project Path="devops/tests/Rowles.LeanCorpus.Tests.BrowserApp/Rowles.LeanCorpus.Tests.BrowserApp.csproj" />
   <Project Path="devops/tests/Rowles.LeanCorpus.Tests.Core/Rowles.LeanCorpus.Tests.Core.csproj" />
   <Project Path="devops/tests/Rowles.LeanCorpus.Tests.Docs/Rowles.LeanCorpus.Tests.Docs.csproj" />
   <Project Path="devops/tests/Rowles.LeanCorpus.Tests.Shared/Rowles.LeanCorpus.Tests.Shared.csproj" />
@@ -25,6 +27,7 @@
   <Project Path="devops/tooling/Rowles.LeanCorpus.DevOps.ProcessTestChild/Rowles.LeanCorpus.DevOps.ProcessTestChild.csproj" />
   <Project Path="devops/tooling/Rowles.LeanCorpus.DevOps.Tests/Rowles.LeanCorpus.DevOps.Tests.csproj" />
   <Project Path="devops/tooling/Rowles.LeanCorpus.DevOps/Rowles.LeanCorpus.DevOps.csproj" />
+  <Project Path="examples/e2e/Rowles.LeanCorpus.Example.BlazorWasm/Rowles.LeanCorpus.Example.BlazorWasm.csproj" />
   <Project Path="examples/e2e/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch/Rowles.LeanCorpus.Example.LinuxKernelCodeSearch.csproj" />
   <Project Path="server/Rowles.LeanCorpus.OrchardCore.Search/Rowles.LeanCorpus.OrchardCore.Search.csproj" />
   <Project Path="server/Rowles.LeanCorpus.Server.Abstractions/Rowles.LeanCorpus.Server.Abstractions.csproj" />

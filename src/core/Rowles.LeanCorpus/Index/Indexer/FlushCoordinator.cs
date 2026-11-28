@@ -207,6 +207,15 @@ internal sealed class FlushCoordinator
                 return;
 
             _activeExecutions++;
+            if (OperatingSystem.IsBrowser())
+            {
+                // Complete physical work before returning to the event loop. Keep the same
+                // task-based publication/failure ownership as the desktop coordinator.
+                try { next.ExecutionTask = Task.FromResult(Execute(next)); }
+                catch (Exception error) { next.ExecutionTask = Task.FromException<SegmentInfo>(error); }
+                finally { _activeExecutions--; }
+                continue;
+            }
             next.ExecutionTask = Task.Run(() => Execute(next));
             _ = next.ExecutionTask.ContinueWith(
                 static (_, state) => ((FlushCoordinator)state!).ExecutionFinished(),

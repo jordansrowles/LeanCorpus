@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0;net11.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <UseMicrosoftTestingPlatformRunner>true</UseMicrosoftTestingPlatformRunner>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <IsPackable>false</IsPackable>
+    <BrowserRunAOTCompilation Condition="'$(LEANCORPUS_BROWSER_AOT)' == 'true'">true</BrowserRunAOTCompilation>
+    <BrowserRunAOTCompilation Condition="'$(BrowserRunAOTCompilation)' == ''">false</BrowserRunAOTCompilation>
+    <!-- An explicit RunAOTCompilation=false triggers relinking in some runtime packs. -->
+    <BrowserCompilationProperties>WasmBuildNative=false;RunAOTCompilation=</BrowserCompilationProperties>
+    <BrowserCompilationProperties Condition="'$(BrowserRunAOTCompilation)' == 'true'">WasmBuildNative=true;RunAOTCompilation=true</BrowserCompilationProperties>
+    <BrowserSiteDirectory>$(ArtifactsPath)/browser/site/$(TargetFramework)/$(Configuration)/</BrowserSiteDirectory>
+    <BrowserSiteDirectory Condition="'$(BrowserRunAOTCompilation)' == 'true'">$(BrowserSiteDirectory)aot/</BrowserSiteDirectory>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.Playwright" />
+    <PackageReference Include="Microsoft.Testing.Extensions.GitHubActionsReport" />
+    <PackageReference Include="xunit.v3.mtp-v2" />
+    <Using Include="Xunit" />
+    <ProjectReference Include="../Rowles.LeanCorpus.Tests.BrowserApp/Rowles.LeanCorpus.Tests.BrowserApp.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../../core/Rowles.LeanCorpus/Rowles.LeanCorpus.csproj" />
+    <Compile Include="../Rowles.LeanCorpus.Tests.BrowserApp/BrowserFixture.cs" Link="BrowserFixture.cs" />
+    <Compile Include="../Rowles.LeanCorpus.Tests.BrowserApp/BrowserPayload.cs" Link="BrowserPayload.cs" />
+    <Compile Include="../Rowles.LeanCorpus.Tests.Shared/Fixtures/RepositoryTemporaryStorage.cs" Link="RepositoryTemporaryStorage.cs" />
+  </ItemGroup>
+  <Target Name="PublishBrowserContractClient" AfterTargets="Build" Condition="'$(IsCrossTargetingBuild)' != 'true'">
+    <MSBuild Projects="../Rowles.LeanCorpus.Tests.BrowserApp/Rowles.LeanCorpus.Tests.BrowserApp.csproj"
+             Targets="Publish" BuildInParallel="false"
+             Properties="TargetFramework=$(TargetFramework);Configuration=$(Configuration);PublishDir=$(BrowserSiteDirectory);$(BrowserCompilationProperties)" />
+  </Target>
+</Project>

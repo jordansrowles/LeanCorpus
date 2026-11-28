@@ -64,6 +64,8 @@ public sealed class IndexSearcherConfig
 
     internal void Validate()
     {
+        if (OperatingSystem.IsBrowser() && ParallelSearch)
+            throw new PlatformNotSupportedException("Browser search executes serially. ParallelSearch must be false.");
         if (MaxCachedSegmentReaders < 1)
             throw new ArgumentOutOfRangeException(nameof(MaxCachedSegmentReaders), MaxCachedSegmentReaders,
                 "MaxCachedSegmentReaders must be at least one.");
@@ -121,6 +123,7 @@ public sealed class IndexSearcherConfig
     /// <summary>
     /// Whether to use parallel segment search when multiple segments exist.
     /// Disable for deterministic ordering and low-latency small-segment workloads. Default: false.
+    /// True is unsupported in browser WebAssembly.
     /// </summary>
     public bool ParallelSearch { get; set; }
 
@@ -145,9 +148,9 @@ public sealed class IndexSearcherConfig
 
     /// <summary>
     /// Maximum number of heavy segment-reader states retained by this searcher.
-    /// Active states are protected from eviction. Default: 256.
+    /// Active states are protected from eviction. Default: 32 in a browser, 256 elsewhere.
     /// </summary>
-    public int MaxCachedSegmentReaders { get; set; } = 256;
+    public int MaxCachedSegmentReaders { get; set; } = OperatingSystem.IsBrowser() ? 32 : 256;
 
     /// <summary>
     /// Maximum estimated bytes retained by this searcher's heavy segment-reader states.
@@ -155,9 +158,9 @@ public sealed class IndexSearcherConfig
     /// The estimate includes logical mapped-file lengths and materialised arrays where available,
     /// except Float32 vector values and vector-graph level zero, which are mapped and reported
     /// separately as <see cref="Diagnostics.SegmentReaderCacheMetricsSnapshot.MappedVectorBytes"/>.
-    /// Default: 268,435,456 (256 MiB).
+    /// Default: 16 MiB in a browser, 256 MiB elsewhere.
     /// </summary>
-    public long MaxCachedSegmentReaderBytes { get; set; } = 256L * 1024 * 1024;
+    public long MaxCachedSegmentReaderBytes { get; set; } = (OperatingSystem.IsBrowser() ? 16L : 256L) * 1024 * 1024;
 
     /// <summary>Maximum distinct buckets permitted for an exact facet request. Default: 100,000.</summary>
     public int MaxExactFacetBuckets { get; set; } = 100_000;

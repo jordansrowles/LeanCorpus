@@ -213,6 +213,7 @@ public static class IndexCodecMigrator
     public static IndexCodecMigrationResult Migrate(MMapDirectory directory, IndexCodecMigrationOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(directory);
+        PlatformFileSystem.ThrowIfBrowser("Index codec migration");
         options ??= new IndexCodecMigrationOptions();
 
         var sw = Stopwatch.StartNew();

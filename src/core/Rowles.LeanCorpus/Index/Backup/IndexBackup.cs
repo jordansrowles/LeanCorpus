@@ -236,6 +236,7 @@ public static class IndexBackup
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(backupDirectoryPath);
+        PlatformFileSystem.ThrowIfBrowser("Index backup");
         cancellationToken.ThrowIfCancellationRequested();
         options ??= new IndexBackupOptions();
         var sw = Stopwatch.StartNew();
@@ -487,6 +488,7 @@ public static class IndexBackup
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(targetIndexDirectoryPath);
+        PlatformFileSystem.ThrowIfBrowser("Index restore");
         cancellationToken.ThrowIfCancellationRequested();
         options ??= new IndexRestoreOptions();
         var sw = Stopwatch.StartNew();
@@ -617,6 +619,7 @@ public static class IndexBackup
         ArgumentException.ThrowIfNullOrWhiteSpace(targetIndexDirectoryPath);
         if (backupDirectoryPaths.Count == 0)
             throw new ArgumentException("At least one backup directory is required.", nameof(backupDirectoryPaths));
+        PlatformFileSystem.ThrowIfBrowser("Index restore");
         cancellationToken.ThrowIfCancellationRequested();
 
         options ??= new IndexRestoreOptions();

@@ -100,7 +100,9 @@ internal static class FileOpenRetry
     /// </summary>
     internal static Stream Open(string path, FileMode mode, FileAccess access, FileShare share)
     {
-        var stream = new FileStream(path, mode, access, share);
+        var stream = OperatingSystem.IsBrowser() && share == FileShare.None
+            ? BrowserExclusiveFileStream.Open(path, mode, access, share, 4096, FileOptions.None)
+            : new FileStream(path, mode, access, share);
         RecordCreation(mode);
         return stream;
     }
@@ -112,7 +114,9 @@ internal static class FileOpenRetry
     internal static Stream Open(string path, FileMode mode, FileAccess access, FileShare share,
         int bufferSize, FileOptions options)
     {
-        var stream = new FileStream(path, mode, access, share, bufferSize, options);
+        var stream = OperatingSystem.IsBrowser() && share == FileShare.None
+            ? BrowserExclusiveFileStream.Open(path, mode, access, share, bufferSize, options)
+            : new FileStream(path, mode, access, share, bufferSize, options);
         RecordCreation(mode);
         return stream;
     }
@@ -361,6 +365,54 @@ internal static class FileOpenRetry
     {
         if (mode is FileMode.Create or FileMode.CreateNew)
             Diagnostics.FileSystemDiagnostics.RecordFileCreated();
+    }
+
+    /// <summary>
+    /// Emulates exclusive <see cref="FileShare.None"/> ownership in a browser. The browser runtime's
+    /// virtual filesystem accepts every advisory lock, so two owners in the same runtime would otherwise
+    /// both open <c>write.lock</c>. Exclusive opens of one path conflict until the owning stream closes.
+    /// The registry is per runtime; it does not provide cross-tab or persistent locking.
+    /// </summary>
+    private sealed class BrowserExclusiveFileStream : FileStream
+    {
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, object> s_owners =
+            new(StringComparer.Ordinal);
+        private static readonly object s_reserved = new();
+        private readonly string _key;
+        private int _released;
+
+        private BrowserExclusiveFileStream(string key, string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, FileOptions options)
+            : base(path, mode, access, share, bufferSize, options)
+        {
+            _key = key;
+            s_owners[key] = this;
+        }
+
+        internal static BrowserExclusiveFileStream Open(string path, FileMode mode, FileAccess access, FileShare share, int bufferSize, FileOptions options)
+        {
+            string key = Path.GetFullPath(path);
+            if (!s_owners.TryAdd(key, s_reserved))
+                throw new IOException($"The file '{path}' is already open for exclusive access in this browser runtime.");
+            try
+            {
+                return new BrowserExclusiveFileStream(key, path, mode, access, share, bufferSize, options);
+            }
+            catch
+            {
+                s_owners.TryRemove(new KeyValuePair<string, object>(key, s_reserved));
+                throw;
+            }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            try { base.Dispose(disposing); }
+            finally
+            {
+                if (Interlocked.Exchange(ref _released, 1) == 0)
+                    s_owners.TryRemove(new KeyValuePair<string, object>(_key, this));
+            }
+        }
     }
 
     private sealed class TrackedIndexFileStream : FileStream

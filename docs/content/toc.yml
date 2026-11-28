@@ -12,6 +12,8 @@
           href: getting-started/03-configuration.md
         - name: Configuration reference
           href: getting-started/05-configuration-reference.md
+        - name: Browser WebAssembly
+          href: getting-started/browser-wasm.md
     - name: Concepts
       href: concepts/index.md
       items:
@@ -41,6 +43,8 @@
     - name: Examples
       href: examples/index.md
       items:
+        - name: Browser catalogue
+          href: examples/browser-wasm.md
         - name: Linux kernel code search
           href: examples/linux-kernel-code-search.md
     - name: Migrating from Lucene.NET

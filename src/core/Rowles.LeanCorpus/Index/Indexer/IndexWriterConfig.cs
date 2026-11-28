@@ -8,11 +8,13 @@ using Rowles.LeanCorpus.Codecs.CodecKit;
 namespace Rowles.LeanCorpus.Index.Indexer;
 
 /// <summary>
-/// Configuration for the IndexWriter.
+/// Configuration for the IndexWriter. Browser WebAssembly selects volatile commits,
+/// smaller buffers and serial execution. Unsupported durability/concurrency settings
+/// are rejected before writer ownership is acquired.
 /// </summary>
 public sealed class IndexWriterConfig
 {
-    /// <summary>The built-in production default for durable commits.</summary>
+    /// <summary>The built-in desktop default for durable commits. Browser defaults are volatile.</summary>
     public const bool BuiltInDurableCommits = true;
 
     /// <summary>
@@ -41,7 +43,7 @@ public sealed class IndexWriterConfig
         StorePayloads = Effective(defaults.StorePayloads, StorePayloads);
         StoreTermVectors = Effective(defaults.StoreTermVectors, StoreTermVectors);
         UseCompoundFile = Effective(defaults.UseCompoundFile, UseCompoundFile);
-        DurableCommits = Effective(defaults.DurableCommits, BuiltInDurableCommits);
+        DurableCommits = Effective(defaults.DurableCommits, !OperatingSystem.IsBrowser() && BuiltInDurableCommits);
         CompressionPolicy = Effective(defaults.CompressionPolicy, FieldCompressionPolicy.Deflate);
         StoredFieldBlockSize = Effective(defaults.StoredFieldBlockSize, StoredFieldBlockSize);
         PostingsSkipInterval = Effective(defaults.PostingsSkipInterval, PostingsSkipInterval);
@@ -111,23 +113,23 @@ public sealed class IndexWriterConfig
     /// <summary>Gets or sets the immutable codec catalogue used when opening existing segments.</summary>
     public CodecCatalog CodecCatalog { get; set; } = CodecCatalog.Default;
 
-    /// <summary>RAM buffer size in megabytes before an automatic flush.</summary>
-    public double RamBufferSizeMB { get; set; } = 512.0;
+    /// <summary>RAM buffer size in megabytes before an automatic flush. Default: 16 in a browser, 512 elsewhere.</summary>
+    public double RamBufferSizeMB { get; set; } = OperatingSystem.IsBrowser() ? 16.0 : 512.0;
 
-    /// <summary>Hard memory limit for one DWPT before it must be flushed.</summary>
-    public double RamPerThreadHardLimitMB { get; set; } = 256.0;
+    /// <summary>Hard memory limit for one DWPT before it must be flushed. Default: 8 MiB in a browser, 256 MiB elsewhere.</summary>
+    public double RamPerThreadHardLimitMB { get; set; } = OperatingSystem.IsBrowser() ? 8.0 : 256.0;
 
     /// <summary>
     /// Maximum number of producer workers and DWPTs. Zero selects the available processor
-    /// count; positive values are used exactly as specified.
+    /// count (one in a browser); positive values are used exactly as specified. Browser values above one are unsupported.
     /// </summary>
-    public int IndexingConcurrency { get; set; }
+    public int IndexingConcurrency { get; set; } = OperatingSystem.IsBrowser() ? 1 : 0;
 
     /// <summary>Maximum number of segment flushes allowed to execute concurrently.</summary>
     public int MaxConcurrentFlushes { get; set; } = 1;
 
-    /// <summary>Maximum number of buffered documents before an automatic flush.</summary>
-    public int MaxBufferedDocs { get; set; } = 10_000;
+    /// <summary>Maximum number of buffered documents before an automatic flush. Default: 1,000 in a browser, 10,000 elsewhere.</summary>
+    public int MaxBufferedDocs { get; set; } = OperatingSystem.IsBrowser() ? 1_000 : 10_000;
 
     /// <summary>
     /// Maximum number of documents admitted into DWPT buffers before producers apply backpressure.
@@ -141,7 +143,7 @@ public sealed class IndexWriterConfig
     /// Set to 0 to disable the document admission limit (not recommended).
     /// Default: 2 × MaxBufferedDocs.
     /// </summary>
-    public int MaxQueuedDocs { get; set; } = 20_000;
+    public int MaxQueuedDocs { get; set; } = OperatingSystem.IsBrowser() ? 2_000 : 20_000;
 
     /// <summary>
     /// Maximum estimated bytes of indexed data held in DWPT buffers and pending flush snapshots before a
@@ -149,7 +151,7 @@ public sealed class IndexWriterConfig
     /// <see cref="RamBufferSizeMB"/> applies. Documents still waiting in the asynchronous command channel
     /// are not counted; see <see cref="MaxQueuedDocs"/>. Set to 0 to disable.
     /// </summary>
-    public long MaxQueuedBytes { get; set; } = 512L * 1024 * 1024;
+    public long MaxQueuedBytes { get; set; } = (OperatingSystem.IsBrowser() ? 16L : 512L) * 1024 * 1024;
 
     /// <summary>Default analyser used for fields without a specific mapping.</summary>
     public IAnalyser DefaultAnalyser { get; set; } = new StandardAnalyser();
@@ -195,12 +197,13 @@ public sealed class IndexWriterConfig
     public bool UseCompoundFile { get; set; }
 
     /// <summary>
-    /// When <c>true</c> (default), <see cref="IndexWriter.Commit"/> flushes file contents and
+    /// When <c>true</c> (the desktop default), <see cref="IndexWriter.Commit"/> flushes file contents and
     /// directory metadata to disk via <c>fsync</c> before and after the <c>segments_N</c> rename,
     /// guaranteeing the commit survives a power loss. If the final directory fsync fails after
     /// the atomic rename, the commit may already be visible but its durability is unconfirmed;
     /// <see cref="IndexWriter.Commit"/> throws and the writer must be disposed and reopened.
-    /// Disable only for write-heavy benchmarks where durability is not required.
+    /// Browser storage is volatile: the browser default is false and true is unsupported.
+    /// Elsewhere, disable only when durability is not required.
     /// </summary>
     public bool DurableCommits { get; set; }
 
@@ -419,6 +422,7 @@ public sealed class IndexWriterConfig
     /// <exception cref="ArgumentException">Thrown when a property is invalid.</exception>
     internal void Validate()
     {
+        ValidatePlatform();
         if (BuildHnswOnFlush && HnswBuildConfig is null)
             throw new ArgumentException("HnswBuildConfig must not be null when BuildHnswOnFlush is enabled.", nameof(HnswBuildConfig));
 
@@ -488,5 +492,18 @@ public sealed class IndexWriterConfig
                 $"No compression codec is registered for policy '{CompressionPolicy}'. " +
                 "Add the matching codec to the writer's immutable CodecCatalog before opening the writer.",
                 nameof(CompressionPolicy));
+    }
+
+    // Also checked at operation admission because configurations remain caller-owned and mutable.
+    internal void ValidatePlatform()
+    {
+        if (!OperatingSystem.IsBrowser())
+            return;
+        if (DurableCommits)
+            throw new PlatformNotSupportedException("Browser storage is volatile. DurableCommits must be false.");
+        if (CompressionPolicy == FieldCompressionPolicy.Brotli)
+            throw new PlatformNotSupportedException("Brotli stored-field compression is unsupported in browser WebAssembly. Use Deflate or None.");
+        if (IndexingConcurrency > 1 || MaxConcurrentFlushes != 1 || MaxConcurrentMerges != 1)
+            throw new PlatformNotSupportedException("Browser indexing, flushes and merges execute serially. Concurrency must be one (or zero for automatic indexing selection).");
     }
 }

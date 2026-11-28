@@ -60,7 +60,8 @@
         "src/devops/tests/Rowles.LeanCorpus.Tests.AOTSmoke/PhysicalIndexRuntimeSmokeTests.cs"
       ],
       "Targets": [
-        "aot:Index"
+        "aot:Index",
+        "browser:Index"
       ]
     },
     "store": {
@@ -70,7 +71,8 @@
       "Targets": [
         "core:Store",
         "server-core:Server",
-        "server-integration:Server"
+        "server-integration:Server",
+        "browser:Index"
       ]
     },
     "server-tests": {
@@ -97,7 +99,8 @@
         "src/core/Rowles.LeanCorpus/Diagnostics/**"
       ],
       "Targets": [
-        "core:Diagnostics"
+        "core:Diagnostics",
+        "browser:Index"
       ]
     },
     "server-transport": {
@@ -593,7 +596,8 @@
       ],
       "Targets": [
         "server-core:Server",
-        "server-integration:Server"
+        "server-integration:Server",
+        "browser:Index"
       ]
     },
     "core-docvalues-benchmarks": {
@@ -609,7 +613,8 @@
         "src/core/Rowles.LeanCorpus/Search/**"
       ],
       "Targets": [
-        "core:Search"
+        "core:Search",
+        "browser:Index"
       ]
     },
     "server-orchard-functional-tests": {
@@ -630,7 +635,8 @@
         "server-core:Server",
         "server-orchard:Orchard",
         "server-orchard-functional:Functional",
-        "aot:Index"
+        "aot:Index",
+        "browser:Index"
       ]
     },
     "server-core-docs": {
@@ -672,6 +678,15 @@
       "Targets": [
         "text:Tokenisers",
         "core:TextIntegration"
+      ]
+    },
+    "browser": {
+      "Globs": [
+        "src/devops/tests/Rowles.LeanCorpus.Tests.Browser*/**",
+        "src/examples/e2e/Rowles.LeanCorpus.Example.BlazorWasm/**"
+      ],
+      "Targets": [
+        "browser:Index"
       ]
     }
   }

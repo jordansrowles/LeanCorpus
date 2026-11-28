@@ -18,6 +18,7 @@ internal static class CommitManager
 {
     public static void CommitWithLocks(IndexWriter writer)
     {
+        writer.Config.ValidatePlatform();
         lock (writer.MergeIoLock)
         lock (writer.WriteLock)
         {
@@ -565,6 +566,7 @@ internal static class CommitManager
 
     public static int PrepareCommit(IndexWriter writer)
     {
+        writer.Config.ValidatePlatform();
         WaitForBackgroundMerges(writer);
         lock (writer.MergeIoLock)
         lock (writer.WriteLock)

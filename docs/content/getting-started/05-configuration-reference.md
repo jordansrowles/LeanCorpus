@@ -4,6 +4,8 @@ This page collects the main indexing, searching, refresh, and per-query settings
 
 Start with defaults and change a setting only for a measured workload or an explicit operational requirement.
 
+The tables below describe desktop defaults. Browser WebAssembly selects smaller buffers and caches, volatile commits and serial execution; see the [browser platform contract](browser-wasm.md).
+
 ## `IndexWriterConfig`
 
 ### Buffering and backpressure

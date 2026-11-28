@@ -9,7 +9,7 @@ namespace Rowles.LeanCorpus.Diagnostics;
 /// Logs individual queries that exceed a configurable latency threshold.
 /// Output is one JSON object per line (JSON Lines format).
 /// Writes are offloaded to a background channel consumer so slow disk I/O
-/// never blocks the search hot path.
+/// never blocks the search hot path. This background logger is unsupported in browser WebAssembly.
 /// </summary>
 public sealed class SlowQueryLog : IDisposable
 {
@@ -28,6 +28,7 @@ public sealed class SlowQueryLog : IDisposable
     /// <summary>Creates a slow query log that writes to the given <see cref="TextWriter"/>.</summary>
     public SlowQueryLog(double thresholdMs, TextWriter writer, bool ownsWriter = false)
     {
+        ThrowIfBrowser();
         ArgumentOutOfRangeException.ThrowIfNegative(thresholdMs);
         ThresholdMs = thresholdMs;
         _writer = writer;
@@ -43,8 +44,15 @@ public sealed class SlowQueryLog : IDisposable
     /// <summary>Creates a slow query log that appends to a file.</summary>
     public static SlowQueryLog ToFile(double thresholdMs, string filePath)
     {
+        ThrowIfBrowser();
         var writer = FileOpenRetry.OpenAppendText(filePath);
         return new SlowQueryLog(thresholdMs, writer, ownsWriter: true);
+    }
+
+    private static void ThrowIfBrowser()
+    {
+        if (OperatingSystem.IsBrowser())
+            throw new PlatformNotSupportedException("The background slow-query log is unsupported in a browser. Use application diagnostics, metrics or activities.");
     }
 
     /// <summary>

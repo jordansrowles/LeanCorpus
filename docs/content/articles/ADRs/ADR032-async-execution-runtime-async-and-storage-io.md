@@ -2,6 +2,7 @@
 adr: ADR032
 title: "Async execution, Runtime Async and storage I/O"
 date: 2026-09-16
+last-updated: 2026-11-26
 status: Accepted
 version-added: vNext
 summary: "Keep Runtime Async off by default and reject a general async segment-storage rewrite."
@@ -93,8 +94,19 @@ Reconsider this decision only when one or more of these conditions changes:
 - LEAN-9 baseline: `bc727ab9acbb1d50a3fd179e300e2eb10ca822ee`.
 - LEAN-16 final state: `e22a5203d40616b4637451b8f603f88dcdfe3f73`.
 
+## Browser execution boundary (ADR053)
+
+Browser async ingestion processes accepted commands inline and serially rather
+than starting a dedicated channel-consumer thread. Async streams may await their
+source; accepted CPU work and commit publication remain synchronous on the caller.
+Cancellation prevents the next admission, not rollback of accepted work. Flushes
+and merges execute inline while retaining existing publication/failure ownership.
+This is an execution adaptation for a single-threaded runtime, not asynchronous
+storage I/O or a promise of UI-thread offloading. Desktop execution is unchanged.
+
 ## Changes
 
 | Date | Type | Change | Reference |
 | --- | --- | --- | --- |
 | 2026-09-16 | Accepted | Original decision accepted. | `e57a2163f` |
+| 2026-11-26 | Amended | Defined the browser execution and ownership boundary. | ADR053 |

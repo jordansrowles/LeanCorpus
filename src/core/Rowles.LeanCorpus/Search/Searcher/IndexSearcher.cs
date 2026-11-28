@@ -103,7 +103,7 @@ public sealed partial class IndexSearcher : IDisposable
         : Math.Max(1, Environment.ProcessorCount);
 
     private bool CanSearchSegmentsInParallel()
-        => _readers.Count > 1 && _config.ParallelSearch && ResolvedSearchConcurrency > 1;
+        => !OperatingSystem.IsBrowser() && _readers.Count > 1 && _config.ParallelSearch && ResolvedSearchConcurrency > 1;
 
     /// <summary>
     /// Identifies one MoreLikeThis term extraction: the source document, its fields in order, every

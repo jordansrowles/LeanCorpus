@@ -189,16 +189,26 @@ internal sealed class PhysicalIndexRuntime : IDisposable, IAsyncDisposable, ILif
             }
         }
         if (startClose)
+        {
             // Low-level close includes synchronous drains and filesystem barriers.
             // One worker performs them; callers asynchronously join the shared task.
-            _ = Task.Run(CompleteCloseAsync, CancellationToken.None);
+            _ = OperatingSystem.IsBrowser()
+                ? CompleteCloseAsync()
+                : Task.Run(CompleteCloseAsync, CancellationToken.None);
+        }
         return new ValueTask(cancellationToken.CanBeCanceled
             ? _closed.Task.WaitAsync(cancellationToken)
             : _closed.Task);
     }
 
     public ValueTask DisposeAsync() => CloseAsync(CancellationToken.None);
-    public void Dispose() => CloseAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult();
+    public void Dispose()
+    {
+        var close = CloseAsync(CancellationToken.None);
+        if (OperatingSystem.IsBrowser() && !close.IsCompleted)
+            throw new InvalidOperationException("Browser close is awaiting active operations or searcher leases. Release them and await DisposeAsync to complete ownership cleanup.");
+        close.AsTask().GetAwaiter().GetResult();
+    }
 
     void ILifetimeLeaseOwner.ReleaseLease(object token)
     {

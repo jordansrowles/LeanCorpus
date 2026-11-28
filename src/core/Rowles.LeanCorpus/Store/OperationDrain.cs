@@ -6,6 +6,7 @@ namespace Rowles.LeanCorpus.Store;
 /// <summary>
 /// Prevents resource reclamation while operations are active. New operations are
 /// rejected once disposal begins and the disposing thread waits for existing work.
+/// Browser callers must release active work and retry instead of blocking the event loop.
 /// </summary>
 internal sealed class OperationDrain : ILifetimeLeaseOwner
 {
@@ -101,6 +102,7 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
             {
                 while (Volatile.Read(ref _state) != DisposeRequested)
                 {
+                    ThrowIfBrowserWaitRequired();
                     waited = true;
                     Monitor.Wait(_waitLock);
                 }
@@ -177,6 +179,8 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
     {
         if (Volatile.Read(ref _state) == DisposeRequested)
             return true;
+        if (timeout != TimeSpan.Zero)
+            ThrowIfBrowserWaitRequired();
 
         lock (_waitLock)
         {
@@ -196,6 +200,12 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
             }
             return true;
         }
+    }
+
+    private static void ThrowIfBrowserWaitRequired()
+    {
+        if (OperatingSystem.IsBrowser())
+            throw new InvalidOperationException("Synchronous close cannot wait for active browser operations or retained leases. Complete or cancel and await operations, release child leases, then retry disposal.");
     }
 
     private void Exit()
@@ -235,6 +245,8 @@ internal sealed class OperationDrain : ILifetimeLeaseOwner
 
         internal void WaitForCompletion()
         {
+            if (!IsCompleted)
+                ThrowIfBrowserWaitRequired();
             ExceptionDispatchInfo? failure = _completion.Task.GetAwaiter().GetResult();
             failure?.Throw();
         }

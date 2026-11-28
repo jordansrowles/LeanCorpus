@@ -2,7 +2,7 @@
 adr: ADR029
 title: "Platform-specific durability stays behind the Store boundary"
 date: 2026-08-21
-last-updated: 2026-10-24
+last-updated: 2026-11-26
 status: Accepted
 version-added: 3.0.0
 summary: "Isolate filesystem durability and transient-error handling without splitting index semantics."
@@ -161,6 +161,16 @@ unsupported result is cached only after the directory was opened successfully.
 - [Microsoft: Directory Handles](https://learn.microsoft.com/en-us/windows/win32/fileio/obtaining-a-handle-to-a-directory)
 - [Microsoft: FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)
 
+## Browser durability boundary (ADR053)
+
+Browser runtime files are volatile. Browser defaults disable durable commits;
+explicit durable writer configuration is rejected before writer ownership, and
+mutable configuration is rechecked at operation admission and commit preparation
+or publication. The platform filesystem selects an explicit browser implementation
+whose barriers throw `PlatformNotSupportedException`. It never calls POSIX native
+functions or reports a no-op as successful durability. Desktop barriers and their
+error contracts remain unchanged.
+
 ## Changes
 
 | Date | Type | Change | Reference |
@@ -169,3 +179,4 @@ unsupported result is cached only after the directory was opened successfully.
 | 2026-08-22 | Amended | Versioned dirty-file state became owned by each canonical directory. | `7a2a3ac8f` |
 | 2026-08-23 | Clarified | Storage diagnostics began reporting logical opens, physical mappings and lifetime-lease high-water marks. | `52cf2bb0c` |
 | 2026-10-24 | Clarified | Gutenberg persistence comparisons gained matched and as-shipped profiles with close/reopen verification; production defaults remain unchanged. | Issue 97 continuation sprint |
+| 2026-11-26 | Amended | Defined the browser execution and ownership boundary. | ADR053 |

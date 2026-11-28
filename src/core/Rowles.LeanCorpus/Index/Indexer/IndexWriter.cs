@@ -119,7 +119,7 @@ public sealed partial class IndexWriter : IDisposable
         _directory = directory;
         _config = config;
         _resolvedIndexingConcurrency = config.IndexingConcurrency == 0
-            ? Math.Max(1, Environment.ProcessorCount)
+            ? (OperatingSystem.IsBrowser() ? 1 : Math.Max(1, Environment.ProcessorCount))
             : config.IndexingConcurrency;
         _disposeTimeout = disposeTimeout;
         _beforeAsyncConsumerExit = beforeAsyncConsumerExit;
@@ -583,6 +583,7 @@ public sealed partial class IndexWriter : IDisposable
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ThrowIfClosingOrDisposed();
+        PlatformFileSystem.ThrowIfBrowser("Index backup");
         return SnapshotManager.BackupSnapshot(snapshot, backupDirectoryPath, _directory.DirectoryPath, options, cancellationToken);
     }
 
@@ -629,9 +630,12 @@ public sealed partial class IndexWriter : IDisposable
     }
 
     private void ThrowIfClosingOrDisposed()
-        => ObjectDisposedException.ThrowIf(
+    {
+        ObjectDisposedException.ThrowIf(
             Volatile.Read(ref _closing) != 0 || Volatile.Read(ref _disposed) != 0,
             this);
+        _config.ValidatePlatform();
+    }
 
     private void DrainIndexingOperations(TimeSpan timeout)
     {
@@ -719,6 +723,7 @@ public sealed partial class IndexWriter : IDisposable
 
     internal void EnterIndexingOperation()
     {
+        _config.ValidatePlatform();
         try
         {
             _indexingOperations.Enter(this);
@@ -1012,6 +1017,24 @@ public sealed partial class IndexWriter : IDisposable
 
     private async ValueTask EnqueueAsyncWrite(AsyncWriteCommand command, CancellationToken cancellationToken)
     {
+        if (OperatingSystem.IsBrowser())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (AsyncIndexingDiagnostics.IsEnabled)
+            {
+                command = command with { RequestedTimestamp = System.Diagnostics.Stopwatch.GetTimestamp() };
+                AsyncIndexingDiagnostics.RecordAdmission(command.DocumentCount);
+                AsyncIndexingDiagnostics.RecordDequeued(command.RequestedTimestamp, command.DocumentCount);
+            }
+            try
+            {
+                ProcessAsyncWriteCommand(command);
+                command.Tcs.TrySetResult();
+            }
+            catch (Exception error) { command.Tcs.TrySetException(error); }
+            finally { AsyncIndexingDiagnostics.RecordCompleted(command.RequestedTimestamp); }
+            return;
+        }
         try
         {
             var writer = EnsureAsyncWriteChannel().Writer;
